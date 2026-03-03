@@ -104,6 +104,10 @@ h3 {
   color: var(--muted);
 }
 
+strong {
+  color: var(--primary-strong);
+}
+
 .metric {
   margin: 8px 0 0;
   font-size: 1.9rem;
@@ -121,6 +125,13 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.guide-list {
+  margin: 10px 0 8px;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
 }
 
 .form-stack {
@@ -239,6 +250,64 @@ code {
 .ok-text {
   color: var(--ok);
   margin: 6px 0;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.status-pending {
+  background: #fff7e6;
+  color: #8a4600;
+  border-color: #ffd591;
+}
+
+.status-running {
+  background: #e6f4ff;
+  color: #0b5394;
+  border-color: #91caff;
+}
+
+.status-succeeded {
+  background: #ecfdf3;
+  color: #067647;
+  border-color: #a6f4c5;
+}
+
+.status-failed {
+  background: #fef3f2;
+  color: #b42318;
+  border-color: #fecdca;
+}
+
+.status-canceled {
+  background: #f5f7fa;
+  color: #475467;
+  border-color: #d0d5dd;
+}
+
+.status-active {
+  background: #ecfdf3;
+  color: #067647;
+  border-color: #a6f4c5;
+}
+
+.status-used {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.status-expired {
+  background: #fff1f3;
+  color: #be123c;
+  border-color: #fda4af;
 }
 
 .modal-overlay {

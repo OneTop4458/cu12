@@ -1,4 +1,4 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       campus: body.campus ?? "SONGSIM",
     });
 
-    const job = await enqueueJob({
+    const { job } = await enqueueJob({
       userId: session.userId,
       type: "SYNC",
       payload: { userId: session.userId, reason: "account_connected" },

@@ -140,6 +140,45 @@ paths:
       responses:
         "200":
           description: Invite token list
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - invites
+                properties:
+                  invites:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - cu12Id
+                        - role
+                        - createdAt
+                        - expiresAt
+                        - state
+                      properties:
+                        id:
+                          type: string
+                        cu12Id:
+                          type: string
+                        role:
+                          type: string
+                          enum: [ADMIN, USER]
+                        createdAt:
+                          type: string
+                          format: date-time
+                        expiresAt:
+                          type: string
+                          format: date-time
+                        usedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                        state:
+                          type: string
+                          enum: [ACTIVE, USED, EXPIRED]
         "403":
           description: Forbidden
     post:
@@ -263,6 +302,10 @@ paths:
       responses:
         "200":
           description: Job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDispatchResponse"
 
   /api/jobs/autolearn-request:
     post:
@@ -283,6 +326,10 @@ paths:
       responses:
         "200":
           description: Job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDispatchResponse"
 
   /api/jobs:
     get:
@@ -422,4 +469,28 @@ components:
         error:
           type: string
         errorCode:
+          type: string
+
+    JobDispatchResponse:
+      type: object
+      required:
+        - jobId
+        - status
+        - deduplicated
+        - dispatched
+        - notice
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        deduplicated:
+          type: boolean
+        dispatched:
+          type: boolean
+        dispatchError:
+          type: string
+          nullable: true
+        notice:
           type: string

@@ -60,9 +60,9 @@ export function LoginForm() {
       if (!response.ok) {
         const payload = (await response.json()) as ApiErrorResponse;
         if (payload.errorCode === "CU12_AUTH_FAILED") {
-          setError("CU12 login failed. Check your ID and password.");
+          setError("가톨릭 공유대 아이디 또는 비밀번호가 올바르지 않습니다.");
         } else {
-          setError(payload.error ?? "Login failed.");
+          setError(payload.error ?? "로그인 처리에 실패했습니다.");
         }
         return;
       }
@@ -81,7 +81,7 @@ export function LoginForm() {
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setError("Network error. Please try again.");
+      setError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setSubmitting(false);
     }
@@ -90,7 +90,7 @@ export function LoginForm() {
   async function onSubmitInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!challengeToken) {
-      setInviteError("Session expired. Please log in again.");
+      setInviteError("인증 시간이 만료되었습니다. 다시 로그인해 주세요.");
       return;
     }
 
@@ -110,13 +110,13 @@ export function LoginForm() {
       if (!response.ok) {
         const payload = (await response.json()) as ApiErrorResponse;
         if (payload.errorCode === "UNAPPROVED_ID") {
-          setInviteError("This CU12 ID is not approved. Contact an administrator.");
+          setInviteError("승인되지 않은 아이디입니다. 관리자에게 문의해 주세요.");
         } else if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-          setInviteError("Session expired. Please log in again.");
+          setInviteError("인증 시간이 만료되었습니다. 다시 로그인해 주세요.");
           setShowInviteModal(false);
           setChallengeToken(null);
         } else {
-          setInviteError(payload.error ?? "Invite verification failed.");
+          setInviteError(payload.error ?? "초대코드 확인에 실패했습니다.");
         }
         return;
       }
@@ -126,7 +126,7 @@ export function LoginForm() {
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setInviteError("Network error. Please try again.");
+      setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setInviteSubmitting(false);
     }
@@ -136,7 +136,7 @@ export function LoginForm() {
     <>
       <form onSubmit={onSubmit} className="form-stack">
         <label className="field">
-          <span>CU12 ID</span>
+          <span>가톨릭 공유대 아이디</span>
           <input
             value={cu12Id}
             onChange={(event) => setCu12Id(event.target.value)}
@@ -147,7 +147,7 @@ export function LoginForm() {
         </label>
 
         <label className="field">
-          <span>CU12 Password</span>
+          <span>비밀번호</span>
           <input
             type="password"
             value={cu12Password}
@@ -159,20 +159,20 @@ export function LoginForm() {
         </label>
 
         <label className="field">
-          <span>Campus</span>
+          <span>캠퍼스</span>
           <select
             value={campus}
             onChange={(event) => setCampus(event.target.value as Campus)}
           >
-            <option value="SONGSIM">Songsim Campus (SONGSIM)</option>
-            <option value="SONGSIN">Songsin Campus (SONGSIN)</option>
+            <option value="SONGSIM">성심교정 (SONGSIM)</option>
+            <option value="SONGSIN">성신교정 (SONGSIN)</option>
           </select>
         </label>
 
         {error ? <p className="error-text">{error}</p> : null}
 
         <button type="submit" disabled={submitting}>
-          {submitting ? "Signing in..." : "Sign in"}
+          {submitting ? "로그인 중..." : "로그인"}
         </button>
       </form>
 
@@ -190,17 +190,17 @@ export function LoginForm() {
             className="modal-card"
             role="dialog"
             aria-modal="true"
-            aria-label="Invite code verification"
+            aria-label="초대코드 인증"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2>Invite code required</h2>
+            <h2>초대코드 인증</h2>
             <p className="muted">
-              CU12 credentials were verified. This account needs one-time invite verification.
+              가톨릭 공유대 인증은 완료되었습니다. 최초 1회 초대코드 인증이 필요합니다.
             </p>
 
             <form onSubmit={onSubmitInvite} className="form-stack">
               <label className="field">
-                <span>Invite code</span>
+                <span>초대코드</span>
                 <input
                   value={inviteCode}
                   onChange={(event) => setInviteCode(event.target.value)}
@@ -214,7 +214,7 @@ export function LoginForm() {
 
               <div className="button-row">
                 <button type="submit" disabled={inviteSubmitting}>
-                  {inviteSubmitting ? "Verifying..." : "Verify"}
+                  {inviteSubmitting ? "확인 중..." : "인증 완료"}
                 </button>
                 <button
                   type="button"
@@ -222,7 +222,7 @@ export function LoginForm() {
                   onClick={() => setShowInviteModal(false)}
                   disabled={inviteSubmitting}
                 >
-                  Close
+                  닫기
                 </button>
               </div>
             </form>

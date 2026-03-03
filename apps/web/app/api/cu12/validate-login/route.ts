@@ -1,4 +1,4 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     return jsonError("CU12 account is not connected", 400);
   }
 
-  const job = await enqueueJob({
+  const { job } = await enqueueJob({
     userId: session.userId,
     type: "SYNC",
     payload: { userId: session.userId, reason: "validate_login" },

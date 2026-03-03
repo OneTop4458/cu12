@@ -18,11 +18,9 @@ export default async function LoginPage() {
     <main className="auth-main">
       <section className="card auth-card brand-login">
         <div className="brand-ribbon" />
-        <p className="brand-kicker">CATHOLIC SHARED UNIVERSITY</p>
-        <h1>{"\uAC00\uD1A8\uB9AD \uACF5\uC720\uB300 \uB85C\uADF8\uC778"}</h1>
-        <p className="muted">
-          {"\uAC00\uD1A8\uB9AD \uACF5\uC720\uB300 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694."}
-        </p>
+        <p className="brand-kicker">가톨릭 공유대</p>
+        <h1>가톨릭 공유대 로그인</h1>
+        <p className="muted">가톨릭 공유대 계정으로 로그인하세요.</p>
         <LoginForm />
       </section>
     </main>

@@ -1,10 +1,38 @@
-﻿import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
+import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { decryptSecret } from "./secret";
 
 function toDate(value: string | null): Date | null {
   if (!value) return null;
   return new Date(`${value}T00:00:00+09:00`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const RETRYABLE_PRISMA_CODES = new Set(["P2028", "P1001", "P1008", "P1017"]);
+
+async function runWithPrismaRetry<T>(op: () => Promise<T>): Promise<T> {
+  let attempts = 0;
+
+  while (true) {
+    try {
+      return await op();
+    } catch (error) {
+      const retryable =
+        error instanceof Prisma.PrismaClientKnownRequestError
+        && RETRYABLE_PRISMA_CODES.has(error.code);
+
+      if (!retryable || attempts >= 2) {
+        throw error;
+      }
+
+      attempts += 1;
+      await sleep(300 * attempts);
+    }
+  }
 }
 
 export async function getUserCu12Credentials(userId: string) {
@@ -49,9 +77,9 @@ export async function persistSnapshot(
     tasks: LearningTask[];
   },
 ) {
-  await prisma.$transaction(async (tx) => {
-    for (const course of data.courses) {
-      await tx.courseSnapshot.upsert({
+  for (const course of data.courses) {
+    await runWithPrismaRetry(() =>
+      prisma.courseSnapshot.upsert({
         where: {
           userId_lectureSeq: {
             userId,
@@ -82,11 +110,13 @@ export async function persistSnapshot(
           status: course.status,
           syncedAt: new Date(course.syncedAt),
         },
-      });
-    }
+      }),
+    );
+  }
 
-    for (const notice of data.notices) {
-      await tx.courseNotice.upsert({
+  for (const notice of data.notices) {
+    await runWithPrismaRetry(() =>
+      prisma.courseNotice.upsert({
         where: {
           userId_lectureSeq_noticeKey: {
             userId,
@@ -114,11 +144,13 @@ export async function persistSnapshot(
           syncedAt: new Date(notice.syncedAt),
           isRead: false,
         },
-      });
-    }
+      }),
+    );
+  }
 
-    for (const event of data.notifications) {
-      await tx.notificationEvent.upsert({
+  for (const event of data.notifications) {
+    await runWithPrismaRetry(() =>
+      prisma.notificationEvent.upsert({
         where: {
           userId_notifierSeq: {
             userId,
@@ -145,11 +177,13 @@ export async function persistSnapshot(
           isUnread: event.isUnread,
           syncedAt: new Date(event.syncedAt),
         },
-      });
-    }
+      }),
+    );
+  }
 
-    for (const task of data.tasks) {
-      await tx.learningTask.upsert({
+  for (const task of data.tasks) {
+    await runWithPrismaRetry(() =>
+      prisma.learningTask.upsert({
         where: {
           userId_lectureSeq_courseContentsSeq: {
             userId,
@@ -174,9 +208,9 @@ export async function persistSnapshot(
           learnedSeconds: task.learnedSeconds,
           state: task.state,
         },
-      });
-    }
-  });
+      }),
+    );
+  }
 }
 
 export async function recordLearningRun(

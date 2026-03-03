@@ -1,4 +1,4 @@
-﻿import { JobStatus, JobType, Prisma } from "@prisma/client";
+import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { QueuePayload } from "@cu12/core";
 
@@ -10,7 +10,28 @@ export interface EnqueueJobInput {
   runAfter?: Date;
 }
 
-export async function enqueueJob(input: EnqueueJobInput) {
+export interface EnqueueJobResult {
+  job: {
+    id: string;
+    userId: string;
+    type: JobType;
+    status: JobStatus;
+    payload: Prisma.JsonValue;
+    result: Prisma.JsonValue | null;
+    idempotencyKey: string | null;
+    attempts: number;
+    runAfter: Date;
+    workerId: string | null;
+    startedAt: Date | null;
+    finishedAt: Date | null;
+    lastError: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+  deduplicated: boolean;
+}
+
+export async function enqueueJob(input: EnqueueJobInput): Promise<EnqueueJobResult> {
   if (input.idempotencyKey) {
     const existing = await prisma.jobQueue.findFirst({
       where: {
@@ -21,11 +42,11 @@ export async function enqueueJob(input: EnqueueJobInput) {
     });
 
     if (existing) {
-      return existing;
+      return { job: existing, deduplicated: true };
     }
   }
 
-  return prisma.jobQueue.create({
+  const created = await prisma.jobQueue.create({
     data: {
       userId: input.userId,
       type: input.type,
@@ -35,6 +56,8 @@ export async function enqueueJob(input: EnqueueJobInput) {
       idempotencyKey: input.idempotencyKey,
     },
   });
+
+  return { job: created, deduplicated: false };
 }
 
 export async function listJobsForUser(userId: string, limit = 20, type?: JobType, status?: JobStatus) {

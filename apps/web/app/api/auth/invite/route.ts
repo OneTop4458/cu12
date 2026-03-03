@@ -1,4 +1,4 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const session = await requireUser(request);
   if (!session || session.role !== "ADMIN") return jsonError("Forbidden", 403);
 
-  const invites = await prisma.inviteToken.findMany({
+  const rows = await prisma.inviteToken.findMany({
     orderBy: { createdAt: "desc" },
     take: 100,
     select: {
@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
       usedAt: true,
     },
   });
+
+  const now = new Date();
+  const invites = rows.map((row) => ({
+    ...row,
+    state: row.usedAt ? "USED" : row.expiresAt < now ? "EXPIRED" : "ACTIVE",
+  }));
 
   return jsonOk({ invites });
 }
