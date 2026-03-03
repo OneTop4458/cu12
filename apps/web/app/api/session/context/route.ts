@@ -1,12 +1,17 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
-import { getCourses } from "@/server/dashboard";
 
 export async function GET(request: NextRequest) {
   const context = await requireAuthContext(request);
-  if (!context) return jsonError("Unauthorized", 401);
+  if (!context) {
+    return jsonError("Unauthorized", 401);
+  }
 
-  const courses = await getCourses(context.effective.userId);
-  return jsonOk({ courses });
+  return jsonOk({
+    actor: context.actor,
+    effective: context.effective,
+    impersonating: context.impersonating,
+  });
 }
+
 

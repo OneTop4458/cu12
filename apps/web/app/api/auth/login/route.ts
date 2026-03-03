@@ -9,6 +9,7 @@ import {
 import { encryptSecret } from "@/lib/crypto";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/server/audit-log";
 import { upsertCu12Account } from "@/server/cu12-account";
 import { verifyCu12Login } from "@/server/cu12-login";
 
@@ -29,6 +30,16 @@ export async function POST(request: NextRequest) {
       campus,
     });
     if (!validation.ok) {
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "WARN",
+        message: "CU12 login validation failed",
+        meta: {
+          cu12Id: body.cu12Id,
+          campus,
+          messageCode: validation.messageCode ?? null,
+        },
+      });
       return jsonError("CU12 ID or password is invalid.", 401, "CU12_AUTH_FAILED");
     }
 
@@ -43,10 +54,10 @@ export async function POST(request: NextRequest) {
 
     let user:
       | {
-          id: string;
-          email: string;
-          role: "ADMIN" | "USER";
-        }
+        id: string;
+        email: string;
+        role: "ADMIN" | "USER";
+      }
       | undefined;
 
     if (existingAccount) {
@@ -86,6 +97,16 @@ export async function POST(request: NextRequest) {
         nonce: randomUUID(),
       });
 
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "INFO",
+        message: "Login challenge issued for first-time CU12 user",
+        meta: {
+          cu12Id: body.cu12Id,
+          campus,
+        },
+      });
+
       return jsonOk({
         stage: "INVITE_REQUIRED" as const,
         challengeToken,
@@ -119,6 +140,18 @@ export async function POST(request: NextRequest) {
       maxAge: 60 * 60 * 12,
     });
 
+    await writeAuditLog({
+      category: "AUTH",
+      severity: "INFO",
+      actorUserId: user.id,
+      targetUserId: user.id,
+      message: "User authenticated with CU12 credentials",
+      meta: {
+        cu12Id: body.cu12Id,
+        campus,
+      },
+    });
+
     return response;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -128,6 +161,15 @@ export async function POST(request: NextRequest) {
         "VALIDATION_ERROR",
       );
     }
+    await writeAuditLog({
+      category: "AUTH",
+      severity: "ERROR",
+      message: "Authentication failed due to server error",
+      meta: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return jsonError("Authentication failed.", 500, "INTERNAL_ERROR");
   }
 }
+

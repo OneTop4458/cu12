@@ -1,4 +1,5 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css");
+@import url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2107@1.1/MaruBuri.css");
 
 :root {
   --bg: #f2f5fb;
@@ -42,7 +43,7 @@ h1,
 h2,
 h3 {
   margin: 0;
-  font-family: "Pretendard", "Noto Serif KR", "Nanum Myeongjo", Georgia, serif;
+  font-family: "MaruBuri", "Nanum Myeongjo", Georgia, serif;
   font-weight: 700;
   letter-spacing: -0.015em;
 }
@@ -558,3 +559,4 @@ code {
     width: 100%;
   }
 }
+

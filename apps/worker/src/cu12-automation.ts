@@ -75,25 +75,86 @@ async function ensureLogin(page: Page, creds: Cu12Credentials) {
   const env = getEnv();
   await page.goto(`${env.CU12_BASE_URL}/el/member/login_form.acl`, { waitUntil: "domcontentloaded" });
 
-  const catholicUniversityButton = page.getByRole("button", { name: "가톨릭대학교", exact: true });
-  if (await catholicUniversityButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await catholicUniversityButton.click();
+  const catholicUniversityButton = page.locator("#catholic");
+  if (await catholicUniversityButton.count()) {
+    await catholicUniversityButton.first().click();
   }
 
-  if (creds.campus === "SONGSIN") {
-    const songsinRadio = page.getByRole("radio", { name: "성신교정" });
-    if (await songsinRadio.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await songsinRadio.check();
-    }
+  const songsinRadio = page.locator('input[name="catholic_dv"][value="songsin"]');
+  if (creds.campus === "SONGSIN" && (await songsinRadio.count())) {
+    await songsinRadio.check();
   }
 
-  await page.getByRole("textbox", { name: "아이디" }).fill(creds.cu12Id);
-  await page.getByRole("textbox", { name: "비밀번호" }).fill(creds.cu12Password);
-  await page.getByRole("button", { name: "로그인" }).click();
+  const idInput = page.locator("#usr_id2, #usr_id").first();
+  const pwInput = page.locator("#pwd2, #pwd").first();
+  const loginButton = page.locator("#loginBtn_check2, #loginBtn_check1").first();
+
+  await idInput.fill(creds.cu12Id);
+  await pwInput.fill(creds.cu12Password);
+  await loginButton.click();
 
   await page.waitForURL(/\/el\/(main\/main_form|member\/mycourse_list_form)\.acl/, {
     timeout: 20000,
   });
+}
+
+async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<string[]> {
+  return page.evaluate(async (seq) => {
+    function normalize(text: string): string {
+      return text.replace(/\s+/g, " ").trim();
+    }
+
+    const scriptText = Array.from(document.querySelectorAll("script"))
+      .map((script) => script.textContent ?? "")
+      .join("\n");
+    const courseSeq = scriptText.match(/COURSE_SEQ\s*:\s*"(\d+)"/)?.[1] ?? "";
+
+    const noticeButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button.notice_title[id^="notice_tit_"]'),
+    );
+
+    const results: string[] = [];
+
+    for (const button of noticeButtons) {
+      const noticeSeq = button.id.replace("notice_tit_", "").trim();
+      if (!noticeSeq) {
+        results.push("");
+        continue;
+      }
+
+      try {
+        const body = new URLSearchParams({
+          COURSE_SEQ: courseSeq,
+          LECTURE_SEQ: String(seq),
+          CUR_LECTURE_SEQ: String(seq),
+          ARTL_SEQ: noticeSeq,
+          encoding: "utf-8",
+        }).toString();
+
+        const response = await fetch("/el/class/notice_list.acl", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          },
+          body,
+        });
+
+        const html = await response.text();
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = html;
+        const content =
+          wrapper.querySelector(".class_notice_content")
+          ?? wrapper.querySelector(".editor_content")
+          ?? wrapper;
+        const text = normalize((content.textContent ?? "").replace(/^공지내용/, ""));
+        results.push(text);
+      } catch {
+        results.push("");
+      }
+    }
+
+    return results;
+  }, lectureSeq);
 }
 
 async function fetchNotificationHtml(page: Page): Promise<string> {
@@ -129,7 +190,14 @@ export async function collectCu12Snapshot(browser: Browser, userId: string, cred
       await page.goto(`${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
       });
-      notices.push(...parseNoticeListHtml(await page.content(), userId, course.lectureSeq));
+      const noticeList = parseNoticeListHtml(await page.content(), userId, course.lectureSeq);
+      const noticeBodies = await fetchNoticeBodies(page, course.lectureSeq);
+      notices.push(
+        ...noticeList.map((notice, index) => ({
+          ...notice,
+          bodyText: noticeBodies[index] || notice.bodyText,
+        })),
+      );
 
       await page.goto(`${env.CU12_BASE_URL}/el/class/todo_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",

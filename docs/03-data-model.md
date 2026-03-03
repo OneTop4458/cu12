@@ -5,6 +5,7 @@
 1. `User`
 - Application user identity and role (`ADMIN`/`USER`).
 - Linked to a single CU12 account in normal operation.
+- Includes `isTestUser` for admin-driven test onboarding.
 
 2. `InviteToken`
 - One-time onboarding token, bound to `cu12Id`.
@@ -39,11 +40,21 @@
 8. `WorkerHeartbeat`
 - Tracks worker liveness for operational visibility.
 
+9. `TaskDeadlineAlert`
+- Dedupe table for deadline alert notifications.
+- Unique key: `(userId, lectureSeq, courseContentsSeq, thresholdDays, dueAt)`.
+- Prevents duplicate D-7/3/1/0 notifications.
+
+10. `AuditLog`
+- Immutable operational log for `AUTH`, `ADMIN`, `JOB`, `WORKER`, `MAIL`, `IMPERSONATION`, etc.
+- Supports actor/target user linkage and optional JSON metadata.
+
 ## Data Boundaries
 
 - Web app writes queue requests and account metadata.
 - Worker owns CU12 scraping outputs and job final state transitions.
-- Admin-only APIs own invite token issuance.
+- Admin-only APIs own invite token issuance, member management, and impersonation control.
+- Audit logging is shared: both web and worker append logs.
 
 ## Data Protection
 

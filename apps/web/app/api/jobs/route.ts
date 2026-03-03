@@ -1,6 +1,6 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { JobStatus, JobType } from "@prisma/client";
-import { jsonError, jsonOk, requireUser } from "@/lib/http";
+import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { listJobsForUser } from "@/server/queue";
 
 function parseJobType(raw: string | null): JobType | undefined {
@@ -20,14 +20,15 @@ function parseJobStatus(raw: string | null): JobStatus | undefined {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") ?? 20);
   const type = parseJobType(url.searchParams.get("type"));
   const status = parseJobStatus(url.searchParams.get("status"));
 
-  const jobs = await listJobsForUser(session.userId, Math.min(Math.max(limit, 1), 100), type, status);
+  const jobs = await listJobsForUser(context.effective.userId, Math.min(Math.max(limit, 1), 100), type, status);
   return jsonOk({ jobs });
 }
+

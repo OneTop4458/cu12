@@ -7,6 +7,16 @@
 3. TTL: 12 hours.
 4. Invalid/expired token returns 401 for protected APIs.
 
+## Admin Impersonation Token (`cu12_impersonation`)
+
+1. Issued only by admin API (`POST /api/admin/impersonation`).
+2. Contains actor user id, target user id, and purpose marker.
+3. Stored as `httpOnly` cookie (`sameSite=lax`, `secure` in production).
+4. TTL: 6 hours (or cleared explicitly by `DELETE /api/admin/impersonation` / logout).
+5. Effective user context is applied only when:
+   - actor session is valid admin, and
+   - impersonation actor id matches the current admin session.
+
 ## Login Challenge Token
 
 1. Issued only when CU12 credentials are valid but user mapping does not exist.

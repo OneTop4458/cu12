@@ -1,4 +1,4 @@
-﻿import { JobType } from "@prisma/client";
+import { JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import { claimJob, failJob, finishJob, progressJob, sendHeartbeat } from "./internal-api";
 import { collectCu12Snapshot, runAutoLearning, type AutoLearnMode, type AutoLearnProgress } from "./cu12-automation";
@@ -8,6 +8,7 @@ import {
   getUserMailPreference,
   markAccountConnected,
   markAccountNeedsReauth,
+  markTaskDeadlineAlerted,
   persistSnapshot,
   recordLearningRun,
   recordMailDelivery,
@@ -22,6 +23,36 @@ function sleep(ms: number) {
 function errMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function daysUntil(target: Date, now: Date): number {
+  const diff = target.getTime() - now.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+async function writeAuditLog(input: {
+  category: "WORKER" | "MAIL" | "PARSER" | "JOB";
+  severity?: "INFO" | "WARN" | "ERROR";
+  targetUserId?: string;
+  message: string;
+  meta?: unknown;
+}) {
+  const meta =
+    input.meta === undefined
+      ? undefined
+      : input.meta === null
+        ? Prisma.JsonNull
+        : (input.meta as Prisma.InputJsonValue);
+
+  await prisma.auditLog.create({
+    data: {
+      category: input.category,
+      severity: input.severity ?? "INFO",
+      targetUserId: input.targetUserId ?? null,
+      message: input.message,
+      meta,
+    },
+  });
 }
 
 function formatDuration(seconds: number): string {
@@ -63,7 +94,14 @@ async function sendSyncAlertMail(
   summary: {
     newNoticeCount: number;
     newUnreadNotificationCount: number;
-    deadlineCourses: Array<{ title: string; remainDays: number }>;
+    deadlineTasks: Array<{
+      lectureSeq: number;
+      courseContentsSeq: number;
+      weekNo: number;
+      lessonNo: number;
+      dueAt: string;
+      courseTitle: string;
+    }>;
   },
 ) {
   const pref = await getUserMailPreference(userId);
@@ -80,10 +118,37 @@ async function sendSyncAlertMail(
     lines.push(`- 읽지 않은 새 알림 ${summary.newUnreadNotificationCount}건이 있습니다.`);
   }
 
-  if (pref.alertOnDeadline && summary.deadlineCourses.length > 0) {
-    lines.push("- 마감 임박 강좌:");
-    for (const course of summary.deadlineCourses.slice(0, 5)) {
-      lines.push(`  · ${course.title} (${course.remainDays}일 남음)`);
+  if (pref.alertOnDeadline && summary.deadlineTasks.length > 0) {
+    const now = new Date();
+    const thresholdSet = new Set([7, 3, 1, 0]);
+    const deadlineLines: string[] = [];
+
+    for (const task of summary.deadlineTasks) {
+      const dueAt = new Date(task.dueAt);
+      if (!Number.isFinite(dueAt.getTime())) continue;
+
+      const daysLeft = daysUntil(dueAt, now);
+      if (!thresholdSet.has(daysLeft)) continue;
+
+      const inserted = await markTaskDeadlineAlerted(
+        userId,
+        {
+          lectureSeq: task.lectureSeq,
+          courseContentsSeq: task.courseContentsSeq,
+          dueAt,
+        },
+        daysLeft,
+      );
+      if (!inserted) continue;
+
+      deadlineLines.push(
+        `  · ${task.courseTitle} ${task.weekNo}주차 ${task.lessonNo}차시 (D-${daysLeft}, ${dueAt.toLocaleString("ko-KR")})`,
+      );
+    }
+
+    if (deadlineLines.length > 0) {
+      lines.push("- 차시 마감 임박:");
+      lines.push(...deadlineLines.slice(0, 10));
     }
   }
 
@@ -104,12 +169,33 @@ async function sendSyncAlertMail(
     const result = await sendMail(pref.email, subject, text);
     if (result.sent) {
       await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "Sync alert mail sent",
+        meta: { to: pref.email, subject },
+      });
       return;
     }
 
     await recordMailDelivery(userId, pref.email, subject, "SKIPPED", result.reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: userId,
+      message: "Sync alert mail skipped",
+      meta: { to: pref.email, subject, reason: result.reason },
+    });
   } catch (error) {
     await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "Sync alert mail failed",
+      meta: { to: pref.email, subject, error: errMessage(error) },
+    });
   }
 }
 
@@ -144,12 +230,33 @@ async function sendAutoLearnResultMail(
     const result = await sendMail(pref.email, subject, text);
     if (result.sent) {
       await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "Autolearn result mail sent",
+        meta: { to: pref.email, subject },
+      });
       return;
     }
 
     await recordMailDelivery(userId, pref.email, subject, "SKIPPED", result.reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: userId,
+      message: "Autolearn result mail skipped",
+      meta: { to: pref.email, subject, reason: result.reason },
+    });
   } catch (error) {
     await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "Autolearn result mail failed",
+      meta: { to: pref.email, subject, error: errMessage(error) },
+    });
   }
 }
 
@@ -165,10 +272,28 @@ async function processSync(jobId: string, userId: string) {
     const persisted = await persistSnapshot(userId, snapshot);
     await markAccountConnected(userId);
 
+    const courseTitleBySeq = new Map(snapshot.courses.map((course) => [course.lectureSeq, course.title]));
+
     await sendSyncAlertMail(userId, {
       newNoticeCount: persisted.newNoticeCount,
       newUnreadNotificationCount: persisted.newUnreadNotificationCount,
-      deadlineCourses: persisted.deadlineCourses,
+      deadlineTasks: persisted.deadlineTasks.map((task) => ({
+        ...task,
+        courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+      })),
+    });
+
+    await writeAuditLog({
+      category: "WORKER",
+      severity: "INFO",
+      targetUserId: userId,
+      message: "SYNC job completed",
+      meta: {
+        jobId,
+        courseCount: snapshot.courses.length,
+        noticeCount: snapshot.notices.length,
+        taskCount: snapshot.tasks.length,
+      },
     });
 
     return {
@@ -180,13 +305,23 @@ async function processSync(jobId: string, userId: string) {
       newNoticeCount: persisted.newNoticeCount,
       newNotificationCount: persisted.newNotificationCount,
       pendingTaskCount: persisted.pendingTaskCount,
-      deadlineCourseCount: persisted.deadlineCourses.length,
+      deadlineTaskCount: persisted.deadlineTasks.length,
     };
   } catch (error) {
     const message = errMessage(error);
     if (/login|Unauthorized|need/i.test(message)) {
       await markAccountNeedsReauth(userId, message);
     }
+    await writeAuditLog({
+      category: "WORKER",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "SYNC job failed",
+      meta: {
+        jobId,
+        error: message,
+      },
+    });
     throw error;
   } finally {
     await browser.close();
@@ -230,6 +365,19 @@ async function processAutolearn(
       truncated: autoResult.truncated,
     });
 
+    await writeAuditLog({
+      category: "WORKER",
+      severity: "INFO",
+      targetUserId: userId,
+      message: "AUTOLEARN job completed",
+      meta: {
+        jobId,
+        mode: autoResult.mode,
+        watchedTaskCount: autoResult.watchedTaskCount,
+        plannedTaskCount: autoResult.plannedTaskCount,
+      },
+    });
+
     return {
       type: "AUTOLEARN",
       mode: autoResult.mode,
@@ -242,6 +390,17 @@ async function processAutolearn(
     };
   } catch (error) {
     await recordLearningRun(userId, lectureSeq ?? null, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "WORKER",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "AUTOLEARN job failed",
+      meta: {
+        jobId,
+        lectureSeq: lectureSeq ?? null,
+        error: errMessage(error),
+      },
+    });
     throw error;
   } finally {
     await browser.close();
@@ -254,7 +413,10 @@ async function processMailDigest(userId: string) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
   }
 
-  const [summary, unreadNotices, unreadNotifications, dueSoonCourses] = await Promise.all([
+  const now = new Date();
+  const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+  const [summary, unreadNotices, unreadNotifications, dueSoonTasks] = await Promise.all([
     prisma.courseSnapshot.aggregate({
       where: { userId, status: "ACTIVE" },
       _count: { _all: true },
@@ -262,17 +424,28 @@ async function processMailDigest(userId: string) {
     }),
     prisma.courseNotice.count({ where: { userId, isRead: false } }),
     prisma.notificationEvent.count({ where: { userId, isUnread: true } }),
-    prisma.courseSnapshot.findMany({
+    prisma.learningTask.findMany({
       where: {
         userId,
-        status: "ACTIVE",
-        remainDays: { lte: 3, gte: 0 },
+        state: "PENDING",
+        dueAt: { gte: now, lte: soon },
       },
-      orderBy: { remainDays: "asc" },
+      orderBy: { dueAt: "asc" },
       take: 5,
-      select: { title: true, remainDays: true },
+      select: { lectureSeq: true, weekNo: true, lessonNo: true, dueAt: true },
     }),
   ]);
+
+  const titleRows = dueSoonTasks.length > 0
+    ? await prisma.courseSnapshot.findMany({
+      where: {
+        userId,
+        lectureSeq: { in: Array.from(new Set(dueSoonTasks.map((task) => task.lectureSeq))) },
+      },
+      select: { lectureSeq: true, title: true },
+    })
+    : [];
+  const titleBySeq = new Map(titleRows.map((row) => [row.lectureSeq, row.title]));
 
   const subject = "[CU12] 일일 학습 요약";
   const lines: string[] = [
@@ -284,10 +457,11 @@ async function processMailDigest(userId: string) {
     `- 읽지 않은 알림: ${unreadNotifications}건`,
   ];
 
-  if (dueSoonCourses.length > 0) {
-    lines.push("", "마감 임박 강좌");
-    for (const course of dueSoonCourses) {
-      lines.push(`- ${course.title} (${course.remainDays ?? "-"}일 남음)`);
+  if (dueSoonTasks.length > 0) {
+    lines.push("", "마감 임박 차시");
+    for (const task of dueSoonTasks) {
+      const title = titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`;
+      lines.push(`- ${title} ${task.weekNo}주차 ${task.lessonNo}차시 (${task.dueAt?.toLocaleString("ko-KR") ?? "-"})`);
     }
   }
 
@@ -295,13 +469,34 @@ async function processMailDigest(userId: string) {
     const result = await sendMail(pref.email, subject, lines.join("\n"));
     if (result.sent) {
       await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "Digest mail sent",
+        meta: { to: pref.email, subject },
+      });
       return { type: "MAIL_DIGEST", userId, sent: true };
     }
 
     await recordMailDelivery(userId, pref.email, subject, "SKIPPED", result.reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: userId,
+      message: "Digest mail skipped",
+      meta: { to: pref.email, subject, reason: result.reason },
+    });
     return { type: "MAIL_DIGEST", userId, sent: false, reason: result.reason };
   } catch (error) {
     await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "Digest mail failed",
+      meta: { to: pref.email, subject, error: errMessage(error) },
+    });
     throw error;
   }
 }
@@ -354,3 +549,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+

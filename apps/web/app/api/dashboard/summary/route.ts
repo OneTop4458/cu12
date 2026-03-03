@@ -1,11 +1,12 @@
-﻿import { NextRequest } from "next/server";
-import { jsonError, jsonOk, requireUser } from "@/lib/http";
+import { NextRequest } from "next/server";
+import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { getDashboardSummary } from "@/server/dashboard";
 
 export async function GET(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
-  const summary = await getDashboardSummary(session.userId);
+  const summary = await getDashboardSummary(context.effective.userId);
   return jsonOk(summary);
 }
+

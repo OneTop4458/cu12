@@ -3,11 +3,53 @@ name: Deploy Vercel
 on:
   push:
     branches: ["main"]
+    paths:
+      - "apps/web/**"
+      - "apps/worker/**"
+      - "packages/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-vercel.yml"
   workflow_dispatch:
 
+concurrency:
+  group: deploy-vercel-main
+  cancel-in-progress: true
+
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm install
+      - run: npm run check:text
+      - run: npm run typecheck
+      - run: npm run build:web
+
+  db-sync:
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm install
+      - name: Push Prisma schema (non-destructive by default)
+        run: npm run prisma:push
+
+  deploy:
+    needs: db-sync
+    runs-on: ubuntu-latest
+    environment: production
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

@@ -54,11 +54,28 @@ enum JobStatus {
   CANCELED
 }
 
+enum AuditSeverity {
+  INFO
+  WARN
+  ERROR
+}
+
+enum AuditCategory {
+  AUTH
+  ADMIN
+  IMPERSONATION
+  JOB
+  WORKER
+  MAIL
+  PARSER
+}
+
 model User {
   id             String             @id @default(cuid())
   email          String             @unique
   name           String
   passwordHash   String
+  isTestUser     Boolean            @default(false)
   role           UserRole           @default(USER)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
@@ -73,6 +90,9 @@ model User {
   learningRuns   LearningRun[]
   mailSubs       MailSubscription[]
   mailDeliveries MailDelivery[]
+  taskDeadlineAlerts TaskDeadlineAlert[]
+  auditActorLogs AuditLog[]         @relation("AuditActor")
+  auditTargetLogs AuditLog[]        @relation("AuditTarget")
 }
 
 model InviteToken {
@@ -207,6 +227,7 @@ model LearningTask {
   requiredSeconds  Int               @default(0)
   learnedSeconds   Int               @default(0)
   state            LearningTaskState @default(PENDING)
+  availableFrom    DateTime?
   dueAt            DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -214,6 +235,7 @@ model LearningTask {
 
   @@unique([userId, lectureSeq, courseContentsSeq])
   @@index([userId, state])
+  @@index([userId, state, dueAt])
 }
 
 model LearningRun {
@@ -262,3 +284,36 @@ model MailDelivery {
 
   @@index([userId, createdAt])
 }
+
+model TaskDeadlineAlert {
+  id               String   @id @default(cuid())
+  userId           String
+  lectureSeq       Int
+  courseContentsSeq Int
+  thresholdDays    Int
+  dueAt            DateTime
+  alertedAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lectureSeq, courseContentsSeq, thresholdDays, dueAt])
+  @@index([userId, dueAt])
+}
+
+model AuditLog {
+  id           String       @id @default(cuid())
+  category     AuditCategory
+  severity     AuditSeverity @default(INFO)
+  actorUserId  String?
+  targetUserId String?
+  message      String
+  meta         Json?
+  createdAt    DateTime     @default(now())
+  actor        User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  target       User?        @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([category, createdAt])
+  @@index([targetUserId, createdAt])
+}
+
+

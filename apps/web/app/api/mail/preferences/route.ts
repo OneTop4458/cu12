@@ -1,6 +1,6 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
-import { jsonError, jsonOk, parseBody, requireUser } from "@/lib/http";
+import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 
 const PatchSchema = z.object({
@@ -49,10 +49,10 @@ async function resolvePreference(userId: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
-  const preference = await resolvePreference(session.userId);
+  const preference = await resolvePreference(context.effective.userId);
   if (!preference) {
     return jsonError("User not found", 404);
   }
@@ -61,14 +61,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   try {
     const body = await parseBody(request, PatchSchema);
 
     const user = await prisma.user.findUnique({
-      where: { id: session.userId },
+      where: { id: context.effective.userId },
       select: { email: true },
     });
 
@@ -77,7 +77,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const saved = await prisma.mailSubscription.upsert({
-      where: { userId: session.userId },
+      where: { userId: context.effective.userId },
       update: {
         email: body.email,
         enabled: body.enabled,
@@ -88,7 +88,7 @@ export async function PATCH(request: NextRequest) {
         digestHour: body.digestHour,
       },
       create: {
-        userId: session.userId,
+        userId: context.effective.userId,
         email: body.email ?? user.email,
         enabled: body.enabled ?? true,
         alertOnNotice: body.alertOnNotice ?? true,
@@ -100,7 +100,7 @@ export async function PATCH(request: NextRequest) {
     });
 
     await prisma.cu12Account.updateMany({
-      where: { userId: session.userId },
+      where: { userId: context.effective.userId },
       data: {
         emailDigestEnabled: saved.digestEnabled,
       },
@@ -126,3 +126,4 @@ export async function PATCH(request: NextRequest) {
     return jsonError("Failed to update mail preferences", 500);
   }
 }
+

@@ -6,11 +6,14 @@
 - Next.js app hosted on Vercel.
 - Provides login, dashboard UI, and API routes.
 - Writes jobs to queue and dispatches worker workflow.
+- Supports admin impersonation (admin actor + effective user context).
 
 2. **Worker (`apps/worker`)**
 - Node.js + Playwright runtime.
 - Logs in to CU12, fetches snapshots, executes auto-learning steps.
 - Reports heartbeat and job state transitions.
+- Pulls notice detail bodies through CU12 notice detail endpoint to avoid empty-body notices.
+- Evaluates per-task deadline alerts (D-7/3/1/0) with dedupe keys.
 
 3. **Database (`prisma/schema.prisma`)**
 - PostgreSQL (Neon).
@@ -28,6 +31,7 @@
 4. New account: returns `INVITE_REQUIRED` + short-lived challenge token.
 5. Client submits challenge token + invite code to `POST /api/auth/login/invite`.
 6. Server validates invite binding (`cu12Id`) and creates user mapping.
+7. After login, admin users can optionally start impersonation to inspect user-visible state.
 
 ## Job Execution Flow
 
@@ -36,6 +40,13 @@
 3. API dispatches `worker-consume.yml` via GitHub API.
 4. Worker claims pending jobs atomically and executes CU12 automation.
 5. Worker updates status (`RUNNING` -> `SUCCEEDED`/`FAILED`) and snapshots.
+
+## Dashboard Runtime Flow
+
+1. Client loads `/api/session/context`, `/api/dashboard/*`, `/api/jobs`, `/api/mail/preferences` in parallel.
+2. First-login users auto-trigger one SYNC request when no successful sync exists.
+3. UI refreshes every 60s and on visibility change.
+4. Blocking modal is used for explicit user actions (manual refresh, sync/autolearn, settings save).
 
 ## Why This Model
 

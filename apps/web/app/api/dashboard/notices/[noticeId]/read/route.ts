@@ -1,5 +1,5 @@
-﻿import { NextRequest } from "next/server";
-import { jsonError, jsonOk, requireUser } from "@/lib/http";
+import { NextRequest } from "next/server";
+import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 
 interface Params {
@@ -7,14 +7,14 @@ interface Params {
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   const { noticeId } = await params;
   const updated = await prisma.courseNotice.updateMany({
     where: {
       id: noticeId,
-      userId: session.userId,
+      userId: context.effective.userId,
     },
     data: {
       isRead: true,

@@ -1,5 +1,5 @@
-﻿import { NextRequest } from "next/server";
-import { jsonError, jsonOk, requireUser } from "@/lib/http";
+import { NextRequest } from "next/server";
+import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { getNotices } from "@/server/dashboard";
 
 interface Params {
@@ -7,8 +7,8 @@ interface Params {
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   const { lectureSeq: lectureSeqRaw } = await params;
   const lectureSeq = Number(lectureSeqRaw);
@@ -16,6 +16,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return jsonError("Invalid lectureSeq", 400);
   }
 
-  const notices = await getNotices(session.userId, lectureSeq);
+  const notices = await getNotices(context.effective.userId, lectureSeq);
   return jsonOk({ notices });
 }

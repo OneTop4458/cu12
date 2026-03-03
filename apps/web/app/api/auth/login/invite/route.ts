@@ -10,6 +10,7 @@ import { decryptSecret } from "@/lib/crypto";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/token";
+import { writeAuditLog } from "@/server/audit-log";
 import { upsertCu12Account } from "@/server/cu12-account";
 
 const BodySchema = z.object({
@@ -35,6 +36,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "WARN",
+        message: "Invite verification failed: invalid invite code",
+        meta: {
+          cu12Id: challenge.cu12Id,
+        },
+      });
       return jsonError(
         "Invite code is invalid or expired.",
         403,
@@ -43,6 +52,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.cu12Id !== challenge.cu12Id) {
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "WARN",
+        message: "Invite verification failed: unapproved CU12 ID",
+        meta: {
+          cu12Id: challenge.cu12Id,
+          inviteCu12Id: invite.cu12Id,
+        },
+      });
       return jsonError(
         "This CU12 ID is not approved. Contact an administrator.",
         403,
@@ -59,10 +77,10 @@ export async function POST(request: NextRequest) {
 
     let user:
       | {
-          id: string;
-          email: string;
-          role: "ADMIN" | "USER";
-        }
+        id: string;
+        email: string;
+        role: "ADMIN" | "USER";
+      }
       | undefined;
     let firstLogin = false;
 
@@ -137,6 +155,18 @@ export async function POST(request: NextRequest) {
       maxAge: 60 * 60 * 12,
     });
 
+    await writeAuditLog({
+      category: "AUTH",
+      severity: "INFO",
+      actorUserId: user.id,
+      targetUserId: user.id,
+      message: firstLogin ? "First-login invite verification succeeded" : "Invite verification succeeded",
+      meta: {
+        cu12Id: challenge.cu12Id,
+        role: user.role,
+      },
+    });
+
     return response;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -146,6 +176,15 @@ export async function POST(request: NextRequest) {
         "VALIDATION_ERROR",
       );
     }
+    await writeAuditLog({
+      category: "AUTH",
+      severity: "ERROR",
+      message: "Invite verification failed due to server error",
+      meta: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return jsonError("Invite verification failed.", 500, "INTERNAL_ERROR");
   }
 }
+

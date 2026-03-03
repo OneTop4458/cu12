@@ -1,4 +1,4 @@
-﻿import type { Route } from "next";
+import type { Route } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
@@ -10,7 +10,7 @@ export default async function LoginPage() {
   if (token) {
     const session = await verifySessionToken(token);
     if (session) {
-      redirect("/dashboard" as Route);
+      redirect((session.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
     }
   }
 
@@ -26,3 +26,4 @@ export default async function LoginPage() {
     </main>
   );
 }
+

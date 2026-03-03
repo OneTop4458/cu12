@@ -29,16 +29,18 @@ Browser (User)
 
 1. `apps/web`
 - Next.js App Router UI + API endpoints.
-- Auth/session management.
+- Auth/session management (`session`, login challenge, admin impersonation).
 - Queue writes and worker dispatch calls.
+- User dashboard + admin operations center.
 
 2. `apps/worker`
 - Node.js + Playwright automation runtime.
 - CU12 login, snapshot sync, auto-learning execution.
+- Notice detail fetch + deadline alert evaluation + mail dispatch.
 
 3. `prisma`
 - Shared PostgreSQL schema.
-- Queue state, account state, invite tokens, snapshots.
+- Queue state, account state, invite tokens, snapshots, audit logs, deadline alert dedupe.
 
 4. `.github/workflows`
 - CI validation, DB bootstrap, deploy, scheduled/manual worker execution.
@@ -86,10 +88,10 @@ Concurrency model:
 4. Idempotency keys reduce duplicate queue requests.
 5. Auto-learning progress is persisted to job `result` during RUNNING state.
 
-## 5.1 User-facing Runtime Features
+## 5. Runtime Features
 
 1. First-login auto sync: the dashboard auto-queues one SYNC job if no successful sync exists.
-2. Smart polling refresh: dashboard data refreshes every 15 seconds without manual page reload.
+2. Smart polling refresh: dashboard data refreshes every 60 seconds and on tab re-focus.
 3. Auto-learning modes:
 - `ALL_COURSES`
 - `SINGLE_ALL`
@@ -98,6 +100,11 @@ Concurrency model:
 - destination email
 - notice/deadline/autolearn immediate alerts
 - daily digest toggle + digest hour
+5. Admin-only capabilities:
+- member creation/update with CU12 credential verification
+- one-time invite code issue and tracking
+- admin-to-user impersonation view for troubleshooting
+- audit log search (`AUTH`, `ADMIN`, `JOB`, `WORKER`, `MAIL`, `IMPERSONATION`, etc.)
 
 ## 6. Cloud Deployment Topology
 

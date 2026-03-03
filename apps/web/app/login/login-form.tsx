@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useState } from "react";
 import type { Route } from "next";
@@ -78,7 +78,7 @@ export function LoginForm() {
         return;
       }
 
-      router.push("/dashboard" as Route);
+      router.push((payload.user.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
       router.refresh();
     } catch {
       setError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
@@ -123,9 +123,10 @@ export function LoginForm() {
         return;
       }
 
+      const payload = (await response.json()) as AuthenticatedResponse;
       setShowInviteModal(false);
       setChallengeToken(null);
-      router.push("/dashboard" as Route);
+      router.push((payload.user.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
       router.refresh();
     } catch {
       setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
@@ -163,13 +164,13 @@ export function LoginForm() {
         </label>
 
         <label className="field">
-          <span>교정</span>
+          <span>캠퍼스</span>
           <select
             value={campus}
             onChange={(event) => setCampus(event.target.value as Campus)}
           >
-            <option value="SONGSIM">성심교정 (SONGSIM)</option>
-            <option value="SONGSIN">성신교정 (SONGSIN)</option>
+            <option value="SONGSIM">성심캠퍼스 (SONGSIM)</option>
+            <option value="SONGSIN">성신캠퍼스 (SONGSIN)</option>
           </select>
         </label>
 

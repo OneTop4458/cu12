@@ -1,10 +1,13 @@
-﻿import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
+import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { decryptSecret } from "./secret";
 
 function toDate(value: string | null): Date | null {
   if (!value) return null;
+  if (value.includes("T")) {
+    return new Date(value);
+  }
   return new Date(`${value}T00:00:00+09:00`);
 }
 
@@ -39,10 +42,12 @@ export interface PersistSnapshotResult {
   newNoticeCount: number;
   newNotificationCount: number;
   newUnreadNotificationCount: number;
-  deadlineCourses: Array<{
+  deadlineTasks: Array<{
     lectureSeq: number;
-    title: string;
-    remainDays: number;
+    courseContentsSeq: number;
+    weekNo: number;
+    lessonNo: number;
+    dueAt: string;
   }>;
   pendingTaskCount: number;
 }
@@ -299,6 +304,8 @@ export async function persistSnapshot(
           requiredSeconds: task.requiredSeconds,
           learnedSeconds: task.learnedSeconds,
           state: task.state,
+          availableFrom: toDate(task.availableFrom ?? null),
+          dueAt: toDate(task.dueAt ?? null),
         },
         create: {
           userId,
@@ -310,17 +317,33 @@ export async function persistSnapshot(
           requiredSeconds: task.requiredSeconds,
           learnedSeconds: task.learnedSeconds,
           state: task.state,
+          availableFrom: toDate(task.availableFrom ?? null),
+          dueAt: toDate(task.dueAt ?? null),
         },
       }),
     );
   }
 
-  const deadlineCourses = data.courses
-    .filter((course) => course.remainDays !== null && course.remainDays >= 0 && course.remainDays <= 3)
-    .map((course) => ({
-      lectureSeq: course.lectureSeq,
-      title: course.title,
-      remainDays: course.remainDays as number,
+  const now = Date.now();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  const deadlineTasks = data.tasks
+    .filter((task) => task.state === "PENDING" && typeof task.dueAt === "string")
+    .map((task) => ({
+      lectureSeq: task.lectureSeq,
+      courseContentsSeq: task.courseContentsSeq,
+      weekNo: task.weekNo,
+      lessonNo: task.lessonNo,
+      dueAt: task.dueAt as string,
+      dueAtMs: new Date(task.dueAt as string).getTime(),
+    }))
+    .filter((task) => Number.isFinite(task.dueAtMs) && task.dueAtMs >= now && task.dueAtMs - now <= sevenDaysMs)
+    .sort((a, b) => a.dueAtMs - b.dueAtMs)
+    .map((task) => ({
+      lectureSeq: task.lectureSeq,
+      courseContentsSeq: task.courseContentsSeq,
+      weekNo: task.weekNo,
+      lessonNo: task.lessonNo,
+      dueAt: task.dueAt,
     }));
 
   const pendingTaskCount = data.tasks.filter((task) => task.state === "PENDING").length;
@@ -329,7 +352,7 @@ export async function persistSnapshot(
     newNoticeCount,
     newNotificationCount,
     newUnreadNotificationCount,
-    deadlineCourses,
+    deadlineTasks,
     pendingTaskCount,
   };
 }
@@ -370,3 +393,32 @@ export async function recordMailDelivery(
     },
   });
 }
+
+export async function markTaskDeadlineAlerted(
+  userId: string,
+  task: {
+    lectureSeq: number;
+    courseContentsSeq: number;
+    dueAt: Date;
+  },
+  thresholdDays: number,
+) {
+  try {
+    await prisma.taskDeadlineAlert.create({
+      data: {
+        userId,
+        lectureSeq: task.lectureSeq,
+        courseContentsSeq: task.courseContentsSeq,
+        thresholdDays,
+        dueAt: task.dueAt,
+      },
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return false;
+    }
+    throw error;
+  }
+}
+

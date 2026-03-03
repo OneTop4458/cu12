@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { jsonError, jsonOk, parseBody, requireUser } from "@/lib/http";
+import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
 import { enqueueJob } from "@/server/queue";
@@ -13,11 +13,11 @@ const PostSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   const account = await prisma.cu12Account.findUnique({
-    where: { userId: session.userId },
+    where: { userId: context.effective.userId },
     select: {
       cu12Id: true,
       campus: true,
@@ -34,25 +34,25 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   try {
     const body = await parseBody(request, PostSchema);
-    await upsertCu12Account(session.userId, {
+    await upsertCu12Account(context.effective.userId, {
       cu12Id: body.cu12Id,
       cu12Password: body.cu12Password,
       campus: body.campus ?? "SONGSIM",
     });
 
     const { job } = await enqueueJob({
-      userId: session.userId,
+      userId: context.effective.userId,
       type: "SYNC",
-      payload: { userId: session.userId, reason: "account_connected" },
-      idempotencyKey: `sync:${session.userId}:account-connected`,
+      payload: { userId: context.effective.userId, reason: "account_connected" },
+      idempotencyKey: `sync:${context.effective.userId}:account-connected`,
     });
 
-    const dispatch = await dispatchWorkerRun("sync", session.userId);
+    const dispatch = await dispatchWorkerRun("sync", context.effective.userId);
     return jsonOk({ connected: true, queuedJobId: job.id, dispatched: dispatch.dispatched, dispatchError: dispatch.error });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -65,3 +65,4 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   return POST(request);
 }
+

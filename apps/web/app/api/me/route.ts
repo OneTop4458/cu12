@@ -1,21 +1,32 @@
-﻿import { NextRequest } from "next/server";
-import { jsonError, jsonOk, requireUser } from "@/lib/http";
+import { NextRequest } from "next/server";
+import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) {
+  const context = await requireAuthContext(request);
+  if (!context) {
     return jsonError("Unauthorized", 401);
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
-  });
+  const [actor, effective] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: context.actor.userId },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: context.effective.userId },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    }),
+  ]);
 
-  if (!user) {
+  if (!actor || !effective) {
     return jsonError("User not found", 404);
   }
 
-  return jsonOk(user);
+  return jsonOk({
+    actor,
+    effective,
+    impersonating: context.impersonating,
+  });
 }
+

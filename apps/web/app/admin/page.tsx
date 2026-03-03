@@ -2,8 +2,9 @@ import type { Route } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
+import { AdminClient } from "./admin-client";
 
-export default async function HomePage() {
+export default async function AdminPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!token) {
@@ -15,6 +16,20 @@ export default async function HomePage() {
     redirect("/login" as Route);
   }
 
-  redirect((session.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
+  if (session.role !== "ADMIN") {
+    redirect("/dashboard" as Route);
+  }
+
+  return (
+    <main className="dashboard-main">
+      <AdminClient
+        initialUser={{
+          email: session.email,
+          role: session.role,
+        }}
+      />
+    </main>
+  );
 }
+
 

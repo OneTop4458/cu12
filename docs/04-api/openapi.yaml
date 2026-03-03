@@ -1,13 +1,27 @@
 openapi: 3.1.0
 info:
   title: CU12 Automation API
-  version: 0.4.0
-  description: API contract for the CU12 Automation web application.
+  version: 0.5.0
+  description: >-
+    API contract for the CU12 Automation web application.
+    This document reflects the runtime behavior implemented in apps/web as of 2026-03-03.
 servers:
   - url: https://your-app.example.com
+
+tags:
+  - name: Health
+  - name: Session
+  - name: Auth
+  - name: CU12
+  - name: Jobs
+  - name: Dashboard
+  - name: Mail
+  - name: Admin
+
 paths:
   /api/health:
     get:
+      tags: [Health]
       summary: Health check
       responses:
         "200":
@@ -16,26 +30,59 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [ok]
                 properties:
                   ok:
                     type: boolean
 
+  /api/session/context:
+    get:
+      tags: [Session]
+      summary: Get actor/effective session context
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Session context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionContext"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/me:
+    get:
+      tags: [Session]
+      summary: Get actor/effective user profile
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User profile payload
+        "401":
+          description: Unauthorized
+        "404":
+          description: User not found
+
   /api/auth/login:
     post:
+      tags: [Auth]
       summary: Step 1 login with CU12 credentials
-      description: |
+      description: >-
         Verifies CU12 credentials in real time.
-        Returns `AUTHENTICATED` when the CU12 ID is already mapped,
-        or `INVITE_REQUIRED` with a short-lived challenge token for first-time users.
+        Returns AUTHENTICATED for mapped users, or INVITE_REQUIRED with a short-lived challenge token.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - cu12Id
-                - cu12Password
+              required: [cu12Id, cu12Password]
               properties:
                 cu12Id:
                   type: string
@@ -46,9 +93,7 @@ paths:
                   minLength: 4
                   maxLength: 120
                 campus:
-                  type: string
-                  enum: [SONGSIM, SONGSIN]
-                  default: SONGSIM
+                  $ref: "#/components/schemas/Campus"
       responses:
         "200":
           description: Authenticated or invite required
@@ -64,27 +109,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              examples:
-                cu12AuthFailed:
-                  value:
-                    error: CU12 ID or password is invalid.
-                    errorCode: CU12_AUTH_FAILED
 
   /api/auth/login/invite:
     post:
-      summary: Step 2 invite verification for first login
-      description: |
-        Consumes a one-time invite code bound to the CU12 ID embedded in the challenge token.
-        On success, creates the user/account mapping and issues a session cookie.
+      tags: [Auth]
+      summary: Step 2 invite verification (first login)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - challengeToken
-                - inviteCode
+              required: [challengeToken, inviteCode]
               properties:
                 challengeToken:
                   type: string
@@ -101,35 +137,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoginAuthenticated"
         "401":
-          description: Challenge token is invalid or expired
+          description: Challenge token invalid/expired
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              examples:
-                challengeInvalid:
-                  value:
-                    error: Login challenge is invalid or expired. Please log in again.
-                    errorCode: LOGIN_CHALLENGE_INVALID
         "403":
-          description: Invite code is invalid, expired, or not mapped to the CU12 ID
+          description: Invite invalid/expired or CU12 ID not approved
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              examples:
-                unapproved:
-                  value:
-                    error: This CU12 ID is not approved. Contact an administrator.
-                    errorCode: UNAPPROVED_ID
-                invalidInviteCode:
-                  value:
-                    error: Invite code is invalid or expired.
-                    errorCode: INVITE_CODE_INVALID
 
   /api/auth/logout:
     post:
-      summary: Logout current session
+      tags: [Auth]
+      summary: Logout and clear session/impersonation cookies
       security:
         - cookieAuth: []
       responses:
@@ -138,54 +161,27 @@ paths:
 
   /api/auth/invite:
     get:
+      tags: [Admin]
       summary: List invite tokens (admin only)
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Invite token list
+          description: Invite list
           content:
             application/json:
               schema:
                 type: object
-                required:
-                  - invites
+                required: [invites]
                 properties:
                   invites:
                     type: array
                     items:
-                      type: object
-                      required:
-                        - id
-                        - cu12Id
-                        - role
-                        - createdAt
-                        - expiresAt
-                        - state
-                      properties:
-                        id:
-                          type: string
-                        cu12Id:
-                          type: string
-                        role:
-                          type: string
-                          enum: [ADMIN, USER]
-                        createdAt:
-                          type: string
-                          format: date-time
-                        expiresAt:
-                          type: string
-                          format: date-time
-                        usedAt:
-                          type: string
-                          format: date-time
-                          nullable: true
-                        state:
-                          type: string
-                          enum: [ACTIVE, USED, EXPIRED]
+                      $ref: "#/components/schemas/InviteToken"
         "403":
           description: Forbidden
     post:
+      tags: [Admin]
       summary: Create invite token (admin only)
       security:
         - cookieAuth: []
@@ -195,17 +191,14 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - cu12Id
+              required: [cu12Id]
               properties:
                 cu12Id:
                   type: string
                   minLength: 4
                   maxLength: 80
                 role:
-                  type: string
-                  enum: [ADMIN, USER]
-                  default: USER
+                  $ref: "#/components/schemas/UserRole"
                 expiresHours:
                   type: integer
                   minimum: 1
@@ -217,25 +210,30 @@ paths:
         "403":
           description: Forbidden
 
-  /api/me:
-    get:
-      summary: Get current signed-in user
-      security:
-        - cookieAuth: []
-      responses:
-        "200":
-          description: Current user profile
-
   /api/cu12/account:
     get:
-      summary: Get CU12 account settings for current user
+      tags: [CU12]
+      summary: Get CU12 account mapping for effective user
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: CU12 account details
+          description: Account payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [account]
+                properties:
+                  account:
+                    allOf:
+                      - $ref: "#/components/schemas/Cu12Account"
+                    nullable: true
+        "401":
+          description: Unauthorized
     post:
-      summary: Connect or update CU12 account credentials
+      tags: [CU12]
+      summary: Connect/update CU12 credentials and queue sync
       security:
         - cookieAuth: []
       requestBody:
@@ -244,32 +242,38 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - cu12Id
-                - cu12Password
-                - campus
+              required: [cu12Id, cu12Password, campus]
               properties:
                 cu12Id:
                   type: string
+                  minLength: 4
+                  maxLength: 80
                 cu12Password:
                   type: string
+                  minLength: 4
+                  maxLength: 120
                 campus:
-                  type: string
-                  enum: [SONGSIM, SONGSIN]
+                  $ref: "#/components/schemas/Campus"
       responses:
         "200":
-          description: Updated
+          description: Connected and sync queued
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
     patch:
-      summary: Alias of account POST
+      tags: [CU12]
+      summary: Alias of POST /api/cu12/account
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Updated
+          description: Connected and sync queued
 
   /api/cu12/automation:
     patch:
-      summary: Update automation flags
+      tags: [CU12]
+      summary: Update CU12 automation flags
       security:
         - cookieAuth: []
       requestBody:
@@ -291,21 +295,27 @@ paths:
 
   /api/cu12/validate-login:
     post:
-      summary: Queue CU12 login validation job
+      tags: [CU12]
+      summary: Queue sync job to validate saved CU12 account
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Job queued
+          description: Validation job queued
+        "400":
+          description: CU12 account is not connected
+        "401":
+          description: Unauthorized
 
   /api/jobs/sync-now:
     post:
+      tags: [Jobs]
       summary: Queue SYNC job
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Job queued
+          description: Job dispatch status
           content:
             application/json:
               schema:
@@ -313,6 +323,7 @@ paths:
 
   /api/jobs/autolearn-request:
     post:
+      tags: [Jobs]
       summary: Queue AUTOLEARN job
       security:
         - cookieAuth: []
@@ -333,7 +344,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Job queued
+          description: Job dispatch status
           content:
             application/json:
               schema:
@@ -341,7 +352,8 @@ paths:
 
   /api/jobs:
     get:
-      summary: List jobs for current user
+      tags: [Jobs]
+      summary: List jobs for effective user
       security:
         - cookieAuth: []
       parameters:
@@ -364,10 +376,21 @@ paths:
       responses:
         "200":
           description: Job list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobItem"
 
   /api/jobs/{jobId}:
     get:
-      summary: Get a single job detail
+      tags: [Jobs]
+      summary: Get job detail
       security:
         - cookieAuth: []
       parameters:
@@ -379,27 +402,53 @@ paths:
       responses:
         "200":
           description: Job detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetail"
+        "404":
+          description: Job not found
 
   /api/dashboard/summary:
     get:
+      tags: [Dashboard]
       summary: Dashboard summary counters
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Summary
+          description: Summary payload
 
   /api/dashboard/courses:
     get:
-      summary: Current course snapshots
+      tags: [Dashboard]
+      summary: Course snapshot list
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Course list
+          description: Course list payload
+
+  /api/dashboard/deadlines:
+    get:
+      tags: [Dashboard]
+      summary: Upcoming pending task deadlines
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Deadline list
 
   /api/dashboard/courses/{lectureSeq}/notices:
     get:
+      tags: [Dashboard]
       summary: Notices for one course
       security:
         - cookieAuth: []
@@ -413,9 +462,26 @@ paths:
         "200":
           description: Notice list
 
+  /api/dashboard/notices/{noticeId}/read:
+    patch:
+      tags: [Dashboard]
+      summary: Mark notice as read
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: noticeId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated
+
   /api/dashboard/notifications:
     get:
-      summary: Notification events for current user
+      tags: [Dashboard]
+      summary: Notification events for effective user
       security:
         - cookieAuth: []
       parameters:
@@ -436,6 +502,7 @@ paths:
 
   /api/dashboard/notifications/{notificationId}/read:
     patch:
+      tags: [Dashboard]
       summary: Mark notification as read
       security:
         - cookieAuth: []
@@ -449,31 +516,26 @@ paths:
         "200":
           description: Updated
 
-  /api/dashboard/notices/{noticeId}/read:
-    patch:
-      summary: Mark course notice as read
-      security:
-        - cookieAuth: []
-      parameters:
-        - in: path
-          name: noticeId
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Updated
-
   /api/mail/preferences:
     get:
-      summary: Get mail notification preferences
+      tags: [Mail]
+      summary: Get mail preferences
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Preference data
+          description: Mail preference payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [preference]
+                properties:
+                  preference:
+                    $ref: "#/components/schemas/MailPreference"
     patch:
-      summary: Update mail notification preferences
+      tags: [Mail]
+      summary: Update mail preferences
       security:
         - cookieAuth: []
       requestBody:
@@ -504,6 +566,164 @@ paths:
         "200":
           description: Updated
 
+  /api/admin/impersonation:
+    post:
+      tags: [Admin]
+      summary: Start impersonation as target user
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetUserId]
+              properties:
+                targetUserId:
+                  type: string
+      responses:
+        "200":
+          description: Impersonation started
+        "403":
+          description: Forbidden
+    delete:
+      tags: [Admin]
+      summary: End impersonation
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Impersonation ended
+
+  /api/admin/members:
+    get:
+      tags: [Admin]
+      summary: List members (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Member list
+    post:
+      tags: [Admin]
+      summary: Create or update a member from CU12 credentials
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cu12Id, cu12Password]
+              properties:
+                cu12Id:
+                  type: string
+                  minLength: 4
+                  maxLength: 80
+                cu12Password:
+                  type: string
+                  minLength: 4
+                  maxLength: 120
+                campus:
+                  $ref: "#/components/schemas/Campus"
+                role:
+                  $ref: "#/components/schemas/UserRole"
+                isTestUser:
+                  type: boolean
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Member created/updated
+        "401":
+          description: CU12 credential verification failed
+
+  /api/admin/members/{userId}:
+    patch:
+      tags: [Admin]
+      summary: Update member flags/profile
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  $ref: "#/components/schemas/UserRole"
+                isTestUser:
+                  type: boolean
+                name:
+                  type: string
+                autoLearnEnabled:
+                  type: boolean
+                detectActivitiesEnabled:
+                  type: boolean
+                emailDigestEnabled:
+                  type: boolean
+                accountStatus:
+                  type: string
+                  enum: [CONNECTED, NEEDS_REAUTH, ERROR]
+                statusReason:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Member updated
+
+  /api/admin/logs:
+    get:
+      tags: [Admin]
+      summary: List audit logs
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - in: query
+          name: category
+          schema:
+            type: string
+            enum:
+              [AUTH, ADMIN, JOB, WORKER, MAIL, PARSER, SECURITY, IMPERSONATION]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [INFO, WARN, ERROR]
+        - in: query
+          name: targetUserId
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit log list
+
 components:
   securitySchemes:
     cookieAuth:
@@ -512,38 +732,60 @@ components:
       name: cu12_session
 
   schemas:
+    UserRole:
+      type: string
+      enum: [ADMIN, USER]
+
+    Campus:
+      type: string
+      enum: [SONGSIM, SONGSIN]
+      default: SONGSIM
+
+    SessionUser:
+      type: object
+      required: [userId, email, role]
+      properties:
+        userId:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    SessionContext:
+      type: object
+      required: [actor, effective, impersonating]
+      properties:
+        actor:
+          $ref: "#/components/schemas/SessionUser"
+        effective:
+          $ref: "#/components/schemas/SessionUser"
+        impersonating:
+          type: boolean
+
     LoginAuthenticated:
       type: object
-      required:
-        - stage
-        - user
-        - firstLogin
+      required: [stage, user, firstLogin]
       properties:
         stage:
           type: string
           enum: [AUTHENTICATED]
         user:
           type: object
-          required:
-            - userId
-            - cu12Id
-            - role
+          required: [userId, cu12Id, role]
           properties:
             userId:
               type: string
             cu12Id:
               type: string
             role:
-              type: string
-              enum: [ADMIN, USER]
+              $ref: "#/components/schemas/UserRole"
         firstLogin:
           type: boolean
 
     LoginInviteRequired:
       type: object
-      required:
-        - stage
-        - challengeToken
+      required: [stage, challengeToken]
       properties:
         stage:
           type: string
@@ -553,22 +795,108 @@ components:
 
     ErrorResponse:
       type: object
-      required:
-        - error
+      required: [error]
       properties:
         error:
           type: string
         errorCode:
           type: string
 
-    JobDispatchResponse:
+    InviteToken:
+      type: object
+      required: [id, cu12Id, role, createdAt, expiresAt, state]
+      properties:
+        id:
+          type: string
+        cu12Id:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        usedAt:
+          type: string
+          format: date-time
+          nullable: true
+        state:
+          type: string
+          enum: [ACTIVE, USED, EXPIRED]
+
+    Cu12Account:
       type: object
       required:
-        - jobId
-        - status
-        - deduplicated
-        - dispatched
-        - notice
+        [
+          cu12Id,
+          campus,
+          accountStatus,
+          autoLearnEnabled,
+          detectActivitiesEnabled,
+          emailDigestEnabled,
+          updatedAt,
+        ]
+      properties:
+        cu12Id:
+          type: string
+        campus:
+          $ref: "#/components/schemas/Campus"
+        accountStatus:
+          type: string
+          enum: [CONNECTED, NEEDS_REAUTH, ERROR]
+        statusReason:
+          type: string
+          nullable: true
+        autoLearnEnabled:
+          type: boolean
+        detectActivitiesEnabled:
+          type: boolean
+        emailDigestEnabled:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    MailPreference:
+      type: object
+      required:
+        [
+          email,
+          enabled,
+          alertOnNotice,
+          alertOnDeadline,
+          alertOnAutolearn,
+          digestEnabled,
+          digestHour,
+        ]
+      properties:
+        email:
+          type: string
+          format: email
+        enabled:
+          type: boolean
+        alertOnNotice:
+          type: boolean
+        alertOnDeadline:
+          type: boolean
+        alertOnAutolearn:
+          type: boolean
+        digestEnabled:
+          type: boolean
+        digestHour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    JobDispatchResponse:
+      type: object
+      required: [jobId, status, deduplicated, dispatched, notice]
       properties:
         jobId:
           type: string
@@ -584,3 +912,88 @@ components:
           nullable: true
         notice:
           type: string
+
+    JobItem:
+      type: object
+      required:
+        [
+          id,
+          userId,
+          type,
+          status,
+          attempts,
+          maxAttempts,
+          runAfter,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        type:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        payload:
+          type: object
+          nullable: true
+        result:
+          type: object
+          nullable: true
+        attempts:
+          type: integer
+        maxAttempts:
+          type: integer
+        runAfter:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    JobDetail:
+      type: object
+      required: [id, status, type, attempts]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        type:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+        attempts:
+          type: integer
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        result:
+          type: object
+          nullable: true

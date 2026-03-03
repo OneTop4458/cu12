@@ -1,15 +1,41 @@
-﻿import { CourseStatus } from "@prisma/client";
+import { CourseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
+function daysUntil(target: Date, now: Date): number {
+  const diff = target.getTime() - now.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
 export async function getDashboardSummary(userId: string) {
-  const [activeCourseCount, progressAgg, unreadNoticeCount, pendingTasksCount, lastSync] = await Promise.all([
+  const now = new Date();
+  const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+
+  const [activeCourseCount, progressAgg, unreadNoticeCount, urgentTaskCount, nextDeadlineTask, lastSync] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, status: CourseStatus.ACTIVE },
       _avg: { progressPercent: true },
     }),
     prisma.courseNotice.count({ where: { userId, isRead: false } }),
-    prisma.learningTask.count({ where: { userId, state: "PENDING" } }),
+    prisma.learningTask.count({
+      where: {
+        userId,
+        state: "PENDING",
+        dueAt: {
+          gte: now,
+          lte: soon,
+        },
+      },
+    }),
+    prisma.learningTask.findFirst({
+      where: {
+        userId,
+        state: "PENDING",
+        dueAt: { gte: now },
+      },
+      orderBy: { dueAt: "asc" },
+      select: { dueAt: true },
+    }),
     prisma.jobQueue.findFirst({
       where: { userId, type: "SYNC", status: "SUCCEEDED" },
       orderBy: { finishedAt: "desc" },
@@ -21,7 +47,9 @@ export async function getDashboardSummary(userId: string) {
     activeCourseCount,
     avgProgress: progressAgg._avg.progressPercent ?? 0,
     unreadNoticeCount,
-    upcomingDeadlines: pendingTasksCount,
+    upcomingDeadlines: urgentTaskCount,
+    urgentTaskCount,
+    nextDeadlineAt: nextDeadlineTask?.dueAt ?? null,
     lastSyncAt: lastSync?.finishedAt ?? null,
     initialSyncRequired: !lastSync,
   };
@@ -43,6 +71,8 @@ export async function getCourses(userId: string) {
         requiredSeconds: true,
         learnedSeconds: true,
         activityType: true,
+        availableFrom: true,
+        dueAt: true,
       },
     }),
   ]);
@@ -58,7 +88,12 @@ export async function getCourses(userId: string) {
     const taskList = grouped.get(course.lectureSeq) ?? [];
     const pending = taskList
       .filter((task) => task.state === "PENDING")
-      .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
+      .sort((a, b) => {
+        const dueA = a.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const dueB = b.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (dueA !== dueB) return dueA - dueB;
+        return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
+      });
 
     const completedCount = taskList.filter((task) => task.state === "COMPLETED").length;
     const totalTaskCount = taskList.length;
@@ -78,10 +113,61 @@ export async function getCourses(userId: string) {
           weekNo: pending[0].weekNo,
           lessonNo: pending[0].lessonNo,
           activityType: pending[0].activityType,
+          requiredSeconds: pending[0].requiredSeconds,
+          learnedSeconds: pending[0].learnedSeconds,
+          availableFrom: pending[0].availableFrom,
+          dueAt: pending[0].dueAt,
         }
         : null,
     };
   });
+}
+
+export async function getUpcomingDeadlines(userId: string, limit = 30) {
+  const now = new Date();
+  const tasks = await prisma.learningTask.findMany({
+    where: {
+      userId,
+      state: "PENDING",
+      dueAt: {
+        gte: now,
+      },
+    },
+    orderBy: { dueAt: "asc" },
+    take: Math.min(Math.max(limit, 1), 100),
+    select: {
+      lectureSeq: true,
+      courseContentsSeq: true,
+      weekNo: true,
+      lessonNo: true,
+      requiredSeconds: true,
+      learnedSeconds: true,
+      availableFrom: true,
+      dueAt: true,
+    },
+  });
+
+  const seqs = Array.from(new Set(tasks.map((task) => task.lectureSeq)));
+  const courses = seqs.length > 0
+    ? await prisma.courseSnapshot.findMany({
+      where: {
+        userId,
+        lectureSeq: { in: seqs },
+      },
+      select: {
+        lectureSeq: true,
+        title: true,
+      },
+    })
+    : [];
+  const titleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
+
+  return tasks.map((task) => ({
+    ...task,
+    courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+    remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
+    daysLeft: task.dueAt ? daysUntil(task.dueAt, now) : null,
+  }));
 }
 
 export async function getNotices(userId: string, lectureSeq: number) {
@@ -107,3 +193,4 @@ export async function getNotifications(
     take: options?.limit ?? 200,
   });
 }
+

@@ -1,6 +1,6 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
-import { jsonError, jsonOk, parseBody, requireUser } from "@/lib/http";
+import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { updateAutomationSettings } from "@/server/cu12-account";
 
 const BodySchema = z.object({
@@ -10,12 +10,12 @@ const BodySchema = z.object({
 });
 
 export async function PATCH(request: NextRequest) {
-  const session = await requireUser(request);
-  if (!session) return jsonError("Unauthorized", 401);
+  const context = await requireAuthContext(request);
+  if (!context) return jsonError("Unauthorized", 401);
 
   try {
     const body = await parseBody(request, BodySchema);
-    const account = await updateAutomationSettings(session.userId, body);
+    const account = await updateAutomationSettings(context.effective.userId, body);
     return jsonOk({
       updated: true,
       autoLearnEnabled: account.autoLearnEnabled,
@@ -29,3 +29,4 @@ export async function PATCH(request: NextRequest) {
     return jsonError("Failed to update automation settings", 500);
   }
 }
+

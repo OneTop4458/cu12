@@ -1,9 +1,11 @@
-﻿import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { getEnv } from "./env";
 
 export const SESSION_COOKIE_NAME = "cu12_session";
+export const IMPERSONATION_COOKIE_NAME = "cu12_impersonation";
 const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
+const IMPERSONATION_PURPOSE = "ADMIN_IMPERSONATION";
 
 export interface SessionTokenPayload {
   userId: string;
@@ -17,6 +19,12 @@ export interface LoginChallengePayload {
   campus: "SONGSIM" | "SONGSIN";
   encryptedCu12Password: string;
   nonce: string;
+}
+
+export interface ImpersonationPayload {
+  purpose: typeof IMPERSONATION_PURPOSE;
+  actorUserId: string;
+  targetUserId: string;
 }
 
 function jwtSecret(): Uint8Array {
@@ -99,3 +107,34 @@ export async function verifyLoginChallengeToken(token: string): Promise<LoginCha
     return null;
   }
 }
+
+export async function signImpersonationToken(payload: Omit<ImpersonationPayload, "purpose">): Promise<string> {
+  return new SignJWT({
+    purpose: IMPERSONATION_PURPOSE,
+    actorUserId: payload.actorUserId,
+    targetUserId: payload.targetUserId,
+  } satisfies ImpersonationPayload as unknown as JWTPayload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("6h")
+    .sign(jwtSecret());
+}
+
+export async function verifyImpersonationToken(token: string): Promise<ImpersonationPayload | null> {
+  try {
+    const verified = await jwtVerify(token, jwtSecret());
+    const value = verified.payload as Partial<ImpersonationPayload>;
+    if (value.purpose !== IMPERSONATION_PURPOSE || !value.actorUserId || !value.targetUserId) {
+      return null;
+    }
+
+    return {
+      purpose: IMPERSONATION_PURPOSE,
+      actorUserId: value.actorUserId,
+      targetUserId: value.targetUserId,
+    };
+  } catch {
+    return null;
+  }
+}
+

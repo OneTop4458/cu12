@@ -1,4 +1,4 @@
-﻿export type CourseStatus = "ACTIVE" | "UPCOMING" | "ENDED";
+export type CourseStatus = "ACTIVE" | "UPCOMING" | "ENDED";
 
 export interface CourseState {
   userId: string;
@@ -48,6 +48,8 @@ export interface LearningTask {
   requiredSeconds: number;
   learnedSeconds: number;
   state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  availableFrom?: string | null;
+  dueAt?: string | null;
 }
 
 export type QueueJobType = "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
@@ -66,3 +68,4 @@ export interface Cu12Credentials {
   cu12Password: string;
   campus: "SONGSIM" | "SONGSIN";
 }
+
