@@ -92,7 +92,7 @@ export async function getUserMailPreference(userId: string): Promise<MailPrefere
 
   if (!subscription) {
     return {
-      enabled: false,
+      enabled: true,
       email: user.email,
       alertOnNotice: true,
       alertOnDeadline: true,

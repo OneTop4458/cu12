@@ -8,8 +8,8 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const REFRESH_MIN_INTERVAL_MS = 2 * 60 * 1000;
 const COUNTDOWN_TICK_MS = 1000;
 const WARNING_THRESHOLD_MS = 5 * 60 * 1000;
-const ACTIVITY_APPLY_GAP_MS = 10 * 1000;
-const MOUSE_MOVE_THRESHOLD_PX = 16;
+const ACTIVITY_APPLY_GAP_MS = 20 * 1000;
+const MOUSE_MOVE_THRESHOLD_PX = 36;
 
 function isProtectedPath(pathname: string): boolean {
   return pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
@@ -32,7 +32,7 @@ function formatRemaining(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return `${String(minutes).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
 }
 
 export function SessionActivityGuard() {
@@ -153,6 +153,7 @@ export function SessionActivityGuard() {
     window.addEventListener("mousedown", onPointerAction);
     window.addEventListener("keydown", onKeydown);
     window.addEventListener("touchstart", onPointerAction);
+    window.addEventListener("scroll", onPointerAction, { passive: true });
     window.addEventListener("storage", onStorage);
 
     const intervalId = window.setInterval(() => {
@@ -164,6 +165,7 @@ export function SessionActivityGuard() {
       window.removeEventListener("mousedown", onPointerAction);
       window.removeEventListener("keydown", onKeydown);
       window.removeEventListener("touchstart", onPointerAction);
+      window.removeEventListener("scroll", onPointerAction);
       window.removeEventListener("storage", onStorage);
       window.clearInterval(intervalId);
     };
@@ -171,7 +173,7 @@ export function SessionActivityGuard() {
 
   if (!active) return null;
 
-  const remainingPercent = Math.max(0, Math.min(100, (remainingSeconds / (IDLE_TIMEOUT_MS / 1000)) * 100));
+  const warningRatio = Math.min(1, remainingSeconds / (IDLE_TIMEOUT_MS / 1000));
 
   return (
     <div
@@ -180,44 +182,47 @@ export function SessionActivityGuard() {
       style={{
         position: "sticky",
         top: 0,
-        left: 0,
         zIndex: 1000,
         width: "100%",
-        display: "flex",
-        gap: 12,
+        display: "grid",
+        gridTemplateColumns: "1fr auto auto",
         alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 16px",
+        gap: 14,
+        padding: "10px 14px",
         boxSizing: "border-box",
         background: warningMode
-          ? "linear-gradient(90deg, #7f1d1d 0%, #991b1b 100%)"
-          : "linear-gradient(90deg, #0f766e 0%, #0d9488 100%)",
+          ? "linear-gradient(100deg, #7f1d1d 0%, #991b1b 55%, #b45309 100%)"
+          : "linear-gradient(100deg, #0f766e 0%, #0d9488 52%, #14b8a6 100%)",
         color: "#ffffff",
         fontSize: 12,
-        fontFamily: "ui-sans-serif,system-ui,sans-serif",
-        boxShadow: "0 12px 24px rgba(0, 0, 0, 0.2)",
-        borderBottom: "1px solid rgba(255,255,255,0.25)",
+        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+        borderBottom: "1px solid rgba(255,255,255,.28)",
+        boxShadow: "0 10px 24px rgba(0,0,0,.2)",
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700 }}>자동 로그아웃</div>
-        <div style={{ opacity: 0.92 }}>남은 시간 {formatRemaining(remainingSeconds * 1000)} / 30:00</div>
+      <div>
+        <div style={{ fontWeight: 800, letterSpacing: "0.2px", marginBottom: 2 }}>자동 로그아웃</div>
+        <div style={{ opacity: 0.92 }}>
+          남은 시간 {formatRemaining(remainingSeconds * 1000)} / 30:00
+        </div>
       </div>
       <div
         style={{
-          width: 180,
+          width: 220,
           background: "rgba(15, 23, 42, 0.35)",
           borderRadius: 999,
-          height: 8,
+          height: 9,
           overflow: "hidden",
         }}
       >
         <div
           style={{
             height: "100%",
-            width: `${Math.max(2, remainingPercent)}%`,
-            background: "linear-gradient(90deg, #fef9c3, #fde68a)",
-            transition: "width 0.4s ease",
+            width: `${Math.max(2, warningRatio * 100)}%`,
+            background: warningMode
+              ? "linear-gradient(90deg, #fecdd3, #fca5a5)"
+              : "linear-gradient(90deg, #d1fae5, #bae6fd)",
+            transition: "width 0.8s ease",
           }}
         />
       </div>
@@ -231,7 +236,7 @@ export function SessionActivityGuard() {
           borderRadius: 8,
           background: "rgba(255,255,255,0.15)",
           color: "#ffffff",
-          padding: "7px 12px",
+          padding: "8px 12px",
           fontSize: 12,
           fontWeight: 700,
           fontFamily: "inherit",

@@ -846,6 +846,60 @@ paths:
         "200":
           description: Audit log list
 
+  /api/admin/members/{userId}/mail-test:
+    post:
+      tags: [Admin]
+      summary: Send a mail test message to a member
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                  format: email
+                subject:
+                  type: string
+                  maxLength: 120
+                message:
+                  type: string
+                  maxLength: 3000
+      responses:
+        "200":
+          description: Mail test sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sent, to, reason]
+                properties:
+                  sent:
+                    type: boolean
+                  to:
+                    type: string
+                    format: email
+                  reason:
+                    type: string
+                    nullable: true
+        "400":
+          description: SMTP not configured or send failed
+        "403":
+          description: Forbidden
+        "404":
+          description: User not found
+        "409":
+          description: Cannot send to inactive member
+
 components:
   securitySchemes:
     cookieAuth:

@@ -22,6 +22,16 @@ interface MemberItem {
   isActive: boolean;
   createdAt: string;
   cu12Account: { accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR" } | null;
+  mailPreference: {
+    email: string;
+    enabled: boolean;
+    alertOnNotice: boolean;
+    alertOnDeadline: boolean;
+    alertOnAutolearn: boolean;
+    digestEnabled: boolean;
+    digestHour: number;
+    updatedAt: string | null;
+  } | null;
 }
 
 interface InviteItem {
@@ -75,6 +85,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [newIsTestUser, setNewIsTestUser] = useState(true);
   const [newIsActive, setNewIsActive] = useState(true);
   const [memberSubmitting, setMemberSubmitting] = useState(false);
+  const [mailTestUserId, setMailTestUserId] = useState<string | null>(null);
 
   const fetchJson = useCallback(
     async <T,>(url: string, init?: RequestInit): Promise<T> => {
@@ -257,6 +268,27 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     }
   }
 
+  async function sendTestMail(member: MemberItem) {
+    setMailTestUserId(member.id);
+    setError(null);
+    try {
+      const to = member.mailPreference?.email ?? member.email;
+      await fetchJson(`/api/admin/members/${member.id}/mail-test`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          to,
+          subject: "[CU12] 메일 수신 테스트",
+        }),
+      });
+      setMessage(`${member.email} 메일 테스트 발송 요청 완료`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setMailTestUserId(null);
+    }
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login" as Route);
@@ -341,6 +373,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               <th>상태</th>
               <th>타입</th>
               <th>CU12 연동</th>
+              <th>메일 수신</th>
               <th>생성일</th>
               <th>작업</th>
             </tr>
@@ -348,7 +381,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <tbody>
             {members.length === 0 ? (
               <tr>
-                <td colSpan={7}>회원이 없습니다.</td>
+                <td colSpan={8}>회원이 없습니다.</td>
               </tr>
             ) : members.map((member) => (
               <tr key={member.id}>
@@ -357,12 +390,24 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                 <td>{member.isActive ? "활성" : "비활성"}</td>
                 <td>{member.isTestUser ? "테스트" : "일반"}</td>
                 <td>{member.cu12Account?.accountStatus ?? "-"}</td>
+                <td>
+                  {member.mailPreference
+                    ? `${member.mailPreference.email} (${member.mailPreference.enabled ? "ON" : "OFF"})`
+                    : "미설정"}
+                </td>
                 <td>{toDateTime(member.createdAt)}</td>
                 <td>
                   <div className="action-row">
                     <button className="ghost-btn" onClick={() => void startImpersonation(member)}>회원 조회</button>
                     <button className="ghost-btn" onClick={() => void toggleMemberActive(member)}>
                       {member.isActive ? "비활성화" : "활성화"}
+                    </button>
+                    <button
+                      className="ghost-btn"
+                      onClick={() => void sendTestMail(member)}
+                      disabled={mailTestUserId === member.id}
+                    >
+                      {mailTestUserId === member.id ? "테스트 중..." : "메일 테스트"}
                     </button>
                     <button className="ghost-btn" onClick={() => void deactivateMember(member)}>탈퇴</button>
                   </div>

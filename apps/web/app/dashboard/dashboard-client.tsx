@@ -94,6 +94,7 @@ interface MailPreference {
   alertOnAutolearn: boolean;
   digestEnabled: boolean;
   digestHour: number;
+  updatedAt: string | null;
 }
 
 interface Account {
@@ -183,6 +184,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [mailSaving, setMailSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isMailSetupRequired, setIsMailSetupRequired] = useState(false);
 
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
@@ -235,6 +237,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setJobs(payload.jobs);
       setAccount(payload.account);
       setMailDraft(payload.preference);
+      const requiresMailSetup = payload.preference.updatedAt === null;
+      setIsMailSetupRequired(requiresMailSetup);
+      if (requiresMailSetup) {
+        setSettingsOpen(true);
+      }
       if (!lectureSeq && payload.courses.length > 0) setLectureSeq(payload.courses[0].lectureSeq);
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
@@ -378,6 +385,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(mailDraft),
       });
+      setIsMailSetupRequired(false);
       setSettingsOpen(false);
       setMessage("메일 설정을 저장했습니다.");
     } catch (err) {
@@ -534,9 +542,21 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>자동 수강 결과 발송</span></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.digestEnabled} onChange={(event) => setMailDraft({ ...mailDraft, digestEnabled: event.target.checked })} /><span>일일 요약 메일</span></label>
                 <label className="field"><span>요약 시각 (0~23)</span><input type="number" min={0} max={23} value={mailDraft.digestHour} onChange={(event) => setMailDraft({ ...mailDraft, digestHour: Number(event.target.value) })} /></label>
+                {isMailSetupRequired ? (
+                  <p className="error-text" style={{ marginBottom: "4px" }}>
+                    최초 접속 사용자입니다. 메일 주소와 알림 설정을 저장해야 대시보드를 계속 사용할 수 있습니다.
+                  </p>
+                ) : null}
                 <div className="button-row">
                   <button type="submit" disabled={mailSaving}>{mailSaving ? "저장 중..." : "저장"}</button>
-                  <button type="button" className="ghost-btn" onClick={() => setSettingsOpen(false)} disabled={mailSaving}>닫기</button>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => setSettingsOpen(false)}
+                    disabled={mailSaving || isMailSetupRequired}
+                  >
+                    닫기
+                  </button>
                 </div>
               </form>
             ) : null}

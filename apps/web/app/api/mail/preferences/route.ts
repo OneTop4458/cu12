@@ -26,7 +26,7 @@ async function resolvePreference(userId: string) {
   if (!subscription) {
     return {
       email: user.email,
-      enabled: false,
+      enabled: true,
       alertOnNotice: true,
       alertOnDeadline: true,
       alertOnAutolearn: true,
