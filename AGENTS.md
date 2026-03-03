@@ -14,9 +14,9 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 
 ## Encoding Rule
 
-1. All repository files must be encoded as **UTF-8 (BOM 없음)**.
+1. All repository files must be encoded as **UTF-8 (no BOM)**.
 2. Korean copy (UI labels, errors, docs notes) must remain UTF-8; do not use ANSI/CP949/UTF-16.
-3. For any text corruption reports (`�`, 깨진 한글), retype the affected strings from a clean UTF-8 source and validate before commit.
+3. For any text corruption reports (`U+FFFD`, replacement char), retype the affected strings from a clean UTF-8 source and validate before commit.
 
 ## Authentication Model
 

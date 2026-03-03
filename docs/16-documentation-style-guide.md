@@ -10,7 +10,7 @@
 1. Use **UTF-8 without BOM** for all source, documentation, and config files.
 2. Do not save files as UTF-16, CP949/EUC-KR, ANSI, or any mixed encoding.
 3. Never paste Korean text with unknown source encoding; verify raw content in UTF-8 before commit.
-4. If encoding corruption appears (`�` or garbled characters), revert and re-enter that text in UTF-8 in a clean editor.
+4. If encoding corruption appears (`replacement character` or garbled characters), revert and re-enter that text in UTF-8 in a clean editor.
 5. AI agents must keep Korean UI strings in UTF-8 and avoid binary-safe transforms that rewrite text (e.g., shell tools with implicit ANSI/legacy encoding).
 
 ## Formatting Rules

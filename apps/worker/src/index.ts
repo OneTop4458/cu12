@@ -107,6 +107,8 @@ function parseArgs() {
 const AUTOLEARN_CANCEL_ERROR = "AUTOLEARN_CANCELLED";
 const JOB_CANCEL_ERROR = "JOB_CANCELLED";
 
+type CancelCheck = () => Promise<boolean>;
+
 async function getJobStatus(jobId: string) {
   const job = await prisma.jobQueue.findUnique({
     where: { id: jobId },
