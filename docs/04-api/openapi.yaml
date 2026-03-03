@@ -824,7 +824,7 @@ paths:
           description: Member updated
     delete:
       tags: [Admin]
-      summary: Deactivate member account
+      summary: Delete member account
       security:
         - cookieAuth: []
       parameters:
@@ -845,7 +845,7 @@ paths:
                   maxLength: 500
       responses:
         "200":
-          description: Member deactivated
+          description: Member deleted
 
   /api/admin/logs:
     get:

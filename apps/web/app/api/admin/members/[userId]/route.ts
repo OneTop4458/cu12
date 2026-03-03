@@ -172,13 +172,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       return jsonError("Cannot delete own account", 400);
     }
 
-    if (!user.isActive) {
-      return jsonOk({ deactivated: true, userId });
-    }
-
-    await prisma.user.update({
+    await prisma.user.delete({
       where: { id: userId },
-      data: { isActive: false },
     });
 
     await writeAuditLog({
@@ -186,14 +181,18 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       severity: "WARN",
       actorUserId: context.actor.userId,
       targetUserId: userId,
-      message: "Admin deactivated member",
+      message: "Admin deleted member",
       meta: {
         userEmail: user.email,
         reason: body.reason ?? null,
       },
     });
 
-    return jsonOk({ deactivated: true, userId });
+    return jsonOk({
+      deleted: true,
+      deactivated: false,
+      userId,
+    });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return jsonError("Invalid JSON payload", 400, "VALIDATION_ERROR");

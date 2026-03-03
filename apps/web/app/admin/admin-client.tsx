@@ -285,7 +285,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   }
 
   async function deactivateMember(member: MemberItem) {
-    const ok = window.confirm("정말 탈퇴 처리(비활성화) 하시겠습니까?");
+    const ok = window.confirm("정말 탈퇴(삭제) 처리하시겠습니까?");
     if (!ok) return;
     setBlockingMessage("회원 탈퇴 처리 중...");
     try {
@@ -293,7 +293,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         method: "DELETE",
       });
       await refreshAll();
-      setMessage("회원이 탈퇴 처리되었습니다.");
+      setMessage("회원이 삭제 처리되었습니다.");
     } catch (err) {
       setError((err as Error).message);
     } finally {
