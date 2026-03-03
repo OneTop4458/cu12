@@ -4,8 +4,8 @@ import { ConsoleSecurityWarning } from "./_components/console-security-warning";
 import { SessionActivityGuard } from "./_components/session-activity-guard";
 
 export const metadata: Metadata = {
-  title: "가톨릭대학교 공유대학 수강 지원 솔루션 CU12 Learning Support",
-  description: "가톨릭 공유대 수강 상태 확인 및 자동 수강 서비스",
+  title: "가톨릭대학교 공유대학 수강 지원 솔루션",
+  description: "가톨릭대학교 공유대학 수강 지원 솔루션의 로그인, 운영 대시보드, 작업 로그를 한 곳에서 관리합니다.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -14,9 +14,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <SessionActivityGuard />
         <ConsoleSecurityWarning />
-        {children}
+        <div className="app-root">{children}</div>
       </body>
     </html>
   );
 }
-

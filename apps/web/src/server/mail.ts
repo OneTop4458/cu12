@@ -3,10 +3,14 @@ import { getEnv } from "@/lib/env";
 
 type SendMailResult = { sent: true; reason?: never } | { sent: false; reason: string };
 
-export async function sendMail(to: string, subject: string, text: string) {
+export async function sendMail(
+  to: string,
+  subject: string,
+  text: string,
+): Promise<SendMailResult> {
   const env = getEnv();
   if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASS || !env.SMTP_FROM) {
-    return { sent: false, reason: "SMTP_NOT_CONFIGURED" } as SendMailResult;
+    return { sent: false, reason: "SMTP_NOT_CONFIGURED" };
   }
 
   const transporter = nodemailer.createTransport({
@@ -27,7 +31,7 @@ export async function sendMail(to: string, subject: string, text: string) {
       text,
     });
 
-    return { sent: true } as SendMailResult;
+    return { sent: true };
   } catch (error) {
     return {
       sent: false,

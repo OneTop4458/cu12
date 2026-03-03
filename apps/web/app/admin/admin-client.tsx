@@ -121,6 +121,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   const refreshAll = useCallback(async () => {
     setLoading(true);
+    setBlockingMessage("처리 중...");
     setError(null);
     try {
       const [ctx, memberRes, inviteRes, logRes] = await Promise.all([
@@ -139,6 +140,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
     } finally {
       setLoading(false);
+      setBlockingMessage((message) => (message === "처리 중..." ? null : message));
     }
   }, [fetchJson, logPage]);
 

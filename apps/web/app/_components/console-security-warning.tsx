@@ -1,16 +1,15 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef } from "react";
 
-const ALERT_BANNER = "%c⚠ SECURITY ALERT";
+const ALERT_BANNER = "%c[SECURITY ALERT]";
 
 const ALERT_MESSAGE =
-  "%cThis console is a privileged debugging surface.\n" +
-  "Pasting untrusted code here can leak your session, account credentials, or sensitive data.\n" +
-  "Do not paste anything you did not write yourself.\n\n" +
-  "PASTE ONLY what you wrote yourself and completely understand.\n" +
-  "If someone told you to run a command, verify it before pasting.\n\n" +
-  "Self-XSS protection may require confirmation before code paste.";
+  "%cThis browser console is a privileged security surface.\n\n" +
+  "Pasting or running unknown commands here can cause full account compromise.\n\n" +
+  "Do not paste code from unknown sources.\n" +
+  "If someone asks you to run a command here, stop and verify it in a trusted location first.\n\n" +
+  "Keep this strict: only execute what you wrote and understand.";
 
 function getConsoleStyles() {
   const isDark =
@@ -18,17 +17,17 @@ function getConsoleStyles() {
 
   return isDark
     ? {
-      title:
-        "color:#f97316;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;letter-spacing:-0.02em;",
-      body:
-        "color:#e2e8f0;font-size:14px;font-weight:600;line-height:1.55;font-family:ui-sans-serif,system-ui,sans-serif;",
-    }
+        title:
+          "color:#f97316;font-size:36px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;letter-spacing:-0.02em;",
+        body:
+          "color:#f2f7ff;font-size:14px;font-weight:600;line-height:1.55;font-family:ui-sans-serif,system-ui,sans-serif;",
+      }
     : {
-      title:
-        "color:#dc2626;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;letter-spacing:-0.02em;",
-      body:
-        "color:#111827;font-size:14px;font-weight:600;line-height:1.55;font-family:ui-sans-serif,system-ui,sans-serif;",
-    };
+        title:
+          "color:#b91c1c;font-size:36px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;letter-spacing:-0.02em;",
+        body:
+          "color:#1f2937;font-size:14px;font-weight:500;line-height:1.5;font-family:ui-sans-serif,system-ui,sans-serif;max-width:70ch;",
+      };
 }
 
 function printConsoleWarning() {

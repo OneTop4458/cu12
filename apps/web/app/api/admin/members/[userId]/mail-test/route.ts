@@ -75,6 +75,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     if (!result.sent) {
+      const reason = result.reason === "SMTP_NOT_CONFIGURED"
+        ? "SMTP 설정이 누락되어 테스트 메일을 보낼 수 없습니다."
+        : result.reason;
       await writeAuditLog({
         category: AuditCategory.MAIL,
         actorUserId: context.actor.userId,
@@ -84,11 +87,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         meta: {
           to,
           subject: resolvedSubject,
-          reason: result.reason,
+          reason,
           userId,
         },
       });
-      return jsonError(result.reason ?? "SMTP settings are not configured", 400, "MAIL_NOT_SENT");
+      return jsonError(reason ?? "SMTP settings are not configured", 400, "MAIL_NOT_SENT");
     }
 
     await writeAuditLog({
@@ -108,6 +111,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
     }
-    return jsonError(error instanceof Error ? error.message : "Failed to send test mail", 500);
+    return jsonError(
+      error instanceof Error ? error.message : "메일 테스트 발송에 실패했습니다.",
+      500,
+      "MAIL_TEST_FAILED",
+    );
   }
 }
