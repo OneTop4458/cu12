@@ -14,3 +14,4 @@ test-results/
 .DS_Store
 prisma/dev.db
 CON
+*.tsbuildinfo
