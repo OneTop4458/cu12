@@ -4,15 +4,11 @@ import { useEffect, useRef } from "react";
 
 function printConsoleWarning() {
   console.log(
-    "%c⚠️  STOP",
+    "%cStop!",
     "color:#d10000;font-size:48px;font-weight:800;line-height:1.2;font-family:ui-sans-serif,system-ui,sans-serif;",
   );
   console.log(
-    "%cThis is the browser console. If someone asks you to copy-paste code here, it can steal your account or run malware.",
-    "color:#111827;font-size:14px;font-weight:600;font-family:ui-sans-serif,system-ui,sans-serif;",
-  );
-  console.log(
-    "%c브라우저 콘솔은 개발자 도구 용도로만 사용하세요. 직접 내용이 명확한 코드만 입력하세요.",
+    "%c이 콘솔에 코드를 붙여넣으라는 요청은 계정 탈취(Self-XSS) 시도일 수 있습니다. Never paste code you don't understand.",
     "color:#111827;font-size:14px;font-weight:600;font-family:ui-sans-serif,system-ui,sans-serif;",
   );
 }
