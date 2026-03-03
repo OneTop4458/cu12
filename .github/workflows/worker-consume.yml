@@ -1,4 +1,4 @@
-﻿name: Worker Consume
+name: Worker Consume
 
 on:
   workflow_call:
@@ -39,7 +39,7 @@ jobs:
       WORKER_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: "npm"

@@ -1,4 +1,4 @@
-﻿name: Scheduled Sync Dispatch
+name: Scheduled Sync Dispatch
 
 on:
   schedule:
@@ -15,7 +15,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: "npm"
