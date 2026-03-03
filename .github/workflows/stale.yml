@@ -1,0 +1,27 @@
+name: Stale
+
+on:
+  schedule:
+    - cron: "30 19 * * 1"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          stale-issue-message: "No activity for 30 days. Marking this issue as stale."
+          stale-pr-message: "No activity for 30 days. Marking this pull request as stale."
+          close-issue-message: "Closing this issue due to inactivity. Reopen if needed."
+          close-pr-message: "Closing this pull request due to inactivity. Reopen if needed."
+          stale-issue-label: "stale"
+          stale-pr-label: "stale"
+          days-before-stale: 30
+          days-before-close: 7
+          exempt-issue-labels: "pinned,security"
+          exempt-pr-labels: "pinned,security"

@@ -1,0 +1,50 @@
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure labels exist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              { name: "web", color: "1D76DB", description: "apps/web related changes" },
+              { name: "worker", color: "5319E7", description: "apps/worker related changes" },
+              { name: "core", color: "0052CC", description: "packages/core related changes" },
+              { name: "db", color: "B60205", description: "prisma/database related changes" },
+              { name: "docs", color: "0E8A16", description: "documentation changes" },
+              { name: "infra", color: "FBCA04", description: "workflow/config changes" },
+              { name: "dependencies", color: "0366D6", description: "dependency updates" },
+              { name: "bot", color: "5319E7", description: "automated maintenance changes" }
+            ];
+
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name
+                });
+              } catch {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description
+                });
+              }
+            }
+      - uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,32 @@
+web:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/**"
+
+worker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/worker/**"
+
+core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/core/**"
+
+db:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "prisma/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "README.md"
+
+infra:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "package.json"
+          - "package-lock.json"

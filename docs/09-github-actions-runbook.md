@@ -5,19 +5,27 @@
 1. `ci.yml`
 - install, typecheck, build
 2. `db-bootstrap.yml`
-- Neon DB에 Prisma 스키마 1회 반영 (`prisma db push`)
-3. `deploy-vercel.yml`
-- `apps/web` 기준으로 Vercel pull/build/deploy 수행
-4. `sync-schedule.yml`
-- 30분마다 SYNC 작업 큐 적재 후 워커 실행
-5. `autolearn-dispatch.yml`
-- 수동 AUTOLEARN 큐 적재 후 워커 실행
-6. `worker-consume.yml`
-- 큐 소비 실행(스케줄/수동/API 디스패치 공통)
-7. `db-backup.yml`
-- 일 1회 백업
+- one-time Prisma schema push to Neon (`prisma db push`)
+3. `admin-bootstrap.yml`
+- one-time admin user bootstrap (workflow dispatch)
+4. `deploy-vercel.yml`
+- build/deploy web app from `apps/web`
+5. `sync-schedule.yml`
+- create scheduled `SYNC` jobs every 30 minutes and consume queue
+6. `autolearn-dispatch.yml`
+- create manual `AUTOLEARN` jobs and consume queue
+7. `worker-consume.yml`
+- worker queue consumer (shared execution flow)
+8. `db-backup.yml`
+- daily DB backup
+9. `codeql.yml`
+- static security analysis for JS/TS
+10. `labeler.yml`
+- automatic PR labeling by changed paths
+11. `stale.yml`
+- stale issue/PR management
 
-## Required Secrets (GitHub)
+## Required GitHub Secrets
 
 - `DATABASE_URL`
 - `APP_MASTER_KEY`
@@ -31,7 +39,7 @@
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
 
-## Required Env (Vercel)
+## Required Vercel Environment Variables
 
 - `DATABASE_URL`
 - `AUTH_JWT_SECRET`
@@ -40,31 +48,39 @@
 - `CU12_BASE_URL`
 - `GITHUB_OWNER`
 - `GITHUB_REPO`
-- `GITHUB_WORKFLOW_ID` (예: `worker-consume.yml`)
-- `GITHUB_WORKFLOW_REF` (예: `main`)
-- `GITHUB_TOKEN` (repo/workflow 권한)
+- `GITHUB_WORKFLOW_ID` (example: `worker-consume.yml`)
+- `GITHUB_WORKFLOW_REF` (example: `main`)
+- `GITHUB_TOKEN`
 
-## First-Time Cloud Setup Order
+## First-Time Cloud Setup
 
-1. GitHub Secrets 설정
-2. Vercel Environment Variables 설정
-3. `DB Bootstrap` 실행
-4. `Deploy Vercel` 실행
-5. `https://<vercel-domain>/api/health` 확인
-6. `Worker Consume` 수동 실행으로 내부 API 연결 확인
+1. Configure GitHub Secrets
+2. Configure Vercel environment variables
+3. Run `DB Bootstrap`
+4. Run `Admin Bootstrap` to create first ADMIN user
+5. Run `Deploy Vercel`
+6. Verify `https://<vercel-domain>/api/health`
+7. Run `Worker Consume` manually once
 
-## 404 Troubleshooting
+## Troubleshooting
 
-- 증상: `https://<vercel-domain>/internal/worker/heartbeat` 가 404
-- 원인: Vercel가 `apps/web`를 빌드하지 못했거나 잘못된 프로젝트 루트로 배포됨
-- 조치:
-1. Vercel 프로젝트 Root Directory를 `apps/web`로 설정
-2. `Deploy Vercel` 재실행
-3. `api/health`가 200인지 확인
-4. 이후 `Worker Consume` 재실행
+### Worker Fails with env validation
 
-## Notes
+- symptom: zod error in worker startup (for example `APP_MASTER_KEY` too short)
+- action: sync shared secrets (`APP_MASTER_KEY`, `WORKER_SHARED_TOKEN`) between GitHub and Vercel, then redeploy web and rerun worker
 
-- self-hosted runner 없이 운영한다.
-- 자동 수강은 영상 길이만큼 러너가 점유된다.
-- 워커 실행시간이 긴 작업은 Actions 제한(최대 6시간)을 넘지 않도록 `AUTOLEARN_MAX_TASKS`를 조절한다.
+### Internal API returns 404
+
+- symptom: `/internal/worker/heartbeat` returns 404
+- action:
+1. verify Vercel Root Directory is `apps/web`
+2. redeploy web
+3. verify `/api/health` = 200
+4. rerun worker
+
+### Dispatch succeeds but no worker result
+
+- action:
+1. inspect queue status via `/api/jobs`
+2. inspect latest run logs: `gh run view <run_id> --log-failed`
+3. verify `WEB_INTERNAL_BASE_URL` points to production web URL
