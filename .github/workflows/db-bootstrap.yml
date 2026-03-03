@@ -19,4 +19,4 @@ jobs:
           cache: "npm"
       - run: npm install
       - name: Push Prisma schema
-        run: npm run prisma:push
+        run: npm run prisma:push -- --accept-data-loss
