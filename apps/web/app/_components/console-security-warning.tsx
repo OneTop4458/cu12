@@ -2,18 +2,27 @@
 
 import { useEffect, useRef } from "react";
 
-function printConsoleWarning() {
-  const banner = [
-    "%c🚫 위험 경고",
-    "color:#b91c1c;font-size:36px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;",
-  ].join("\n");
+function getConsoleStyles() {
+  const isDark =
+    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
 
-  console.log(
-    banner,
-  );
+  return isDark
+    ? {
+      title: "color:#f97316;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;",
+      body: "color:#e2e8f0;font-size:14px;font-weight:600;line-height:1.5;font-family:ui-sans-serif,system-ui,sans-serif;",
+    }
+    : {
+      title: "color:#b91c1c;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;",
+      body: "color:#0f172a;font-size:14px;font-weight:600;line-height:1.5;font-family:ui-sans-serif,system-ui,sans-serif;",
+    };
+}
+
+function printConsoleWarning() {
+  const styles = getConsoleStyles();
+  console.log("%c🚫 위험 경고", styles.title);
   console.log(
     "%c브라우저 개발자 도구는 시스템 접근 권한을 가진 민감한 환경입니다. 신뢰할 수 없는 코드나 스니펫을 붙여넣지 마세요.\nPaste only commands you wrote/understand.\nThis warning is displayed for security reasons and to prevent account/session token leakage.",
-    "color:#111827;font-size:14px;font-weight:600;line-height:1.4;font-family:ui-sans-serif,system-ui,sans-serif;",
+    styles.body,
   );
 }
 
