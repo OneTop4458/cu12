@@ -31,6 +31,41 @@ export interface EnqueueJobResult {
   deduplicated: boolean;
 }
 
+const STALE_WORKER_TIMEOUT_MS = 3 * 60 * 1000;
+
+const STALE_JOB_REQUEUE_DELAY_MS = 60_000;
+
+async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
+  const heartbeatCutoff = new Date(now.getTime() - STALE_WORKER_TIMEOUT_MS);
+  const staleWorkers = await prisma.workerHeartbeat.findMany({
+    where: {
+      lastSeenAt: { lt: heartbeatCutoff },
+    },
+    select: { workerId: true },
+  });
+
+  if (staleWorkers.length === 0) {
+    return 0;
+  }
+
+  const workerIds = Array.from(new Set(staleWorkers.map((item) => item.workerId)));
+  const result = await prisma.jobQueue.updateMany({
+    where: {
+      status: JobStatus.RUNNING,
+      workerId: { in: workerIds },
+    },
+    data: {
+      status: JobStatus.PENDING,
+      startedAt: null,
+      workerId: null,
+      runAfter: new Date(Date.now() + STALE_JOB_REQUEUE_DELAY_MS),
+      lastError: "WORKER_STALE_TIMEOUT",
+    },
+  });
+
+  return result.count;
+}
+
 export async function enqueueJob(input: EnqueueJobInput): Promise<EnqueueJobResult> {
   if (input.idempotencyKey) {
     const existing = await prisma.jobQueue.findFirst({
@@ -79,6 +114,8 @@ export async function getJobForUser(jobId: string, userId: string) {
 }
 
 export async function claimNextJob(workerId: string, types: JobType[]) {
+  await reclaimStaleRunningJobs();
+
   const candidate = await prisma.jobQueue.findFirst({
     where: {
       type: { in: types },
@@ -231,6 +268,8 @@ export async function cancelJob(jobId: string) {
     },
     data: {
       status: JobStatus.CANCELED,
+      startedAt: null,
+      workerId: null,
       finishedAt: new Date(),
       lastError: "CANCELLED_BY_USER",
     },

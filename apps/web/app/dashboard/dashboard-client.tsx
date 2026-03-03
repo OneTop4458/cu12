@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "next";
@@ -139,16 +139,18 @@ function formatSeconds(value: number): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
-  if (h > 0) return `${h}시간 ${m}분`;
-  if (m > 0) return `${m}분 ${s}초`;
-  return `${s}초`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 function formatDays(days: number | null): string {
   if (days === null) return "-";
-  if (days < 0) return "마감 지남";
-  if (days === 0) return "오늘 마감";
+  if (days < 0) return "Overdue";
+  if (days === 0) return "Due today";
   return `D-${days}`;
+}
+
 }
 
 function parseAutoProgress(value: unknown): AutoProgress | null {
@@ -165,7 +167,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [blockingMessage, setBlockingMessage] = useState<string | null>("데이터를 불러오는 중입니다...");
+  const [blockingMessage, setBlockingMessage] = useState<string | null>("?????????? ???곗뵯??????紐꾪닓 嚥싳쉶瑗??꾧틡??????딅젩...");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -189,7 +191,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
   const [bootstrapSyncing, setBootstrapSyncing] = useState(false);
-  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelSubmittingJobId, setCancelSubmittingJobId] = useState<string | null>(null);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -207,6 +209,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const unreadNotifications = notifications.filter((item) => item.isUnread);
   const autoProgress = parseAutoProgress(trackingDetail?.result);
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
+  const isJobCancellable = (status: Job["status"]) => status === "RUNNING" || status === "PENDING";
+  const isCanceling = (jobId: string) => cancelSubmittingJobId === jobId;
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(url, init);
@@ -215,7 +219,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       throw new Error("Unauthorized");
     }
     const payload = (await res.json()) as T & { error?: string };
-    if (!res.ok) throw new Error(payload.error ?? "요청 실패");
+    if (!res.ok) throw new Error(payload.error ?? "???됰Ŋ????????곌숯");
     return payload;
   }, [router]);
 
@@ -224,7 +228,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     else {
       setLoading(true);
       if (!bootstrapSyncing) {
-        setBlockingMessage("데이터를 불러오는 중입니다...");
+        setBlockingMessage("?????????? ???곗뵯??????紐꾪닓 嚥싳쉶瑗??꾧틡??????딅젩...");
       }
     }
     setError(null);
@@ -237,6 +241,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setDeadlines(payload.deadlines);
       setNotifications(payload.notifications);
       setJobs(payload.jobs);
+      if (!trackingJobId) {
+        const activeJob = payload.jobs.find((item) => item.status === "PENDING" || item.status === "RUNNING");
+        if (activeJob) setTrackingJobId(activeJob.id);
+      }
       setAccount(payload.account);
       setMailDraft(payload.preference);
       const requiresMailSetup = payload.preference.updatedAt === null;
@@ -252,7 +260,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setRefreshing(false);
       if (!bootstrapSyncing) setBlockingMessage(null);
     }
-  }, [fetchJson, lectureSeq, bootstrapSyncing]);
+  }, [fetchJson, lectureSeq, bootstrapSyncing, trackingJobId]);
 
   useEffect(() => {
     void refreshAll(false);
@@ -299,7 +307,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     if (summary.initialSyncRequired && !syncInProgress && !bootstrapRef.current) {
       bootstrapRef.current = true;
       setBootstrapSyncing(true);
-      setBlockingMessage("최초 동기화를 진행 중입니다.");
+      setBlockingMessage("?꿔꺂????쭍???????ロ꺙??? ?꿔꺂????紐꾩뗄?嚥싳쉶瑗??꾧틡??????딅젩.");
       void runAction("SYNC", true);
     }
   }, [summary, loading, syncInProgress]);
@@ -329,9 +337,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   async function runAction(action: "SYNC" | "AUTOLEARN", silent = false) {
     setActionSubmitting(true);
     setConfirm(null);
-    if (!silent) setBlockingMessage(action === "SYNC" ? "동기화 요청 처리 중..." : "자동 수강 요청 처리 중...");
+    if (!silent) setBlockingMessage(action === "SYNC" ? "?????ロ꺙?????됰Ŋ????꿔꺂??節뉖き??嚥?.." : "???嶺??????븍뼃 ???됰Ŋ????꿔꺂??節뉖き??嚥?..");
     try {
-      if (action === "AUTOLEARN" && mode !== "ALL_COURSES" && !lectureSeq) throw new Error("강좌를 선택해 주세요.");
+      if (action === "AUTOLEARN" && mode !== "ALL_COURSES" && !lectureSeq) throw new Error("??醫딆┫?뺢껴堉?釉앹췀??ｊ괴?????ｋ??????녿뮝???ル튉??");
       const payload = await fetchJson<JobDispatch>(
         action === "SYNC" ? "/api/jobs/sync-now" : "/api/jobs/autolearn-request",
         action === "SYNC"
@@ -343,7 +351,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           },
       );
       setTrackingJobId(payload.jobId);
-      setMessage(payload.notice ?? (payload.deduplicated ? "이미 진행 중인 작업이 있습니다." : "요청을 접수했습니다."));
+      setMessage(payload.notice ?? (payload.deduplicated ? "???? ?꿔꺂????紐꾩뗄?嚥싳쉶瑗??꾧틡???????????????????딅젩." : "???됰Ŋ???????????????????딅젩."));
       await refreshAll(true);
     } catch (err) {
       setError((err as Error).message);
@@ -353,26 +361,33 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (!bootstrapSyncing) setBlockingMessage(null);
     }
   }
+  async function cancelJobById(jobId: string, status?: Job["status"]) {
+    if (!jobId || isCanceling(jobId)) return;
+    const targetStatus = trackingJobId === jobId ? trackingDetail?.status ?? status : status;
+    if (!isJobCancellable(targetStatus ?? "SUCCEEDED")) return;
 
-  async function cancelTrackingJob() {
-    if (!trackingJobId) return;
-    if (!trackingCanCancel || cancelSubmitting) return;
-    setCancelSubmitting(true);
-    setBlockingMessage("작업 취소를 요청 중입니다...");
+    setCancelSubmittingJobId(jobId);
+    setBlockingMessage("?묒뾽 以묐떒 ?붿껌 以?..");
     try {
-      const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${trackingJobId}/cancel`, {
+      const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${jobId}/cancel`, {
         method: "POST",
       });
-      setMessage(payload.updated ? "작업이 취소 처리되었습니다." : `현재 상태: ${payload.status}`);
+      setMessage(payload.updated ? "?묒뾽 以묐떒 ?붿껌?덉뒿?덈떎." : `?꾩옱 ?곹깭: ${payload.status}`);
+      setTrackingJobId(jobId);
       await refreshAll(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setCancelSubmitting(false);
+      setCancelSubmittingJobId((current) => (current === jobId ? null : current));
       if (!bootstrapSyncing) {
         setBlockingMessage(null);
       }
     }
+  }
+
+  async function cancelTrackingJob() {
+    if (!trackingJobId || !trackingCanCancel) return;
+    await cancelJobById(trackingJobId, trackingDetail?.status);
   }
 
   async function markNotificationRead(item: Notification) {
@@ -401,7 +416,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     event.preventDefault();
     if (!mailDraft) return;
     setMailSaving(true);
-    setBlockingMessage("메일 설정 저장 중...");
+    setBlockingMessage("?꿔꺂????????繹먮냱??????嚥?..");
     try {
       await fetchJson("/api/mail/preferences", {
         method: "PATCH",
@@ -410,7 +425,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       });
       setIsMailSetupRequired(false);
       setSettingsOpen(false);
-      setMessage("메일 설정을 저장했습니다.");
+      setMessage("?꿔꺂????????繹먮냱??????嚥싳쇎維끻퐲??????");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -429,52 +444,52 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     <>
       <header className="page-header branded-header">
         <div>
-          <p className="brand-kicker">가톨릭대학교 공유대학</p>
-          <h1>나의 학습 홈</h1>
+          <p className="brand-kicker">??醫딆쓧?????????????용맪??????댁벖??????/p>
+          <h1>????볥궙??????? ??/h1>
           <p className="muted">{context?.effective.email ?? initialUser.email}</p>
-          {context?.impersonating ? <p className="error-text">관리자 대리 실행 모드</p> : null}
+          {context?.impersonating ? <p className="error-text">???援온??잙갭큔????????????덊떀 ?꿔꺂??袁ㅻ븶???/p> : null}
         </div>
         <div className="header-actions">
-          <button className="ghost-btn" onClick={() => void refreshAll(false)} disabled={loading || refreshing}>새로고침</button>
+          <button className="ghost-btn" onClick={() => void refreshAll(false)} disabled={loading || refreshing}>????沅???쒙쭫??/button>
           {initialUser.role === "ADMIN" ? (
-            <button className="ghost-btn" onClick={() => router.push("/admin" as Route)}>관리자 메뉴</button>
+            <button className="ghost-btn" onClick={() => router.push("/admin" as Route)}>???援온??잙갭큔????꿔꺂??????/button>
           ) : null}
-          <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>설정</button>
-          <button onClick={logout}>로그아웃</button>
+          <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>???繹먮냱??/button>
+          <button onClick={logout}>?汝??吏?????썹땟??/button>
         </div>
       </header>
 
-      {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
+      {refreshing ? <p className="muted">???嶺???醫딆┣???嚥?..</p> : null}
 
       {error ? <p className="error-text">{error}</p> : null}
       {message ? <p className="ok-text">{message}</p> : null}
 
       <section className="grid-4">
-        <article className="card"><h2>진행 강좌</h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
-        <article className="card"><h2>평균 진도율</h2><p className="metric">{Math.round(summary?.avgProgress ?? 0)}%</p></article>
-        <article className="card"><h2>미확인 공지</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
-        <article className="card"><h2>임박 차시</h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
+        <article className="card"><h2>?꿔꺂????紐꾩뗄???醫딆┫?뺢껴堉??/h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
+        <article className="card"><h2>??????꿔꺂???????/h2><p className="metric">{Math.round(summary?.avgProgress ?? 0)}%</p></article>
+        <article className="card"><h2>???붺몭?겹럷???????댁벖?</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
+        <article className="card"><h2>????썹땟怨살춾??꿔꺂?볟젆怨곷븶??/h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
       </section>
 
       <section className="card">
-        <h2>자동 수강</h2>
+        <h2>???嶺??????븍뼃</h2>
         <div className="button-row">
-          <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncInProgress ? "동기화 진행 중" : "즉시 동기화"}</button>
-          <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
+          <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncInProgress ? "?????ロ꺙???꿔꺂????紐꾩뗄?嚥? : "?꿔꺂?ｉ뜮戮녹춹???????ロ꺙??}</button>
+          <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "???嶺??????븍뼃 ?꿔꺂????紐꾩뗄?嚥? : "???嶺??????븍뼃 ???됰Ŋ???}</button>
         </div>
         <div className="form-grid top-gap">
           <label className="field">
-            <span>모드</span>
+            <span>?꿔꺂??袁ㅻ븶???/span>
             <select value={mode} onChange={(event) => setMode(event.target.value as "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES")}>
-              <option value="ALL_COURSES">전체 강좌</option>
-              <option value="SINGLE_ALL">선택 강좌 전체</option>
-              <option value="SINGLE_NEXT">선택 강좌 다음 차시</option>
+              <option value="ALL_COURSES">????썹땟????醫딆┫?뺢껴堉??/option>
+              <option value="SINGLE_ALL">????ｋ????醫딆┫?뺢껴堉??????썹땟??/option>
+              <option value="SINGLE_NEXT">????ｋ????醫딆┫?뺢껴堉?????繹먮굞???꿔꺂?볟젆怨곷븶??/option>
             </select>
           </label>
           <label className="field">
-            <span>대상 강좌</span>
+            <span>??????醫딆┫?뺢껴堉??/span>
             <select value={lectureSeq ?? ""} onChange={(event) => setLectureSeq(Number(event.target.value))} disabled={mode === "ALL_COURSES"}>
-              <option value="">강좌 선택</option>
+              <option value="">??醫딆┫?뺢껴堉??????ｋ??/option>
               {courses.map((course) => <option key={course.lectureSeq} value={course.lectureSeq}>{course.title}</option>)}
             </select>
           </label>
@@ -482,37 +497,37 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         {trackingDetail ? (
           <div className="form-stack top-gap">
             <p className="muted">
-              작업 상태: {trackingDetail.status}
+              ??????????븐뻤?? {trackingDetail.status}
               {autoProgress
-                ? ` (${autoProgress.progress.completedTasks}/${autoProgress.progress.totalTasks}, ${formatSeconds(autoProgress.progress.estimatedRemainingSeconds)} 남음)`
+                ? ` (${autoProgress.progress.completedTasks}/${autoProgress.progress.totalTasks}, ${formatSeconds(autoProgress.progress.estimatedRemainingSeconds)} ????묐┛?`
                 : ""}
             </p>
-            {trackingCanCancel ? (
-              <div className="button-row">
-                <button
-                  className="ghost-btn"
-                  style={{ borderColor: "rgb(180 35 24 / 45%)", color: "var(--danger)" }}
-                  onClick={() => void cancelTrackingJob()}
-                  disabled={cancelSubmitting}
-                >
-                  {cancelSubmitting ? "작업 중단 요청 중..." : "작업 즉시 중단"}
-                </button>
-              </div>
-            ) : null}
+          {trackingCanCancel ? (
+            <div className="button-row">
+              <button
+                className="ghost-btn"
+                style={{ borderColor: "rgb(180 35 24 / 45%)", color: "var(--danger)" }}
+                onClick={() => void cancelTrackingJob()}
+                disabled={isCanceling(trackingJobId)}
+              >
+                {isCanceling(trackingJobId) ? "??얜???繞벿살탮????븐슙??繞?.." : "??얜???嶺뚯빖留??繞벿살탮??}
+              </button>
+            </div>
+          ) : null}
           </div>
         ) : null}
       </section>
 
       <section className="card">
-        <h2>마감 임박 차시</h2>
+        <h2>?꿔꺂????용닽??????썹땟怨살춾??꿔꺂?볟젆怨곷븶??/h2>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>강좌</th><th>주차/차시</th><th>학습인정기간</th><th>남은 시간</th></tr></thead>
+            <thead><tr><th>??醫딆┫?뺢껴堉??/th><th>???녿뮝???쀬씀??꿔꺂?볟젆怨곷븶??/th><th>??????癲ル슢????琉우?耀붾굝梨???굿?/th><th>??? ??????/th></tr></thead>
             <tbody>
-              {deadlines.length === 0 ? <tr><td colSpan={4}>임박 차시가 없습니다.</td></tr> : deadlines.map((item) => (
+              {deadlines.length === 0 ? <tr><td colSpan={4}>????썹땟怨살춾??꿔꺂?볟젆怨곷븶???醫롮?? ????ㅿ폍??????딅젩.</td></tr> : deadlines.map((item) => (
                 <tr key={`${item.lectureSeq}:${item.courseContentsSeq}`}>
                   <td>{item.courseTitle}</td>
-                  <td>{item.weekNo}주차 {item.lessonNo}차시</td>
+                  <td>{item.weekNo}???녿뮝???쀬씀?{item.lessonNo}?꿔꺂?볟젆怨곷븶??/td>
                   <td>{toDateTime(item.availableFrom)} ~ {toDateTime(item.dueAt)}</td>
                   <td>{formatDays(item.daysLeft)} / {formatSeconds(item.remainingSeconds)}</td>
                 </tr>
@@ -523,11 +538,37 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </section>
 
       <section className="card">
-        <h2>미확인 알림</h2>
+        <h2>?臾믩씜 筌뤴뫖以?/h2>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>?ル굝履?/th><th>?怨밴묶</th><th>?遺욧퍕</th><th>?臾믩씜</th></tr></thead>
+            <tbody>
+              {sortedJobs.length === 0 ? <tr><td colSpan={4}>?臾믩씜????곷뮸??덈뼄.</td></tr> : sortedJobs.map((job) => (
+                <tr key={job.id}>
+                  <td>{job.type}</td>
+                  <td>{job.status}</td>
+                  <td>{toDateTime(job.createdAt)}</td>
+                  <td>
+                    {isJobCancellable(job.status) ? (
+                      <button className="ghost-btn" onClick={() => void cancelJobById(job.id, job.status)} disabled={isCanceling(job.id)}>
+                        {isCanceling(job.id) ? "?띯뫁???遺욧퍕 餓?.." : "?띯뫁??}
+                      </button>
+                    ) : (
+                      <span className="muted">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="card">
+        <h2>???붺몭?겹럷????????/h2>
         <div className="notification-list">
-          {unreadNotifications.length === 0 ? <p className="muted">새 알림이 없습니다.</p> : unreadNotifications.map((item) => (
+          {unreadNotifications.length === 0 ? <p className="muted">????????????ㅿ폍??????딅젩.</p> : unreadNotifications.map((item) => (
             <button key={item.id} className="notification-item is-unread" onClick={() => void markNotificationRead(item)}>
-              {item.courseTitle || "시스템"}
+              {item.courseTitle || "??嶺?筌??}
               <span className="muted">{item.message}</span>
             </button>
           ))}
@@ -535,16 +576,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </section>
 
       <section className="card">
-        <h2>강좌 현황</h2>
+        <h2>??醫딆┫?뺢껴堉??????꾣뤃??/h2>
         <div className="course-grid">
           {courses.map((course) => (
             <article key={course.lectureSeq} className="course-card">
               <h3>{course.title}</h3>
-              <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
-              <p>진도율 <strong>{course.progressPercent}%</strong></p>
-              <p className="muted">현재 주차 {course.currentWeekNo ?? "-"} / 미완료 {course.pendingTaskCount}개</p>
-              <p className="muted">다음 차시 마감: {toDateTime(course.nextPendingTask?.dueAt ?? null)}</p>
-              <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
+              <p className="muted">??????????? {course.instructor ?? "-"}</p>
+              <p>?꿔꺂???????<strong>{course.progressPercent}%</strong></p>
+              <p className="muted">????썹땟?????녿뮝???쀬씀?{course.currentWeekNo ?? "-"} / ???붺몭?겹럷???類??{course.pendingTaskCount}??/p>
+              <p className="muted">???繹먮굞???꿔꺂?볟젆怨곷븶???꿔꺂????용닽?? {toDateTime(course.nextPendingTask?.dueAt ?? null)}</p>
+              <button className="ghost-btn" onClick={() => void openNotices(course)}>????댁벖? ??⑤슢?????/button>
             </article>
           ))}
         </div>
@@ -553,10 +594,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       {confirm ? (
         <div className="modal-overlay">
           <section className="modal-card">
-            <h2>{confirm === "SYNC" ? "동기화 실행" : "자동 수강 실행"}</h2>
+            <h2>{confirm === "SYNC" ? "?????ロ꺙???????덊떀" : "???嶺??????븍뼃 ?????덊떀"}</h2>
             <div className="button-row">
-              <button onClick={() => void runAction(confirm)}>실행</button>
-              <button className="ghost-btn" onClick={() => setConfirm(null)}>취소</button>
+              <button onClick={() => void runAction(confirm)}>?????덊떀</button>
+              <button className="ghost-btn" onClick={() => setConfirm(null)}>??????/button>
             </div>
           </section>
         </div>
@@ -565,41 +606,41 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       {settingsOpen ? (
         <div className="modal-overlay">
           <section className="modal-card wide">
-            <h2>회원 설정</h2>
+            <h2>????????繹먮냱??/h2>
             <div className="table-wrap">
               <table>
                 <tbody>
-                  <tr><th>CU12 아이디</th><td>{account?.cu12Id ?? "-"}</td></tr>
-                  <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
-                  <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
-                  <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
-                  <tr><th>다음 마감</th><td>{toDateTime(summary?.nextDeadlineAt ?? null)}</td></tr>
+                  <tr><th>CU12 ????썹땟?㈑??/th><td>{account?.cu12Id ?? "-"}</td></tr>
+                  <tr><th>??辱???/th><td>{account?.campus ?? "-"}</td></tr>
+                  <tr><th>??影??낟??????븐뻤??/th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
+                  <tr><th>?꿔꺂???????????ロ꺙??/th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
+                  <tr><th>???繹먮굞???꿔꺂????용닽??/th><td>{toDateTime(summary?.nextDeadlineAt ?? null)}</td></tr>
                 </tbody>
               </table>
             </div>
             {mailDraft ? (
               <form onSubmit={saveMail} className="form-stack top-gap">
-                <label className="field"><span>수신 이메일</span><input type="email" value={mailDraft.email} onChange={(event) => setMailDraft({ ...mailDraft, email: event.target.value })} required /></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>메일 알림 사용</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnNotice} onChange={(event) => setMailDraft({ ...mailDraft, alertOnNotice: event.target.checked })} /><span>신규 공지/알림 즉시 발송</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnDeadline} onChange={(event) => setMailDraft({ ...mailDraft, alertOnDeadline: event.target.checked })} /><span>차시 마감 임박 알림</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>자동 수강 결과 발송</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.digestEnabled} onChange={(event) => setMailDraft({ ...mailDraft, digestEnabled: event.target.checked })} /><span>일일 요약 메일</span></label>
-                <label className="field"><span>요약 시각 (0~23)</span><input type="number" min={0} max={23} value={mailDraft.digestHour} onChange={(event) => setMailDraft({ ...mailDraft, digestHour: Number(event.target.value) })} /></label>
+                <label className="field"><span>??嶺뚮슣?쒎젆????癲??/span><input type="email" value={mailDraft.email} onChange={(event) => setMailDraft({ ...mailDraft, email: event.target.value })} required /></label>
+                <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>?꿔꺂??????????????/span></label>
+                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnNotice} onChange={(event) => setMailDraft({ ...mailDraft, alertOnNotice: event.target.checked })} /><span>????ャ렑??????댁벖?/??????꿔꺂?ｉ뜮戮녹춹???熬곣뫖利든뜏??/span></label>
+                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnDeadline} onChange={(event) => setMailDraft({ ...mailDraft, alertOnDeadline: event.target.checked })} /><span>?꿔꺂?볟젆怨곷븶???꿔꺂????용닽??????썹땟怨살춾??????/span></label>
+                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>???嶺??????븍뼃 ?嚥▲굧?????熬곣뫖利든뜏??/span></label>
+                <label className="check-field"><input type="checkbox" checked={mailDraft.digestEnabled} onChange={(event) => setMailDraft({ ...mailDraft, digestEnabled: event.target.checked })} /><span>??濚밸Ŧ??????됰Ŋ????꿔꺂?????/span></label>
+                <label className="field"><span>???됰Ŋ?????????(0~23)</span><input type="number" min={0} max={23} value={mailDraft.digestHour} onChange={(event) => setMailDraft({ ...mailDraft, digestHour: Number(event.target.value) })} /></label>
                 {isMailSetupRequired ? (
                   <p className="error-text" style={{ marginBottom: "4px" }}>
-                    최초 접속 사용자입니다. 메일 주소와 알림 설정을 저장해야 대시보드를 계속 사용할 수 있습니다.
+                    ?꿔꺂????쭍????????????????????딅젩. ?꿔꺂????????녿뮝???? ????????繹먮냱??????嚥싳쇎紐???????嶺뚮㉡????? ??影??낟???????????????????딅젩.
                   </p>
                 ) : null}
                 <div className="button-row">
-                  <button type="submit" disabled={mailSaving}>{mailSaving ? "저장 중..." : "저장"}</button>
+                  <button type="submit" disabled={mailSaving}>{mailSaving ? "????嚥?.." : "????}</button>
                   <button
                     type="button"
                     className="ghost-btn"
                     onClick={() => setSettingsOpen(false)}
                     disabled={mailSaving || isMailSetupRequired}
                   >
-                    닫기
+                    ???????
                   </button>
                 </div>
               </form>
@@ -611,8 +652,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       {noticeModalOpen ? (
         <div className="modal-overlay" onClick={() => setNoticeModalOpen(false)}>
           <section className="modal-card wide" onClick={(event) => event.stopPropagation()}>
-            <h2>{noticeCourse?.title ?? "강좌 공지"}</h2>
-            {noticeLoading ? <p className="muted">공지 로딩 중...</p> : null}
+            <h2>{noticeCourse?.title ?? "??醫딆┫?뺢껴堉??????댁벖?"}</h2>
+            {noticeLoading ? <p className="muted">????댁벖? ?汝??吏??뮤?嚥?..</p> : null}
             <div className="notice-layout">
               <div className="notice-list">
                 {notices.map((notice) => (
@@ -625,10 +666,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 {activeNotice ? (
                   <>
                     <h3>{activeNotice.title}</h3>
-                    <p className="muted">{toDateTime(activeNotice.postedAt)} · {activeNotice.author ?? "작성자 미상"}</p>
-                    <pre>{activeNotice.bodyText || "본문 없음"}</pre>
+                    <p className="muted">{toDateTime(activeNotice.postedAt)} ??{activeNotice.author ?? "??????????붺몭?겹럷?룔볂?}</p>
+                    <pre>{activeNotice.bodyText || "??⑤슢?뽫춯??쒐뙴?????ㅼ굡??}</pre>
                   </>
-                ) : <p className="muted">공지를 선택해 주세요.</p>}
+                ) : <p className="muted">????댁벖???????ｋ??????녿뮝???ル튉??</p>}
               </article>
             </div>
           </section>
@@ -638,10 +679,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       {activeNotification ? (
         <div className="modal-overlay" onClick={() => setActiveNotification(null)}>
           <section className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <h2>{activeNotification.courseTitle || "시스템 알림"}</h2>
+            <h2>{activeNotification.courseTitle || "??嶺?筌???????}</h2>
             <p className="muted">{toDateTime(activeNotification.occurredAt ?? activeNotification.createdAt)}</p>
             <p>{activeNotification.message}</p>
-            <button className="ghost-btn" onClick={() => setActiveNotification(null)}>닫기</button>
+            <button className="ghost-btn" onClick={() => setActiveNotification(null)}>???????/button>
           </section>
         </div>
       ) : null}
@@ -649,7 +690,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       {blockingMessage ? (
         <div className="modal-overlay">
           <section className="modal-card">
-            <h2>처리 중</h2>
+            <h2>?꿔꺂??節뉖き??嚥?/h2>
             <p className="muted">{blockingMessage}</p>
             <div className="loading-bar"><span /></div>
           </section>

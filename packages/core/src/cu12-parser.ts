@@ -170,6 +170,7 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
       userId,
       lectureSeq,
       noticeKey,
+      noticeSeq: noticeSeq ?? undefined,
       title,
       author,
       postedAt,

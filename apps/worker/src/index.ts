@@ -1,4 +1,4 @@
-import { JobStatus, JobType, Prisma } from "@prisma/client";
+﻿import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import { claimJob, failJob, finishJob, progressJob, sendHeartbeat } from "./internal-api";
 import { collectCu12Snapshot, runAutoLearning, type AutoLearnMode, type AutoLearnProgress } from "./cu12-automation";
@@ -28,6 +28,24 @@ function errMessage(error: unknown): string {
 function daysUntil(target: Date, now: Date): number {
   const diff = target.getTime() - now.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function startHeartbeatLoop(workerId: string, intervalMs: number) {
+  let stopped = false;
+  const send = () => {
+    if (stopped) return;
+    void sendHeartbeat(workerId).catch(() => {});
+  };
+
+  send();
+  const timer = setInterval(send, Math.max(5_000, intervalMs));
+
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
 }
 
 async function writeAuditLog(input: {
@@ -62,12 +80,12 @@ function formatDuration(seconds: number): string {
   const sec = safe % 60;
 
   if (hour > 0) {
-    return `${hour}시간 ${minute}분`;
+    return `${hour}h ${minute}m ${sec}s`;
   }
   if (minute > 0) {
-    return `${minute}분 ${sec}초`;
+    return `${minute}m ${sec}s`;
   }
-  return `${sec}초`;
+  return `${sec}s`;
 }
 
 function toAutoLearnMode(raw: unknown): AutoLearnMode {
@@ -87,6 +105,7 @@ function parseArgs() {
 }
 
 const AUTOLEARN_CANCEL_ERROR = "AUTOLEARN_CANCELLED";
+const JOB_CANCEL_ERROR = "JOB_CANCELLED";
 
 async function getJobStatus(jobId: string) {
   const job = await prisma.jobQueue.findUnique({
@@ -152,11 +171,11 @@ async function sendSyncAlertMail(
 
   const lines: string[] = [];
   if (pref.alertOnNotice && summary.newNoticeCount > 0) {
-    lines.push(`- 신규 공지 ${summary.newNoticeCount}건이 추가되었습니다.`);
+    lines.push(`- ?좉퇋 怨듭? ${summary.newNoticeCount}嫄댁씠 異붽??섏뿀?듬땲??`);
   }
 
   if (pref.alertOnNotice && summary.newUnreadNotificationCount > 0) {
-    lines.push(`- 읽지 않은 새 알림 ${summary.newUnreadNotificationCount}건이 있습니다.`);
+    lines.push(`- ?쎌? ?딆? ???뚮┝ ${summary.newUnreadNotificationCount}嫄댁씠 ?덉뒿?덈떎.`);
   }
 
   if (pref.alertOnDeadline && summary.deadlineTasks.length > 0) {
@@ -183,12 +202,12 @@ async function sendSyncAlertMail(
       if (!inserted) continue;
 
       deadlineLines.push(
-        `  · ${task.courseTitle} ${task.weekNo}주차 ${task.lessonNo}차시 (D-${daysLeft}, ${dueAt.toLocaleString("ko-KR")})`,
+        `  쨌 ${task.courseTitle} ${task.weekNo}二쇱감 ${task.lessonNo}李⑥떆 (D-${daysLeft}, ${dueAt.toLocaleString("ko-KR")})`,
       );
     }
 
     if (deadlineLines.length > 0) {
-      lines.push("- 차시 마감 임박:");
+      lines.push("- 李⑥떆 留덇컧 ?꾨컯:");
       lines.push(...deadlineLines.slice(0, 10));
     }
   }
@@ -197,13 +216,13 @@ async function sendSyncAlertMail(
     return;
   }
 
-  const subject = "[CU12] 공지/마감 알림";
+  const subject = "[CU12] 怨듭?/留덇컧 ?뚮┝";
   const text = [
-    "동기화 결과 알림입니다.",
+    "?숆린??寃곌낵 ?뚮┝?낅땲??",
     "",
     ...lines,
     "",
-    "대시보드에서 상세 내용을 확인하세요.",
+    "??쒕낫?쒖뿉???곸꽭 ?댁슜???뺤씤?섏꽭??",
   ].join("\n");
 
   try {
@@ -255,14 +274,14 @@ async function sendAutoLearnResultMail(
     return;
   }
 
-  const subject = "[CU12] 자동수강 실행 결과";
+  const subject = "[CU12] ?먮룞?섍컯 ?ㅽ뻾 寃곌낵";
   const text = [
-    "자동수강 작업이 완료되었습니다.",
+    "?먮룞?섍컯 ?묒뾽???꾨즺?섏뿀?듬땲??",
     "",
-    `- 실행 모드: ${payload.mode}`,
-    `- 처리된 차시: ${payload.watchedTaskCount}/${payload.plannedTaskCount}`,
-    `- 재생 시간: ${formatDuration(payload.watchedSeconds)}`,
-    payload.truncated ? "- 안내: 안전 제한값(AUTOLEARN_MAX_TASKS)으로 일부 차시는 다음 실행에서 처리됩니다." : "",
+    `- ?ㅽ뻾 紐⑤뱶: ${payload.mode}`,
+    `- 泥섎━??李⑥떆: ${payload.watchedTaskCount}/${payload.plannedTaskCount}`,
+    `- ?ъ깮 ?쒓컙: ${formatDuration(payload.watchedSeconds)}`,
+    payload.truncated ? "- ?덈궡: ?덉쟾 ?쒗븳媛?AUTOLEARN_MAX_TASKS)?쇰줈 ?쇰? 李⑥떆???ㅼ쓬 ?ㅽ뻾?먯꽌 泥섎━?⑸땲??" : "",
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -301,15 +320,16 @@ async function sendAutoLearnResultMail(
   }
 }
 
-async function processSync(jobId: string, userId: string) {
+async function processSync(jobId: string, userId: string, onCancelCheck?: CancelCheck) {
   const creds = await getUserCu12Credentials(userId);
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
 
   const browser = await chromium.launch({ headless: true });
+  const shouldCancel = onCancelCheck ?? (async () => false);
   try {
-    const snapshot = await collectCu12Snapshot(browser, userId, creds);
+    const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
     const persisted = await persistSnapshot(userId, snapshot);
     await markAccountConnected(userId);
 
@@ -320,7 +340,7 @@ async function processSync(jobId: string, userId: string) {
       newUnreadNotificationCount: persisted.newUnreadNotificationCount,
       deadlineTasks: persisted.deadlineTasks.map((task) => ({
         ...task,
-        courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+        courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `媛뺤쥖 ${task.lectureSeq}`,
       })),
     });
 
@@ -353,6 +373,20 @@ async function processSync(jobId: string, userId: string) {
     if (/login|Unauthorized|need/i.test(message)) {
       await markAccountNeedsReauth(userId, message);
     }
+    const isCancelled = message === JOB_CANCEL_ERROR;
+    if (isCancelled) {
+      await writeAuditLog({
+        category: "WORKER",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "SYNC job cancelled",
+        meta: {
+          jobId,
+        },
+      });
+      throw error;
+    }
+
     await writeAuditLog({
       category: "WORKER",
       severity: "ERROR",
@@ -374,6 +408,7 @@ async function processAutolearn(
   userId: string,
   mode: AutoLearnMode,
   lectureSeq?: number,
+  onCancelCheck?: CancelCheck,
 ) {
   const creds = await getUserCu12Credentials(userId);
   if (!creds) {
@@ -399,7 +434,8 @@ async function processAutolearn(
     await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, watched=${autoResult.watchedTaskCount}`);
 
     // Refresh snapshots after playback updates.
-    const snapshot = await collectCu12Snapshot(browser, userId, creds);
+    const shouldCancel = onCancelCheck ?? (async () => false);
+    const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
     await persistSnapshot(userId, snapshot);
 
     await sendAutoLearnResultMail(userId, {
@@ -435,7 +471,7 @@ async function processAutolearn(
     };
   } catch (error) {
     const message = errMessage(error);
-    const isCancelled = message === AUTOLEARN_CANCEL_ERROR;
+    const isCancelled = message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR;
 
     if (!isCancelled) {
       await recordLearningRun(userId, lectureSeq ?? null, "FAILED", message);
@@ -509,21 +545,21 @@ async function processMailDigest(userId: string) {
     : [];
   const titleBySeq = new Map(titleRows.map((row) => [row.lectureSeq, row.title]));
 
-  const subject = "[CU12] 일일 학습 요약";
+  const subject = "[CU12] Weekly digest";
   const lines: string[] = [
-    "오늘의 CU12 요약입니다.",
+    "CU12 digest generated",
     "",
-    `- 진행 중 강좌: ${summary._count._all}개`,
-    `- 평균 진도율: ${Math.round(summary._avg.progressPercent ?? 0)}%`,
-    `- 읽지 않은 공지: ${unreadNotices}건`,
-    `- 읽지 않은 알림: ${unreadNotifications}건`,
+    `- Active courses: ${summary._count._all}`,
+    `- Average progress: ${Math.round(summary._avg.progressPercent ?? 0)}%`,
+    `- Unread notices: ${unreadNotices}`,
+    `- Unread notifications: ${unreadNotifications}`,
   ];
 
   if (dueSoonTasks.length > 0) {
-    lines.push("", "마감 임박 차시");
+    lines.push("", "留덇컧 ?꾨컯 李⑥떆");
     for (const task of dueSoonTasks) {
-      const title = titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`;
-      lines.push(`- ${title} ${task.weekNo}주차 ${task.lessonNo}차시 (${task.dueAt?.toLocaleString("ko-KR") ?? "-"})`);
+      const title = titleBySeq.get(task.lectureSeq) ?? `媛뺤쥖 ${task.lectureSeq}`;
+      lines.push(`- ${title} ${task.weekNo}二쇱감 ${task.lessonNo}李⑥떆 (${task.dueAt?.toLocaleString("ko-KR") ?? "-"})`);
     }
   }
 
@@ -569,54 +605,72 @@ async function main() {
   const once = process.argv.includes("--once");
   const jobTypes = parseJobTypes(args.get("types"));
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
+  const heartbeat = startHeartbeatLoop(workerId, env.POLL_INTERVAL_MS);
 
-  while (true) {
-    try {
-      await sendHeartbeat(workerId);
-      const job = await claimJob(workerId, jobTypes);
-
-      if (!job) {
-        if (once) break;
-        await sleep(env.POLL_INTERVAL_MS);
-        continue;
-      }
-
+  try {
+    while (true) {
       try {
-        const currentStatus = await getJobStatus(job.id);
-        if (currentStatus !== JobStatus.RUNNING) {
+        const job = await claimJob(workerId, jobTypes);
+
+        if (!job) {
+          if (once) break;
+          await sleep(env.POLL_INTERVAL_MS);
           continue;
         }
 
+        try {
+          const currentStatus = await getJobStatus(job.id);
+          if (currentStatus !== JobStatus.RUNNING) {
+            continue;
+          }
+
         let result: unknown;
         if (job.type === JobType.SYNC || job.type === JobType.NOTICE_SCAN) {
-          result = await processSync(job.id, job.payload.userId);
+          const shouldCancel = async () => {
+            const status = await getJobStatus(job.id);
+            return status === null || status === JobStatus.CANCELED;
+          };
+          result = await processSync(job.id, job.payload.userId, shouldCancel);
         } else if (job.type === JobType.AUTOLEARN) {
+          const shouldCancel = async () => {
+            const status = await getJobStatus(job.id);
+            return status === null || status === JobStatus.CANCELED;
+          };
           const mode = toAutoLearnMode(job.payload.autoLearnMode);
-          result = await processAutolearn(job.id, job.payload.userId, mode, job.payload.lectureSeq);
+          result = await processAutolearn(
+            job.id,
+            job.payload.userId,
+            mode,
+            job.payload.lectureSeq,
+            shouldCancel,
+          );
         } else {
           result = await processMailDigest(job.payload.userId);
         }
 
-        const terminalStatus = await getJobStatus(job.id);
-        if (terminalStatus !== JobStatus.RUNNING) {
-          continue;
-        }
+          const terminalStatus = await getJobStatus(job.id);
+          if (terminalStatus !== JobStatus.RUNNING) {
+            continue;
+          }
 
-        await finishJob(job.id, result);
-      } catch (jobError) {
-        const message = errMessage(jobError);
-        const terminalStatus = await getJobStatus(job.id);
-        if (message === AUTOLEARN_CANCEL_ERROR || terminalStatus === JobStatus.CANCELED) {
-          continue;
+          await finishJob(job.id, result);
+        } catch (jobError) {
+          const message = errMessage(jobError);
+          const terminalStatus = await getJobStatus(job.id);
+          if (message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR || terminalStatus === JobStatus.CANCELED) {
+            continue;
+          }
+          await failJob(job.id, message);
         }
-        await failJob(job.id, message);
+      } catch (loopError) {
+        if (once) {
+          throw loopError;
+        }
+        await sleep(env.POLL_INTERVAL_MS);
       }
-    } catch (loopError) {
-      if (once) {
-        throw loopError;
-      }
-      await sleep(env.POLL_INTERVAL_MS);
     }
+  } finally {
+    heartbeat.stop();
   }
 }
 

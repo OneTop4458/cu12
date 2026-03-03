@@ -18,6 +18,7 @@ export interface CourseNotice {
   userId: string;
   lectureSeq: number;
   noticeKey: string;
+  noticeSeq?: string;
   title: string;
   author: string | null;
   postedAt: string | null;

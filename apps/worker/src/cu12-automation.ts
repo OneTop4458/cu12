@@ -100,58 +100,151 @@ async function ensureLogin(page: Page, creds: Cu12Credentials) {
   });
 }
 
-async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<string[]> {
+async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<{ noticeSeq: string; bodyText: string }>> {
   return page.evaluate(async (seq) => {
-    function normalize(text: string): string {
-      return text.replace(/\s+/g, " ").trim();
+    const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+    function stripMarkup(container: HTMLElement): string {
+      container.querySelectorAll("script, style, link").forEach((node) => node.remove());
+      return normalize(container.textContent ?? "");
     }
 
-    const scriptText = Array.from(document.querySelectorAll("script"))
+    function extractContentsSeq(html: string): string | null {
+      const matches = [
+        /CONTENTS_SEQ\s*[:=]\s*["']?(\d+)["']?/i,
+        /contentSeq\s*[:=]\s*["']?(\d+)["']?/i,
+        /course_contents_seq\s*[:=]\s*["']?(\d+)["']?/i,
+      ];
+      for (const match of matches) {
+        const found = html.match(match);
+        if (found?.[1]) return found[1];
+      }
+      return null;
+    }
+
+      const scriptText = Array.from(document.querySelectorAll("script"))
       .map((script) => script.textContent ?? "")
       .join("\n");
     const courseSeq = scriptText.match(/COURSE_SEQ\s*:\s*"(\d+)"/)?.[1] ?? "";
+    const noticeSeqs = Array.from(document.querySelectorAll<HTMLButtonElement>('button.notice_title[id^="notice_tit_"], button.notice_title'))
+      .map((button) => button.id.replace("notice_tit_", "").trim())
+      .filter((noticeSeq) => noticeSeq.length > 0);
 
-    const noticeButtons = Array.from(
-      document.querySelectorAll<HTMLButtonElement>('button.notice_title[id^="notice_tit_"]'),
-    );
+    const resolveNoticeContent = async (noticeSeq: string) => {
+      const body = new URLSearchParams({
+        COURSE_SEQ: courseSeq,
+        LECTURE_SEQ: String(seq),
+        CUR_LECTURE_SEQ: String(seq),
+        ARTL_SEQ: noticeSeq,
+        encoding: "utf-8",
+      }).toString();
 
-    const results: string[] = [];
+      const detailResponse = await fetch("/el/class/notice_list.acl", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body,
+      });
 
-    for (const button of noticeButtons) {
-      const noticeSeq = button.id.replace("notice_tit_", "").trim();
-      if (!noticeSeq) {
-        results.push("");
-        continue;
+      if (!detailResponse.ok) {
+        return { bodyText: "", attachments: [] as Array<{ name: string; url: string }> };
       }
 
+      const detailHtml = await detailResponse.text();
+      const detail = document.createElement("div");
+      detail.innerHTML = detailHtml;
+
+      const contentNode =
+        detail.querySelector(".class_notice_content")
+        ?? detail.querySelector(".editor_content")
+        ?? detail.querySelector(`#notice_txt_${noticeSeq}`)
+        ?? detail.querySelector(".view_cont, .notice_cont, .cont, .txt");
+
+      const bodyText = contentNode ? stripMarkup(contentNode as HTMLElement) : "";
+      const rawContentsSeq = extractContentsSeq(detailHtml) ?? extractContentsSeq(detail.innerHTML);
+      if (!rawContentsSeq) {
+        return { bodyText, attachments: [] as Array<{ name: string; url: string }> };
+      }
+
+      const candidateRequests = [
+        {
+          method: "POST" as const,
+          url: "/el/co/file_list_user4.acl",
+          body: new URLSearchParams({
+            CONTENTS_SEQ: rawContentsSeq,
+            LECTURE_SEQ: String(seq),
+            encoding: "utf-8",
+          }).toString(),
+        },
+        {
+          method: "GET" as const,
+          url: `/el/co/file_list_user4.acl?CONTENTS_SEQ=${rawContentsSeq}&LECTURE_SEQ=${seq}&encoding=utf-8`,
+        },
+      ];
+
+      let attachments: Array<{ name: string; url: string }> = [];
+      for (const request of candidateRequests) {
+        try {
+          const response = await fetch(request.url, {
+            method: request.method,
+            headers: {
+              "x-requested-with": "XMLHttpRequest",
+              ...(request.method === "POST" ? { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" } : {}),
+            },
+            ...(request.method === "POST" ? { body: request.body } : {}),
+          });
+          if (!response.ok) continue;
+
+          const fileHtml = await response.text();
+          const fileDoc = document.createElement("div");
+          fileDoc.innerHTML = fileHtml;
+          const foundLinks = Array.from(fileDoc.querySelectorAll("a[href*='file_download'], a[data-href*='file_download']"));
+          const nextAttachments = foundLinks
+            .map((link) => {
+              const href = (link.getAttribute("href") ?? link.getAttribute("data-href") ?? "").trim();
+              const name = normalize(link.textContent ?? "");
+              return href && name ? { name, url: href } : null;
+            })
+            .filter((item): item is { name: string; url: string } => Boolean(item));
+
+          if (nextAttachments.length > 0) {
+            attachments = nextAttachments;
+            break;
+          }
+
+          const fallbackNames = Array.from(fileDoc.querySelectorAll("li, tr"))
+            .map((row) => {
+              const text = normalize(row.textContent ?? "");
+              const href = row.querySelector("a")?.getAttribute("href")?.trim();
+              return href && text ? { name: text, url: href } : null;
+            })
+            .filter((item): item is { name: string; url: string } => Boolean(item));
+
+          if (fallbackNames.length > 0) {
+            attachments = fallbackNames;
+            break;
+          }
+        } catch {
+          // no-op
+        }
+      }
+
+      return { bodyText, attachments };
+    };
+
+    const results: Array<{ noticeSeq: string; bodyText: string }> = [];
+
+    const normalizedSeqs = noticeSeqs.length > 0 ? noticeSeqs : Array.from(document.querySelectorAll("button.notice_title")).map((button) => button.id || "").filter(Boolean);
+
+    for (const noticeSeq of normalizedSeqs) {
       try {
-        const body = new URLSearchParams({
-          COURSE_SEQ: courseSeq,
-          LECTURE_SEQ: String(seq),
-          CUR_LECTURE_SEQ: String(seq),
-          ARTL_SEQ: noticeSeq,
-          encoding: "utf-8",
-        }).toString();
-
-        const response = await fetch("/el/class/notice_list.acl", {
-          method: "POST",
-          headers: {
-            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-          },
-          body,
-        });
-
-        const html = await response.text();
-        const wrapper = document.createElement("div");
-        wrapper.innerHTML = html;
-        const content =
-          wrapper.querySelector(".class_notice_content")
-          ?? wrapper.querySelector(".editor_content")
-          ?? wrapper;
-        const text = normalize((content.textContent ?? "").replace(/^공지내용/, ""));
-        results.push(text);
+        const { bodyText, attachments } = await resolveNoticeContent(noticeSeq);
+        const attachmentBlock =
+          attachments.length === 0
+            ? ""
+            : `\n\n[첨부파일]\n${attachments.map((file) => `- ${file.name} (${file.url})`).join("\n")}`;
+        results.push({ noticeSeq, bodyText: `${bodyText}${attachmentBlock}`.trim() });
       } catch {
-        results.push("");
+        results.push({ noticeSeq, bodyText: "" });
       }
     }
 
@@ -172,14 +265,24 @@ async function fetchNotificationHtml(page: Page): Promise<string> {
   });
 }
 
-export async function collectCu12Snapshot(browser: Browser, userId: string, creds: Cu12Credentials): Promise<SyncSnapshotResult> {
+export async function collectCu12Snapshot(
+  browser: Browser,
+  userId: string,
+  creds: Cu12Credentials,
+  onCancelCheck?: CancelCheck,
+): Promise<SyncSnapshotResult> {
   const env = getEnv();
   const context = await browser.newContext();
   const page = await context.newPage();
+  const shouldCancel = onCancelCheck ?? (async () => false);
   installDialogHandler(page);
 
   try {
     await ensureLogin(page, creds);
+
+    if (await shouldCancel()) {
+      throw new Error("JOB_CANCELLED");
+    }
 
     await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
     const myCourseHtml = await page.content();
@@ -189,22 +292,39 @@ export async function collectCu12Snapshot(browser: Browser, userId: string, cred
     const tasks: LearningTask[] = [];
 
     for (const course of courses) {
+      if (await shouldCancel()) {
+        throw new Error("JOB_CANCELLED");
+      }
+
       await page.goto(`${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
       });
       const noticeList = parseNoticeListHtml(await page.content(), userId, course.lectureSeq);
       const noticeBodies = await fetchNoticeBodies(page, course.lectureSeq);
+      const fallbackBodies = noticeBodies.map((item) => item.bodyText);
+      const bodiesByNoticeSeq = new Map(noticeBodies.map((item) => [item.noticeSeq, item.bodyText]));
       notices.push(
-        ...noticeList.map((notice, index) => ({
-          ...notice,
-          bodyText: noticeBodies[index] || notice.bodyText,
-        })),
+        ...noticeList.map((notice, index) => {
+          const bodyText = notice.noticeSeq ? (bodiesByNoticeSeq.get(notice.noticeSeq) ?? fallbackBodies[index]) : fallbackBodies[index];
+          return {
+            ...notice,
+            bodyText: bodyText || notice.bodyText,
+          };
+        }),
       );
+
+      if (await shouldCancel()) {
+        throw new Error("JOB_CANCELLED");
+      }
 
       await page.goto(`${env.CU12_BASE_URL}/el/class/todo_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
       });
       tasks.push(...parseTodoVodTasks(await page.content(), userId, course.lectureSeq));
+    }
+
+    if (await shouldCancel()) {
+      throw new Error("JOB_CANCELLED");
     }
 
     await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
