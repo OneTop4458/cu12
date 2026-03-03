@@ -861,6 +861,11 @@ paths:
             minimum: 1
             maximum: 500
         - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
           name: category
           schema:
             type: string
@@ -878,6 +883,66 @@ paths:
       responses:
         "200":
           description: Audit log list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logs, pagination]
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, category, severity, message, createdAt]
+                      properties:
+                        id:
+                          type: string
+                        category:
+                          type: string
+                          enum: [AUTH, ADMIN, JOB, WORKER, MAIL, PARSER, SECURITY, IMPERSONATION]
+                        severity:
+                          type: string
+                          enum: [INFO, WARN, ERROR]
+                        message:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                        actor:
+                          type: object
+                          nullable: true
+                          properties:
+                            email:
+                              type: string
+                              format: email
+                        target:
+                          type: object
+                          nullable: true
+                          properties:
+                            email:
+                              type: string
+                              format: email
+                  pagination:
+                    type: object
+                    required: [page, limit, total, totalPages, hasNextPage, hasPrevPage]
+                    properties:
+                      page:
+                        type: integer
+                        minimum: 1
+                      limit:
+                        type: integer
+                        minimum: 1
+                        maximum: 500
+                      total:
+                        type: integer
+                        minimum: 0
+                      totalPages:
+                        type: integer
+                        minimum: 1
+                      hasNextPage:
+                        type: boolean
+                      hasPrevPage:
+                        type: boolean
 
   /api/admin/members/{userId}/mail-test:
     post:

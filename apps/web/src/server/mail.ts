@@ -17,12 +17,19 @@ export async function sendMail(to: string, subject: string, text: string) {
     },
   });
 
-  await transporter.sendMail({
-    from: env.SMTP_FROM,
-    to,
-    subject,
-    text,
-  });
+  try {
+    await transporter.sendMail({
+      from: env.SMTP_FROM,
+      to,
+      subject,
+      text,
+    });
 
-  return { sent: true as const };
+    return { sent: true as const };
+  } catch (error) {
+    return {
+      sent: false as const,
+      reason: (error instanceof Error ? error.message : "MAIL_TRANSPORT_ERROR") as const,
+    };
+  }
 }

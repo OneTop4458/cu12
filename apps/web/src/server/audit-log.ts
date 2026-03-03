@@ -32,20 +32,23 @@ export async function writeAuditLog(input: WriteAuditLogInput) {
 
 export interface ListAuditLogInput {
   limit?: number;
+  page?: number;
+  skip?: number;
   category?: AuditCategory;
   severity?: AuditSeverity;
   targetUserId?: string;
 }
 
 export async function listAuditLogs(input?: ListAuditLogInput) {
+  const limit = Math.min(Math.max(input?.limit ?? 100, 1), 500);
+  const page = Number.isFinite(input?.page) ? Math.max(Math.trunc(input.page ?? 1), 1) : 1;
+  const skip = Number.isFinite(input?.skip) ? Math.max(Math.trunc(input.skip ?? 0), 0) : (page - 1) * limit;
+
   return prisma.auditLog.findMany({
-    where: {
-      ...(input?.category ? { category: input.category } : {}),
-      ...(input?.severity ? { severity: input.severity } : {}),
-      ...(input?.targetUserId ? { targetUserId: input.targetUserId } : {}),
-    },
+    where: buildAuditLogWhere(input),
     orderBy: { createdAt: "desc" },
-    take: Math.min(Math.max(input?.limit ?? 100, 1), 500),
+    skip,
+    take: limit,
     include: {
       actor: {
         select: {
@@ -63,5 +66,19 @@ export async function listAuditLogs(input?: ListAuditLogInput) {
       },
     },
   });
+}
+
+export async function countAuditLogs(input?: ListAuditLogInput) {
+  return prisma.auditLog.count({
+    where: buildAuditLogWhere(input),
+  });
+}
+
+function buildAuditLogWhere(input?: ListAuditLogInput) {
+  return {
+    ...(input?.category ? { category: input.category } : {}),
+    ...(input?.severity ? { severity: input.severity } : {}),
+    ...(input?.targetUserId ? { targetUserId: input.targetUserId } : {}),
+  } as const;
 }
 

@@ -108,6 +108,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
     }
-    return jsonError("Failed to send test mail", 500);
+    return jsonError(error instanceof Error ? error.message : "Failed to send test mail", 500);
   }
 }

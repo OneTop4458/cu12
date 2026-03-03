@@ -217,6 +217,26 @@ button:disabled {
   background: #f5f9ff;
 }
 
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.pagination-button {
+  min-width: 44px;
+}
+
+.pagination-button.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+}
+
 .table-wrap {
   overflow-x: auto;
 }

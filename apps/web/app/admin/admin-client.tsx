@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
@@ -56,6 +56,22 @@ interface LogItem {
   target: { email: string } | null;
 }
 
+interface LogPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+interface LogListResponse {
+  logs: LogItem[];
+  pagination: LogPagination;
+}
+
+const LOG_PAGE_LIMIT = 50;
+
 function toDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("ko-KR") : "-";
 }
@@ -71,7 +87,9 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [members, setMembers] = useState<MemberItem[]>([]);
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
+  const [logPagination, setLogPagination] = useState<LogPagination | null>(null);
   const [latestToken, setLatestToken] = useState<string | null>(null);
+  const [logPage, setLogPage] = useState(1);
 
   const [inviteCu12Id, setInviteCu12Id] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "USER">("USER");
@@ -109,18 +127,20 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         fetchJson<SessionContext>("/api/session/context"),
         fetchJson<{ members: MemberItem[] }>("/api/admin/members?limit=300"),
         fetchJson<{ invites: InviteItem[] }>("/api/auth/invite"),
-        fetchJson<{ logs: LogItem[] }>("/api/admin/logs?limit=200"),
+        fetchJson<LogListResponse>(`/api/admin/logs?page=${logPage}&limit=${LOG_PAGE_LIMIT}`),
       ]);
       setContext(ctx);
       setMembers(memberRes.members);
       setInvites(inviteRes.invites);
       setLogs(logRes.logs);
+      setLogPagination(logRes.pagination);
+      setLogPage(logRes.pagination.page);
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, logPage]);
 
   useEffect(() => {
     void refreshAll();
@@ -130,6 +150,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     event.preventDefault();
     setInviteSubmitting(true);
     setError(null);
+    setBlockingMessage("초대 코드 발급 중...");
 
     try {
       const payload = await fetchJson<{ token: string; expiresAt: string }>("/api/auth/invite", {
@@ -150,6 +171,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       setError((err as Error).message);
     } finally {
       setInviteSubmitting(false);
+      setBlockingMessage(null);
     }
   }
 
@@ -224,6 +246,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   async function toggleInvite(invite: InviteItem) {
     const nextState = invite.state === "INACTIVE";
+    setBlockingMessage(nextState ? "초대 코드 활성화 중..." : "초대 코드 비활성화 중...");
     try {
       await fetchJson("/api/auth/invite", {
         method: "PATCH",
@@ -237,10 +260,13 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       setMessage(nextState ? "초대코드가 활성화되었습니다." : "초대코드가 비활성화되었습니다.");
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBlockingMessage(null);
     }
   }
 
   async function toggleMemberActive(member: MemberItem) {
+    setBlockingMessage(member.isActive ? "회원 비활성화 중..." : "회원 활성화 중...");
     try {
       await fetchJson(`/api/admin/members/${member.id}`, {
         method: "PATCH",
@@ -251,12 +277,15 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       setMessage(`회원이 ${member.isActive ? "비활성화" : "활성화"} 되었습니다.`);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBlockingMessage(null);
     }
   }
 
   async function deactivateMember(member: MemberItem) {
     const ok = window.confirm("정말 탈퇴 처리(비활성화) 하시겠습니까?");
     if (!ok) return;
+    setBlockingMessage("회원 탈퇴 처리 중...");
     try {
       await fetchJson(`/api/admin/members/${member.id}`, {
         method: "DELETE",
@@ -265,12 +294,15 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       setMessage("회원이 탈퇴 처리되었습니다.");
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBlockingMessage(null);
     }
   }
 
   async function sendTestMail(member: MemberItem) {
     setMailTestUserId(member.id);
     setError(null);
+    setBlockingMessage("메일 테스트 발송 중...");
     try {
       const to = member.mailPreference?.email ?? member.email;
       await fetchJson(`/api/admin/members/${member.id}/mail-test`, {
@@ -285,9 +317,31 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      setBlockingMessage(null);
       setMailTestUserId(null);
     }
   }
+
+  const logPageButtons = useMemo(() => {
+    const totalPages = logPagination?.totalPages ?? 1;
+    const currentPage = logPagination?.page ?? 1;
+    const maxButtons = 7;
+    const half = Math.floor(maxButtons / 2);
+    let start = Math.max(1, currentPage - half);
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    start = Math.max(1, end - maxButtons + 1);
+
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [logPagination?.page, logPagination?.totalPages]);
+
+  const goToLogPage = useCallback(
+    (page: number) => {
+      const totalPages = logPagination?.totalPages ?? 1;
+      const nextPage = Math.min(Math.max(page, 1), totalPages);
+      setLogPage((previousPage) => (previousPage === nextPage ? previousPage : nextPage));
+    },
+    [logPagination?.totalPages],
+  );
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -417,6 +471,36 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             </tbody>
           </table>
         </div>
+        {logPagination?.totalPages && logPagination.totalPages > 1 ? (
+          <div className="pagination">
+            <button
+              type="button"
+              className="pagination-button ghost-btn"
+              onClick={() => goToLogPage((logPagination?.page ?? 1) - 1)}
+              disabled={logPagination?.hasPrevPage === false}
+            >
+              이전
+            </button>
+            {logPageButtons.map((page) => (
+              <button
+                key={page}
+                type="button"
+                className={`pagination-button ghost-btn${(logPagination?.page ?? 1) === page ? " active" : ""}`}
+                onClick={() => goToLogPage(page)}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="pagination-button ghost-btn"
+              onClick={() => goToLogPage((logPagination?.page ?? 1) + 1)}
+              disabled={logPagination?.hasNextPage === false}
+            >
+              다음
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="card">
