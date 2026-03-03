@@ -62,29 +62,22 @@ jobs:
           cache: "npm"
       - run: npm install
       - run: npm i -g vercel@latest
-      - id: verify_vercel
-        name: Validate Vercel token
+      - name: Validate Vercel token
         shell: bash
         run: |
           if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::warning::VERCEL_TOKEN is missing. Skipping deploy."
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::VERCEL_TOKEN is missing. Set repository secret VERCEL_TOKEN."
+            exit 1
           fi
 
           if ! vercel whoami --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
-            echo "::warning::VERCEL_TOKEN is invalid/expired. Skipping deploy."
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::VERCEL_TOKEN is invalid or expired."
+            exit 1
           fi
 
-          echo "valid=true" >> "$GITHUB_OUTPUT"
       - name: Pull Vercel project settings
-        if: steps.verify_vercel.outputs.valid == 'true'
         run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
       - name: Build production bundle
-        if: steps.verify_vercel.outputs.valid == 'true'
         run: vercel build --prod --token=$VERCEL_TOKEN
       - name: Deploy production bundle
-        if: steps.verify_vercel.outputs.valid == 'true'
         run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
