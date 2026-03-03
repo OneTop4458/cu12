@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 type Campus = "SONGSIM" | "SONGSIN";
 
@@ -184,6 +185,7 @@ export function LoginForm() {
         {error ? <p className="error-text">{error}</p> : null}
 
         <button type="submit" disabled={submitting} className="btn btn-success">
+          {submitting ? <Loader2 className="spin" size={16} /> : null}
           {submitting ? "처리 중..." : "로그인"}
         </button>
       </form>

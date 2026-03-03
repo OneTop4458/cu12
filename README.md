@@ -139,6 +139,23 @@ npm run typecheck
 npm run build:web
 ```
 
+## 2026-03-04 UI/UX Modernization
+
+- Added a modernized web shell in `apps/web` with shared visual tokens in `apps/web/app/globals.css`.
+- Added theme system support with `next-themes` (`light`, `dark`, `system`) and a reusable theme provider.
+- Modernized dashboard and admin headers into a unified topbar with quick actions, notification center, and user menu.
+- Introduced reusable UI modules:
+  - `apps/web/components/theme/theme-provider.tsx`
+  - `apps/web/components/theme/theme-toggle.tsx`
+  - `apps/web/components/layout/user-menu.tsx`
+  - `apps/web/components/notifications/notification-center.tsx`
+- Updated login shell for consistent visual framing and preserved core auth flow behavior.
+- Validation commands executed:
+  - `npm run check:text`
+  - `npm run prisma:generate`
+  - `npm run typecheck`
+  - `npm run build:web`
+
 ## 9. Required Environment Variables
 
 ### Common

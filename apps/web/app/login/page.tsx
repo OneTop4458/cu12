@@ -1,7 +1,8 @@
-﻿import { cookies } from "next/headers";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { IDLE_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, verifyActiveSession } from "@/lib/auth";
 import { LoginForm } from "./login-form";
+import { ThemeToggle } from "../../components/theme/theme-toggle";
 
 export default async function LoginPage() {
   const cookieStore = await cookies();
@@ -15,6 +16,9 @@ export default async function LoginPage() {
 
   return (
     <main className="auth-main">
+      <div className="auth-toolbar">
+        <ThemeToggle />
+      </div>
       <section className="auth-stage">
         <section className="auth-brand">
           <img

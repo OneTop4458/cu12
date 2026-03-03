@@ -3,6 +3,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { RotateCw } from "lucide-react";
+import { NotificationCenter } from "../../components/notifications/notification-center";
+import { ThemeToggle } from "../../components/theme/theme-toggle";
+import { UserMenu } from "../../components/layout/user-menu";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
@@ -117,6 +121,15 @@ interface MemberCreateResponse {
   created: boolean;
 }
 
+interface AdminNotification {
+  id: string;
+  courseTitle: string;
+  message: string;
+  occurredAt: string | null;
+  createdAt: string;
+  isUnread: boolean;
+}
+
 const LOGS_PAGE_SIZE = 25;
 
 function parseError(payload: unknown): string {
@@ -134,6 +147,9 @@ function formatDateTime(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("ko-KR");
+}
+function toDateTime(value: string | null): string {
+  return formatDateTime(value);
 }
 
 function statusChipClassForInvite(state: InviteState) {
@@ -178,6 +194,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logPage, setLogPage] = useState(1);
+  const [activeNotification, setActiveNotification] = useState<AdminNotification | null>(null);
 
   const [newCu12Id, setNewCu12Id] = useState("");
   const [newName, setNewName] = useState("");
@@ -530,38 +547,72 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   const activeMemberCount = useMemo(() => members.filter((member) => member.isActive).length, [members]);
   const testMemberCount = useMemo(() => members.filter((member) => member.isTestUser).length, [members]);
+  const recentLogNotifications = useMemo(
+    () =>
+      logs.map((log) => ({
+        id: log.id,
+        courseTitle: log.severity,
+        message: `[${log.category}] ${log.actor?.email ?? "-"} => ${log.target?.email ?? "-"} / ${log.message}`,
+        occurredAt: log.createdAt,
+        createdAt: log.createdAt,
+        isUnread: false,
+      })),
+    [logs],
+  );
 
   return (
     <main className="dashboard-main page-shell">
+      <header className="topbar">
+        <div className="topbar-brand">
+          <img
+            src="/brand/catholic/crest-mark.png"
+            alt="Catholic University crest"
+            loading="lazy"
+          />
+          <div>
+            <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
+            <h1>운영 관리센터</h1>
+            <div className="topbar-stats">
+              <span className="action-kicker">현재 운영자: {context.effective.email}</span>
+              {context.impersonating ? (
+                <span className="error-text">대리접속 중: {context.actor.email} → {context.effective.email}</span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <button
+            className="icon-btn"
+            type="button"
+            onClick={() => void refreshAll(logPage, false)}
+            disabled={loading || !!blockingMessage}
+            title="새로고침"
+          >
+            <RotateCw size={16} />
+          </button>
+          <ThemeToggle />
+          <NotificationCenter
+            notifications={recentLogNotifications}
+            onOpen={(item) => setActiveNotification(item)}
+            onMarkRead={() => {}}
+          />
+          <UserMenu
+            email={context.effective.email}
+            role={initialUser.role}
+            impersonating={context.impersonating}
+            onDashboard={() => goDashboard()}
+            onOpenSettings={undefined}
+            onLogout={logout}
+          />
+        </div>
+      </header>
       <section className="card admin-hero">
         <div>
           <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 관리자</p>
           <h1>운영 관리센터</h1>
-          <p className="muted">현재 운영자: {context.effective.email}</p>
-          {context.impersonating ? (
-            <p className="muted">
-              대리접속 중: <strong>{context.actor.email}</strong> → <strong>{context.effective.email}</strong>
-            </p>
-          ) : null}
           <p className="text-small muted">
             회원 {members.length}명, 초대 코드 {invites.length}개, 로그 {logPagination?.total ?? 0}건
           </p>
-        </div>
-        <div className="header-actions">
-          <button type="button" onClick={goDashboard}>
-            학습 대시보드로 이동
-          </button>
-          <button type="button" className="ghost-btn" onClick={refreshNow} disabled={loading}>
-            {loading ? "처리 중..." : "현재 화면 새로고침"}
-          </button>
-          {context.impersonating ? (
-            <button type="button" className="btn-quiet" onClick={stopImpersonation} disabled={!!blockingMessage}>
-              대리접속 종료
-            </button>
-          ) : null}
-          <button type="button" className="btn-danger" onClick={logout} disabled={!!blockingMessage}>
-            로그아웃
-          </button>
         </div>
       </section>
 
@@ -942,6 +993,21 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <div className="loading-bar">
               <span />
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {activeNotification ? (
+        <div className="modal-overlay" onClick={() => setActiveNotification(null)}>
+          <section className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <h2>최근 로그 알림</h2>
+            <p className="muted">
+              {toDateTime(activeNotification.occurredAt ?? activeNotification.createdAt)} · {activeNotification.courseTitle}
+            </p>
+            <p>{activeNotification.message}</p>
+            <button type="button" className="ghost-btn" onClick={() => setActiveNotification(null)}>
+              닫기
+            </button>
           </section>
         </div>
       ) : null}

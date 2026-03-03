@@ -1,8 +1,12 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { NotificationCenter } from "../../components/notifications/notification-center";
+import { RotateCw } from "lucide-react";
+import { ThemeToggle } from "../../components/theme/theme-toggle";
+import { UserMenu } from "../../components/layout/user-menu";
 
 interface DashboardClientProps {
   initialUser: {
@@ -434,31 +438,55 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   return (
     <>
-      <header className="page-header branded-header">
-        <div className="brand-identity">
+      <header className="topbar">
+        <div className="topbar-brand">
           <img
             src="/brand/catholic/crest-mark.png"
             alt="Catholic University crest"
-            className="brand-mark-icon"
             loading="lazy"
           />
           <div>
-            <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 [CU12 Automation]</p>
-          <h1>나의 학습 홈</h1>
-            <p className="muted">{context?.effective.email ?? initialUser.email}</p>
-            {context?.impersonating ? <p className="error-text">관리자 대리 실행 모드: {context?.effective.email}</p> : null}
+            <p className="brand-kicker">CU12 자동화 · 학습 운영 대시보드</p>
+            <h1>나의 학습 홈</h1>
+            <div className="topbar-stats">
+              <span className="action-kicker">{context?.effective.email ?? initialUser.email}</span>
+              {context?.impersonating ? (
+                <span className="error-text">관리자 대리 실행 모드: {context?.effective.email}</span>
+              ) : null}
+            </div>
           </div>
         </div>
-        <div className="header-actions">
-          <button className="ghost-btn" onClick={() => void refreshAll(false)} disabled={loading || refreshing}>새로고침</button>
-          {initialUser.role === "ADMIN" ? (
-            <button className="ghost-btn" onClick={() => router.push("/admin" as Route)}>관리자 메뉴</button>
-          ) : null}
-          <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>설정</button>
-          <button onClick={logout}>로그아웃</button>
+        <div className="topbar-actions">
+          <button
+            className="icon-btn"
+            onClick={() => void refreshAll(false)}
+            disabled={loading || refreshing}
+            title="새로고침"
+            type="button"
+          >
+            <RotateCw size={16} />
+          </button>
+          <ThemeToggle />
+          <NotificationCenter
+            notifications={notifications}
+            onOpen={setActiveNotification}
+            onMarkRead={(item) => {
+              if (item.isUnread) {
+                void markNotificationRead(item);
+              }
+            }}
+          />
+          <UserMenu
+            email={context?.effective.email ?? initialUser.email}
+            role={initialUser.role}
+            impersonating={context?.impersonating ?? false}
+            onDashboard={() => {}}
+            onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onLogout={logout}
+          />
         </div>
       </header>
-
       {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
 
       {error ? <p className="error-text">{error}</p> : null}
@@ -673,3 +701,4 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     </>
   );
 }
+

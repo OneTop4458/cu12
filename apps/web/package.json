@@ -15,12 +15,19 @@
   "dependencies": {
     "@cu12/core": "file:../../packages/core",
     "@prisma/client": "^6.5.0",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-popover": "^1.1.6",
     "bcryptjs": "^2.4.3",
+    "clsx": "2.1.1",
     "jose": "^5.9.6",
+    "lucide-react": "^0.540.0",
     "next": "^16.1.6",
+    "next-themes": "^0.4.4",
     "nodemailer": "^8.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "sonner": "^2.0.5",
+    "tailwind-merge": "2.5.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
