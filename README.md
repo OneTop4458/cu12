@@ -1,81 +1,150 @@
 # CU12 Automation
 
-가톨릭 공유대(CU12) 수강 현황/공지 확인과 자동 수강을 위한 TypeScript monorepo입니다.
+CU12 Automation is a cloud-first service that verifies CU12 credentials, tracks course/notice status, and executes queue-based auto-learning jobs.
 
-## Monorepo Structure
+## 1. Product Summary
 
-- `apps/web`: Next.js web app + API (Vercel)
-- `apps/worker`: Playwright worker (GitHub Actions)
-- `packages/core`: shared types and parser
-- `prisma`: PostgreSQL schema
-- `docs`: architecture, API, runbooks
+The project is designed for a small private group (about 5 users) where only approved CU12 IDs can access the system.
 
-## Authentication Model
+Core goals:
 
-- 로그인은 `CU12 아이디/비밀번호`로 매번 실검증합니다.
-- 신규 사용자는 최초 1회만 초대코드가 필요합니다.
-- 초대코드는 `cu12Id`에 1:1 바인딩되며 재사용할 수 없습니다.
+1. Real CU12 login verification on every sign-in.
+2. One-time invite verification for first login only.
+3. Dashboard visibility for progress/notices/jobs.
+4. Cloud-only execution for long-running auto-learning tasks.
 
-## Local Development
+## 2. Architecture at a Glance
+
+```text
+Browser (User)
+  -> Next.js Web App (Vercel)
+     -> PostgreSQL (Neon)
+     -> GitHub API (workflow_dispatch)
+           -> GitHub Actions Worker (Playwright)
+                -> CU12 Website
+```
+
+### Components
+
+1. `apps/web`
+- Next.js App Router UI + API endpoints.
+- Auth/session management.
+- Queue writes and worker dispatch calls.
+
+2. `apps/worker`
+- Node.js + Playwright automation runtime.
+- CU12 login, snapshot sync, auto-learning execution.
+
+3. `prisma`
+- Shared PostgreSQL schema.
+- Queue state, account state, invite tokens, snapshots.
+
+4. `.github/workflows`
+- CI validation, DB bootstrap, deploy, scheduled/manual worker execution.
+
+## 3. Authentication Model
+
+### Step 1: CU12 Credential Verification
+
+`POST /api/auth/login`
+
+- Validates `cu12Id + cu12Password + campus` against CU12.
+- Existing account mapping returns `AUTHENTICATED` and sets `cu12_session` cookie.
+- New account returns `INVITE_REQUIRED` + short-lived `challengeToken`.
+
+### Step 2: Invite Verification (First Login Only)
+
+`POST /api/auth/login/invite`
+
+- Validates `challengeToken + inviteCode`.
+- Invite code must be unexpired, unused, and bound to the same `cu12Id`.
+- On success, creates user mapping and sets session cookie.
+
+### Error Separation
+
+- Invalid CU12 credentials: `errorCode = CU12_AUTH_FAILED`
+- Unapproved CU12 ID / bad invite: `errorCode = UNAPPROVED_ID`
+
+## 4. Queue and Concurrency
+
+Queue table: `JobQueue`
+
+Supported job types:
+
+- `SYNC`
+- `AUTOLEARN`
+- `NOTICE_SCAN`
+- `MAIL_DIGEST`
+
+Concurrency model:
+
+1. Worker claims jobs atomically (`PENDING -> RUNNING`).
+2. Per-user serialization avoids session collisions.
+3. Retry policy uses backoff for transient failures.
+4. Idempotency keys reduce duplicate queue requests.
+
+## 5. Cloud Deployment Topology
+
+- **Web/API**: Vercel (`apps/web`)
+- **DB**: Neon PostgreSQL
+- **Worker**: GitHub Actions (`worker-consume.yml`)
+- **Source + CI/CD**: GitHub
+
+No always-on local server is required.
+
+## 6. Repository Layout
+
+```text
+apps/
+  web/       # Next.js UI + API
+  worker/    # Playwright worker
+packages/
+  core/      # shared parser/types
+prisma/      # schema and migrations
+.github/
+  workflows/ # CI/CD and operations automation
+docs/        # architecture, API, runbooks, ADRs
+```
+
+## 7. Local Validation Commands
 
 ```bash
 npm install
+npm run check:text
 npm run prisma:generate
 npm run typecheck
 npm run build:web
 ```
 
-## Cloud Runtime Model
+## 8. Required Environment Variables
 
-- Web/API: Vercel
-- DB: Neon PostgreSQL
-- Worker: GitHub Actions (`worker-consume.yml`)
-- Scheduled sync: GitHub Actions (`sync-schedule.yml`)
-- Auto-learn trigger: API -> GitHub Actions workflow dispatch
-
-## Essential GitHub Secrets
+### Common
 
 - `DATABASE_URL`
 - `APP_MASTER_KEY`
 - `AUTH_JWT_SECRET`
 - `WORKER_SHARED_TOKEN`
-- `WEB_INTERNAL_BASE_URL` (예: `https://cu12-psi.vercel.app`)
 - `CU12_BASE_URL`
-- `AUTOLEARN_TIME_FACTOR`
-- `AUTOLEARN_MAX_TASKS`
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
 
-## Essential Vercel Environment Variables
+### Web Dispatch
 
-- `DATABASE_URL`
-- `AUTH_JWT_SECRET`
-- `APP_MASTER_KEY`
-- `WORKER_SHARED_TOKEN`
-- `CU12_BASE_URL`
 - `GITHUB_OWNER`
 - `GITHUB_REPO`
-- `GITHUB_WORKFLOW_ID` (`worker-consume.yml`)
-- `GITHUB_WORKFLOW_REF` (`main`)
+- `GITHUB_WORKFLOW_ID`
+- `GITHUB_WORKFLOW_REF`
 - `GITHUB_TOKEN`
 
-## Quick Setup
+## 9. Operations Quick Start
 
-1. Neon DB URL(`DATABASE_URL`) 준비
-2. GitHub secrets 설정
-3. Vercel project 설정
-   - Root Directory: `apps/web`
-   - Build Command: `npm run build`
-   - Install Command: `npm install`
-4. Vercel 환경변수 설정
-5. `DB Bootstrap` 실행
-6. 신규 환경이면 `Auth Reset Bootstrap` 실행(관리자 초대코드 발급)
-7. `Deploy Vercel` 실행
-8. `/api/health` 확인
-9. 관리자 최초 로그인 후 사용자 초대코드 발급
+1. Configure GitHub Secrets and Vercel environment variables.
+2. Run `DB Bootstrap` workflow.
+3. For fresh setup, run `Auth Reset Bootstrap` and capture admin invite code.
+4. Deploy web app and verify `/api/health`.
+5. Trigger `worker-consume.yml` once to validate queue consumption.
+6. Admin logs in and issues invite codes for users.
 
-## Notes
+## 10. Documentation
 
-- 자동수강은 실제 영상 길이에 비례해 GitHub Actions 러너 시간을 사용합니다.
-- `AUTOLEARN_MAX_TASKS`를 작게 시작해서 단계적으로 늘리는 것을 권장합니다.
+- Main docs index: [`docs/00-index.md`](docs/00-index.md)
+- API contract: [`docs/04-api/openapi.yaml`](docs/04-api/openapi.yaml)
+- Korean summary: [`README.ko.md`](README.ko.md)

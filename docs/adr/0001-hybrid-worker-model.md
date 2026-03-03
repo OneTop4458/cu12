@@ -1,4 +1,4 @@
-﻿# ADR-0001: Cloud-only Worker Model
+# ADR-0001: Cloud Worker Model
 
 ## Status
 
@@ -6,18 +6,27 @@ Accepted
 
 ## Context
 
-- 사용자 요구사항은 로컬/상시 서버 없이 100% cloud 운영이다.
-- 자동 수강은 영상 재생 시간을 실제 소비해야 한다.
-- 사용자는 소규모(약 5명)이며 운영 단순성이 중요하다.
+- The project must run in a cloud-only operating model.
+- Auto-learning tasks can be long-running due to watch-time requirements.
+- Expected scale is small (~5 users), so operational simplicity is preferred.
 
 ## Decision
 
-- 웹/API는 Vercel에서 운영한다.
-- DB는 Neon(PostgreSQL) 사용.
-- 워커는 GitHub hosted runner에서만 실행한다.
-- 요청 시 웹 API가 GitHub Actions workflow_dispatch로 워커를 즉시 실행한다.
+- Host web/API on Vercel.
+- Use GitHub Actions for worker execution.
+- Persist state and queue in Neon PostgreSQL.
+- Trigger worker runs via API-driven workflow dispatch.
 
 ## Consequences
 
-- 장점: 로컬 의존 제거, 운영 일관성 확보
-- 단점: Actions 실행시간/쿼터 제한에 영향 받음
+### Positive
+
+1. No dependency on an always-on local machine.
+2. Clear separation between user-facing app and automation runtime.
+3. Straightforward operations through managed platforms.
+
+### Negative
+
+1. Dependent on Actions runtime and usage quotas.
+2. Long-running jobs may need conservative throughput tuning.
+3. Requires strict secret synchronization between platforms.

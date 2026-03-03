@@ -1,42 +1,43 @@
 # PRD
 
-## 목표
+## Product Goal
 
-- 소수 사용자(약 5명)가 가톨릭 공유대(CU12) 계정으로 로그인해 현재 수강 상태와 공지를 확인한다.
-- C01 온라인강의 자동 수강을 지원한다.
-- 메일로 공지/변경/잔여기간 요약을 발송한다.
+CU12 Automation provides a cloud-only control plane for a small group (about 5 users) to:
 
-## 핵심 기능
+1. Sign in using real CU12 credentials.
+2. Check learning progress and notices.
+3. Trigger auto-learning jobs safely.
+4. Receive operational updates through dashboard status and queued job results.
 
-1. CU12 실계정 로그인(매 로그인 시 검증)
-2. 최초 1회 초대코드 인증(계정별 1:1 바인딩)
-3. 30분 주기 동기화(강좌/공지/알림/학습태스크)
-4. 수동 즉시 동기화
-5. 자동 수강 요청 및 실행 상태 추적
-6. 메일 구독 및 발송 이력
+## Primary Users
 
-## 비기능 요구사항
+- **End users**: students monitoring courses and requesting sync/auto-learning.
+- **Admin users**: issue invite codes, monitor queue health, bootstrap environment.
 
-- 동시 요청: 최소 5명 동시 요청 시 작업 유실/중복 없이 처리
-- 보안: CU12 비밀번호 평문 저장 금지
-- 운영: 워커 미가동 시 큐 적재 후 대기
-- 가용성: 동기화 실패 시 재시도(최대 4회)
+## Core Requirements
 
-## 범위
+1. **Real-time CU12 credential verification on every login**.
+2. **One-time invite verification for first-time users only**.
+3. **Dashboard APIs** for summary, courses, notices, and job history.
+4. **Auto-learning orchestration** through queue + worker model.
+5. **Cloud-first runtime** with no always-on local server dependency.
 
-### In
+## Non-Functional Requirements
 
-- C01 온라인강의 자동 재생 및 출석 저장 흐름
-- 공지/알림/학습 태스크 탐지
-- 관리자 초대코드 발급 UI
+- Concurrency: handle at least 5 simultaneous users without double-processing jobs.
+- Security: never store CU12 password in plaintext.
+- Reliability: queue retries with backoff on transient failures.
+- Operability: workflows and runbooks must be enough for recovery by operators.
 
-### Out (v1)
+## Out of Scope (Current Version)
 
-- 퀴즈/시험/과제 자동 제출
-- AI 자동 제출
+- Automatic quiz/exam/assignment submission.
+- Fully autonomous AI submission.
+- Real-time push notifications to third-party channels.
 
-## 성공 기준
+## Success Metrics
 
-- 사용자 1명당 대시보드에서 최신 강좌 상태가 30분 내 반영
-- 자동 수강 요청 후 큐에 등록되고 실행 로그가 남음
-- 세션 만료/인증 실패 시 계정 상태가 `NEEDS_REAUTH`로 전환됨
+1. Dashboard reflects latest course sync within expected schedule window.
+2. Auto-learning request results in queued and executed worker job.
+3. Invalid CU12 credentials and unapproved CU12 ID are clearly distinguishable in UX.
+4. Cloud deployment can be bootstrapped from docs without local-only steps.

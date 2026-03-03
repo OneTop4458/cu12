@@ -80,7 +80,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const sortedJobs = useMemo(
     () =>
       [...jobs].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
     [jobs],
   );
@@ -88,7 +89,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const sortedInvites = useMemo(
     () =>
       [...invites].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
     [invites],
   );
@@ -102,7 +104,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
     const payload = (await response.json()) as T & { error?: string };
     if (!response.ok) {
-      throw new Error(payload.error ?? "요청 실패");
+      throw new Error(payload.error ?? "Request failed.");
     }
     return payload;
   }
@@ -125,7 +127,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setAccount(accountRes.account);
 
       if (initialUser.role === "ADMIN") {
-        const invitesRes = await fetchJson<{ invites: InviteItem[] }>("/api/auth/invite");
+        const invitesRes = await fetchJson<{ invites: InviteItem[] }>(
+          "/api/auth/invite",
+        );
         setInvites(invitesRes.invites);
       }
     } catch (fetchError) {
@@ -153,8 +157,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       }>("/api/jobs/sync-now", { method: "POST" });
       setMessage(
         payload.dispatched
-          ? `즉시 동기화 요청 완료: ${payload.jobId}`
-          : `작업 등록 완료(디스패치 대기): ${payload.jobId} / ${payload.dispatchError ?? "unknown"}`,
+          ? `Sync job queued. (Job: ${payload.jobId})`
+          : `Job queued: ${payload.jobId} (dispatch pending: ${payload.dispatchError ?? "unknown"})`,
       );
       await refreshAll();
     } catch (submitError) {
@@ -177,8 +181,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       });
       setMessage(
         payload.dispatched
-          ? `자동 수강 요청 완료: ${payload.jobId}`
-          : `작업 등록 완료(디스패치 대기): ${payload.jobId} / ${payload.dispatchError ?? "unknown"}`,
+          ? `Auto-learning job queued. (Job: ${payload.jobId})`
+          : `Job queued: ${payload.jobId} (dispatch pending: ${payload.dispatchError ?? "unknown"})`,
       );
       await refreshAll();
     } catch (submitError) {
@@ -209,7 +213,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       });
 
       setLatestInviteToken(payload.token);
-      setMessage(`초대코드를 발급했습니다. 만료: ${new Date(payload.expiresAt).toLocaleString("ko-KR")}`);
+      setMessage(
+        `Invite code issued. Expires at: ${new Date(payload.expiresAt).toLocaleString("en-US")}`,
+      );
       setInviteCu12Id("");
       await refreshAll();
     } catch (inviteError) {
@@ -227,90 +233,94 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   return (
     <>
-      <header className="page-header">
+      <header className="page-header branded-header">
         <div>
-          <h1>가톨릭 공유대 자동화 대시보드</h1>
+          <p className="brand-kicker">CATHOLIC SHARED UNIVERSITY</p>
+          <h1>Learning Monitoring Dashboard</h1>
           <p className="muted">
             {initialUser.email} ({initialUser.role})
           </p>
         </div>
-        <button onClick={logout}>로그아웃</button>
+        <button onClick={logout}>Sign out</button>
       </header>
 
-      {loading ? <p>데이터를 불러오는 중...</p> : null}
+      {loading ? <p>Loading data...</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
       {message ? <p className="ok-text">{message}</p> : null}
 
       <section className="grid-4">
         <article className="card">
-          <h2>진행 강좌</h2>
+          <h2>Active Courses</h2>
           <p className="metric">{summary?.activeCourseCount ?? 0}</p>
         </article>
         <article className="card">
-          <h2>평균 진도율</h2>
+          <h2>Average Progress</h2>
           <p className="metric">{Math.round(summary?.avgProgress ?? 0)}%</p>
         </article>
         <article className="card">
-          <h2>미확인 공지</h2>
+          <h2>Unread Notices</h2>
           <p className="metric">{summary?.unreadNoticeCount ?? 0}</p>
         </article>
         <article className="card">
-          <h2>대기 태스크</h2>
+          <h2>Upcoming Deadlines</h2>
           <p className="metric">{summary?.upcomingDeadlines ?? 0}</p>
         </article>
       </section>
 
       <section className="card">
-        <h2>빠른 작업</h2>
+        <h2>Quick Actions</h2>
         <div className="button-row">
-          <button onClick={submitSyncNow}>즉시 동기화</button>
-          <button onClick={submitAutoLearn}>자동 수강 요청</button>
-          <button onClick={() => void refreshAll()}>새로고침</button>
+          <button onClick={submitSyncNow}>Run Sync Now</button>
+          <button onClick={submitAutoLearn}>Request Auto-learning</button>
+          <button onClick={() => void refreshAll()}>Refresh</button>
         </div>
         <p className="muted">
-          마지막 동기화: {summary?.lastSyncAt ? new Date(summary.lastSyncAt).toLocaleString("ko-KR") : "없음"}
+          Last sync: {" "}
+          {summary?.lastSyncAt
+            ? new Date(summary.lastSyncAt).toLocaleString("en-US")
+            : "No record"}
         </p>
       </section>
 
       <section className="card">
-        <h2>연결된 CU12 계정</h2>
+        <h2>Connected Account</h2>
         {account ? (
           <div className="table-wrap">
             <table>
               <tbody>
                 <tr>
-                  <th>CU12 아이디</th>
+                  <th>CU12 ID</th>
                   <td>{account.cu12Id}</td>
                 </tr>
                 <tr>
-                  <th>캠퍼스</th>
+                  <th>Campus</th>
                   <td>{account.campus}</td>
                 </tr>
                 <tr>
-                  <th>상태</th>
+                  <th>Account Status</th>
                   <td>
                     {account.accountStatus}
                     {account.statusReason ? ` / ${account.statusReason}` : ""}
                   </td>
                 </tr>
                 <tr>
-                  <th>자동 수강</th>
+                  <th>Auto-learning</th>
                   <td>{account.autoLearnEnabled ? "ON" : "OFF"}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="muted">현재 로그인된 CU12 계정 정보가 없습니다.</p>
+          <p className="muted">No account information is available.</p>
         )}
       </section>
 
       {initialUser.role === "ADMIN" ? (
         <section className="card">
-          <h2>초대코드 관리 (관리자)</h2>
+          <h2>Invite Code Management (Admin)</h2>
           <form onSubmit={createInvite} className="form-grid">
             <label className="field">
-              <span>CU12 아이디</span>
+              <span>Target CU12 ID</span>
               <input
                 value={inviteCu12Id}
                 onChange={(event) => setInviteCu12Id(event.target.value)}
@@ -319,36 +329,40 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               />
             </label>
             <label className="field">
-              <span>권한</span>
+              <span>Role</span>
               <select
                 value={inviteRole}
-                onChange={(event) => setInviteRole(event.target.value as "ADMIN" | "USER")}
+                onChange={(event) =>
+                  setInviteRole(event.target.value as "ADMIN" | "USER")
+                }
               >
                 <option value="USER">USER</option>
                 <option value="ADMIN">ADMIN</option>
               </select>
             </label>
             <label className="field">
-              <span>유효 시간 (시간)</span>
+              <span>Expires In (hours)</span>
               <input
                 type="number"
                 min={1}
                 max={720}
                 value={inviteExpiresHours}
-                onChange={(event) => setInviteExpiresHours(Number(event.target.value))}
+                onChange={(event) =>
+                  setInviteExpiresHours(Number(event.target.value))
+                }
                 required
               />
             </label>
             <div className="field align-end">
               <button type="submit" disabled={creatingInvite}>
-                {creatingInvite ? "발급 중..." : "초대코드 발급"}
+                {creatingInvite ? "Issuing..." : "Issue Invite"}
               </button>
             </div>
           </form>
 
           {latestInviteToken ? (
             <p className="ok-text">
-              새 초대코드: <code>{latestInviteToken}</code>
+              Issued invite code: <code>{latestInviteToken}</code>
             </p>
           ) : null}
 
@@ -357,25 +371,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               <thead>
                 <tr>
                   <th>CU12 ID</th>
-                  <th>권한</th>
-                  <th>생성일</th>
-                  <th>만료일</th>
-                  <th>사용일</th>
+                  <th>Role</th>
+                  <th>Created At</th>
+                  <th>Expires At</th>
+                  <th>Used At</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedInvites.length === 0 ? (
                   <tr>
-                    <td colSpan={5}>초대코드 없음</td>
+                    <td colSpan={5}>No invite codes have been issued.</td>
                   </tr>
                 ) : (
                   sortedInvites.map((invite) => (
                     <tr key={invite.id}>
                       <td>{invite.cu12Id}</td>
                       <td>{invite.role}</td>
-                      <td>{new Date(invite.createdAt).toLocaleString("ko-KR")}</td>
-                      <td>{new Date(invite.expiresAt).toLocaleString("ko-KR")}</td>
-                      <td>{invite.usedAt ? new Date(invite.usedAt).toLocaleString("ko-KR") : "-"}</td>
+                      <td>{new Date(invite.createdAt).toLocaleString("en-US")}</td>
+                      <td>{new Date(invite.expiresAt).toLocaleString("en-US")}</td>
+                      <td>
+                        {invite.usedAt
+                          ? new Date(invite.usedAt).toLocaleString("en-US")
+                          : "-"}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -386,22 +404,22 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       ) : null}
 
       <section className="card">
-        <h2>현재 수강 목록</h2>
+        <h2>Current Courses</h2>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>강좌</th>
-                <th>강사</th>
-                <th>진도율</th>
-                <th>남은일</th>
-                <th>상태</th>
+                <th>Course Title</th>
+                <th>Instructor</th>
+                <th>Progress</th>
+                <th>Days Remaining</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {courses.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>데이터 없음</td>
+                  <td colSpan={5}>No course data is available.</td>
                 </tr>
               ) : (
                 courses.map((course) => (
@@ -420,27 +438,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </section>
 
       <section className="card">
-        <h2>최근 작업</h2>
+        <h2>Recent Jobs</h2>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>생성시각</th>
-                <th>타입</th>
-                <th>상태</th>
-                <th>시도</th>
-                <th>오류</th>
+                <th>Created At</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Error</th>
               </tr>
             </thead>
             <tbody>
               {sortedJobs.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>작업 없음</td>
+                  <td colSpan={5}>No job history is available.</td>
                 </tr>
               ) : (
                 sortedJobs.map((job) => (
                   <tr key={job.id}>
-                    <td>{new Date(job.createdAt).toLocaleString("ko-KR")}</td>
+                    <td>{new Date(job.createdAt).toLocaleString("en-US")}</td>
                     <td>{job.type}</td>
                     <td>{job.status}</td>
                     <td>{job.attempts}</td>

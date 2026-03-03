@@ -1,4 +1,4 @@
-﻿# ADR-0002: Token Strategy
+# ADR-0002: Token Strategy
 
 ## Status
 
@@ -6,16 +6,26 @@ Accepted
 
 ## Context
 
-- 세션 토큰만 의존하면 만료/무효화 시 자동화 실패가 증가한다.
-- CU12는 쿠키 세션 기반이며 로그인 재시도가 가능하다.
+- Session-only strategies are brittle for long-running automation.
+- CU12 access requires recurring authenticated browser sessions.
+- First-login onboarding must be restricted to approved CU12 IDs.
 
 ## Decision
 
-- 앱 세션은 JWT 쿠키(`cu12_session`) 사용
-- CU12 자격증명은 암호화 저장 후 워커가 필요 시 로그인 재수행
-- invite token은 해시 저장
+1. Use signed JWT cookie for app session (`cu12_session`).
+2. Use short-lived login challenge token for step handoff (`/api/auth/login` -> `/api/auth/login/invite`).
+3. Use one-time invite token hashed in DB and bound to `cu12Id`.
+4. Store CU12 password encrypted so worker can re-authenticate as needed.
 
 ## Consequences
 
-- 장점: 토큰 만료에 강함, 복구 쉬움
-- 단점: 워커에서 복호화/로그인 책임 증가
+### Positive
+
+- Distinguishes authentication failures cleanly.
+- Supports secure first-login gating without registration page.
+- Improves resilience when remote session cookies expire.
+
+### Trade-offs
+
+- Adds complexity to login flow and token validation.
+- Increases key management responsibility for operators.

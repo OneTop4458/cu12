@@ -1,12 +1,12 @@
 :root {
-  --bg: #f3f6fb;
+  --bg: #f3f6fc;
   --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --text: #142332;
-  --muted: #4f6274;
-  --accent: #0f766e;
-  --accent-strong: #0b5b55;
-  --line: #d9e2ec;
+  --surface-soft: #f8fbff;
+  --text: #10243d;
+  --muted: #54657a;
+  --primary: #1570ef;
+  --primary-strong: #083e84;
+  --line: #d7e2f0;
   --danger: #b42318;
   --ok: #067647;
 }
@@ -19,20 +19,28 @@ body {
   margin: 0;
   font-family: "Noto Sans KR", "Pretendard", "Apple SD Gothic Neo", sans-serif;
   background:
-    radial-gradient(circle at 0% 0%, #d7efe8 0%, transparent 48%),
-    radial-gradient(circle at 100% 100%, #d9e7ff 0%, transparent 42%),
-    var(--bg);
+    linear-gradient(150deg, #ebf3ff 0%, #f8fbff 36%, #eff5ff 100%),
+    radial-gradient(circle at 10% 0%, rgb(8 62 132 / 12%) 0%, transparent 40%),
+    radial-gradient(circle at 90% 20%, rgb(21 112 239 / 10%) 0%, transparent 38%);
   color: var(--text);
 }
 
 a {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 main {
-  max-width: 1100px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 28px 20px 72px;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: "Noto Serif KR", "Nanum Myeongjo", Georgia, serif;
+  letter-spacing: -0.015em;
 }
 
 .auth-main {
@@ -44,7 +52,26 @@ main {
 }
 
 .auth-card {
-  width: min(460px, 100%);
+  width: min(480px, 100%);
+}
+
+.brand-login {
+  position: relative;
+  overflow: hidden;
+}
+
+.brand-ribbon {
+  height: 9px;
+  margin: -18px -18px 16px -18px;
+  background: linear-gradient(90deg, var(--primary-strong) 0%, var(--primary) 100%);
+}
+
+.brand-kicker {
+  margin: 0 0 8px;
+  color: var(--primary-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .dashboard-main {
@@ -59,13 +86,18 @@ main {
   margin-bottom: 14px;
 }
 
+.branded-header {
+  border-bottom: 2px solid rgb(8 62 132 / 18%);
+  padding-bottom: 12px;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 18px;
   margin-top: 14px;
-  box-shadow: 0 4px 16px rgb(20 35 50 / 4%);
+  box-shadow: 0 8px 24px rgb(16 36 61 / 6%);
 }
 
 .muted {
@@ -74,8 +106,9 @@ main {
 
 .metric {
   margin: 8px 0 0;
-  font-size: 1.8rem;
+  font-size: 1.9rem;
   font-weight: 700;
+  color: var(--primary-strong);
 }
 
 .grid-4 {
@@ -133,10 +166,16 @@ select {
   padding: 10px 12px;
 }
 
+input:focus,
+select:focus {
+  outline: 2px solid rgb(21 112 239 / 20%);
+  border-color: var(--primary);
+}
+
 button {
   border: 0;
   border-radius: 10px;
-  background: var(--accent);
+  background: var(--primary);
   color: #fff;
   padding: 10px 14px;
   cursor: pointer;
@@ -144,12 +183,22 @@ button {
 }
 
 button:hover {
-  background: var(--accent-strong);
+  background: var(--primary-strong);
 }
 
 button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.ghost-btn {
+  background: #fff;
+  color: var(--primary-strong);
+  border: 1px solid var(--line);
+}
+
+.ghost-btn:hover {
+  background: #f5f9ff;
 }
 
 .table-wrap {
@@ -173,11 +222,11 @@ td {
 th {
   color: var(--muted);
   font-weight: 600;
-  background: #f9fbfd;
+  background: #f7faff;
 }
 
 code {
-  background: #edf2f7;
+  background: #edf3fb;
   border-radius: 6px;
   padding: 2px 6px;
 }
@@ -190,6 +239,25 @@ code {
 .ok-text {
   color: var(--ok);
   margin: 6px 0;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(10 25 46 / 55%);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 2000;
+}
+
+.modal-card {
+  width: min(460px, 100%);
+  background: #fff;
+  border: 1px solid #d6e4f7;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 20px 40px rgb(8 62 132 / 25%);
 }
 
 @media (max-width: 920px) {
@@ -218,5 +286,9 @@ code {
 
   .button-row button {
     width: auto;
+  }
+
+  .modal-card .button-row button {
+    width: 100%;
   }
 }

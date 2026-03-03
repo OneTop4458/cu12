@@ -3,11 +3,20 @@ import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { getEnv } from "./env";
 
 export const SESSION_COOKIE_NAME = "cu12_session";
+const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
 
 export interface SessionTokenPayload {
   userId: string;
   email: string;
   role: "ADMIN" | "USER";
+}
+
+export interface LoginChallengePayload {
+  purpose: typeof LOGIN_CHALLENGE_PURPOSE;
+  cu12Id: string;
+  campus: "SONGSIM" | "SONGSIN";
+  encryptedCu12Password: string;
+  nonce: string;
 }
 
 function jwtSecret(): Uint8Array {
@@ -41,6 +50,50 @@ export async function verifySessionToken(token: string): Promise<SessionTokenPay
       userId: value.userId,
       email: value.email,
       role: value.role,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function signLoginChallengeToken(payload: Omit<LoginChallengePayload, "purpose">): Promise<string> {
+  return new SignJWT({
+    purpose: LOGIN_CHALLENGE_PURPOSE,
+    cu12Id: payload.cu12Id,
+    campus: payload.campus,
+    encryptedCu12Password: payload.encryptedCu12Password,
+    nonce: payload.nonce,
+  } satisfies LoginChallengePayload as unknown as JWTPayload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(jwtSecret());
+}
+
+export async function verifyLoginChallengeToken(token: string): Promise<LoginChallengePayload | null> {
+  try {
+    const verified = await jwtVerify(token, jwtSecret());
+    const value = verified.payload as Partial<LoginChallengePayload>;
+    if (
+      value.purpose !== LOGIN_CHALLENGE_PURPOSE ||
+      !value.cu12Id ||
+      !value.campus ||
+      !value.encryptedCu12Password ||
+      !value.nonce
+    ) {
+      return null;
+    }
+
+    if (value.campus !== "SONGSIM" && value.campus !== "SONGSIN") {
+      return null;
+    }
+
+    return {
+      purpose: LOGIN_CHALLENGE_PURPOSE,
+      cu12Id: value.cu12Id,
+      campus: value.campus,
+      encryptedCu12Password: value.encryptedCu12Password,
+      nonce: value.nonce,
     };
   } catch {
     return null;

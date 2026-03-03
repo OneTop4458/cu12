@@ -10,8 +10,11 @@ export function jsonCreated<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json(data, { status: 201, ...init });
 }
 
-export function jsonError(message: string, status = 400): NextResponse {
-  return NextResponse.json({ error: message }, { status });
+export function jsonError(message: string, status = 400, errorCode?: string): NextResponse {
+  return NextResponse.json(
+    errorCode ? { error: message, errorCode } : { error: message },
+    { status },
+  );
 }
 
 export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>): Promise<T> {

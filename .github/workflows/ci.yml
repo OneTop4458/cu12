@@ -15,5 +15,6 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install
+      - run: npm run check:text
       - run: npm run typecheck
       - run: npm run build:web

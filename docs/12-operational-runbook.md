@@ -2,37 +2,43 @@
 
 ## Daily Checks
 
-1. 최근 `worker-consume` 성공 여부
-2. `FAILED` 잡 개수 확인
-3. `NEEDS_REAUTH` 계정 확인
-4. 메일 발송 실패 로그 확인
+1. Confirm latest `worker-consume` run succeeded.
+2. Check count of `FAILED` jobs and retry trend.
+3. Check accounts marked `NEEDS_REAUTH`.
+4. Review error spikes in deployment/workflow logs.
 
-## Manual Sync
+## Manual Sync Procedure
 
-1. 사용자 `POST /api/jobs/sync-now`
-2. 응답 `dispatched` 확인
-3. `/api/jobs/{jobId}` 상태 확인
+1. User triggers `POST /api/jobs/sync-now`.
+2. Confirm response includes `jobId`.
+3. Track progression in `/api/jobs/{jobId}`.
 
-## Manual Auto-learning
+## Manual Auto-learning Procedure
 
-1. 사용자 `POST /api/jobs/autolearn-request`
-2. 응답 `dispatched` 확인
-3. `worker-consume` 로그와 `LearningRun` 확인
+1. User triggers `POST /api/jobs/autolearn-request`.
+2. Confirm queue entry and dispatch status.
+3. Validate worker logs and learning run records.
 
-## First Admin Onboarding
+## New Environment Bootstrap
 
-1. 신규 환경이면 `Auth Reset Bootstrap` 실행
-2. 로그에서 출력된 관리자 초대코드 확보
-3. `/login`에서 관리자 `cu12Id/cu12Password + inviteCode`로 최초 로그인
-4. 대시보드에서 사용자별 초대코드 발급
+1. Run `DB Bootstrap`.
+2. Run `Auth Reset Bootstrap` and capture admin invite code.
+3. Admin logs in (step-1 + invite modal step-2).
+4. Admin issues invite codes for regular users.
 
 ## Incident Response
 
-1. 로그인 실패 급증: CU12 로그인 API/폼 정책 변경 여부 확인
-2. 자동수강 실패 급증: 플레이어/출석 엔드포인트 변경 여부 확인
-3. Actions 실패: 시크릿 누락/Playwright 설치 실패/러너 제한 확인
+### Login failures spike
 
-## Backup
+- Check CU12 login endpoint or form contract changes.
+- Validate CU12 base URL and parser assumptions.
 
-- DB 백업 일 1회
-- 복구 리허설 월 1회
+### Auto-learning failures spike
+
+- Inspect VOD page contract changes and modal behavior.
+- Review timeout/factor settings.
+
+### Workflow failures
+
+- Validate secrets and internal URL alignment.
+- Review runner quota and runtime constraints.

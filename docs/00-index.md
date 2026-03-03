@@ -1,36 +1,36 @@
-﻿# Documentation Index
+# Documentation Index
 
-## Product / Scope
+This repository uses **English as the default documentation language**.
+A Korean summary is available only in `README.ko.md`.
 
-1. [01-prd](./01-prd.md)
-2. [02-architecture](./02-architecture.md)
-3. [03-data-model](./03-data-model.md)
+## Document Map
 
-## API / Integrations
+- `docs/01-prd.md`: Product requirements and success metrics
+- `docs/02-architecture.md`: Runtime architecture and execution flow
+- `docs/03-data-model.md`: Prisma data model and ownership boundaries
+- `docs/04-api/openapi.yaml`: API contract (source of truth for route behavior)
+- `docs/05-cu12-endpoint-catalog.md`: External CU12 endpoint inventory
+- `docs/06-session-token-lifecycle.md`: Session/challenge/invite token lifecycle
+- `docs/07-concurrency-queue-spec.md`: Queue claim and concurrency control
+- `docs/08-autolearn-engine-spec.md`: Auto-learning worker behavior
+- `docs/09-github-actions-runbook.md`: CI/CD and workflow operations
+- `docs/10-security-checklist.md`: Security hardening checklist
+- `docs/11-test-matrix.md`: Test coverage matrix
+- `docs/12-operational-runbook.md`: Incident and day-2 operations
+- `docs/13-roadmap-todo.md`: Delivery roadmap
+- `docs/14-cloud-setup-playbook.md`: Full cloud deployment setup
+- `docs/15-audit-report.md`: Change audit snapshot
+- `docs/16-documentation-style-guide.md`: Writing and maintenance rules
+- `docs/adr/0001-hybrid-worker-model.md`: ADR for cloud worker model
+- `docs/adr/0002-token-strategy.md`: ADR for token strategy
 
-1. [OpenAPI](./04-api/openapi.yaml)
-2. [CU12 Endpoint Catalog](./05-cu12-endpoint-catalog.md)
-3. [Session & Token Lifecycle](./06-session-token-lifecycle.md)
+## Maintenance Rules
 
-## Runtime / Operations
+1. Update docs in the same PR when changing behavior.
+2. Keep `docs/04-api/openapi.yaml` synchronized with implementation.
+3. Preserve end-to-end consistency across web app, worker, DB schema, and workflows.
+4. Validate with `npm run check:text` before push.
 
-1. [Concurrency & Queue Spec](./07-concurrency-queue-spec.md)
-2. [Auto-learning Engine Spec](./08-autolearn-engine-spec.md)
-3. [GitHub Actions Runbook](./09-github-actions-runbook.md)
-4. [Security Checklist](./10-security-checklist.md)
-5. [Test Matrix](./11-test-matrix.md)
-6. [Operational Runbook](./12-operational-runbook.md)
-7. [Roadmap TODO](./13-roadmap-todo.md)
-8. [Cloud Setup Playbook](./14-cloud-setup-playbook.md)
-9. [Audit Report](./15-audit-report.md)
+## Baseline Date
 
-## ADR
-
-1. [ADR-0001 Hybrid Worker Model](./adr/0001-hybrid-worker-model.md)
-2. [ADR-0002 Token Strategy](./adr/0002-token-strategy.md)
-
-## Change Policy
-
-- API, schema, queue behavior, token behavior 변경 시 문서를 같은 PR에서 업데이트한다.
-- OpenAPI가 코드보다 우선한다.
-- 문서 버전 기준일: 2026-03-03.
+- Current baseline: **2026-03-03**

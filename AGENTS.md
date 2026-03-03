@@ -1,65 +1,73 @@
 # AGENTS Playbook
 
-## 목적
+## Mission
 
-- CU12 자동화 프로젝트에서 작업 방식과 운영 기준을 일관되게 유지한다.
-- 코드 변경 시 문서/API/워크플로를 같이 갱신한다.
+Keep implementation, API contracts, workflows, and operational docs consistent for CU12 Automation.
 
-## 아키텍처 요약
+## Architecture Summary
 
-1. `apps/web`: Next.js API + UI (Vercel 배포)
-2. `apps/worker`: Playwright 워커 (GitHub Actions 실행)
-3. `packages/core`: 공용 타입/파서
-4. `prisma`: PostgreSQL(Neon) 스키마
-5. `.github/workflows`: CI/CD, 스케줄 동기화, 워커 실행, Dependabot 자동화
+1. `apps/web`: Next.js API + UI (Vercel)
+2. `apps/worker`: Playwright worker (GitHub Actions)
+3. `packages/core`: shared parser/types
+4. `prisma`: PostgreSQL schema (Neon)
+5. `.github/workflows`: CI/CD and ops workflows
 
-## 인증 모델
+## Authentication Model
 
-1. 로그인은 CU12 계정으로 매번 실검증한다.
-2. 신규 사용자는 최초 1회 초대코드 검증이 필요하다.
-3. 초대코드는 `cu12Id`에 바인딩되며 1회 사용 후 만료된다.
-4. 회원가입 페이지(`invite/accept`)는 사용하지 않는다.
+1. Every login starts with real-time CU12 credential verification.
+2. New users must complete one-time invite verification.
+3. Invite token is bound to `cu12Id` and single-use.
+4. Invite code entry is handled in the post-login modal stage.
+5. Registration page flow is not used.
 
-## 필수 명령어
+## Documentation Policy
+
+1. Default documentation language is English.
+2. Korean summary is allowed only in `README.ko.md`.
+3. Keep `docs/04-api/openapi.yaml` synchronized with route behavior.
+
+## Required Commands
 
 ```bash
 npm install
+npm run check:text
 npm run prisma:generate
 npm run typecheck
 npm run build:web
 ```
 
-## 배포/운영 기본 순서
+## Deployment Baseline
 
-1. DB 반영: `DB Bootstrap` 또는 `npm run prisma:push`
-2. 신규 환경 초기화: `Auth Reset Bootstrap` 실행 후 관리자 초대코드 확보
-3. 웹 배포: Vercel 프로덕션 배포 (`apps/web`)
-4. 워커 실행: `worker-consume.yml` 수동/스케줄 실행
-5. 상태 확인:
-   - `/api/health` 200
-   - 최근 `Worker Consume` 성공
+1. DB update: `DB Bootstrap` or `npm run prisma:push`
+2. Fresh auth setup: run `Auth Reset Bootstrap`
+3. Web deploy: Vercel production deploy (`apps/web`)
+4. Worker run: `worker-consume.yml` (manual/scheduled)
+5. Validation:
+   - `/api/health` returns 200
+   - recent worker consume run succeeded
 
-## 변경 시 체크리스트
+## Change Checklist
 
-1. 코드 변경과 문서 변경 동시 반영 (`docs`, `README`)
-2. API/스키마 변경 시 `docs/04-api/openapi.yaml` 갱신
-3. `npm run typecheck` 통과
-4. 필요 시 `npm run build:web` 통과
-5. 워크플로/시크릿 영향 범위 명시
+1. Code and docs must be updated together.
+2. API/schema changes require OpenAPI updates.
+3. `npm run check:text` must pass.
+4. `npm run typecheck` must pass.
+5. Run `npm run build:web` when touching web code.
 
-## 금지 사항
+## Prohibited Actions
 
-- 운영 DB에 임의 SQL 직접 수정(공식 절차 없이)
-- 실패 원인 분석 없이 동일 워크플로 무한 재실행
-- 민감정보(비밀번호/토큰) 로그 출력
+- Manual production DB mutation without runbook/workflow.
+- Re-running failed workflows repeatedly without root-cause analysis.
+- Printing secrets/passwords/tokens in logs.
 
-## 장애 대응 가이드
+## Incident Baseline
 
-- 워커 실패:
-  1. `gh run view <run_id> --log-failed`로 실패 스텝 확인
-  2. `APP_MASTER_KEY`, `DATABASE_URL`, `WEB_INTERNAL_BASE_URL` 확인
-  3. 수정 후 `worker-consume.yml` 재실행
+- Worker failure:
+  1. Inspect logs: `gh run view <run_id> --log-failed`
+  2. Verify `APP_MASTER_KEY`, `DATABASE_URL`, `WEB_INTERNAL_BASE_URL`
+  3. Fix and rerun `worker-consume.yml`
+
 - Vercel 404:
-  1. Root Directory=`apps/web` 확인
-  2. 환경변수 확인 후 재배포
-  3. `/api/health` 확인
+  1. Check Root Directory is `apps/web`
+  2. Re-check env variables and redeploy
+  3. Validate `/api/health`
