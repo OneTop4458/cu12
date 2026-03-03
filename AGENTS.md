@@ -12,6 +12,12 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 4. `prisma`: PostgreSQL schema (Neon)
 5. `.github/workflows`: CI/CD and ops workflows
 
+## Encoding Rule
+
+1. All repository files must be encoded as **UTF-8 (BOM 없음)**.
+2. Korean copy (UI labels, errors, docs notes) must remain UTF-8; do not use ANSI/CP949/UTF-16.
+3. For any text corruption reports (`�`, 깨진 한글), retype the affected strings from a clean UTF-8 source and validate before commit.
+
 ## Authentication Model
 
 1. Every login starts with real-time CU12 credential verification.
