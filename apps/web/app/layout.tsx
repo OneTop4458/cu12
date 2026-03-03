@@ -1,5 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import { ConsoleSecurityWarning } from "./_components/console-security-warning";
+import { SessionActivityGuard } from "./_components/session-activity-guard";
 
 export const metadata: Metadata = {
   title: "CU12 Automation",
@@ -9,7 +11,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <SessionActivityGuard />
+        <ConsoleSecurityWarning />
+        {children}
+      </body>
     </html>
   );
 }

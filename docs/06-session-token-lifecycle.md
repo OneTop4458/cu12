@@ -7,6 +7,14 @@
 3. TTL: 12 hours.
 4. Invalid/expired token returns 401 for protected APIs.
 
+## Idle Session (`cu12_idle`)
+
+1. Issued together with `cu12_session` after login.
+2. Stored as `httpOnly` cookie (`sameSite=lax`, `secure` in production).
+3. Sliding TTL: 30 minutes.
+4. Extended only by user activity via `POST /api/auth/session/refresh`.
+5. Protected APIs require both `cu12_session` and `cu12_idle` to be valid.
+
 ## Admin Impersonation Token (`cu12_impersonation`)
 
 1. Issued only by admin API (`POST /api/admin/impersonation`).

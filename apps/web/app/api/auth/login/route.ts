@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
-  SESSION_COOKIE_NAME,
+  signIdleSessionToken,
   signLoginChallengeToken,
   signSessionToken,
 } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { setIdleSessionCookie, setSessionCookie } from "@/lib/session-cookie";
 import { writeAuditLog } from "@/server/audit-log";
 import { upsertCu12Account } from "@/server/cu12-account";
 import { verifyCu12Login } from "@/server/cu12-login";
@@ -122,6 +123,7 @@ export async function POST(request: NextRequest) {
       email: body.cu12Id,
       role: user.role,
     });
+    const idleSessionToken = await signIdleSessionToken(user.id);
 
     const response = jsonOk({
       stage: "AUTHENTICATED" as const,
@@ -132,13 +134,8 @@ export async function POST(request: NextRequest) {
       },
       firstLogin: false,
     });
-    response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 12,
-    });
+    setSessionCookie(response, sessionToken);
+    setIdleSessionCookie(response, idleSessionToken);
 
     await writeAuditLog({
       category: "AUTH",

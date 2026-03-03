@@ -114,6 +114,20 @@ interface AutoProgress {
 }
 
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
+const POLL_ACTIVE_MS = 120000;
+const POLL_IDLE_MS = 300000;
+const POLL_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
+
+interface DashboardBootstrap {
+  context: SessionContext;
+  summary: Summary;
+  courses: Course[];
+  deadlines: Deadline[];
+  notifications: Notification[];
+  jobs: Job[];
+  account: Account | null;
+  preference: MailPreference;
+}
 
 function toDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("ko-KR") : "-";
@@ -146,6 +160,7 @@ function parseAutoProgress(value: unknown): AutoProgress | null {
 export function DashboardClient({ initialUser }: DashboardClientProps) {
   const router = useRouter();
   const bootstrapRef = useRef(false);
+  const lastInteractionAtRef = useRef(Date.now());
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -211,25 +226,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setError(null);
 
     try {
-      const [ctx, sum, courseRes, deadlineRes, notifRes, jobRes, accountRes, mailRes] = await Promise.all([
-        fetchJson<SessionContext>("/api/session/context"),
-        fetchJson<Summary>("/api/dashboard/summary"),
-        fetchJson<{ courses: Course[] }>("/api/dashboard/courses"),
-        fetchJson<{ deadlines: Deadline[] }>("/api/dashboard/deadlines?limit=20"),
-        fetchJson<{ notifications: Notification[] }>("/api/dashboard/notifications?limit=40"),
-        fetchJson<{ jobs: Job[] }>("/api/jobs?limit=20"),
-        fetchJson<{ account: Account | null }>("/api/cu12/account"),
-        fetchJson<{ preference: MailPreference }>("/api/mail/preferences"),
-      ]);
-      setContext(ctx);
-      setSummary(sum);
-      setCourses(courseRes.courses);
-      setDeadlines(deadlineRes.deadlines);
-      setNotifications(notifRes.notifications);
-      setJobs(jobRes.jobs);
-      setAccount(accountRes.account);
-      setMailDraft(mailRes.preference);
-      if (!lectureSeq && courseRes.courses.length > 0) setLectureSeq(courseRes.courses[0].lectureSeq);
+      const payload = await fetchJson<DashboardBootstrap>("/api/dashboard/bootstrap?deadlinesLimit=20&notificationsLimit=40&jobsLimit=20");
+      setContext(payload.context);
+      setSummary(payload.summary);
+      setCourses(payload.courses);
+      setDeadlines(payload.deadlines);
+      setNotifications(payload.notifications);
+      setJobs(payload.jobs);
+      setAccount(payload.account);
+      setMailDraft(payload.preference);
+      if (!lectureSeq && payload.courses.length > 0) setLectureSeq(payload.courses[0].lectureSeq);
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
     } finally {
@@ -244,15 +250,37 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [refreshAll]);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      if (!document.hidden) void refreshAll(true);
-    }, 60000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refreshAll(true);
+    const touch = () => {
+      lastInteractionAtRef.current = Date.now();
     };
+
+    const interactionEvents: Array<keyof DocumentEventMap> = ["mousemove", "mousedown", "keydown", "touchstart"];
+    interactionEvents.forEach((eventName) => document.addEventListener(eventName, touch, { passive: true }));
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      const idleMs = Date.now() - lastInteractionAtRef.current;
+      const nextMs = document.hidden || idleMs >= POLL_IDLE_THRESHOLD_MS ? POLL_IDLE_MS : POLL_ACTIVE_MS;
+      timeoutId = setTimeout(() => {
+        if (!document.hidden) {
+          void refreshAll(true);
+        }
+        scheduleNext();
+      }, nextMs);
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        touch();
+        void refreshAll(true);
+      }
+    };
+
+    scheduleNext();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      clearInterval(id);
+      if (timeoutId) clearTimeout(timeoutId);
+      interactionEvents.forEach((eventName) => document.removeEventListener(eventName, touch));
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshAll]);

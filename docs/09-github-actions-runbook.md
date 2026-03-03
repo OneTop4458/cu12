@@ -13,15 +13,26 @@
 - Can be scheduled or manually dispatched.
 
 4. `sync-schedule.yml`
-- Dispatches periodic `SYNC` jobs and then calls `worker-consume.yml`.
+- Dispatches periodic `SYNC` jobs every 2 hours.
+- Calls `worker-consume.yml` only when new jobs were actually enqueued.
 
 5. `mail-digest-schedule.yml`
 - Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
+- Calls `worker-consume.yml` only when new digest jobs were enqueued.
 
-6. `db-bootstrap.yml`
+6. `db-retention-cleanup.yml`
+- Deletes old rows by retention policy:
+  - `AuditLog`: 30 days
+  - `JobQueue` terminal states: 14 days
+  - `MailDelivery`: 30 days
+
+7. `actions-usage-forecast.yml`
+- Forecasts monthly Actions usage and writes utilization summary.
+
+8. `db-bootstrap.yml`
 - Applies DB schema initialization (`prisma db push`).
 
-7. `auth-reset-bootstrap.yml`
+9. `auth-reset-bootstrap.yml`
 - Resets auth-related data and issues fresh admin invite code.
 
 ## Required Secrets
@@ -64,6 +75,7 @@
 3. Deploy web app (`Deploy Vercel`).
 4. Confirm `/api/health`.
 5. Trigger `Worker Consume` once and validate queue updates.
+6. Verify `Actions Usage Forecast` summary stays below monthly threshold.
 
 ## Common Failures
 

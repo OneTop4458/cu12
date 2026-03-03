@@ -152,12 +152,41 @@ paths:
   /api/auth/logout:
     post:
       tags: [Auth]
-      summary: Logout and clear session/impersonation cookies
+      summary: Logout and clear session/idle/impersonation cookies
       security:
         - cookieAuth: []
       responses:
         "200":
           description: Logged out
+
+  /api/auth/session/refresh:
+    post:
+      tags: [Session]
+      summary: Refresh idle session window
+      description: >-
+        Extends the idle session cookie (`cu12_idle`) when current auth cookies are valid.
+        Keeps absolute session expiry unchanged.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Idle window refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, expiresInSeconds]
+                properties:
+                  ok:
+                    type: boolean
+                  expiresInSeconds:
+                    type: integer
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/auth/invite:
     get:
@@ -418,6 +447,37 @@ paths:
       responses:
         "200":
           description: Summary payload
+
+  /api/dashboard/bootstrap:
+    get:
+      tags: [Dashboard]
+      summary: Aggregated dashboard bootstrap payload
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: deadlinesLimit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: notificationsLimit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - in: query
+          name: jobsLimit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Combined dashboard data used by initial page load and refresh
+        "401":
+          description: Unauthorized
 
   /api/dashboard/courses:
     get:

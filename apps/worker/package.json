@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "once": "tsx src/index.ts --once",
+    "cleanup:retention": "tsx src/retention-cleanup.ts",
     "dispatch:sync": "tsx src/queue-dispatch.ts --type=SYNC",
     "dispatch:autolearn": "tsx src/queue-dispatch.ts --type=AUTOLEARN",
     "dispatch:digest": "tsx src/queue-dispatch.ts --type=MAIL_DIGEST",

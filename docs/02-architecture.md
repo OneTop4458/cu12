@@ -43,9 +43,9 @@
 
 ## Dashboard Runtime Flow
 
-1. Client loads `/api/session/context`, `/api/dashboard/*`, `/api/jobs`, `/api/mail/preferences` in parallel.
+1. Client loads `/api/dashboard/bootstrap` for aggregated dashboard payload (session context, summary, courses, deadlines, notifications, jobs, account, mail preference).
 2. First-login users auto-trigger one SYNC request when no successful sync exists.
-3. UI refreshes every 60s and on visibility change.
+3. UI uses adaptive refresh intervals (active: 120s, idle/background: 300s) and immediate refresh on tab re-focus.
 4. Blocking modal is used for explicit user actions (manual refresh, sync/autolearn, settings save).
 
 ## Why This Model

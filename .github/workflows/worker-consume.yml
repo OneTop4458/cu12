@@ -2,12 +2,28 @@
 
 on:
   workflow_call:
+    inputs:
+      trigger:
+        description: "sync | autolearn | digest"
+        required: false
+        type: string
+        default: "sync"
+      jobTypes:
+        description: "Comma-separated JobType list"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       trigger:
-        description: "sync | autolearn"
+        description: "sync | autolearn | digest"
         required: false
         default: "sync"
+        type: string
+      jobTypes:
+        description: "Optional comma-separated JobType list"
+        required: false
+        default: ""
         type: string
       userId:
         description: "Optional user id"
@@ -48,6 +64,28 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+      - id: resolve
+        shell: bash
+        run: |
+          JOB_TYPES="${{ inputs.jobTypes }}"
+          if [ -z "$JOB_TYPES" ]; then
+            case "${{ inputs.trigger }}" in
+              autolearn) JOB_TYPES="AUTOLEARN" ;;
+              digest) JOB_TYPES="MAIL_DIGEST" ;;
+              sync) JOB_TYPES="SYNC,NOTICE_SCAN" ;;
+              *) JOB_TYPES="SYNC,AUTOLEARN,NOTICE_SCAN,MAIL_DIGEST" ;;
+            esac
+          fi
+
+          echo "job_types=$JOB_TYPES" >> "$GITHUB_OUTPUT"
+
+          if [ "$JOB_TYPES" = "MAIL_DIGEST" ]; then
+            echo "needs_playwright=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_playwright=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - run: npm install
-      - run: npx playwright install --with-deps chromium
-      - run: npm --workspace @cu12/worker run once
+      - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
+        run: npx playwright install --with-deps chromium
+      - run: npm --workspace @cu12/worker run once -- --types=${{ steps.resolve.outputs.job_types }}

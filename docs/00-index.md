@@ -21,6 +21,7 @@ A Korean summary is available only in `README.ko.md`.
 - `docs/14-cloud-setup-playbook.md`: Full cloud deployment setup
 - `docs/15-audit-report.md`: Change audit snapshot
 - `docs/16-documentation-style-guide.md`: Writing and maintenance rules
+- `docs/17-free-tier-optimization-plan.md`: Free-tier usage optimization policy
 - `docs/adr/0001-hybrid-worker-model.md`: ADR for cloud worker model
 - `docs/adr/0002-token-strategy.md`: ADR for token strategy
 

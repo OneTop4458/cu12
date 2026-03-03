@@ -77,6 +77,37 @@ function toAutoLearnMode(raw: unknown): AutoLearnMode {
   return "ALL_COURSES";
 }
 
+function parseArgs() {
+  const map = new Map<string, string>();
+  for (const arg of process.argv.slice(2)) {
+    const [k, v] = arg.replace(/^--/, "").split("=");
+    if (k && v) map.set(k, v);
+  }
+  return map;
+}
+
+function parseJobTypes(raw: string | undefined): JobType[] {
+  const defaults = [JobType.SYNC, JobType.AUTOLEARN, JobType.NOTICE_SCAN, JobType.MAIL_DIGEST];
+  if (!raw) return defaults;
+
+  const values = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  if (values.length === 0) return defaults;
+
+  const unique = new Set<JobType>();
+  for (const value of values) {
+    if (!Object.values(JobType).includes(value as JobType)) {
+      throw new Error(`Invalid --types value: ${value}`);
+    }
+    unique.add(value as JobType);
+  }
+
+  return [...unique];
+}
+
 async function reportJobProgress(jobId: string, progress: AutoLearnProgress) {
   try {
     await progressJob(jobId, {
@@ -503,13 +534,15 @@ async function processMailDigest(userId: string) {
 
 async function main() {
   const env = getEnv();
+  const args = parseArgs();
   const once = process.argv.includes("--once");
+  const jobTypes = parseJobTypes(args.get("types"));
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
 
   while (true) {
     try {
       await sendHeartbeat(workerId);
-      const job = await claimJob(workerId, [JobType.SYNC, JobType.AUTOLEARN, JobType.NOTICE_SCAN, JobType.MAIL_DIGEST]);
+      const job = await claimJob(workerId, jobTypes);
 
       if (!job) {
         if (once) break;

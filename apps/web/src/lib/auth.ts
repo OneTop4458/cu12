@@ -4,8 +4,12 @@ import { getEnv } from "./env";
 
 export const SESSION_COOKIE_NAME = "cu12_session";
 export const IMPERSONATION_COOKIE_NAME = "cu12_impersonation";
+export const IDLE_SESSION_COOKIE_NAME = "cu12_idle";
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+export const IDLE_SESSION_MAX_AGE_SECONDS = 60 * 30;
 const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
 const IMPERSONATION_PURPOSE = "ADMIN_IMPERSONATION";
+const IDLE_SESSION_PURPOSE = "IDLE_SESSION";
 
 export interface SessionTokenPayload {
   userId: string;
@@ -25,6 +29,11 @@ export interface ImpersonationPayload {
   purpose: typeof IMPERSONATION_PURPOSE;
   actorUserId: string;
   targetUserId: string;
+}
+
+export interface IdleSessionPayload {
+  purpose: typeof IDLE_SESSION_PURPOSE;
+  userId: string;
 }
 
 function jwtSecret(): Uint8Array {
@@ -62,6 +71,48 @@ export async function verifySessionToken(token: string): Promise<SessionTokenPay
   } catch {
     return null;
   }
+}
+
+export async function signIdleSessionToken(userId: string): Promise<string> {
+  return new SignJWT({
+    purpose: IDLE_SESSION_PURPOSE,
+    userId,
+  } satisfies IdleSessionPayload as unknown as JWTPayload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("30m")
+    .sign(jwtSecret());
+}
+
+export async function verifyIdleSessionToken(token: string): Promise<IdleSessionPayload | null> {
+  try {
+    const verified = await jwtVerify(token, jwtSecret());
+    const value = verified.payload as Partial<IdleSessionPayload>;
+    if (value.purpose !== IDLE_SESSION_PURPOSE || !value.userId) {
+      return null;
+    }
+
+    return {
+      purpose: IDLE_SESSION_PURPOSE,
+      userId: value.userId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyActiveSession(sessionToken?: string, idleToken?: string): Promise<SessionTokenPayload | null> {
+  if (!sessionToken || !idleToken) return null;
+
+  const [session, idle] = await Promise.all([
+    verifySessionToken(sessionToken),
+    verifyIdleSessionToken(idleToken),
+  ]);
+
+  if (!session || !idle) return null;
+  if (idle.userId !== session.userId) return null;
+
+  return session;
 }
 
 export async function signLoginChallengeToken(payload: Omit<LoginChallengePayload, "purpose">): Promise<string> {

@@ -91,7 +91,7 @@ Concurrency model:
 ## 5. Runtime Features
 
 1. First-login auto sync: the dashboard auto-queues one SYNC job if no successful sync exists.
-2. Smart polling refresh: dashboard data refreshes every 60 seconds and on tab re-focus.
+2. Smart polling refresh: dashboard data refreshes adaptively (120s active / 300s idle/background) and on tab re-focus.
 3. Auto-learning modes:
 - `ALL_COURSES`
 - `SINGLE_ALL`

@@ -11,6 +11,8 @@ permissions:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
+    outputs:
+      created_count: ${{ steps.dispatch.outputs.created_count }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -20,9 +22,17 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install
-      - run: npm --workspace @cu12/worker run dispatch:digest
+      - id: dispatch
+        run: |
+          npm --workspace @cu12/worker run dispatch:digest -- --min-interval-minutes=60 --summary-json=dispatch-summary.json
+          CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('dispatch-summary.json','utf8')); process.stdout.write(String(data.createdCount ?? 0));")
+          echo "created_count=$CREATED_COUNT" >> "$GITHUB_OUTPUT"
 
   consume:
     needs: dispatch
+    if: ${{ needs.dispatch.outputs.created_count != '0' }}
     uses: ./.github/workflows/worker-consume.yml
+    with:
+      trigger: digest
+      jobTypes: MAIL_DIGEST
     secrets: inherit

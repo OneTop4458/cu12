@@ -14,6 +14,8 @@ permissions:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
+    outputs:
+      created_count: ${{ steps.dispatch.outputs.created_count }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -23,15 +25,22 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install
-      - name: Dispatch autolearn jobs
+      - id: dispatch
+        name: Dispatch autolearn jobs
         run: |
           if [ -n "${{ inputs.userId }}" ]; then
-            npm --workspace @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }}
+            npm --workspace @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }} --summary-json=dispatch-summary.json
           else
-            npm --workspace @cu12/worker run dispatch:autolearn
+            npm --workspace @cu12/worker run dispatch:autolearn -- --summary-json=dispatch-summary.json
           fi
+          CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('dispatch-summary.json','utf8')); process.stdout.write(String(data.createdCount ?? 0));")
+          echo "created_count=$CREATED_COUNT" >> "$GITHUB_OUTPUT"
 
   consume:
     needs: dispatch
+    if: ${{ needs.dispatch.outputs.created_count != '0' }}
     uses: ./.github/workflows/worker-consume.yml
+    with:
+      trigger: autolearn
+      jobTypes: AUTOLEARN
     secrets: inherit

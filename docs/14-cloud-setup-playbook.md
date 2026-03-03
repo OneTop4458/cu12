@@ -32,8 +32,10 @@ Run CU12 Automation as a **100% cloud-based system** with no always-on local mac
 
 1. Keep per-user job serialization enabled.
 2. Start with conservative auto-learning throughput.
-3. Monitor run durations and runner quota.
-4. Increase capacity incrementally after stability confirmation.
+3. Keep scheduled sync at 2-hour interval for free-tier stability.
+4. Monitor run durations and runner quota.
+5. Keep daily retention cleanup enabled to prevent DB growth.
+6. Increase capacity incrementally after stability confirmation.
 
 ## Rollback Basics
 

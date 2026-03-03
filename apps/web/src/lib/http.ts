@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  IDLE_SESSION_COOKIE_NAME,
   IMPERSONATION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   SessionTokenPayload,
+  verifyActiveSession,
   verifyImpersonationToken,
-  verifySessionToken,
 } from "./auth";
 import { prisma } from "./prisma";
 
@@ -30,9 +31,9 @@ export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>)
 }
 
 export async function requireUser(request: NextRequest): Promise<SessionTokenPayload | null> {
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  if (!token) return null;
-  return verifySessionToken(token);
+  const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const idleToken = request.cookies.get(IDLE_SESSION_COOKIE_NAME)?.value;
+  return verifyActiveSession(sessionToken, idleToken);
 }
 
 export interface RequestAuthContext {
