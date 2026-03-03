@@ -15,16 +15,34 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    if (body.targetUserId === context.actor.userId) {
-      return jsonError("Cannot impersonate yourself", 400);
-    }
 
     const target = await prisma.user.findUnique({
       where: { id: body.targetUserId },
-      select: { id: true, email: true, role: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+      },
     });
-    if (!target) {
+    if (!target || !target.isActive) {
       return jsonError("Target user not found", 404);
+    }
+
+    if (target.id === context.actor.userId) {
+      const response = jsonOk({
+        impersonating: false,
+        targetUser: target,
+      });
+      response.cookies.set(IMPERSONATION_COOKIE_NAME, "", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      });
+
+      return response;
     }
 
     const token = await signImpersonationToken({

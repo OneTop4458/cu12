@@ -59,8 +59,12 @@ export function LoginForm() {
 
       if (!response.ok) {
         const payload = (await response.json()) as ApiErrorResponse;
-        if (payload.errorCode === "CU12_AUTH_FAILED") {
-          setError("가톨릭 공유대 아이디 또는 비밀번호가 올바르지 않습니다.");
+        if (payload.errorCode === "LOCAL_AUTH_FAILED") {
+          setError("로컬 계정 비밀번호가 일치하지 않습니다.");
+        } else if (payload.errorCode === "ACCOUNT_DISABLED") {
+          setError("비활성화된 계정입니다. 관리자에게 문의하세요.");
+        } else if (payload.errorCode === "CU12_AUTH_FAILED") {
+          setError("가톨릭 공유대 아이디 또는 비밀번호가 일치하지 않습니다.");
         } else {
           setError(payload.error ?? "로그인 처리 중 오류가 발생했습니다.");
         }
@@ -117,6 +121,8 @@ export function LoginForm() {
           setInviteError("인증 세션이 만료되었습니다. 다시 로그인해 주세요.");
           setShowInviteModal(false);
           setChallengeToken(null);
+        } else if (payload.errorCode === "ACCOUNT_DISABLED") {
+          setInviteError("계정이 비활성화되었습니다. 관리자에게 문의하세요.");
         } else {
           setInviteError(payload.error ?? "초대 코드 인증에 실패했습니다.");
         }

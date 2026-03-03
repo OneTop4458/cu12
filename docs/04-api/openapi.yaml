@@ -233,9 +233,34 @@ paths:
                   minimum: 1
                   maximum: 720
                   default: 72
+                isActive:
+                  type: boolean
+                  default: true
       responses:
         "200":
           description: Invite token created
+        "403":
+          description: Forbidden
+    patch:
+      tags: [Admin]
+      summary: Activate/deactivate invite token
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inviteId, isActive]
+              properties:
+                inviteId:
+                  type: string
+                isActive:
+                  type: boolean
+      responses:
+        "200":
+          description: Invite token updated
         "403":
           description: Forbidden
 
@@ -678,7 +703,7 @@ paths:
           description: Member list
     post:
       tags: [Admin]
-      summary: Create or update a member from CU12 credentials
+      summary: Create or update a member from CU12 credentials or local credentials
       security:
         - cookieAuth: []
       requestBody:
@@ -687,15 +712,22 @@ paths:
           application/json:
             schema:
               type: object
-              required: [cu12Id, cu12Password]
+              required: [cu12Id]
               properties:
                 cu12Id:
                   type: string
                   minLength: 4
                   maxLength: 80
+                isActive:
+                  type: boolean
+                  default: true
                 cu12Password:
                   type: string
                   minLength: 4
+                  maxLength: 120
+                localPassword:
+                  type: string
+                  minLength: 8
                   maxLength: 120
                 campus:
                   $ref: "#/components/schemas/Campus"
@@ -734,8 +766,14 @@ paths:
                   $ref: "#/components/schemas/UserRole"
                 isTestUser:
                   type: boolean
+                isActive:
+                  type: boolean
                 name:
                   type: string
+                localPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 120
                 autoLearnEnabled:
                   type: boolean
                 detectActivitiesEnabled:
@@ -751,6 +789,30 @@ paths:
       responses:
         "200":
           description: Member updated
+    delete:
+      tags: [Admin]
+      summary: Deactivate member account
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Member deactivated
 
   /api/admin/logs:
     get:
@@ -882,9 +944,14 @@ components:
           type: string
           format: date-time
           nullable: true
+        usedByEmail:
+          type: string
+          nullable: true
         state:
           type: string
-          enum: [ACTIVE, USED, EXPIRED]
+          enum: [ACTIVE, INACTIVE, USED, EXPIRED]
+        isActive:
+          type: boolean
 
     Cu12Account:
       type: object
@@ -1057,3 +1124,4 @@ components:
         result:
           type: object
           nullable: true
+

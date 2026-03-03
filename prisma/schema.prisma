@@ -75,6 +75,7 @@ model User {
   email          String             @unique
   name           String
   passwordHash   String
+  isActive       Boolean            @default(true)
   isTestUser     Boolean            @default(false)
   role           UserRole           @default(USER)
   createdAt      DateTime           @default(now())
@@ -100,6 +101,7 @@ model InviteToken {
   cu12Id          String
   role            UserRole  @default(USER)
   tokenHash       String    @unique
+  isActive        Boolean   @default(true)
   createdByUserId String?
   usedByUserId    String?
   createdAt       DateTime  @default(now())

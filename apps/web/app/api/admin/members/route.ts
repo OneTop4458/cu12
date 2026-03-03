@@ -10,10 +10,12 @@ import { writeAuditLog } from "@/server/audit-log";
 
 const CreateMemberSchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
-  cu12Password: z.string().min(4).max(120),
+  cu12Password: z.string().min(4).max(120).optional(),
+  localPassword: z.string().min(8).max(120).optional(),
   campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
-  isTestUser: z.boolean().default(true),
+  isTestUser: z.boolean().default(false),
+  isActive: z.boolean().default(true),
   name: z.string().trim().min(1).max(80).optional(),
 });
 
@@ -42,6 +44,7 @@ export async function GET(request: NextRequest) {
       email: true,
       name: true,
       role: true,
+      isActive: true,
       isTestUser: true,
       createdAt: true,
       updatedAt: true,
@@ -91,24 +94,37 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, CreateMemberSchema);
     const campus = body.campus ?? "SONGSIM";
-    const validation = await verifyCu12Login({
-      cu12Id: body.cu12Id,
-      cu12Password: body.cu12Password,
-      campus,
-    });
-    if (!validation.ok) {
-      await writeAuditLog({
-        category: "AUTH",
-        severity: "WARN",
-        actorUserId: context.actor.userId,
-        message: "Admin member create failed due to CU12 verification",
-        meta: {
-          cu12Id: body.cu12Id,
-          campus,
-          messageCode: validation.messageCode ?? null,
-        },
+    const role = body.role ?? "USER";
+    const isActive = body.isActive ?? true;
+    const isTestUser = body.isTestUser ?? false;
+
+    if (isTestUser && !body.localPassword) {
+      return jsonError("localPassword is required for test users", 400, "VALIDATION_ERROR");
+    }
+    if (!isTestUser && !body.cu12Password) {
+      return jsonError("cu12Password is required for CU12 users", 400, "VALIDATION_ERROR");
+    }
+
+    if (!isTestUser) {
+      const validation = await verifyCu12Login({
+        cu12Id: body.cu12Id,
+        cu12Password: body.cu12Password ?? "",
+        campus,
       });
-      return jsonError("CU12 ID or password is invalid.", 401, "CU12_AUTH_FAILED");
+      if (!validation.ok) {
+        await writeAuditLog({
+          category: "AUTH",
+          severity: "WARN",
+          actorUserId: context.actor.userId,
+          message: "Admin member create failed due to CU12 verification",
+          meta: {
+            cu12Id: body.cu12Id,
+            campus,
+            messageCode: validation.messageCode ?? null,
+          },
+        });
+        return jsonError("CU12 ID or password is invalid.", 401, "CU12_AUTH_FAILED");
+      }
     }
 
     const existingAccount = await prisma.cu12Account.findUnique({
@@ -124,36 +140,55 @@ export async function POST(request: NextRequest) {
     let created = false;
 
     if (!userId) {
-      const passwordHash = await hashPassword(generateToken(24));
+      const passwordHash = isTestUser
+        ? await hashPassword(body.localPassword ?? generateToken(16))
+        : await hashPassword(generateToken(16));
       const createdUser = await prisma.user.create({
         data: {
           email: body.cu12Id,
           name: body.name ?? body.cu12Id,
           passwordHash,
-          role: body.role,
-          isTestUser: body.isTestUser,
+          role,
+          isTestUser,
+          isActive,
         },
         select: { id: true },
       });
       userId = createdUser.id;
       created = true;
     } else {
+      const updateData: {
+        role: "ADMIN" | "USER";
+        isTestUser: boolean;
+        isActive: boolean;
+        name: string | undefined;
+        email: string;
+        passwordHash?: string;
+      } = {
+        role,
+        isTestUser,
+        isActive,
+        name: body.name ?? undefined,
+        email: body.cu12Id,
+      };
+
+      if (isTestUser && body.localPassword) {
+        updateData.passwordHash = await hashPassword(body.localPassword);
+      }
+
       await prisma.user.update({
         where: { id: userId },
-        data: {
-          role: body.role,
-          isTestUser: body.isTestUser,
-          name: body.name ?? undefined,
-          email: body.cu12Id,
-        },
+        data: updateData,
       });
     }
 
-    await upsertCu12Account(userId, {
-      cu12Id: body.cu12Id,
-      cu12Password: body.cu12Password,
-      campus,
-    });
+    if (!isTestUser) {
+      await upsertCu12Account(userId, {
+        cu12Id: body.cu12Id,
+        cu12Password: body.cu12Password ?? "",
+        campus,
+      });
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -163,6 +198,7 @@ export async function POST(request: NextRequest) {
         name: true,
         role: true,
         isTestUser: true,
+        isActive: true,
         createdAt: true,
         cu12Account: {
           select: {
@@ -184,8 +220,9 @@ export async function POST(request: NextRequest) {
       meta: {
         cu12Id: body.cu12Id,
         campus,
-        role: body.role,
-        isTestUser: body.isTestUser,
+        role,
+        isTestUser,
+        isActive,
       },
     });
 
@@ -197,5 +234,3 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to create member", 500);
   }
 }
-
-

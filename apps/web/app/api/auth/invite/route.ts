@@ -8,6 +8,12 @@ const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
   expiresHours: z.number().int().min(1).max(24 * 30).default(72),
+  isActive: z.boolean().default(true),
+});
+
+const PatchSchema = z.object({
+  inviteId: z.string().min(1),
+  isActive: z.boolean(),
 });
 
 export async function GET(request: NextRequest) {
@@ -21,16 +27,23 @@ export async function GET(request: NextRequest) {
       id: true,
       cu12Id: true,
       role: true,
+      isActive: true,
       createdAt: true,
       expiresAt: true,
       usedAt: true,
+      usedBy: {
+        select: {
+          email: true,
+        },
+      },
     },
   });
 
   const now = new Date();
   const invites = rows.map((row) => ({
     ...row,
-    state: row.usedAt ? "USED" : row.expiresAt < now ? "EXPIRED" : "ACTIVE",
+    usedByEmail: row.usedBy?.email ?? null,
+    state: row.usedAt ? "USED" : row.isActive ? (row.expiresAt < now ? "EXPIRED" : "ACTIVE") : "INACTIVE",
   }));
 
   return jsonOk({ invites });
@@ -49,6 +62,7 @@ export async function POST(request: NextRequest) {
       data: {
         cu12Id: body.cu12Id,
         role: body.role,
+        isActive: body.isActive,
         tokenHash: hashToken(plainToken),
         expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
         createdByUserId: session.userId,
@@ -67,3 +81,34 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to create invite", 500);
   }
 }
+
+export async function PATCH(request: NextRequest) {
+  const session = await requireUser(request);
+  if (!session || session.role !== "ADMIN") return jsonError("Forbidden", 403);
+
+  try {
+    const body = await parseBody(request, PatchSchema);
+
+    const invite = await prisma.inviteToken.findUnique({
+      where: { id: body.inviteId },
+      select: { id: true },
+    });
+    if (!invite) {
+      return jsonError("Invite token not found", 404);
+    }
+
+    const updated = await prisma.inviteToken.update({
+      where: { id: body.inviteId },
+      data: { isActive: body.isActive },
+      select: { id: true, cu12Id: true, isActive: true, expiresAt: true, usedAt: true },
+    });
+
+    return jsonOk({ invite: updated });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
+    }
+    return jsonError("Failed to update invite", 500);
+  }
+}
+

@@ -36,7 +36,24 @@ export async function POST(request: NextRequest) {
       where: { tokenHash: hashToken(body.inviteCode) },
     });
 
-    if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+    if (!invite) {
+      const hasInvite = await prisma.inviteToken.findFirst({
+        where: { cu12Id: challenge.cu12Id },
+        select: { id: true },
+      });
+
+      if (!hasInvite) {
+        await writeAuditLog({
+          category: "AUTH",
+          severity: "WARN",
+          message: "Invite verification failed: CU12 ID is not approved",
+          meta: {
+            cu12Id: challenge.cu12Id,
+          },
+        });
+        return jsonError("This CU12 ID is not approved for self-signup. Contact administrator.", 403, "UNAPPROVED_ID");
+      }
+
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -50,6 +67,45 @@ export async function POST(request: NextRequest) {
         403,
         "INVITE_CODE_INVALID",
       );
+    }
+
+    if (!invite.isActive) {
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "WARN",
+        message: "Invite verification failed: invite code is inactive",
+        meta: {
+          cu12Id: challenge.cu12Id,
+          inviteId: invite.id,
+        },
+      });
+      return jsonError("This invite code is currently disabled.", 403, "INVITE_CODE_INVALID");
+    }
+
+    if (invite.expiresAt < new Date()) {
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "WARN",
+        message: "Invite verification failed: invite code expired",
+        meta: {
+          cu12Id: challenge.cu12Id,
+          inviteId: invite.id,
+        },
+      });
+      return jsonError("Invite code is invalid or expired.", 403, "INVITE_CODE_INVALID");
+    }
+
+    if (invite.usedAt) {
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "WARN",
+        message: "Invite verification failed: invite code already used",
+        meta: {
+          cu12Id: challenge.cu12Id,
+          inviteId: invite.id,
+        },
+      });
+      return jsonError("Invite code is already used.", 403, "INVITE_CODE_INVALID");
     }
 
     if (invite.cu12Id !== challenge.cu12Id) {
@@ -86,15 +142,25 @@ export async function POST(request: NextRequest) {
     let firstLogin = false;
 
     if (existingAccount) {
-      const found = await prisma.user.findUnique({
-        where: { id: existingAccount.userId },
-        select: { id: true, email: true, role: true },
-      });
-      if (!found) {
-        return jsonError("User mapping not found.", 500, "INTERNAL_ERROR");
-      }
-      user = found;
-    } else {
+        const found = await prisma.user.findUnique({
+          where: { id: existingAccount.userId },
+          select: { id: true, email: true, role: true, isActive: true },
+        });
+        if (!found) {
+          return jsonError("User mapping not found.", 500, "INTERNAL_ERROR");
+        }
+        if (!found.isActive) {
+          return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
+        }
+        await prisma.inviteToken.update({
+          where: { id: invite.id },
+          data: {
+            usedAt: new Date(),
+            usedByUserId: found.id,
+          },
+        });
+        user = found;
+      } else {
       const passwordHash = await hashPassword(generateToken(24));
 
       user = await prisma.$transaction(async (tx) => {

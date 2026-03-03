@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
+  verifyPassword,
   signIdleSessionToken,
   signLoginChallengeToken,
   signSessionToken,
@@ -24,6 +25,61 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const campus = body.campus ?? "SONGSIM";
+
+    const localCandidate = await prisma.user.findUnique({
+      where: { email: body.cu12Id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+        isTestUser: true,
+        passwordHash: true,
+      },
+    });
+
+    if (localCandidate?.isTestUser) {
+      if (!localCandidate.isActive) {
+        return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
+      }
+
+      const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
+      if (!ok) {
+        return jsonError("This account password is invalid.", 401, "LOCAL_AUTH_FAILED");
+      }
+
+      const sessionToken = await signSessionToken({
+        userId: localCandidate.id,
+        email: body.cu12Id,
+        role: localCandidate.role,
+      });
+      const idleSessionToken = await signIdleSessionToken(localCandidate.id);
+
+      const response = jsonOk({
+        stage: "AUTHENTICATED" as const,
+        user: {
+          userId: localCandidate.id,
+          cu12Id: body.cu12Id,
+          role: localCandidate.role,
+        },
+        firstLogin: false,
+      });
+      setSessionCookie(response, sessionToken);
+      setIdleSessionCookie(response, idleSessionToken);
+
+      await writeAuditLog({
+        category: "AUTH",
+        severity: "INFO",
+        actorUserId: localCandidate.id,
+        targetUserId: localCandidate.id,
+        message: "User authenticated using local credentials",
+        meta: {
+          cu12Id: body.cu12Id,
+          campus,
+        },
+      });
+      return response;
+    }
 
     const validation = await verifyCu12Login({
       cu12Id: body.cu12Id,
@@ -50,7 +106,7 @@ export async function POST(request: NextRequest) {
     });
     const existingUserByEmail = await prisma.user.findUnique({
       where: { email: body.cu12Id },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, isActive: true },
     });
 
     let user:
@@ -64,11 +120,11 @@ export async function POST(request: NextRequest) {
     if (existingAccount) {
       const found = await prisma.user.findUnique({
         where: { id: existingAccount.userId },
-        select: { id: true, email: true, role: true },
+        select: { id: true, email: true, role: true, isActive: true },
       });
 
-      if (!found) {
-        return jsonError("User mapping not found.", 500, "INTERNAL_ERROR");
+      if (!found || !found.isActive) {
+        return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
       }
 
       user = await prisma.user.update({
@@ -83,6 +139,10 @@ export async function POST(request: NextRequest) {
         campus,
       });
     } else if (existingUserByEmail) {
+      if (!existingUserByEmail.isActive) {
+        return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
+      }
+
       user = existingUserByEmail;
 
       await upsertCu12Account(user.id, {

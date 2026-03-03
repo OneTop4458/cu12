@@ -16,6 +16,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 const RETRYABLE_PRISMA_CODES = new Set(["P2028", "P1001", "P1008", "P1017"]);
+const TRANSITION_ERROR_HINTS = ["Transaction API error"];
+
+function isRetryablePrismaError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return RETRYABLE_PRISMA_CODES.has(error.code);
+  }
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return TRANSITION_ERROR_HINTS.some((hint) => error.message.includes(hint));
+  }
+  return false;
+}
 
 async function runWithPrismaRetry<T>(op: () => Promise<T>): Promise<T> {
   let attempts = 0;
@@ -24,11 +35,7 @@ async function runWithPrismaRetry<T>(op: () => Promise<T>): Promise<T> {
     try {
       return await op();
     } catch (error) {
-      const retryable =
-        error instanceof Prisma.PrismaClientKnownRequestError
-        && RETRYABLE_PRISMA_CODES.has(error.code);
-
-      if (!retryable || attempts >= 2) {
+      if (!isRetryablePrismaError(error) || attempts >= 2) {
         throw error;
       }
 
@@ -138,13 +145,8 @@ export async function persistSnapshot(
   },
 ): Promise<PersistSnapshotResult> {
   const noticeKeys = Array.from(new Set(data.notices.map((notice) => notice.noticeKey)));
-  const notifierSeqs = Array.from(
-    new Set(
-      data.notifications
-        .map((event) => event.notifierSeq)
-        .filter((value) => value.length > 0),
-    ),
-  );
+  const notifications = data.notifications.filter((event) => event.notifierSeq.trim().length > 0);
+  const notifierSeqs = Array.from(new Set(notifications.map((event) => event.notifierSeq)));
 
   const [existingNoticeRows, existingNotificationRows] = await Promise.all([
     noticeKeys.length > 0
@@ -245,8 +247,8 @@ export async function persistSnapshot(
     }
   }
 
-  for (const event of data.notifications) {
-    const isNewRecord = event.notifierSeq.length > 0 && !existingNotificationSet.has(event.notifierSeq);
+  for (const event of notifications) {
+    const isNewRecord = !existingNotificationSet.has(event.notifierSeq);
 
     await runWithPrismaRetry(() =>
       prisma.notificationEvent.upsert({
@@ -285,6 +287,8 @@ export async function persistSnapshot(
         newUnreadNotificationCount += 1;
       }
     }
+
+    existingNotificationSet.add(event.notifierSeq);
   }
 
   for (const task of data.tasks) {
