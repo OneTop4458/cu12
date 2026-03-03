@@ -40,9 +40,10 @@ export interface ListAuditLogInput {
 }
 
 export async function listAuditLogs(input?: ListAuditLogInput) {
-  const limit = Math.min(Math.max(input?.limit ?? 100, 1), 500);
-  const page = Number.isFinite(input?.page) ? Math.max(Math.trunc(input.page ?? 1), 1) : 1;
-  const skip = Number.isFinite(input?.skip) ? Math.max(Math.trunc(input.skip ?? 0), 0) : (page - 1) * limit;
+  const limit = Math.min(Math.max(Math.trunc(input?.limit ?? 100), 1), 500);
+  const page = Math.max(Math.trunc(input?.page ?? 1), 1);
+  const skipInput = input?.skip ?? 0;
+  const skip = Math.max(Math.trunc(Number.isFinite(skipInput) ? skipInput : 0), 0);
 
   return prisma.auditLog.findMany({
     where: buildAuditLogWhere(input),
