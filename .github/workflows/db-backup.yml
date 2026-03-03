@@ -1,4 +1,4 @@
-﻿name: DB Backup
+name: DB Backup
 
 on:
   schedule:
@@ -16,7 +16,7 @@ jobs:
         run: |
           mkdir -p backups
           pg_dump "$DATABASE_URL" -f backups/cu12-$(date +%F).sql
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: db-backup
           path: backups/*.sql
