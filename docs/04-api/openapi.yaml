@@ -463,6 +463,39 @@ paths:
         "404":
           description: Job not found
 
+  /api/jobs/{jobId}/cancel:
+    post:
+      tags: [Jobs]
+      summary: Cancel a pending or running job
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancel result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - updated
+                  - status
+                properties:
+                  updated:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        "404":
+          description: Job not found
+        "401":
+          description: Unauthorized
+
   /api/dashboard/summary:
     get:
       tags: [Dashboard]

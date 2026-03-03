@@ -189,6 +189,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
   const [bootstrapSyncing, setBootstrapSyncing] = useState(false);
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -205,6 +206,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "RUNNING"));
   const unreadNotifications = notifications.filter((item) => item.isUnread);
   const autoProgress = parseAutoProgress(trackingDetail?.result);
+  const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(url, init);
@@ -352,6 +354,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
+  async function cancelTrackingJob() {
+    if (!trackingJobId) return;
+    if (!trackingCanCancel || cancelSubmitting) return;
+    setCancelSubmitting(true);
+    setBlockingMessage("작업 취소를 요청 중입니다...");
+    try {
+      const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${trackingJobId}/cancel`, {
+        method: "POST",
+      });
+      setMessage(payload.updated ? "작업이 취소 처리되었습니다." : `현재 상태: ${payload.status}`);
+      await refreshAll(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCancelSubmitting(false);
+      if (!bootstrapSyncing) {
+        setBlockingMessage(null);
+      }
+    }
+  }
+
   async function markNotificationRead(item: Notification) {
     setActiveNotification(item);
     if (!item.isUnread) return;
@@ -456,7 +479,28 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </select>
           </label>
         </div>
-        {trackingDetail ? <p className="muted">작업 상태: {trackingDetail.status}{autoProgress ? ` (${autoProgress.progress.completedTasks}/${autoProgress.progress.totalTasks}, ${formatSeconds(autoProgress.progress.estimatedRemainingSeconds)} 남음)` : ""}</p> : null}
+        {trackingDetail ? (
+          <div className="form-stack top-gap">
+            <p className="muted">
+              작업 상태: {trackingDetail.status}
+              {autoProgress
+                ? ` (${autoProgress.progress.completedTasks}/${autoProgress.progress.totalTasks}, ${formatSeconds(autoProgress.progress.estimatedRemainingSeconds)} 남음)`
+                : ""}
+            </p>
+            {trackingCanCancel ? (
+              <div className="button-row">
+                <button
+                  className="ghost-btn"
+                  style={{ borderColor: "rgb(180 35 24 / 45%)", color: "var(--danger)" }}
+                  onClick={() => void cancelTrackingJob()}
+                  disabled={cancelSubmitting}
+                >
+                  {cancelSubmitting ? "작업 중단 요청 중..." : "작업 즉시 중단"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="card">

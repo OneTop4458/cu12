@@ -57,6 +57,8 @@ export interface AutoLearnResult {
   estimatedTotalSeconds: number;
 }
 
+type CancelCheck = () => Promise<boolean>;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -215,7 +217,27 @@ export async function collectCu12Snapshot(browser: Browser, userId: string, cred
   }
 }
 
-async function watchVodTask(page: Page, lectureSeq: number, task: LearningTask): Promise<number> {
+async function waitForPlayback(page: Page, waitSeconds: number, shouldCancel: CancelCheck): Promise<void> {
+  let remainingMs = Math.max(0, waitSeconds * 1000);
+  const tickMs = 1000;
+
+  while (remainingMs > 0) {
+    if (await shouldCancel()) {
+      throw new Error("AUTOLEARN_CANCELLED");
+    }
+
+    const chunkMs = Math.min(tickMs, remainingMs);
+    await page.waitForTimeout(chunkMs);
+    remainingMs -= chunkMs;
+  }
+}
+
+async function watchVodTask(
+  page: Page,
+  lectureSeq: number,
+  task: LearningTask,
+  shouldCancel: CancelCheck,
+): Promise<number> {
   const env = getEnv();
   const remainingSeconds = Math.max(0, task.requiredSeconds - task.learnedSeconds);
   if (remainingSeconds <= 0) {
@@ -230,7 +252,7 @@ async function watchVodTask(page: Page, lectureSeq: number, task: LearningTask):
 
   // The service records attendance by periodic heartbeats during playback;
   // we keep the page open for the remaining required time.
-  await sleep(waitSeconds * 1000);
+  await waitForPlayback(page, waitSeconds, shouldCancel);
 
   await page.evaluate(() => {
     const fn = (window as unknown as { pageExit?: (isExit?: boolean) => void }).pageExit;
@@ -307,11 +329,13 @@ export async function runAutoLearning(
     lectureSeq?: number;
   },
   onProgress?: (progress: AutoLearnProgress) => Promise<void> | void,
+  onCancelCheck?: CancelCheck,
 ): Promise<AutoLearnResult> {
   const env = getEnv();
   const context = await browser.newContext();
   const page = await context.newPage();
   installDialogHandler(page);
+  const shouldCancel = onCancelCheck ?? (async () => false);
 
   try {
     await ensureLogin(page, creds);
@@ -338,6 +362,10 @@ export async function runAutoLearning(
     let watchedSeconds = 0;
 
     for (const row of planned) {
+      if (await shouldCancel()) {
+        throw new Error("AUTOLEARN_CANCELLED");
+      }
+
       if (onProgress) {
         const consumed = watchedSeconds;
         await onProgress({
@@ -356,7 +384,7 @@ export async function runAutoLearning(
         });
       }
 
-      const watched = await watchVodTask(page, row.lectureSeq, row.task);
+      const watched = await watchVodTask(page, row.lectureSeq, row.task, shouldCancel);
       if (watched > 0) {
         watchedTaskCount += 1;
         watchedSeconds += watched;

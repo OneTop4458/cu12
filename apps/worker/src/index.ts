@@ -1,4 +1,4 @@
-import { JobType, Prisma } from "@prisma/client";
+import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import { claimJob, failJob, finishJob, progressJob, sendHeartbeat } from "./internal-api";
 import { collectCu12Snapshot, runAutoLearning, type AutoLearnMode, type AutoLearnProgress } from "./cu12-automation";
@@ -84,6 +84,16 @@ function parseArgs() {
     if (k && v) map.set(k, v);
   }
   return map;
+}
+
+const AUTOLEARN_CANCEL_ERROR = "AUTOLEARN_CANCELLED";
+
+async function getJobStatus(jobId: string) {
+  const job = await prisma.jobQueue.findUnique({
+    where: { id: jobId },
+    select: { status: true },
+  });
+  return job?.status ?? null;
 }
 
 function parseJobTypes(raw: string | undefined): JobType[] {
@@ -380,6 +390,10 @@ async function processAutolearn(
       async (progress) => {
         await reportJobProgress(jobId, progress);
       },
+      async () => {
+        const status = await getJobStatus(jobId);
+        return status === null || status === JobStatus.CANCELED;
+      },
     );
 
     await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, watched=${autoResult.watchedTaskCount}`);
@@ -420,18 +434,35 @@ async function processAutolearn(
       lectureSeqs: autoResult.lectureSeqs,
     };
   } catch (error) {
-    await recordLearningRun(userId, lectureSeq ?? null, "FAILED", errMessage(error));
-    await writeAuditLog({
-      category: "WORKER",
-      severity: "ERROR",
-      targetUserId: userId,
-      message: "AUTOLEARN job failed",
-      meta: {
-        jobId,
-        lectureSeq: lectureSeq ?? null,
-        error: errMessage(error),
-      },
-    });
+    const message = errMessage(error);
+    const isCancelled = message === AUTOLEARN_CANCEL_ERROR;
+
+    if (!isCancelled) {
+      await recordLearningRun(userId, lectureSeq ?? null, "FAILED", message);
+      await writeAuditLog({
+        category: "WORKER",
+        severity: "ERROR",
+        targetUserId: userId,
+        message: "AUTOLEARN job failed",
+        meta: {
+          jobId,
+          lectureSeq: lectureSeq ?? null,
+          error: message,
+        },
+      });
+    } else {
+      await writeAuditLog({
+        category: "WORKER",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "AUTOLEARN job cancelled",
+        meta: {
+          jobId,
+          lectureSeq: lectureSeq ?? null,
+        },
+      });
+    }
+
     throw error;
   } finally {
     await browser.close();
@@ -551,6 +582,11 @@ async function main() {
       }
 
       try {
+        const currentStatus = await getJobStatus(job.id);
+        if (currentStatus !== JobStatus.RUNNING) {
+          continue;
+        }
+
         let result: unknown;
         if (job.type === JobType.SYNC || job.type === JobType.NOTICE_SCAN) {
           result = await processSync(job.id, job.payload.userId);
@@ -561,9 +597,19 @@ async function main() {
           result = await processMailDigest(job.payload.userId);
         }
 
+        const terminalStatus = await getJobStatus(job.id);
+        if (terminalStatus !== JobStatus.RUNNING) {
+          continue;
+        }
+
         await finishJob(job.id, result);
       } catch (jobError) {
-        await failJob(job.id, errMessage(jobError));
+        const message = errMessage(jobError);
+        const terminalStatus = await getJobStatus(job.id);
+        if (message === AUTOLEARN_CANCEL_ERROR || terminalStatus === JobStatus.CANCELED) {
+          continue;
+        }
+        await failJob(job.id, message);
       }
     } catch (loopError) {
       if (once) {
