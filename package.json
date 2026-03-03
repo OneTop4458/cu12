@@ -1,27 +1,28 @@
 {
-    "name":  "cu12-automation",
-    "version":  "0.1.0",
-    "private":  true,
-    "workspaces":  [
-                       "apps/*",
-                       "packages/*"
-                   ],
-    "engines":  {
-                    "node":  "\u003e=20.11.0"
-                },
-    "scripts":  {
-                    "dev:web":  "npm --workspace @cu12/web run dev",
-                    "build:web":  "npm --workspace @cu12/web run build",
-                    "start:web":  "npm --workspace @cu12/web run start",
-                    "worker":  "npm --workspace @cu12/worker run dev",
-                    "worker:once":  "npm --workspace @cu12/worker run once",
-                    "lint":  "npm --workspace @cu12/web run lint",
-                    "typecheck":  "npm --workspace @cu12/web run typecheck \u0026\u0026 npm --workspace @cu12/worker run typecheck",
-                    "prisma:generate":  "npm --workspace @cu12/web run prisma:generate",
-                    "prisma:migrate":  "npm --workspace @cu12/web run prisma:migrate",
-                    "postinstall":  "npm run prisma:generate"
-                },
-    "devDependencies":  {
-                            "typescript":  "^5.6.3"
-                        }
+  "name": "cu12-automation",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev:web": "npm --workspace @cu12/web run dev",
+    "build:web": "npm --workspace @cu12/web run build",
+    "start:web": "npm --workspace @cu12/web run start",
+    "worker": "npm --workspace @cu12/worker run dev",
+    "worker:once": "npm --workspace @cu12/worker run once",
+    "lint": "npm --workspace @cu12/web run lint",
+    "typecheck": "npm --workspace @cu12/web run typecheck && npm --workspace @cu12/worker run typecheck",
+    "prisma:generate": "npm --workspace @cu12/web run prisma:generate",
+    "prisma:migrate": "npm --workspace @cu12/web run prisma:migrate",
+    "prisma:push": "npx prisma db push --schema prisma/schema.prisma",
+    "postinstall": "npm run prisma:generate"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
 }

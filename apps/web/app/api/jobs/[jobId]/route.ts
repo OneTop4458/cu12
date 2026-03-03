@@ -3,14 +3,15 @@ import { jsonError, jsonOk, requireUser } from "@/lib/http";
 import { getJobForUser } from "@/server/queue";
 
 interface Params {
-  params: { jobId: string };
+  params: Promise<{ jobId: string }>;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
   const session = await requireUser(request);
   if (!session) return jsonError("Unauthorized", 401);
 
-  const job = await getJobForUser(params.jobId, session.userId);
+  const { jobId } = await params;
+  const job = await getJobForUser(jobId, session.userId);
   if (!job) return jsonError("Job not found", 404);
 
   return jsonOk({
