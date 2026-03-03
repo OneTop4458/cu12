@@ -328,7 +328,8 @@ async function processSync(jobId: string, userId: string, onCancelCheck?: Cancel
     throw new Error("CU12 account is not configured for this user");
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const env = getEnv();
+  const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
   const shouldCancel = onCancelCheck ?? (async () => false);
   try {
     const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
@@ -417,7 +418,8 @@ async function processAutolearn(
     throw new Error("CU12 account is not configured for this user");
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const env = getEnv();
+  const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
   try {
     const autoResult = await runAutoLearning(
       browser,

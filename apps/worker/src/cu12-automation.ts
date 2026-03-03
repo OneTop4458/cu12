@@ -8,7 +8,7 @@
   type LearningTask,
   type NotificationEvent,
 } from "@cu12/core";
-import type { Browser, Page } from "playwright";
+import { type Browser, type BrowserContextOptions, type Page } from "playwright";
 import { getEnv } from "./env";
 
 export interface Cu12Credentials {
@@ -58,6 +58,23 @@ export interface AutoLearnResult {
 }
 
 type CancelCheck = () => Promise<boolean>;
+
+const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+  + "Chrome/124.0.0.0 Safari/537.36";
+
+function createRealisticBrowserContextOptions(): BrowserContextOptions {
+  const env = getEnv();
+  return {
+    userAgent: env.PLAYWRIGHT_USER_AGENT ?? DEFAULT_USER_AGENT,
+    locale: env.PLAYWRIGHT_LOCALE,
+    timezoneId: env.PLAYWRIGHT_TIMEZONE,
+    viewport: {
+      width: env.PLAYWRIGHT_VIEWPORT_WIDTH,
+      height: env.PLAYWRIGHT_VIEWPORT_HEIGHT,
+    },
+  };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -272,7 +289,7 @@ export async function collectCu12Snapshot(
   onCancelCheck?: CancelCheck,
 ): Promise<SyncSnapshotResult> {
   const env = getEnv();
-  const context = await browser.newContext();
+  const context = await browser.newContext(createRealisticBrowserContextOptions());
   const page = await context.newPage();
   const shouldCancel = onCancelCheck ?? (async () => false);
   installDialogHandler(page);
@@ -452,7 +469,7 @@ export async function runAutoLearning(
   onCancelCheck?: CancelCheck,
 ): Promise<AutoLearnResult> {
   const env = getEnv();
-  const context = await browser.newContext();
+  const context = await browser.newContext(createRealisticBrowserContextOptions());
   const page = await context.newPage();
   installDialogHandler(page);
   const shouldCancel = onCancelCheck ?? (async () => false);
