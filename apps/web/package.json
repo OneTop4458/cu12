@@ -15,7 +15,7 @@
   "dependencies": {
     "@cu12/core": "file:../../packages/core",
     "@prisma/client": "^6.5.0",
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.3",
     "jose": "^5.9.6",
     "next": "^16.1.6",
     "nodemailer": "^8.0.1",
@@ -24,7 +24,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.13.10",
     "@types/nodemailer": "^6.4.17",
     "@types/react": "^18.3.18",
