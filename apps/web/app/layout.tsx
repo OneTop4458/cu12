@@ -1,4 +1,4 @@
-import "./globals.css";
+﻿import "./globals.css";
 import type { Metadata } from "next";
 import { ConsoleSecurityWarning } from "./_components/console-security-warning";
 import { SessionActivityGuard } from "./_components/session-activity-guard";

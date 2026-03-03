@@ -39,14 +39,15 @@ export interface ListAuditLogInput {
   targetUserId?: string;
 }
 
-export async function listAuditLogs(input: ListAuditLogInput = {}) {
-  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
-  const page = Math.max(Math.trunc(input.page ?? 1), 1);
-  const skipInput = input.skip ?? (page - 1) * limit;
+export async function listAuditLogs(input: ListAuditLogInput | undefined = {}) {
+  const safeInput: ListAuditLogInput = input ?? {};
+  const limit = Math.min(Math.max(Math.trunc(safeInput.limit ?? 100), 1), 500);
+  const page = Math.max(Math.trunc(safeInput.page ?? 1), 1);
+  const skipInput = safeInput.skip ?? (page - 1) * limit;
   const skip = Math.max(Math.trunc(Number.isFinite(skipInput) ? skipInput : (page - 1) * limit), 0);
 
   return prisma.auditLog.findMany({
-    where: buildAuditLogWhere(input),
+    where: buildAuditLogWhere(safeInput),
     orderBy: { createdAt: "desc" },
     skip,
     take: limit,
@@ -70,16 +71,25 @@ export async function listAuditLogs(input: ListAuditLogInput = {}) {
 }
 
 export async function countAuditLogs(input?: ListAuditLogInput) {
+  const safeInput: ListAuditLogInput = input ?? {};
   return prisma.auditLog.count({
-    where: buildAuditLogWhere(input),
+    where: buildAuditLogWhere(safeInput),
   });
 }
 
 function buildAuditLogWhere(input?: ListAuditLogInput) {
-  return {
-    ...(input?.category ? { category: input.category } : {}),
-    ...(input?.severity ? { severity: input.severity } : {}),
-    ...(input?.targetUserId ? { targetUserId: input.targetUserId } : {}),
-  } as const;
+  const where: Prisma.AuditLogWhereInput = {};
+
+  if (input?.category) {
+    where.category = input.category;
+  }
+  if (input?.severity) {
+    where.severity = input.severity;
+  }
+  if (input?.targetUserId) {
+    where.targetUserId = input.targetUserId;
+  }
+
+  return where;
 }
 

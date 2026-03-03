@@ -20,6 +20,25 @@ export async function POST(request: NextRequest, { params }: Params) {
   const context = await requireAdminActor(request);
   if (!context) return jsonError("Forbidden", 403);
 
+  const normalizeReason = (reason: string | null | undefined) => {
+    if (!reason) {
+      return "메일 테스트 발송을 완료할 수 없습니다.";
+    }
+    if (reason === "SMTP_NOT_CONFIGURED") {
+      return "SMTP 설정이 누락되어 테스트 메일을 보낼 수 없습니다.";
+    }
+    if (reason === "Failed to send test mail" || reason.startsWith("Failed to send test mail:")) {
+      return "메일 테스트 발송에 실패했습니다.";
+    }
+    if (reason.includes("ENOTFOUND")) {
+      return "SMTP 서버 주소를 확인할 수 없습니다.";
+    }
+    if (reason.includes("ECONNREFUSED")) {
+      return "SMTP 서버에 연결할 수 없습니다.";
+    }
+    return reason;
+  };
+
   try {
     const { userId } = await params;
     const body = await parseBody(request, BodySchema);
@@ -45,7 +64,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     if (!user.isActive) {
-      return jsonError("Cannot send test mail to inactive member", 409, "MEMBER_INACTIVE");
+      return jsonError("비활성 회원에는 테스트 메일을 발송할 수 없습니다.", 409, "MEMBER_INACTIVE");
     }
 
     const to = body.to?.trim() || subscription?.email || user.email;
@@ -75,9 +94,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     if (!result.sent) {
-      const reason = result.reason === "SMTP_NOT_CONFIGURED"
-        ? "SMTP 설정이 누락되어 테스트 메일을 보낼 수 없습니다."
-        : result.reason;
+      const reason = normalizeReason(result.reason);
       await writeAuditLog({
         category: AuditCategory.MAIL,
         actorUserId: context.actor.userId,
@@ -91,7 +108,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           userId,
         },
       });
-      return jsonError(reason ?? "SMTP settings are not configured", 400, "MAIL_NOT_SENT");
+      return jsonError(reason, 400, "MAIL_NOT_SENT");
     }
 
     await writeAuditLog({

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useState } from "react";
 import type { Route } from "next";
@@ -40,6 +40,12 @@ export function LoginForm() {
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
+  const processingMessage = submitting
+    ? "로그인 요청 처리 중..."
+    : inviteSubmitting
+      ? "초대 코드 확인 처리 중..."
+      : null;
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
@@ -60,13 +66,13 @@ export function LoginForm() {
       if (!response.ok) {
         const payload = (await response.json()) as ApiErrorResponse;
         if (payload.errorCode === "LOCAL_AUTH_FAILED") {
-          setError("ID 또는 비밀번호가 잘못되었습니다.");
+          setError("ID 또는 비밀번호가 일치하지 않습니다.");
         } else if (payload.errorCode === "ACCOUNT_DISABLED") {
-          setError("비밀번호가 잠금 처리되었거나 계정이 비활성화되었습니다.");
+          setError("계정이 비활성 상태입니다. 관리자에게 활성화를 요청해 주세요.");
         } else if (payload.errorCode === "CU12_AUTH_FAILED") {
-          setError("CU12 계정/비밀번호 인증에 실패했습니다.");
+          setError("CU12 ID/비밀번호 인증에 실패했습니다.");
         } else {
-          setError(payload.error ?? "로그인 요청을 처리하지 못했습니다.");
+          setError(payload.error ?? "로그인 처리에 실패했습니다.");
         }
         return;
       }
@@ -83,7 +89,7 @@ export function LoginForm() {
       router.push((payload.user.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
       router.refresh();
     } catch {
-      setError("네트워크 연결에 실패했습니다. 잠시 후 다시 시도하세요.");
+      setError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setSubmitting(false);
     }
@@ -92,7 +98,7 @@ export function LoginForm() {
   async function onSubmitInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!challengeToken) {
-      setInviteError("초대 코드를 확인할 수 없습니다. 로그인 화면으로 돌아가 다시 시도하세요.");
+      setInviteError("초대 코드 상태를 확인할 수 없습니다. 로그인 동작을 다시 시작하세요.");
       return;
     }
 
@@ -112,15 +118,15 @@ export function LoginForm() {
       if (!response.ok) {
         const payload = (await response.json()) as ApiErrorResponse;
         if (payload.errorCode === "UNAPPROVED_ID") {
-          setInviteError("승인되지 않은 계정입니다. 관리자에게 계정 권한을 요청하세요.");
+          setInviteError("승인되지 않은 ID입니다. 운영자에게 계정 생성 권한을 문의하세요.");
         } else if (payload.errorCode === "INVITE_CODE_INVALID") {
           setInviteError("초대 코드가 유효하지 않습니다.");
         } else if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-          setInviteError("초대 코드 인증 정보가 유효하지 않습니다. 다시 로그인해 주세요.");
+          setInviteError("초대 코드가 유효하지 않습니다. 새로고침 후 다시 로그인해 주세요.");
           setShowInviteModal(false);
           setChallengeToken(null);
         } else if (payload.errorCode === "ACCOUNT_DISABLED") {
-          setInviteError("계정이 비활성화되어 초대 검증이 차단됩니다.");
+          setInviteError("계정이 비활성 상태입니다. 관리자에게 계정 복구를 요청하세요.");
         } else {
           setInviteError(payload.error ?? "초대 코드 처리에 실패했습니다.");
         }
@@ -133,7 +139,7 @@ export function LoginForm() {
       router.push((payload.user.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
       router.refresh();
     } catch {
-      setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도하세요.");
+      setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setInviteSubmitting(false);
     }
@@ -150,7 +156,7 @@ export function LoginForm() {
             autoComplete="username"
             required
             minLength={4}
-            placeholder="ID를 입력하세요"
+            placeholder="예: student1234"
           />
         </label>
 
@@ -170,15 +176,15 @@ export function LoginForm() {
         <label className="field">
           <span>캠퍼스</span>
           <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
-            <option value="SONGSIM">상명 캠퍼스(SONGSIM)</option>
-            <option value="SONGSIN">상일 캠퍼스(SONGSIN)</option>
+            <option value="SONGSIM">서울 SONGSIM</option>
+            <option value="SONGSIN">신촌 SONGSIN</option>
           </select>
         </label>
 
         {error ? <p className="error-text">{error}</p> : null}
 
         <button type="submit" disabled={submitting} className="btn btn-success">
-          {submitting ? "로그인 중..." : "로그인"}
+          {submitting ? "처리 중..." : "로그인"}
         </button>
       </form>
 
@@ -201,7 +207,7 @@ export function LoginForm() {
           >
             <h2>초대 코드 입력</h2>
             <p className="muted">
-              초대 코드 8자리 이상을 입력한 뒤 완료를 눌러 인증을 진행하세요.
+              초대 코드를 가지고 계시다면 8자리 이상의 코드를 그대로 입력하고 확인 버튼을 눌러주세요.
             </p>
 
             <form onSubmit={onSubmitInvite} className="form-stack">
@@ -221,7 +227,7 @@ export function LoginForm() {
 
               <div className="button-row">
                 <button type="submit" disabled={inviteSubmitting} className="btn">
-                  {inviteSubmitting ? "처리 중..." : "인증"}
+                  {inviteSubmitting ? "처리 중..." : "확인"}
                 </button>
                 <button
                   type="button"
@@ -233,6 +239,16 @@ export function LoginForm() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {processingMessage ? (
+        <div className="modal-overlay">
+          <section className="modal-card processing-card">
+            <h2>처리 중</h2>
+            <p className="muted">{processingMessage}</p>
+            <div className="loading-bar"><span /></div>
           </section>
         </div>
       ) : null}

@@ -6,9 +6,12 @@
   --bg-soft: #f7f8fe;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
+  --surface-soft: #f6f8ff;
   --text: #12233b;
   --text-subtle: #5b6d84;
   --text-soft: #7f8ea7;
+  --brand-blue: #123b6a;
+  --brand-red: #8f1e3b;
   --primary: #123b6a;
   --primary-strong: #08284d;
   --primary-soft: #4d73a3;
@@ -26,6 +29,8 @@
   --radius-lg: 20px;
   --radius-md: 12px;
   --radius-sm: 10px;
+  --focus-ring: 0 0 0 3px rgb(73 125 204 / 22%);
+  --panel-glass: color-mix(in oklab, var(--surface) 94%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +39,7 @@
     --bg-soft: #0a1830;
     --surface: #0f1c36;
     --surface-elevated: #122248;
+    --surface-soft: #0c1830;
     --text: #e7ecf7;
     --text-subtle: #b4c1db;
     --text-soft: #9eafd2;
@@ -51,6 +57,8 @@
     --warn-soft: #3a311f;
     --shadow-soft: 0 18px 40px rgb(0 0 0 / 45%);
     --shadow-medium: 0 12px 28px rgb(0 0 0 / 50%);
+    --focus-ring: 0 0 0 3px rgb(138 180 255 / 20%);
+    --panel-glass: color-mix(in oklab, var(--surface) 94%, transparent);
   }
 }
 
@@ -92,6 +100,21 @@ main {
   max-width: 1200px;
   margin: 0 auto;
   padding: 30px 22px 72px;
+}
+
+.page-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.page-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px auto;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 38%, transparent), transparent);
+  z-index: -1;
 }
 
 h1,
@@ -142,6 +165,14 @@ h3 {
   border: 1px solid rgb(255 255 255 / 18%);
   background: linear-gradient(130deg, color-mix(in oklab, var(--primary) 22%, transparent) 0%, color-mix(in oklab, var(--accent) 24%, transparent) 100%);
   box-shadow: var(--shadow-medium);
+}
+
+.auth-brand .brand-mark-icon {
+  width: 58px;
+  height: 58px;
+  margin-bottom: 16px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 16px rgb(0 0 0 / 25%));
 }
 
 .auth-brand::after {
@@ -214,6 +245,14 @@ h3 {
   border-radius: 6px 6px 0 0;
 }
 
+.brand-wordmark {
+  width: min(240px, 90%);
+  height: auto;
+  margin-bottom: 16px;
+  object-fit: contain;
+  object-position: left center;
+}
+
 .brand-kicker {
   margin: 0 0 8px;
   color: var(--text-subtle);
@@ -223,11 +262,29 @@ h3 {
   text-transform: uppercase;
 }
 
+.brand-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark-icon {
+  width: 42px;
+  height: 42px;
+  padding: 6px;
+  border-radius: 14px;
+  object-fit: contain;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--surface) 78%, transparent), color-mix(in oklab, var(--surface-soft, #fff) 80%, transparent));
+  border: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 30%);
+}
+
 .dashboard-main {
   position: relative;
   display: grid;
   gap: 14px;
   padding-top: 12px;
+  margin-top: 14px;
 }
 
 .dashboard-shell {
@@ -268,7 +325,7 @@ h3 {
 
 .card {
   position: relative;
-  background: var(--surface-elevated);
+  background: var(--panel-glass);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 18px;
@@ -286,6 +343,12 @@ h3 {
   pointer-events: none;
   background: linear-gradient(140deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 6%));
   opacity: 0.72;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-medium);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .card > * {
@@ -405,6 +468,7 @@ select:focus {
   outline: 2px solid color-mix(in oklab, var(--primary) 26%, transparent);
   border-color: var(--primary);
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 15%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 button,
@@ -430,6 +494,7 @@ button:hover,
 .btn:hover {
   transform: translateY(-1px);
   background: color-mix(in oklab, var(--primary-strong) 96%, #000 4%);
+  box-shadow: 0 8px 22px color-mix(in oklab, var(--primary) 14%, transparent);
 }
 
 button:active,
@@ -542,6 +607,30 @@ button:disabled {
   color: var(--text-subtle);
 }
 
+.admin-hero {
+  display: grid;
+  gap: 14px;
+  align-items: center;
+  grid-template-columns: 1fr auto;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--primary) 18%, var(--surface)), var(--surface));
+}
+
+.admin-hero .header-actions {
+  justify-content: flex-end;
+}
+
+.admin-stats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.admin-stat {
+  display: grid;
+  gap: 6px;
+  border-left: 4px solid color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
 .table-toolbar {
   display: flex;
   justify-content: space-between;
@@ -549,6 +638,22 @@ button:disabled {
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.invite-token {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg-soft) 90%, transparent);
+}
+
+.invite-token code {
+  display: inline-flex;
+  margin-top: 4px;
+  word-break: break-all;
 }
 
 .table-wrap {
@@ -674,6 +779,14 @@ table code {
   padding: 20px;
   box-shadow: var(--shadow-medium);
   animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(10px);
+}
+
+.processing-card {
+  width: min(420px, 100%);
+  border-color: color-mix(in oklab, var(--primary) 34%, var(--line));
+  background: linear-gradient(135deg, var(--surface), color-mix(in oklab, var(--surface-soft, #fff) 92%, transparent));
+  box-shadow: var(--shadow-medium), 0 0 0 6px color-mix(in oklab, var(--primary) 10%, transparent);
 }
 
 .modal-card.wide {
@@ -911,6 +1024,10 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .admin-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .course-grid {
     grid-template-columns: 1fr;
   }
@@ -931,8 +1048,26 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .admin-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-hero .header-actions {
+    justify-content: flex-start;
+  }
+
   .page-header {
     flex-direction: column;
+  }
+
+  .grid-4,
+  .surface-grid,
+  .form-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   button,

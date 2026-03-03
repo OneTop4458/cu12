@@ -386,10 +386,17 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setNoticeModalOpen(true);
     setNoticeCourse(course);
     setNoticeLoading(true);
-    const payload = await fetchJson<{ notices: Notice[] }>(`/api/dashboard/courses/${course.lectureSeq}/notices`);
-    setNotices(payload.notices);
-    setActiveNotice(payload.notices[0] ?? null);
-    setNoticeLoading(false);
+    setBlockingMessage("공지 목록을 불러오는 중...");
+    try {
+      const payload = await fetchJson<{ notices: Notice[] }>(`/api/dashboard/courses/${course.lectureSeq}/notices`);
+      setNotices(payload.notices);
+      setActiveNotice(payload.notices[0] ?? null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setNoticeLoading(false);
+      setBlockingMessage(null);
+    }
   }
 
   async function markNoticeRead(noticeId: string) {
@@ -428,11 +435,19 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       <header className="page-header branded-header">
-        <div>
-          <p className="brand-kicker">가톨릭대학교 공유대학</p>
+        <div className="brand-identity">
+          <img
+            src="/brand/catholic/crest-mark.png"
+            alt="Catholic University crest"
+            className="brand-mark-icon"
+            loading="lazy"
+          />
+          <div>
+            <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 [CU12 Automation]</p>
           <h1>나의 학습 홈</h1>
-          <p className="muted">{context?.effective.email ?? initialUser.email}</p>
-          {context?.impersonating ? <p className="error-text">관리자 대리 실행 모드</p> : null}
+            <p className="muted">{context?.effective.email ?? initialUser.email}</p>
+            {context?.impersonating ? <p className="error-text">관리자 대리 실행 모드: {context?.effective.email}</p> : null}
+          </div>
         </div>
         <div className="header-actions">
           <button className="ghost-btn" onClick={() => void refreshAll(false)} disabled={loading || refreshing}>새로고침</button>

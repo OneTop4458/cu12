@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { hashPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -172,8 +173,22 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       return jsonError("Cannot delete own account", 400);
     }
 
-    await prisma.user.delete({
-      where: { id: userId },
+    await prisma.$transaction(async (tx) => {
+      await tx.auditLog.deleteMany({
+        where: {
+          OR: [{ actorUserId: userId }, { targetUserId: userId }],
+        },
+      });
+      await tx.mailDelivery.deleteMany({ where: { userId } });
+      await tx.mailSubscription.deleteMany({ where: { userId } });
+      await tx.taskDeadlineAlert.deleteMany({ where: { userId } });
+      await tx.courseNotice.deleteMany({ where: { userId } });
+      await tx.courseSnapshot.deleteMany({ where: { userId } });
+      await tx.learningRun.deleteMany({ where: { userId } });
+      await tx.learningTask.deleteMany({ where: { userId } });
+      await tx.notificationEvent.deleteMany({ where: { userId } });
+      await tx.jobQueue.deleteMany({ where: { userId } });
+      await tx.user.delete({ where: { id: userId } });
     });
 
     await writeAuditLog({
@@ -197,9 +212,17 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     if (error instanceof SyntaxError) {
       return jsonError("Invalid JSON payload", 400, "VALIDATION_ERROR");
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2025") {
+        return jsonError("이미 탈퇴 처리된 회원입니다.", 404, "MEMBER_NOT_FOUND");
+      }
+      if (error.code === "P2003") {
+        return jsonError("회원 탈퇴 중 연관 데이터 정리가 실패했습니다.", 409, "MEMBER_DELETE_CONSTRAINT");
+      }
+    }
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
     }
-    return jsonError("Failed to deactivate member", 500);
+    return jsonError("회원 탈퇴 처리 중 오류가 발생했습니다.", 500);
   }
 }

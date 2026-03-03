@@ -19,7 +19,7 @@ export default async function AdminPage() {
   }
 
   return (
-    <main className="dashboard-main">
+    <main className="dashboard-main page-shell">
       <AdminClient
         initialUser={{
           email: session.email,

@@ -1,7 +1,10 @@
 import nodemailer from "nodemailer";
 import { getEnv } from "@/lib/env";
 
-type SendMailResult = { sent: true; reason?: never } | { sent: false; reason: string };
+type SendMailResult = {
+  sent: boolean;
+  reason: string | null;
+};
 
 export async function sendMail(
   to: string,
@@ -31,11 +34,12 @@ export async function sendMail(
       text,
     });
 
-    return { sent: true };
+    return { sent: true, reason: null };
   } catch (error) {
+    const reason = error instanceof Error && error.message ? error.message : "Unknown error";
     return {
       sent: false,
-      reason: error instanceof Error ? error.message : "MAIL_TRANSPORT_ERROR",
+      reason: `Failed to send test mail: ${reason}`,
     };
   }
 }
