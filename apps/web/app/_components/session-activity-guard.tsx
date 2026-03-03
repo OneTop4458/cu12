@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -8,6 +8,8 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const REFRESH_MIN_INTERVAL_MS = 2 * 60 * 1000;
 const COUNTDOWN_TICK_MS = 1000;
 const WARNING_THRESHOLD_MS = 5 * 60 * 1000;
+const ACTIVITY_APPLY_GAP_MS = 10 * 1000;
+const MOUSE_MOVE_THRESHOLD_PX = 16;
 
 function isProtectedPath(pathname: string): boolean {
   return pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
@@ -15,16 +17,15 @@ function isProtectedPath(pathname: string): boolean {
 
 function readStoredActivityAt(): number {
   if (typeof window === "undefined") return Date.now();
-  let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(LAST_ACTIVITY_KEY);
+    const raw = window.localStorage.getItem(LAST_ACTIVITY_KEY);
+    if (!raw) return Date.now();
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) return Date.now();
+    return parsed;
   } catch {
     return Date.now();
   }
-  if (!raw) return Date.now();
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return Date.now();
-  return parsed;
 }
 
 function formatRemaining(ms: number): string {
@@ -39,6 +40,8 @@ export function SessionActivityGuard() {
   const active = isProtectedPath(pathname);
   const lastActivityAtRef = useRef<number>(Date.now());
   const lastRefreshAtRef = useRef<number>(0);
+  const lastActivityHandledAtRef = useRef<number>(0);
+  const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
   const loggingOutRef = useRef<boolean>(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(Math.ceil(IDLE_TIMEOUT_MS / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
@@ -50,13 +53,14 @@ export function SessionActivityGuard() {
     try {
       window.localStorage.setItem(LAST_ACTIVITY_KEY, String(timestamp));
     } catch {
-      // Ignore storage errors; keep component local state in fallback mode.
+      // Ignore storage errors.
     }
   };
 
-  const extendSession = async () => {
-    if (loggingOutRef.current) return;
-    const now = Date.now();
+  const tryRefresh = async (now: number) => {
+    if (now - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
+    lastRefreshAtRef.current = now;
+
     try {
       const response = await fetch("/api/auth/session/refresh", {
         method: "POST",
@@ -65,12 +69,24 @@ export function SessionActivityGuard() {
       if (response.status === 401) {
         loggingOutRef.current = true;
         window.location.assign("/login");
-        return;
       }
-      setActiveStateNow(now);
     } catch {
       // Ignore transient network failures.
     }
+  };
+
+  const registerActivity = (now: number) => {
+    if (now - lastActivityHandledAtRef.current < ACTIVITY_APPLY_GAP_MS) return;
+    lastActivityHandledAtRef.current = now;
+    setActiveStateNow(now);
+    void tryRefresh(now);
+  };
+
+  const extendSession = async () => {
+    if (loggingOutRef.current) return;
+    const now = Date.now();
+    await tryRefresh(now);
+    setActiveStateNow(now);
   };
 
   useEffect(() => {
@@ -78,29 +94,25 @@ export function SessionActivityGuard() {
 
     const bootstrappedAt = Math.max(readStoredActivityAt(), Date.now());
     setActiveStateNow(bootstrappedAt);
+    lastActivityHandledAtRef.current = bootstrappedAt;
 
-    const onActivity = () => {
-      const now = Date.now();
-      setActiveStateNow(now);
-      void tryRefresh(now);
+    const onMouseMove = (event: MouseEvent) => {
+      const { clientX, clientY } = event;
+      const last = lastMousePositionRef.current;
+      if (!last) {
+        lastMousePositionRef.current = { x: clientX, y: clientY };
+        return;
+      }
+
+      const distanceSq = (clientX - last.x) ** 2 + (clientY - last.y) ** 2;
+      lastMousePositionRef.current = { x: clientX, y: clientY };
+      if (distanceSq < MOUSE_MOVE_THRESHOLD_PX ** 2) return;
+
+      registerActivity(Date.now());
     };
 
-    const tryRefresh = async (now: number) => {
-      if (now - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
-      lastRefreshAtRef.current = now;
-
-      try {
-        const response = await fetch("/api/auth/session/refresh", {
-          method: "POST",
-          credentials: "same-origin",
-        });
-        if (response.status === 401) {
-          loggingOutRef.current = true;
-          window.location.assign("/login");
-        }
-      } catch {
-        // Ignore transient network failures.
-      }
+    const onPointerAction = () => {
+      registerActivity(Date.now());
     };
 
     const onStorage = (event: StorageEvent) => {
@@ -132,8 +144,15 @@ export function SessionActivityGuard() {
       }
     };
 
-    const events: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "touchstart"];
-    events.forEach((name) => window.addEventListener(name, onActivity, { passive: true }));
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key === "F12" || event.key === "F5") return;
+      onPointerAction();
+    };
+
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    window.addEventListener("mousedown", onPointerAction);
+    window.addEventListener("keydown", onKeydown);
+    window.addEventListener("touchstart", onPointerAction);
     window.addEventListener("storage", onStorage);
 
     const intervalId = window.setInterval(() => {
@@ -141,7 +160,10 @@ export function SessionActivityGuard() {
     }, COUNTDOWN_TICK_MS);
 
     return () => {
-      events.forEach((name) => window.removeEventListener(name, onActivity));
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mousedown", onPointerAction);
+      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("touchstart", onPointerAction);
       window.removeEventListener("storage", onStorage);
       window.clearInterval(intervalId);
     };
@@ -149,49 +171,75 @@ export function SessionActivityGuard() {
 
   if (!active) return null;
 
+  const remainingPercent = Math.max(0, Math.min(100, (remainingSeconds / (IDLE_TIMEOUT_MS / 1000)) * 100));
+
   return (
     <div
       role="status"
       aria-live="polite"
       style={{
-        position: "fixed",
-        right: 16,
-        top: 16,
+        position: "sticky",
+        top: 0,
+        left: 0,
         zIndex: 1000,
-        minWidth: 180,
-        backgroundColor: warningMode ? "#7f1d1d" : "#065f46",
-        color: "white",
-        padding: "8px 12px",
-        borderRadius: 10,
+        width: "100%",
+        display: "flex",
+        gap: 12,
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 16px",
+        boxSizing: "border-box",
+        background: warningMode
+          ? "linear-gradient(90deg, #7f1d1d 0%, #991b1b 100%)"
+          : "linear-gradient(90deg, #0f766e 0%, #0d9488 100%)",
+        color: "#ffffff",
         fontSize: 12,
-        lineHeight: 1.35,
         fontFamily: "ui-sans-serif,system-ui,sans-serif",
-        boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-        border: "1px solid rgba(255,255,255,0.2)",
+        boxShadow: "0 12px 24px rgba(0, 0, 0, 0.2)",
+        borderBottom: "1px solid rgba(255,255,255,0.25)",
       }}
     >
-      <div style={{ fontWeight: 700 }}>자동 로그아웃</div>
-      <div>남은 시간: {formatRemaining(remainingSeconds * 1000)}</div>
-      {warningMode ? <div style={{ color: "#fed7aa" }}>5분 이내입니다.</div> : null}
-      <div style={{ marginTop: 4 }}>
-        <button
-          type="button"
-          onClick={() => {
-            void extendSession();
-          }}
-          style={{
-            border: "1px solid rgba(255,255,255,0.45)",
-            borderRadius: 6,
-            background: "rgba(255,255,255,0.15)",
-            color: "white",
-            padding: "4px 8px",
-            fontSize: 11,
-            fontFamily: "inherit",
-          }}
-        >
-          세션 연장
-        </button>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700 }}>자동 로그아웃</div>
+        <div style={{ opacity: 0.92 }}>남은 시간 {formatRemaining(remainingSeconds * 1000)} / 30:00</div>
       </div>
+      <div
+        style={{
+          width: 180,
+          background: "rgba(15, 23, 42, 0.35)",
+          borderRadius: 999,
+          height: 8,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${Math.max(2, remainingPercent)}%`,
+            background: "linear-gradient(90deg, #fef9c3, #fde68a)",
+            transition: "width 0.4s ease",
+          }}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          void extendSession();
+        }}
+        style={{
+          border: "1px solid rgba(255,255,255,0.45)",
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.15)",
+          color: "#ffffff",
+          padding: "7px 12px",
+          fontSize: 12,
+          fontWeight: 700,
+          fontFamily: "inherit",
+          cursor: "pointer",
+        }}
+      >
+        세션 연장
+      </button>
     </div>
   );
 }
