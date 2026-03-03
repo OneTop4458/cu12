@@ -1,0 +1,37 @@
+﻿name: AutoLearn Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      userId:
+        description: "Optional user id"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm install
+      - name: Dispatch autolearn jobs
+        run: |
+          if [ -n "${{ inputs.userId }}" ]; then
+            npm --workspace @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }}
+          else
+            npm --workspace @cu12/worker run dispatch:autolearn
+          fi
+
+  consume:
+    needs: dispatch
+    uses: ./.github/workflows/worker-consume.yml
+    secrets: inherit

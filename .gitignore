@@ -1,0 +1,16 @@
+﻿node_modules/
+.next/
+out/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+playwright-report/
+test-results/
+.vercel/
+.vscode/
+.DS_Store
+prisma/dev.db
+CON

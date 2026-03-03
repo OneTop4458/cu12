@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "paths": {
+      "@cu12/core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "include": ["src/**/*"]
+}

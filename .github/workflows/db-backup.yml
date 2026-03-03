@@ -1,0 +1,23 @@
+﻿name: DB Backup
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dump database
+        run: |
+          mkdir -p backups
+          pg_dump "$DATABASE_URL" -f backups/cu12-$(date +%F).sql
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: backups/*.sql
+          retention-days: 7

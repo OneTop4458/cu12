@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum AccountStatus {
+  CONNECTED
+  NEEDS_REAUTH
+  ERROR
+}
+
+enum CourseStatus {
+  ACTIVE
+  UPCOMING
+  ENDED
+}
+
+enum LearningTaskState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum JobType {
+  SYNC
+  AUTOLEARN
+  NOTICE_SCAN
+  MAIL_DIGEST
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+model User {
+  id             String             @id @default(cuid())
+  email          String             @unique
+  name           String
+  passwordHash   String
+  role           UserRole           @default(USER)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  cu12Account    Cu12Account?
+  inviteUsages   InviteToken[]      @relation("InviteUsedBy")
+  createdInvites InviteToken[]      @relation("InviteCreatedBy")
+  jobs           JobQueue[]
+  courseSnapshots CourseSnapshot[]
+  courseNotices  CourseNotice[]
+  notifications  NotificationEvent[]
+  learningTasks  LearningTask[]
+  learningRuns   LearningRun[]
+  mailSubs       MailSubscription[]
+  mailDeliveries MailDelivery[]
+}
+
+model InviteToken {
+  id              String    @id @default(cuid())
+  email           String
+  role            UserRole  @default(USER)
+  tokenHash       String    @unique
+  createdByUserId String?
+  usedByUserId    String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdBy       User?     @relation("InviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  usedBy          User?     @relation("InviteUsedBy", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+}
+
+model Cu12Account {
+  id                     String        @id @default(cuid())
+  userId                 String        @unique
+  cu12Id                 String
+  encryptedPassword      String
+  campus                 String
+  accountStatus          AccountStatus @default(CONNECTED)
+  statusReason           String?
+  autoLearnEnabled       Boolean       @default(true)
+  detectActivitiesEnabled Boolean      @default(true)
+  emailDigestEnabled     Boolean       @default(true)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model JobQueue {
+  id             String    @id @default(cuid())
+  userId         String
+  type           JobType
+  status         JobStatus @default(PENDING)
+  payload        Json
+  result         Json?
+  idempotencyKey String?
+  attempts       Int       @default(0)
+  runAfter       DateTime  @default(now())
+  workerId       String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, type, runAfter])
+  @@index([userId, createdAt])
+  @@index([idempotencyKey])
+}
+
+model WorkerHeartbeat {
+  workerId   String   @id
+  lastSeenAt DateTime
+  updatedAt  DateTime @updatedAt
+}
+
+model CourseSnapshot {
+  id             String      @id @default(cuid())
+  userId         String
+  lectureSeq     Int
+  title          String
+  instructor     String?
+  progressPercent Int       @default(0)
+  remainDays     Int?
+  recentLearnedAt DateTime?
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  status         CourseStatus
+  syncedAt       DateTime
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lectureSeq])
+  @@index([userId, status])
+}
+
+model CourseNotice {
+  id         String   @id @default(cuid())
+  userId     String
+  lectureSeq Int
+  noticeKey  String
+  title      String
+  author     String?
+  postedAt   DateTime?
+  bodyText   String
+  isNew      Boolean  @default(false)
+  isRead     Boolean  @default(false)
+  syncedAt   DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lectureSeq, noticeKey])
+  @@index([userId, lectureSeq, postedAt])
+}
+
+model NotificationEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  notifierSeq String
+  courseTitle String
+  category    String
+  message     String
+  occurredAt  DateTime?
+  isCanceled  Boolean  @default(false)
+  isUnread    Boolean  @default(true)
+  syncedAt    DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notifierSeq])
+  @@index([userId, occurredAt])
+}
+
+model LearningTask {
+  id               String            @id @default(cuid())
+  userId           String
+  lectureSeq       Int
+  courseContentsSeq Int
+  weekNo           Int
+  lessonNo         Int
+  requiredSeconds  Int               @default(0)
+  learnedSeconds   Int               @default(0)
+  state            LearningTaskState @default(PENDING)
+  dueAt            DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lectureSeq, courseContentsSeq])
+  @@index([userId, state])
+}
+
+model LearningRun {
+  id         String   @id @default(cuid())
+  userId     String
+  lectureSeq Int
+  startedAt  DateTime
+  endedAt    DateTime?
+  status     String
+  message    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+}
+
+model MailSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MailDelivery {
+  id          String   @id @default(cuid())
+  userId      String
+  toEmail     String
+  subject     String
+  status      String
+  error       String?
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}

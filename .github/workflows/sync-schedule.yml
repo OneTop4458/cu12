@@ -1,0 +1,28 @@
+﻿name: Scheduled Sync Dispatch
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm install
+      - run: npm --workspace @cu12/worker run dispatch:sync
+
+  consume:
+    needs: dispatch
+    uses: ./.github/workflows/worker-consume.yml
+    secrets: inherit

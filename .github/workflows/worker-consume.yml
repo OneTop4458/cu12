@@ -1,0 +1,48 @@
+﻿name: Worker Consume
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: "sync | autolearn"
+        required: false
+        default: "sync"
+        type: string
+      userId:
+        description: "Optional user id"
+        required: false
+        type: string
+  repository_dispatch:
+    types: [worker_kick]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cu12-worker-consume
+  cancel-in-progress: false
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      APP_MASTER_KEY: ${{ secrets.APP_MASTER_KEY }}
+      WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
+      WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
+      CU12_BASE_URL: ${{ secrets.CU12_BASE_URL }}
+      POLL_INTERVAL_MS: 30000
+      AUTOLEARN_TIME_FACTOR: ${{ secrets.AUTOLEARN_TIME_FACTOR }}
+      AUTOLEARN_MAX_TASKS: ${{ secrets.AUTOLEARN_MAX_TASKS }}
+      WORKER_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm --workspace @cu12/worker run once
