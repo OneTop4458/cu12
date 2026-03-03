@@ -1,4 +1,4 @@
-﻿name: Worker Consume
+name: Worker Consume
 
 on:
   workflow_call:
@@ -38,7 +38,7 @@ jobs:
       AUTOLEARN_MAX_TASKS: ${{ secrets.AUTOLEARN_MAX_TASKS }}
       WORKER_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

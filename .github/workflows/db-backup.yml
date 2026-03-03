@@ -1,4 +1,4 @@
-﻿name: DB Backup
+name: DB Backup
 
 on:
   schedule:
@@ -11,7 +11,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Dump database
         run: |
           mkdir -p backups

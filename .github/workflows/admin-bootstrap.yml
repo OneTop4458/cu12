@@ -28,7 +28,7 @@ jobs:
       ADMIN_NAME: ${{ inputs.adminName }}
       ADMIN_PASSWORD: ${{ inputs.adminPassword }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
