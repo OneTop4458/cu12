@@ -1,14 +1,18 @@
-name: Admin Bootstrap
+name: Auth Reset Bootstrap
 
 on:
   workflow_dispatch:
     inputs:
+      confirmReset:
+        description: "Type RESET_CU12_AUTH to confirm destructive reset"
+        required: true
+        type: string
       adminCu12Id:
-        description: "Admin CU12 ID"
+        description: "Admin CU12 ID to receive new invite token"
         required: true
         type: string
       expiresHours:
-        description: "Invite expiration in hours (1-720)"
+        description: "Admin invite expiration in hours (1-720)"
         required: false
         default: "72"
         type: string
@@ -17,10 +21,11 @@ permissions:
   contents: read
 
 jobs:
-  issue-admin-invite:
+  reset-and-bootstrap:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CONFIRM_RESET: ${{ inputs.confirmReset }}
       ADMIN_CU12_ID: ${{ inputs.adminCu12Id }}
       EXPIRES_HOURS: ${{ inputs.expiresHours }}
     steps:
@@ -30,7 +35,7 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install
-      - name: Issue ADMIN invite token
+      - name: Reset auth data and issue ADMIN invite token
         run: |
           node <<'NODE'
           const { PrismaClient, UserRole } = require("@prisma/client");
@@ -41,17 +46,38 @@ jobs:
           }
 
           async function main() {
-            const prisma = new PrismaClient();
+            if (process.env.CONFIRM_RESET !== "RESET_CU12_AUTH") {
+              throw new Error("Confirmation text mismatch.");
+            }
+
             const cu12Id = (process.env.ADMIN_CU12_ID || "").trim();
             const expiresHoursRaw = Number(process.env.EXPIRES_HOURS || "72");
             const expiresHours = Number.isFinite(expiresHoursRaw) ? expiresHoursRaw : 72;
-
             if (!cu12Id || cu12Id.length < 4) {
               throw new Error("Invalid adminCu12Id");
             }
             if (expiresHours < 1 || expiresHours > 720) {
               throw new Error("expiresHours out of range");
             }
+
+            const prisma = new PrismaClient();
+
+            await prisma.$executeRawUnsafe(`
+              TRUNCATE TABLE
+                "MailDelivery",
+                "MailSubscription",
+                "LearningRun",
+                "LearningTask",
+                "NotificationEvent",
+                "CourseNotice",
+                "CourseSnapshot",
+                "JobQueue",
+                "WorkerHeartbeat",
+                "Cu12Account",
+                "InviteToken",
+                "User"
+              RESTART IDENTITY CASCADE;
+            `);
 
             const token = randomBytes(24).toString("base64url");
             const invite = await prisma.inviteToken.create({
@@ -65,9 +91,9 @@ jobs:
 
             await prisma.$disconnect();
 
-            console.log("Admin invite issued:");
+            console.log("Auth data reset complete.");
+            console.log("adminCu12Id=" + cu12Id);
             console.log("inviteId=" + invite.id);
-            console.log("cu12Id=" + cu12Id);
             console.log("token=" + token);
             console.log("expiresAt=" + invite.expiresAt.toISOString());
           }

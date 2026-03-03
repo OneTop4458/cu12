@@ -2,16 +2,16 @@
 
 ## Goals
 
-- Run 100% in cloud (no always-on local machine)
-- Support around 5 concurrent users safely
-- Prioritize stable auto-learning workflow
+- 100% cloud 운영 (상시 로컬 서버 없음)
+- 동시 사용자 약 5명 처리
+- 자동수강 안정 운영
 
 ## Runtime Components
 
 1. Web/API: Vercel (`apps/web`)
 2. Worker: GitHub Actions (`apps/worker`)
 3. DB: Neon PostgreSQL
-4. Queue/State: PostgreSQL (`JobQueue` and snapshots)
+4. Queue/State: PostgreSQL (`JobQueue`, snapshot 테이블)
 
 ## Required Configuration
 
@@ -44,53 +44,51 @@
 
 ## Setup Order
 
-1. Create Neon project and prepare `DATABASE_URL`
-2. Set GitHub Secrets
-3. Set Vercel env vars
-4. Set Vercel project root to `apps/web`
-5. Run `DB Bootstrap`
-6. Run `Admin Bootstrap`
-7. Run `Deploy Vercel`
-8. Verify `GET /api/health`
-9. Run `Worker Consume` once and check success
+1. Neon `DATABASE_URL` 준비
+2. GitHub Secrets 설정
+3. Vercel 환경변수 설정
+4. Vercel Root Directory=`apps/web` 설정
+5. `DB Bootstrap` 실행
+6. 신규 배포면 `Auth Reset Bootstrap` 실행(관리자 초대코드 발급)
+7. `Deploy Vercel` 실행
+8. `/api/health` 확인
+9. 관리자 최초 로그인(초대코드 사용)
+10. 관리자 화면에서 일반 사용자 초대코드 발급
+11. `Worker Consume` 1회 실행 확인
 
 ## Operational Endpoints
 
-- public health: `GET /api/health`
+- health: `GET /api/health`
 - worker heartbeat: `POST /internal/worker/heartbeat`
 - worker claim job: `POST /internal/worker/job/start`
 - worker finish/fail: `POST /internal/worker/job/finish`, `POST /internal/worker/job/fail`
 
-Internal worker endpoints require `x-worker-token` (`WORKER_SHARED_TOKEN`).
+내부 워커 엔드포인트는 `x-worker-token`(`WORKER_SHARED_TOKEN`) 필요.
 
-## Concurrency Guidance (about 5 users)
+## Concurrency Guidance (약 5명)
 
-1. Queue claim is DB-based and avoids double processing.
-2. Start with `AUTOLEARN_MAX_TASKS=2..5` and tune gradually.
-3. Auto-learning is long-running; tune schedule and concurrency together.
-4. Keep `concurrency` group in worker workflow to prevent storm.
+1. Queue claim은 DB 기반 원자 처리
+2. `AUTOLEARN_MAX_TASKS=2..5`로 시작 후 점진 조정
+3. 자동수강은 장시간 작업이므로 스케줄/동시성 함께 튜닝
+4. `worker-consume.yml`의 `concurrency` 그룹 유지
 
 ## Common Failure Cases
 
 ### Web 404 on internal endpoints
 
-- likely wrong Vercel root or broken deploy
-- fix:
-1. set root directory to `apps/web`
-2. redeploy
-3. verify `/api/health`
-4. rerun worker
+1. Root Directory=`apps/web` 확인
+2. 재배포
+3. `/api/health` 확인
+4. 워커 재실행
 
 ### Worker env mismatch
 
-- likely shared secrets differ between GitHub and Vercel
-- fix:
-1. synchronize `APP_MASTER_KEY` and `WORKER_SHARED_TOKEN`
-2. redeploy web
-3. rerun worker
+1. GitHub/Vercel의 `APP_MASTER_KEY`, `WORKER_SHARED_TOKEN` 동기화
+2. 웹 재배포
+3. 워커 재실행
 
 ## Backup and Recovery
 
-1. Keep `db-backup.yml` enabled
-2. Roll back to previous Vercel deployment when needed
-3. Re-dispatch failed queue jobs after root cause fix
+1. `db-backup.yml` 유지
+2. 필요 시 이전 Vercel 배포로 롤백
+3. 원인 수정 후 실패 큐 재처리

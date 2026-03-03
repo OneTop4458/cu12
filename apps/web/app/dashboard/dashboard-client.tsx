@@ -34,8 +34,6 @@ interface JobItem {
   status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
   attempts: number;
   createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
   lastError: string | null;
 }
 
@@ -52,6 +50,15 @@ interface Cu12AccountResponse {
   } | null;
 }
 
+interface InviteItem {
+  id: string;
+  cu12Id: string;
+  role: "ADMIN" | "USER";
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+}
+
 export function DashboardClient({ initialUser }: DashboardClientProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -63,18 +70,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [account, setAccount] = useState<Cu12AccountResponse["account"]>(null);
 
-  const [cu12Id, setCu12Id] = useState("");
-  const [cu12Password, setCu12Password] = useState("");
-  const [campus, setCampus] = useState<"SONGSIM" | "SONGSIN">("SONGSIM");
-  const [savingAccount, setSavingAccount] = useState(false);
+  const [invites, setInvites] = useState<InviteItem[]>([]);
+  const [inviteCu12Id, setInviteCu12Id] = useState("");
+  const [inviteRole, setInviteRole] = useState<"ADMIN" | "USER">("USER");
+  const [inviteExpiresHours, setInviteExpiresHours] = useState(72);
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [latestInviteToken, setLatestInviteToken] = useState<string | null>(null);
 
   const sortedJobs = useMemo(
     () =>
       [...jobs].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
     [jobs],
+  );
+
+  const sortedInvites = useMemo(
+    () =>
+      [...invites].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [invites],
   );
 
   async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -83,9 +99,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       router.push("/login" as Route);
       throw new Error("Unauthorized");
     }
+
     const payload = (await response.json()) as T & { error?: string };
     if (!response.ok) {
-      throw new Error((payload as { error?: string }).error ?? "요청 실패");
+      throw new Error(payload.error ?? "요청 실패");
     }
     return payload;
   }
@@ -96,7 +113,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
     try {
       const [summaryRes, coursesRes, jobsRes, accountRes] = await Promise.all([
-        fetchJson<{ activeCourseCount: number; avgProgress: number; unreadNoticeCount: number; upcomingDeadlines: number; lastSyncAt: string | null }>("/api/dashboard/summary"),
+        fetchJson<DashboardSummary>("/api/dashboard/summary"),
         fetchJson<{ courses: CourseItem[] }>("/api/dashboard/courses"),
         fetchJson<{ jobs: JobItem[] }>("/api/jobs?limit=20"),
         fetchJson<Cu12AccountResponse>("/api/cu12/account"),
@@ -107,9 +124,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setJobs(jobsRes.jobs);
       setAccount(accountRes.account);
 
-      if (accountRes.account) {
-        setCu12Id(accountRes.account.cu12Id);
-        setCampus(accountRes.account.campus);
+      if (initialUser.role === "ADMIN") {
+        const invitesRes = await fetchJson<{ invites: InviteItem[] }>("/api/auth/invite");
+        setInvites(invitesRes.invites);
       }
     } catch (fetchError) {
       if ((fetchError as Error).message !== "Unauthorized") {
@@ -131,14 +148,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     try {
       const payload = await fetchJson<{
         jobId: string;
-        status: string;
         dispatched: boolean;
         dispatchError?: string;
       }>("/api/jobs/sync-now", { method: "POST" });
       setMessage(
         payload.dispatched
-          ? `동기화 요청 완료: ${payload.jobId}`
-          : `큐 등록 완료(디스패치 대기): ${payload.jobId} / ${payload.dispatchError ?? "unknown"}`,
+          ? `즉시 동기화 요청 완료: ${payload.jobId}`
+          : `작업 등록 완료(디스패치 대기): ${payload.jobId} / ${payload.dispatchError ?? "unknown"}`,
       );
       await refreshAll();
     } catch (submitError) {
@@ -152,7 +168,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     try {
       const payload = await fetchJson<{
         jobId: string;
-        status: string;
         dispatched: boolean;
         dispatchError?: string;
       }>("/api/jobs/autolearn-request", {
@@ -163,7 +178,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setMessage(
         payload.dispatched
           ? `자동 수강 요청 완료: ${payload.jobId}`
-          : `큐 등록 완료(디스패치 대기): ${payload.jobId} / ${payload.dispatchError ?? "unknown"}`,
+          : `작업 등록 완료(디스패치 대기): ${payload.jobId} / ${payload.dispatchError ?? "unknown"}`,
       );
       await refreshAll();
     } catch (submitError) {
@@ -171,34 +186,36 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
-  async function saveCu12Account(event: FormEvent<HTMLFormElement>) {
+  async function createInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSavingAccount(true);
-    setMessage(null);
+    setCreatingInvite(true);
     setError(null);
+    setMessage(null);
+    setLatestInviteToken(null);
 
     try {
-      await fetchJson<{
-        connected: boolean;
-        queuedJobId: string;
-        dispatched: boolean;
-        dispatchError?: string;
-      }>("/api/cu12/account", {
+      const payload = await fetchJson<{
+        inviteId: string;
+        token: string;
+        expiresAt: string;
+      }>("/api/auth/invite", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          cu12Id,
-          cu12Password,
-          campus,
+          cu12Id: inviteCu12Id,
+          role: inviteRole,
+          expiresHours: inviteExpiresHours,
         }),
       });
-      setCu12Password("");
-      setMessage("CU12 계정이 저장되었고 즉시 동기화가 큐에 등록되었습니다.");
+
+      setLatestInviteToken(payload.token);
+      setMessage(`초대코드를 발급했습니다. 만료: ${new Date(payload.expiresAt).toLocaleString("ko-KR")}`);
+      setInviteCu12Id("");
       await refreshAll();
-    } catch (saveError) {
-      setError((saveError as Error).message);
+    } catch (inviteError) {
+      setError((inviteError as Error).message);
     } finally {
-      setSavingAccount(false);
+      setCreatingInvite(false);
     }
   }
 
@@ -212,7 +229,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     <>
       <header className="page-header">
         <div>
-          <h1>CU12 대시보드</h1>
+          <h1>가톨릭 공유대 자동화 대시보드</h1>
           <p className="muted">
             {initialUser.email} ({initialUser.role})
           </p>
@@ -220,7 +237,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <button onClick={logout}>로그아웃</button>
       </header>
 
-      {loading ? <p>불러오는 중...</p> : null}
+      {loading ? <p>데이터를 불러오는 중...</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
       {message ? <p className="ok-text">{message}</p> : null}
 
@@ -251,58 +268,122 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           <button onClick={() => void refreshAll()}>새로고침</button>
         </div>
         <p className="muted">
-          마지막 동기화:{" "}
-          {summary?.lastSyncAt
-            ? new Date(summary.lastSyncAt).toLocaleString("ko-KR")
-            : "없음"}
+          마지막 동기화: {summary?.lastSyncAt ? new Date(summary.lastSyncAt).toLocaleString("ko-KR") : "없음"}
         </p>
       </section>
 
       <section className="card">
-        <h2>CU12 계정 연동</h2>
-        <p className="muted">
-          상태: {account?.accountStatus ?? "NOT_CONNECTED"}
-          {account?.statusReason ? ` / ${account.statusReason}` : ""}
-        </p>
-        <form onSubmit={saveCu12Account} className="form-grid">
-          <label className="field">
-            <span>CU12 아이디</span>
-            <input
-              value={cu12Id}
-              onChange={(event) => setCu12Id(event.target.value)}
-              required
-              minLength={4}
-            />
-          </label>
-          <label className="field">
-            <span>CU12 비밀번호</span>
-            <input
-              type="password"
-              value={cu12Password}
-              onChange={(event) => setCu12Password(event.target.value)}
-              required
-              minLength={4}
-            />
-          </label>
-          <label className="field">
-            <span>캠퍼스</span>
-            <select
-              value={campus}
-              onChange={(event) =>
-                setCampus(event.target.value as "SONGSIM" | "SONGSIN")
-              }
-            >
-              <option value="SONGSIM">SONGSIM</option>
-              <option value="SONGSIN">SONGSIN</option>
-            </select>
-          </label>
-          <div className="field align-end">
-            <button type="submit" disabled={savingAccount}>
-              {savingAccount ? "저장 중..." : "계정 저장"}
-            </button>
+        <h2>연결된 CU12 계정</h2>
+        {account ? (
+          <div className="table-wrap">
+            <table>
+              <tbody>
+                <tr>
+                  <th>CU12 아이디</th>
+                  <td>{account.cu12Id}</td>
+                </tr>
+                <tr>
+                  <th>캠퍼스</th>
+                  <td>{account.campus}</td>
+                </tr>
+                <tr>
+                  <th>상태</th>
+                  <td>
+                    {account.accountStatus}
+                    {account.statusReason ? ` / ${account.statusReason}` : ""}
+                  </td>
+                </tr>
+                <tr>
+                  <th>자동 수강</th>
+                  <td>{account.autoLearnEnabled ? "ON" : "OFF"}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </form>
+        ) : (
+          <p className="muted">현재 로그인된 CU12 계정 정보가 없습니다.</p>
+        )}
       </section>
+
+      {initialUser.role === "ADMIN" ? (
+        <section className="card">
+          <h2>초대코드 관리 (관리자)</h2>
+          <form onSubmit={createInvite} className="form-grid">
+            <label className="field">
+              <span>CU12 아이디</span>
+              <input
+                value={inviteCu12Id}
+                onChange={(event) => setInviteCu12Id(event.target.value)}
+                required
+                minLength={4}
+              />
+            </label>
+            <label className="field">
+              <span>권한</span>
+              <select
+                value={inviteRole}
+                onChange={(event) => setInviteRole(event.target.value as "ADMIN" | "USER")}
+              >
+                <option value="USER">USER</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>유효 시간 (시간)</span>
+              <input
+                type="number"
+                min={1}
+                max={720}
+                value={inviteExpiresHours}
+                onChange={(event) => setInviteExpiresHours(Number(event.target.value))}
+                required
+              />
+            </label>
+            <div className="field align-end">
+              <button type="submit" disabled={creatingInvite}>
+                {creatingInvite ? "발급 중..." : "초대코드 발급"}
+              </button>
+            </div>
+          </form>
+
+          {latestInviteToken ? (
+            <p className="ok-text">
+              새 초대코드: <code>{latestInviteToken}</code>
+            </p>
+          ) : null}
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>CU12 ID</th>
+                  <th>권한</th>
+                  <th>생성일</th>
+                  <th>만료일</th>
+                  <th>사용일</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedInvites.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>초대코드 없음</td>
+                  </tr>
+                ) : (
+                  sortedInvites.map((invite) => (
+                    <tr key={invite.id}>
+                      <td>{invite.cu12Id}</td>
+                      <td>{invite.role}</td>
+                      <td>{new Date(invite.createdAt).toLocaleString("ko-KR")}</td>
+                      <td>{new Date(invite.expiresAt).toLocaleString("ko-KR")}</td>
+                      <td>{invite.usedAt ? new Date(invite.usedAt).toLocaleString("ko-KR") : "-"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="card">
         <h2>현재 수강 목록</h2>
@@ -313,7 +394,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <th>강좌</th>
                 <th>강사</th>
                 <th>진도율</th>
-                <th>잔여일</th>
+                <th>남은일</th>
                 <th>상태</th>
               </tr>
             </thead>

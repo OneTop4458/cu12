@@ -25,7 +25,8 @@ jobs:
               { name: "docs", color: "0E8A16", description: "documentation changes" },
               { name: "infra", color: "FBCA04", description: "workflow/config changes" },
               { name: "dependencies", color: "0366D6", description: "dependency updates" },
-              { name: "bot", color: "5319E7", description: "automated maintenance changes" }
+              { name: "bot", color: "5319E7", description: "automated maintenance changes" },
+              { name: "major-update", color: "D93F0B", description: "manual review required for semver-major updates" }
             ];
 
             for (const label of labels) {

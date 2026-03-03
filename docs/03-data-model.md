@@ -1,30 +1,27 @@
-﻿# Data Model
+# Data Model
 
 ## Core Tables
 
 1. `User`
-   - 인증 대상 사용자
+   - 서비스 사용자
+   - `role`: `ADMIN` | `USER`
 2. `InviteToken`
-   - 초대코드 해시/만료/사용 여부
+   - `cu12Id` 바인딩 초대코드
+   - 해시(`tokenHash`), 만료(`expiresAt`), 사용 시각(`usedAt`)
 3. `Cu12Account`
    - CU12 ID, 암호화 비밀번호, 캠퍼스, 상태
 4. `JobQueue`
-   - 비동기 작업 큐(SYNC/AUTOLEARN 등)
+   - 비동기 작업 큐(`SYNC`, `AUTOLEARN` 등)
 5. `WorkerHeartbeat`
    - 워커 생존 체크
 
 ## Snapshot Tables
 
 1. `CourseSnapshot`
-   - 강좌별 진도/기간/남은일
 2. `CourseNotice`
-   - 강좌 공지 제목/본문/읽음상태
 3. `NotificationEvent`
-   - 알림 항목(공지/온라인강의/글)
 4. `LearningTask`
-   - C01 학습 태스크(주차/차시/필요시간/학습시간)
 5. `LearningRun`
-   - 자동수강 실행 결과
 
 ## Mail Tables
 
@@ -33,6 +30,10 @@
 
 ## Key Constraints
 
+- `InviteToken.tokenHash` unique
+- `InviteToken` index: `(cu12Id)`
+- `Cu12Account.userId` unique
+- `Cu12Account.cu12Id` unique
 - `CourseSnapshot`: `(userId, lectureSeq)` unique
 - `CourseNotice`: `(userId, lectureSeq, noticeKey)` unique
 - `NotificationEvent`: `(userId, notifierSeq)` unique
@@ -40,5 +41,5 @@
 
 ## Notes
 
-- 토큰/패스워드는 평문 저장 금지
-- 큐 payload/result는 JSON으로 저장
+- 토큰/비밀번호 평문 저장 금지
+- 큐 payload/result는 JSON 저장

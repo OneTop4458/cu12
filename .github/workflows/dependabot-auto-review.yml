@@ -1,0 +1,68 @@
+name: Dependabot Auto Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot-auto-review:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' || github.event.pull_request.user.login == 'app/dependabot'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Label and hold semver-major updates
+        if: ${{ steps.metadata.outputs.update-type == 'version-update:semver-major' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const majorLabel = { name: "major-update", color: "D93F0B", description: "manual review required for semver-major updates" };
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: majorLabel.name });
+            } catch {
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: majorLabel.name,
+                color: majorLabel.color,
+                description: majorLabel.description,
+              });
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: ["major-update"],
+            });
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: "Semver-major update detected. Auto-merge is disabled; manual review is required.",
+            });
+
+      - name: Approve patch/minor updates
+        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
+        run: gh pr review ${{ github.event.pull_request.number }} --approve --body "Auto-approved patch/minor dependency update."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch/minor updates
+        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

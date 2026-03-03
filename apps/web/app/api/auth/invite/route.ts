@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/token";
 
 const BodySchema = z.object({
-  email: z.string().email(),
+  cu12Id: z.string().trim().min(4).max(80),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
   expiresHours: z.number().int().min(1).max(24 * 30).default(72),
 });
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     take: 100,
     select: {
       id: true,
-      email: true,
+      cu12Id: true,
       role: true,
       createdAt: true,
       expiresAt: true,
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const invite = await prisma.inviteToken.create({
       data: {
-        email: body.email,
+        cu12Id: body.cu12Id,
         role: body.role,
         tokenHash: hashToken(plainToken),
         expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
