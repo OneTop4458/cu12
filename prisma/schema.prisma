@@ -32,6 +32,13 @@ enum LearningTaskState {
   FAILED
 }
 
+enum LearningActivityType {
+  VOD
+  QUIZ
+  ASSIGNMENT
+  ETC
+}
+
 enum JobType {
   SYNC
   AUTOLEARN
@@ -196,6 +203,7 @@ model LearningTask {
   courseContentsSeq Int
   weekNo           Int
   lessonNo         Int
+  activityType     LearningActivityType @default(VOD)
   requiredSeconds  Int               @default(0)
   learnedSeconds   Int               @default(0)
   state            LearningTaskState @default(PENDING)
@@ -224,15 +232,20 @@ model LearningRun {
 }
 
 model MailSubscription {
-  id        String   @id @default(cuid())
-  userId    String
-  email     String
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  email            String
+  enabled          Boolean  @default(true)
+  alertOnNotice    Boolean  @default(true)
+  alertOnDeadline  Boolean  @default(true)
+  alertOnAutolearn Boolean  @default(true)
+  digestEnabled    Boolean  @default(true)
+  digestHour       Int      @default(8)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([enabled, digestEnabled])
 }
 
 model MailDelivery {

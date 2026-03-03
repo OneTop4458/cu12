@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useState } from "react";
 import type { Route } from "next";
@@ -62,7 +62,7 @@ export function LoginForm() {
         if (payload.errorCode === "CU12_AUTH_FAILED") {
           setError("가톨릭 공유대 아이디 또는 비밀번호가 올바르지 않습니다.");
         } else {
-          setError(payload.error ?? "로그인 처리에 실패했습니다.");
+          setError(payload.error ?? "로그인 처리 중 오류가 발생했습니다.");
         }
         return;
       }
@@ -90,7 +90,7 @@ export function LoginForm() {
   async function onSubmitInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!challengeToken) {
-      setInviteError("인증 시간이 만료되었습니다. 다시 로그인해 주세요.");
+      setInviteError("인증 세션이 만료되었습니다. 다시 로그인해 주세요.");
       return;
     }
 
@@ -110,13 +110,15 @@ export function LoginForm() {
       if (!response.ok) {
         const payload = (await response.json()) as ApiErrorResponse;
         if (payload.errorCode === "UNAPPROVED_ID") {
-          setInviteError("승인되지 않은 아이디입니다. 관리자에게 문의해 주세요.");
+          setInviteError("승인되지 않은 아이디입니다. 관리자에게 승인 요청해 주세요.");
+        } else if (payload.errorCode === "INVITE_CODE_INVALID") {
+          setInviteError("초대 코드가 유효하지 않거나 만료되었습니다.");
         } else if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-          setInviteError("인증 시간이 만료되었습니다. 다시 로그인해 주세요.");
+          setInviteError("인증 세션이 만료되었습니다. 다시 로그인해 주세요.");
           setShowInviteModal(false);
           setChallengeToken(null);
         } else {
-          setInviteError(payload.error ?? "초대코드 확인에 실패했습니다.");
+          setInviteError(payload.error ?? "초대 코드 인증에 실패했습니다.");
         }
         return;
       }
@@ -143,6 +145,7 @@ export function LoginForm() {
             autoComplete="username"
             required
             minLength={4}
+            placeholder="아이디 입력"
           />
         </label>
 
@@ -155,11 +158,12 @@ export function LoginForm() {
             autoComplete="current-password"
             required
             minLength={4}
+            placeholder="비밀번호 입력"
           />
         </label>
 
         <label className="field">
-          <span>캠퍼스</span>
+          <span>교정</span>
           <select
             value={campus}
             onChange={(event) => setCampus(event.target.value as Campus)}
@@ -190,23 +194,24 @@ export function LoginForm() {
             className="modal-card"
             role="dialog"
             aria-modal="true"
-            aria-label="초대코드 인증"
+            aria-label="초대 코드 인증"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2>초대코드 인증</h2>
+            <h2>초대 코드 인증</h2>
             <p className="muted">
-              가톨릭 공유대 인증은 완료되었습니다. 최초 1회 초대코드 인증이 필요합니다.
+              최초 1회만 초대 코드를 입력하면 이후에는 가톨릭 공유대 로그인만으로 접속됩니다.
             </p>
 
             <form onSubmit={onSubmitInvite} className="form-stack">
               <label className="field">
-                <span>초대코드</span>
+                <span>초대 코드</span>
                 <input
                   value={inviteCode}
                   onChange={(event) => setInviteCode(event.target.value)}
                   required
                   minLength={8}
                   autoFocus
+                  placeholder="초대 코드 입력"
                 />
               </label>
 

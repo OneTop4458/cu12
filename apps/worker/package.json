@@ -8,11 +8,13 @@
     "once": "tsx src/index.ts --once",
     "dispatch:sync": "tsx src/queue-dispatch.ts --type=SYNC",
     "dispatch:autolearn": "tsx src/queue-dispatch.ts --type=AUTOLEARN",
+    "dispatch:digest": "tsx src/queue-dispatch.ts --type=MAIL_DIGEST",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cu12/core": "file:../../packages/core",
     "@prisma/client": "^6.5.0",
+    "nodemailer": "^8.0.1",
     "playwright": "^1.51.0",
     "zod": "^3.24.2"
   },

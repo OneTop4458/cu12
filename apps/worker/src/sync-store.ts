@@ -1,4 +1,4 @@
-import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
+﻿import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { decryptSecret } from "./secret";
@@ -35,6 +35,28 @@ async function runWithPrismaRetry<T>(op: () => Promise<T>): Promise<T> {
   }
 }
 
+export interface PersistSnapshotResult {
+  newNoticeCount: number;
+  newNotificationCount: number;
+  newUnreadNotificationCount: number;
+  deadlineCourses: Array<{
+    lectureSeq: number;
+    title: string;
+    remainDays: number;
+  }>;
+  pendingTaskCount: number;
+}
+
+export interface MailPreference {
+  enabled: boolean;
+  email: string;
+  alertOnNotice: boolean;
+  alertOnDeadline: boolean;
+  alertOnAutolearn: boolean;
+  digestEnabled: boolean;
+  digestHour: number;
+}
+
 export async function getUserCu12Credentials(userId: string) {
   const account = await prisma.cu12Account.findUnique({ where: { userId } });
   if (!account) return null;
@@ -43,6 +65,39 @@ export async function getUserCu12Credentials(userId: string) {
     cu12Id: account.cu12Id,
     cu12Password: decryptSecret(account.encryptedPassword),
     campus: (account.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM") as "SONGSIM" | "SONGSIN",
+  };
+}
+
+export async function getUserMailPreference(userId: string): Promise<MailPreference | null> {
+  const [user, subscription] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    prisma.mailSubscription.findUnique({ where: { userId } }),
+  ]);
+
+  if (!user?.email) {
+    return null;
+  }
+
+  if (!subscription) {
+    return {
+      enabled: false,
+      email: user.email,
+      alertOnNotice: true,
+      alertOnDeadline: true,
+      alertOnAutolearn: true,
+      digestEnabled: true,
+      digestHour: 8,
+    };
+  }
+
+  return {
+    enabled: subscription.enabled,
+    email: subscription.email,
+    alertOnNotice: subscription.alertOnNotice,
+    alertOnDeadline: subscription.alertOnDeadline,
+    alertOnAutolearn: subscription.alertOnAutolearn,
+    digestEnabled: subscription.digestEnabled,
+    digestHour: subscription.digestHour,
   };
 }
 
@@ -76,7 +131,38 @@ export async function persistSnapshot(
     notifications: NotificationEvent[];
     tasks: LearningTask[];
   },
-) {
+): Promise<PersistSnapshotResult> {
+  const noticeKeys = Array.from(new Set(data.notices.map((notice) => notice.noticeKey)));
+  const notifierSeqs = Array.from(
+    new Set(
+      data.notifications
+        .map((event) => event.notifierSeq)
+        .filter((value) => value.length > 0),
+    ),
+  );
+
+  const [existingNoticeRows, existingNotificationRows] = await Promise.all([
+    noticeKeys.length > 0
+      ? prisma.courseNotice.findMany({
+        where: { userId, noticeKey: { in: noticeKeys } },
+        select: { noticeKey: true },
+      })
+      : Promise.resolve([]),
+    notifierSeqs.length > 0
+      ? prisma.notificationEvent.findMany({
+        where: { userId, notifierSeq: { in: notifierSeqs } },
+        select: { notifierSeq: true },
+      })
+      : Promise.resolve([]),
+  ]);
+
+  const existingNoticeSet = new Set(existingNoticeRows.map((row) => row.noticeKey));
+  const existingNotificationSet = new Set(existingNotificationRows.map((row) => row.notifierSeq));
+
+  let newNoticeCount = 0;
+  let newNotificationCount = 0;
+  let newUnreadNotificationCount = 0;
+
   for (const course of data.courses) {
     await runWithPrismaRetry(() =>
       prisma.courseSnapshot.upsert({
@@ -115,6 +201,8 @@ export async function persistSnapshot(
   }
 
   for (const notice of data.notices) {
+    const isNewRecord = !existingNoticeSet.has(notice.noticeKey);
+
     await runWithPrismaRetry(() =>
       prisma.courseNotice.upsert({
         where: {
@@ -146,9 +234,15 @@ export async function persistSnapshot(
         },
       }),
     );
+
+    if (isNewRecord) {
+      newNoticeCount += 1;
+    }
   }
 
   for (const event of data.notifications) {
+    const isNewRecord = event.notifierSeq.length > 0 && !existingNotificationSet.has(event.notifierSeq);
+
     await runWithPrismaRetry(() =>
       prisma.notificationEvent.upsert({
         where: {
@@ -179,6 +273,13 @@ export async function persistSnapshot(
         },
       }),
     );
+
+    if (isNewRecord) {
+      newNotificationCount += 1;
+      if (event.isUnread) {
+        newUnreadNotificationCount += 1;
+      }
+    }
   }
 
   for (const task of data.tasks) {
@@ -194,6 +295,7 @@ export async function persistSnapshot(
         update: {
           weekNo: task.weekNo,
           lessonNo: task.lessonNo,
+          activityType: task.activityType,
           requiredSeconds: task.requiredSeconds,
           learnedSeconds: task.learnedSeconds,
           state: task.state,
@@ -204,6 +306,7 @@ export async function persistSnapshot(
           courseContentsSeq: task.courseContentsSeq,
           weekNo: task.weekNo,
           lessonNo: task.lessonNo,
+          activityType: task.activityType,
           requiredSeconds: task.requiredSeconds,
           learnedSeconds: task.learnedSeconds,
           state: task.state,
@@ -211,6 +314,24 @@ export async function persistSnapshot(
       }),
     );
   }
+
+  const deadlineCourses = data.courses
+    .filter((course) => course.remainDays !== null && course.remainDays >= 0 && course.remainDays <= 3)
+    .map((course) => ({
+      lectureSeq: course.lectureSeq,
+      title: course.title,
+      remainDays: course.remainDays as number,
+    }));
+
+  const pendingTaskCount = data.tasks.filter((task) => task.state === "PENDING").length;
+
+  return {
+    newNoticeCount,
+    newNotificationCount,
+    newUnreadNotificationCount,
+    deadlineCourses,
+    pendingTaskCount,
+  };
 }
 
 export async function recordLearningRun(
@@ -227,6 +348,25 @@ export async function recordLearningRun(
       endedAt: new Date(),
       status,
       message,
+    },
+  });
+}
+
+export async function recordMailDelivery(
+  userId: string,
+  toEmail: string,
+  subject: string,
+  status: "SENT" | "FAILED" | "SKIPPED",
+  error?: string,
+) {
+  await prisma.mailDelivery.create({
+    data: {
+      userId,
+      toEmail,
+      subject,
+      status,
+      error,
+      sentAt: status === "SENT" ? new Date() : null,
     },
   });
 }

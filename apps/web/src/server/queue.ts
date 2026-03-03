@@ -143,6 +143,33 @@ export async function markJobSucceeded(jobId: string, result?: unknown) {
   });
 }
 
+export async function updateJobProgress(jobId: string, result: unknown) {
+  const current = await prisma.jobQueue.findUnique({
+    where: { id: jobId },
+    select: { status: true },
+  });
+
+  if (!current) {
+    throw new Error("Job not found");
+  }
+
+  if (
+    current.status === JobStatus.SUCCEEDED
+    || current.status === JobStatus.FAILED
+    || current.status === JobStatus.CANCELED
+  ) {
+    return null;
+  }
+
+  return prisma.jobQueue.update({
+    where: { id: jobId },
+    data: {
+      result: result as Prisma.InputJsonValue,
+      updatedAt: new Date(),
+    },
+  });
+}
+
 export async function markJobFailed(jobId: string, errorMessage: string) {
   const updated = await prisma.jobQueue.update({
     where: { id: jobId },

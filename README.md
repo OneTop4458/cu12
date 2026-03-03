@@ -12,6 +12,7 @@ Core goals:
 2. One-time invite verification for first login only.
 3. Dashboard visibility for progress/notices/jobs.
 4. Cloud-only execution for long-running auto-learning tasks.
+5. Email alerts for new notices, deadline risk, and auto-learning completion.
 
 ## 2. Architecture at a Glance
 
@@ -63,7 +64,8 @@ Browser (User)
 ### Error Separation
 
 - Invalid CU12 credentials: `errorCode = CU12_AUTH_FAILED`
-- Unapproved CU12 ID / bad invite: `errorCode = UNAPPROVED_ID`
+- Unapproved CU12 ID: `errorCode = UNAPPROVED_ID`
+- Invalid or expired invite code: `errorCode = INVITE_CODE_INVALID`
 
 ## 4. Queue and Concurrency
 
@@ -82,8 +84,22 @@ Concurrency model:
 2. Per-user serialization avoids session collisions.
 3. Retry policy uses backoff for transient failures.
 4. Idempotency keys reduce duplicate queue requests.
+5. Auto-learning progress is persisted to job `result` during RUNNING state.
 
-## 5. Cloud Deployment Topology
+## 5.1 User-facing Runtime Features
+
+1. First-login auto sync: the dashboard auto-queues one SYNC job if no successful sync exists.
+2. Smart polling refresh: dashboard data refreshes every 15 seconds without manual page reload.
+3. Auto-learning modes:
+- `ALL_COURSES`
+- `SINGLE_ALL`
+- `SINGLE_NEXT`
+4. In-dashboard email preferences:
+- destination email
+- notice/deadline/autolearn immediate alerts
+- daily digest toggle + digest hour
+
+## 6. Cloud Deployment Topology
 
 - **Web/API**: Vercel (`apps/web`)
 - **DB**: Neon PostgreSQL
@@ -92,7 +108,7 @@ Concurrency model:
 
 No always-on local server is required.
 
-## 6. Repository Layout
+## 7. Repository Layout
 
 ```text
 apps/
@@ -106,7 +122,7 @@ prisma/      # schema and migrations
 docs/        # architecture, API, runbooks, ADRs
 ```
 
-## 7. Local Validation Commands
+## 8. Local Validation Commands
 
 ```bash
 npm install
@@ -116,7 +132,7 @@ npm run typecheck
 npm run build:web
 ```
 
-## 8. Required Environment Variables
+## 9. Required Environment Variables
 
 ### Common
 
@@ -134,7 +150,15 @@ npm run build:web
 - `GITHUB_WORKFLOW_REF`
 - `GITHUB_TOKEN`
 
-## 9. Operations Quick Start
+### SMTP (optional but recommended for alerts)
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+
+## 10. Operations Quick Start
 
 1. Configure GitHub Secrets and Vercel environment variables.
 2. Run `DB Bootstrap` workflow.
@@ -143,7 +167,7 @@ npm run build:web
 5. Trigger `worker-consume.yml` once to validate queue consumption.
 6. Admin logs in and issues invite codes for users.
 
-## 10. Documentation
+## 11. Documentation
 
 - Main docs index: [`docs/00-index.md`](docs/00-index.md)
 - API contract: [`docs/04-api/openapi.yaml`](docs/04-api/openapi.yaml)

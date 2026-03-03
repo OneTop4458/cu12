@@ -10,7 +10,12 @@ const EnvSchema = z.object({
   CU12_BASE_URL: z.string().url().default("https://www.cu12.ac.kr"),
   POLL_INTERVAL_MS: z.coerce.number().default(30000),
   AUTOLEARN_TIME_FACTOR: z.coerce.number().default(1),
-  AUTOLEARN_MAX_TASKS: z.coerce.number().int().min(1).max(50).default(3),
+  AUTOLEARN_MAX_TASKS: z.coerce.number().int().min(1).max(200).default(50),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
 });
 
 export type WorkerEnv = z.infer<typeof EnvSchema>;

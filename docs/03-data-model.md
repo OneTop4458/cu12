@@ -21,9 +21,22 @@
 - Includes retry metadata and scheduling (`runAfter`, `attempts`, `status`).
 
 5. Snapshot tables
-- Course, notice, task, and learning-run records used by dashboard and audit.
+- `CourseSnapshot`, `CourseNotice`, `NotificationEvent`, `LearningTask`, `LearningRun`.
+- `LearningTask.activityType` supports future extension (`VOD`, `QUIZ`, `ASSIGNMENT`, `ETC`).
+- Notice and notification rows include read/unread state for UX-level acknowledgement.
 
-6. `WorkerHeartbeat`
+6. `MailSubscription`
+- One row per user (`userId` unique).
+- Stores destination email and per-event toggles:
+  - `alertOnNotice`
+  - `alertOnDeadline`
+  - `alertOnAutolearn`
+  - `digestEnabled`, `digestHour`
+
+7. `MailDelivery`
+- Immutable log of send attempts (`SENT`, `FAILED`, `SKIPPED`) for audit and troubleshooting.
+
+8. `WorkerHeartbeat`
 - Tracks worker liveness for operational visibility.
 
 ## Data Boundaries

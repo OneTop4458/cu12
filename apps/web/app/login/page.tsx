@@ -1,4 +1,4 @@
-import type { Route } from "next";
+﻿import type { Route } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
@@ -18,7 +18,7 @@ export default async function LoginPage() {
     <main className="auth-main">
       <section className="card auth-card brand-login">
         <div className="brand-ribbon" />
-        <p className="brand-kicker">가톨릭 공유대</p>
+        <p className="brand-kicker">가톨릭대학교 공유대학</p>
         <h1>가톨릭 공유대 로그인</h1>
         <p className="muted">가톨릭 공유대 계정으로 로그인하세요.</p>
         <LoginForm />

@@ -24,10 +24,37 @@ export interface SyncSnapshotResult {
   tasks: LearningTask[];
 }
 
+export type AutoLearnMode = "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
+
+interface PlannedTask {
+  lectureSeq: number;
+  task: LearningTask;
+  remainingSeconds: number;
+}
+
+export interface AutoLearnProgress {
+  phase: "PLANNING" | "RUNNING" | "DONE";
+  mode: AutoLearnMode;
+  totalTasks: number;
+  completedTasks: number;
+  watchedSeconds: number;
+  estimatedRemainingSeconds: number;
+  current?: {
+    lectureSeq: number;
+    weekNo: number;
+    lessonNo: number;
+    remainingSeconds: number;
+  };
+}
+
 export interface AutoLearnResult {
+  mode: AutoLearnMode;
   watchedTaskCount: number;
   watchedSeconds: number;
   lectureSeqs: number[];
+  plannedTaskCount: number;
+  truncated: boolean;
+  estimatedTotalSeconds: number;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -148,11 +175,70 @@ async function watchVodTask(page: Page, lectureSeq: number, task: LearningTask):
   return waitSeconds;
 }
 
+async function getLectureSeqs(page: Page, envBaseUrl: string, userId: string): Promise<number[]> {
+  await page.goto(`${envBaseUrl}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
+  const courses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
+  return courses.map((course) => course.lectureSeq);
+}
+
+async function planTasks(
+  page: Page,
+  envBaseUrl: string,
+  userId: string,
+  mode: AutoLearnMode,
+  lectureSeq?: number,
+): Promise<PlannedTask[]> {
+  const lectureSeqs =
+    mode === "ALL_COURSES"
+      ? await getLectureSeqs(page, envBaseUrl, userId)
+      : lectureSeq
+        ? [lectureSeq]
+        : [];
+
+  const planned: PlannedTask[] = [];
+
+  for (const seq of lectureSeqs) {
+    await page.goto(`${envBaseUrl}/el/class/todo_list_form.acl?LECTURE_SEQ=${seq}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    const pending = parseTodoVodTasks(await page.content(), userId, seq)
+      .filter((task) => task.state === "PENDING")
+      .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
+
+    if (mode === "SINGLE_NEXT") {
+      const next = pending[0];
+      if (next) {
+        planned.push({
+          lectureSeq: seq,
+          task: next,
+          remainingSeconds: Math.max(0, next.requiredSeconds - next.learnedSeconds),
+        });
+      }
+      continue;
+    }
+
+    for (const task of pending) {
+      planned.push({
+        lectureSeq: seq,
+        task,
+        remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
+      });
+    }
+  }
+
+  return planned;
+}
+
 export async function runAutoLearning(
   browser: Browser,
   userId: string,
   creds: Cu12Credentials,
-  targetLectureSeq?: number,
+  options: {
+    mode: AutoLearnMode;
+    lectureSeq?: number;
+  },
+  onProgress?: (progress: AutoLearnProgress) => Promise<void> | void,
 ): Promise<AutoLearnResult> {
   const env = getEnv();
   const context = await browser.newContext();
@@ -162,50 +248,72 @@ export async function runAutoLearning(
   try {
     await ensureLogin(page, creds);
 
-    const lectureSeqs = new Set<number>();
+    const mode = options.mode;
+    const plannedAll = await planTasks(page, env.CU12_BASE_URL, userId, mode, options.lectureSeq);
+    const truncated = plannedAll.length > env.AUTOLEARN_MAX_TASKS;
+    const planned = plannedAll.slice(0, env.AUTOLEARN_MAX_TASKS);
 
-    if (targetLectureSeq) {
-      lectureSeqs.add(targetLectureSeq);
-    } else {
-      await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
-      const courses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
-      for (const course of courses) {
-        lectureSeqs.add(course.lectureSeq);
-      }
+    const estimatedTotalSeconds = planned.reduce((acc, row) => acc + Math.ceil(row.remainingSeconds * env.AUTOLEARN_TIME_FACTOR), 0);
+
+    if (onProgress) {
+      await onProgress({
+        phase: "PLANNING",
+        mode,
+        totalTasks: planned.length,
+        completedTasks: 0,
+        watchedSeconds: 0,
+        estimatedRemainingSeconds: estimatedTotalSeconds,
+      });
     }
 
     let watchedTaskCount = 0;
     let watchedSeconds = 0;
 
-    for (const lectureSeq of lectureSeqs) {
-      await page.goto(`${env.CU12_BASE_URL}/el/class/todo_list_form.acl?LECTURE_SEQ=${lectureSeq}`, {
-        waitUntil: "domcontentloaded",
-      });
-      const tasks = parseTodoVodTasks(await page.content(), userId, lectureSeq)
-        .filter((task) => task.state === "PENDING")
-        .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
-
-      for (const task of tasks) {
-        if (watchedTaskCount >= env.AUTOLEARN_MAX_TASKS) {
-          break;
-        }
-
-        const watched = await watchVodTask(page, lectureSeq, task);
-        if (watched > 0) {
-          watchedTaskCount += 1;
-          watchedSeconds += watched;
-        }
+    for (const row of planned) {
+      if (onProgress) {
+        const consumed = watchedSeconds;
+        await onProgress({
+          phase: "RUNNING",
+          mode,
+          totalTasks: planned.length,
+          completedTasks: watchedTaskCount,
+          watchedSeconds,
+          estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - consumed),
+          current: {
+            lectureSeq: row.lectureSeq,
+            weekNo: row.task.weekNo,
+            lessonNo: row.task.lessonNo,
+            remainingSeconds: row.remainingSeconds,
+          },
+        });
       }
 
-      if (watchedTaskCount >= env.AUTOLEARN_MAX_TASKS) {
-        break;
+      const watched = await watchVodTask(page, row.lectureSeq, row.task);
+      if (watched > 0) {
+        watchedTaskCount += 1;
+        watchedSeconds += watched;
       }
     }
 
+    if (onProgress) {
+      await onProgress({
+        phase: "DONE",
+        mode,
+        totalTasks: planned.length,
+        completedTasks: watchedTaskCount,
+        watchedSeconds,
+        estimatedRemainingSeconds: 0,
+      });
+    }
+
     return {
+      mode,
       watchedTaskCount,
       watchedSeconds,
-      lectureSeqs: Array.from(lectureSeqs),
+      lectureSeqs: Array.from(new Set(planned.map((row) => row.lectureSeq))),
+      plannedTaskCount: planned.length,
+      truncated,
+      estimatedTotalSeconds,
     };
   } finally {
     await context.close();

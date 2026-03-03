@@ -12,10 +12,16 @@
 - Claims and processes queue jobs via worker runtime.
 - Can be scheduled or manually dispatched.
 
-4. `db-bootstrap.yml`
+4. `sync-schedule.yml`
+- Dispatches periodic `SYNC` jobs and then calls `worker-consume.yml`.
+
+5. `mail-digest-schedule.yml`
+- Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
+
+6. `db-bootstrap.yml`
 - Applies DB schema initialization (`prisma db push`).
 
-5. `auth-reset-bootstrap.yml`
+7. `auth-reset-bootstrap.yml`
 - Resets auth-related data and issues fresh admin invite code.
 
 ## Required Secrets
@@ -32,6 +38,11 @@
 - `VERCEL_TOKEN`
 - `VERCEL_ORG_ID`
 - `VERCEL_PROJECT_ID`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
 
 ### Vercel
 

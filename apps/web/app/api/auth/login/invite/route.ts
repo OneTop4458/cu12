@@ -33,12 +33,16 @@ export async function POST(request: NextRequest) {
     const invite = await prisma.inviteToken.findUnique({
       where: { tokenHash: hashToken(body.inviteCode) },
     });
-    if (
-      !invite ||
-      invite.usedAt ||
-      invite.expiresAt < new Date() ||
-      invite.cu12Id !== challenge.cu12Id
-    ) {
+
+    if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+      return jsonError(
+        "Invite code is invalid or expired.",
+        403,
+        "INVITE_CODE_INVALID",
+      );
+    }
+
+    if (invite.cu12Id !== challenge.cu12Id) {
       return jsonError(
         "This CU12 ID is not approved. Contact an administrator.",
         403,

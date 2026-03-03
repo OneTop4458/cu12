@@ -171,6 +171,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       courseContentsSeq,
       weekNo,
       lessonNo,
+      activityType: "VOD",
       requiredSeconds,
       learnedSeconds,
       state: completed ? "COMPLETED" : "PENDING",

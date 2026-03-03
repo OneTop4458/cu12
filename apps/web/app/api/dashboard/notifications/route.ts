@@ -6,6 +6,11 @@ export async function GET(request: NextRequest) {
   const session = await requireUser(request);
   if (!session) return jsonError("Unauthorized", 401);
 
-  const notifications = await getNotifications(session.userId);
+  const url = new URL(request.url);
+  const unreadOnly = url.searchParams.get("unreadOnly") === "1";
+  const limitRaw = Number(url.searchParams.get("limit") ?? 50);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+
+  const notifications = await getNotifications(session.userId, { unreadOnly, limit });
   return jsonOk({ notifications });
 }

@@ -44,6 +44,7 @@ export interface LearningTask {
   courseContentsSeq: number;
   weekNo: number;
   lessonNo: number;
+  activityType: "VOD" | "QUIZ" | "ASSIGNMENT" | "ETC";
   requiredSeconds: number;
   learnedSeconds: number;
   state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
@@ -55,6 +56,7 @@ export type QueueJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "C
 export interface QueuePayload {
   userId: string;
   lectureSeq?: number;
+  autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
   courseContentsSeq?: number;
   reason?: string;
 }

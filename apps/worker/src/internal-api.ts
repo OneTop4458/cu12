@@ -7,6 +7,7 @@ interface ClaimedJob {
   payload: {
     userId: string;
     lectureSeq?: number;
+    autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
     reason?: string;
   };
   attempts: number;
@@ -49,4 +50,8 @@ export async function finishJob(jobId: string, result: unknown) {
 
 export async function failJob(jobId: string, error: string) {
   await post("/internal/worker/job/fail", { jobId, error });
+}
+
+export async function progressJob(jobId: string, result: unknown) {
+  await post("/internal/worker/job/progress", { jobId, result });
 }

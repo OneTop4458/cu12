@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CU12 Automation API
-  version: 0.3.0
+  version: 0.4.0
   description: API contract for the CU12 Automation web application.
 servers:
   - url: https://your-app.example.com
@@ -122,6 +122,10 @@ paths:
                   value:
                     error: This CU12 ID is not approved. Contact an administrator.
                     errorCode: UNAPPROVED_ID
+                invalidInviteCode:
+                  value:
+                    error: Invite code is invalid or expired.
+                    errorCode: INVITE_CODE_INVALID
 
   /api/auth/logout:
     post:
@@ -319,6 +323,10 @@ paths:
             schema:
               type: object
               properties:
+                mode:
+                  type: string
+                  enum: [SINGLE_NEXT, SINGLE_ALL, ALL_COURSES]
+                  default: ALL_COURSES
                 lectureSeq:
                   type: integer
                 reason:
@@ -410,9 +418,91 @@ paths:
       summary: Notification events for current user
       security:
         - cookieAuth: []
+      parameters:
+        - in: query
+          name: unreadOnly
+          schema:
+            type: string
+            enum: ["1"]
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
       responses:
         "200":
           description: Notification list
+
+  /api/dashboard/notifications/{notificationId}/read:
+    patch:
+      summary: Mark notification as read
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: notificationId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated
+
+  /api/dashboard/notices/{noticeId}/read:
+    patch:
+      summary: Mark course notice as read
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: noticeId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated
+
+  /api/mail/preferences:
+    get:
+      summary: Get mail notification preferences
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Preference data
+    patch:
+      summary: Update mail notification preferences
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                enabled:
+                  type: boolean
+                alertOnNotice:
+                  type: boolean
+                alertOnDeadline:
+                  type: boolean
+                alertOnAutolearn:
+                  type: boolean
+                digestEnabled:
+                  type: boolean
+                digestHour:
+                  type: integer
+                  minimum: 0
+                  maximum: 23
+      responses:
+        "200":
+          description: Updated
 
 components:
   securitySchemes:
