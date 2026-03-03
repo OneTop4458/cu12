@@ -1,6 +1,16 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef } from "react";
+
+const ALERT_BANNER = "%c⚠ SECURITY ALERT";
+
+const ALERT_MESSAGE =
+  "%cThis console is a privileged debugging surface.\n" +
+  "Pasting untrusted code here can leak your session, account credentials, or sensitive data.\n" +
+  "Do not paste anything you did not write yourself.\n\n" +
+  "PASTE ONLY what you wrote yourself and completely understand.\n" +
+  "If someone told you to run a command, verify it before pasting.\n\n" +
+  "Self-XSS protection may require confirmation before code paste.";
 
 function getConsoleStyles() {
   const isDark =
@@ -8,22 +18,23 @@ function getConsoleStyles() {
 
   return isDark
     ? {
-      title: "color:#f97316;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;",
-      body: "color:#e2e8f0;font-size:14px;font-weight:600;line-height:1.5;font-family:ui-sans-serif,system-ui,sans-serif;",
+      title:
+        "color:#f97316;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;letter-spacing:-0.02em;",
+      body:
+        "color:#e2e8f0;font-size:14px;font-weight:600;line-height:1.55;font-family:ui-sans-serif,system-ui,sans-serif;",
     }
     : {
-      title: "color:#b91c1c;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;",
-      body: "color:#0f172a;font-size:14px;font-weight:600;line-height:1.5;font-family:ui-sans-serif,system-ui,sans-serif;",
+      title:
+        "color:#dc2626;font-size:34px;line-height:1.2;font-weight:800;font-family:ui-sans-serif,system-ui,sans-serif;letter-spacing:-0.02em;",
+      body:
+        "color:#111827;font-size:14px;font-weight:600;line-height:1.55;font-family:ui-sans-serif,system-ui,sans-serif;",
     };
 }
 
 function printConsoleWarning() {
   const styles = getConsoleStyles();
-  console.log("%c🚫 위험 경고", styles.title);
-  console.log(
-    "%c브라우저 개발자 도구는 시스템 접근 권한을 가진 민감한 환경입니다. 신뢰할 수 없는 코드나 스니펫을 붙여넣지 마세요.\nPaste only commands you wrote/understand.\nThis warning is displayed for security reasons and to prevent account/session token leakage.",
-    styles.body,
-  );
+  console.log(ALERT_BANNER, styles.title);
+  console.log(ALERT_MESSAGE, styles.body);
 }
 
 export function ConsoleSecurityWarning() {
