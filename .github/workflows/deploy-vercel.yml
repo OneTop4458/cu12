@@ -21,8 +21,8 @@ jobs:
       - run: npm install
       - run: npm i -g vercel@latest
       - name: Pull Vercel project settings
-        run: vercel pull --yes --environment=production --cwd apps/web --token=$VERCEL_TOKEN
+        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
       - name: Build production bundle
-        run: vercel build --prod --cwd apps/web --token=$VERCEL_TOKEN
+        run: vercel build --prod --token=$VERCEL_TOKEN
       - name: Deploy production bundle
-        run: vercel deploy --prebuilt --prod --cwd apps/web --token=$VERCEL_TOKEN
+        run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
