@@ -394,12 +394,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     router.refresh();
   }
 
-  useEffect(() => {
-    if (initialUser.role === "ADMIN" && !context?.impersonating) {
-      router.push("/admin" as Route);
-    }
-  }, [initialUser.role, context?.impersonating, router]);
-
   return (
     <>
       <header className="page-header branded-header">
@@ -411,6 +405,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </div>
         <div className="header-actions">
           <button className="ghost-btn" onClick={() => void refreshAll(false)} disabled={loading || refreshing}>새로고침</button>
+          {initialUser.role === "ADMIN" ? (
+            <button className="ghost-btn" onClick={() => router.push("/admin" as Route)}>관리자 메뉴</button>
+          ) : null}
           <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>설정</button>
           <button onClick={logout}>로그아웃</button>
         </div>
