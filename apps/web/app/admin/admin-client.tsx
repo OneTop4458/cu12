@@ -767,8 +767,8 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               onChange={(event) => setNewCampus(event.target.value as CampusType)}
               disabled={isEditMode}
             >
-              <option value="SONGSIM">SONGSIM</option>
-              <option value="SONGSIN">SONGSIN</option>
+              <option value="SONGSIM">성심교정</option>
+              <option value="SONGSIN">성신교정</option>
             </select>
             {isEditMode ? (
               <p className="muted text-small">캠퍼스는 등록 후 별도 API에서 별도 수정하세요.</p>

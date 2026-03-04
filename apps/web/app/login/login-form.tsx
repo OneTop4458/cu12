@@ -28,8 +28,8 @@ interface ApiErrorResponse {
 }
 
 const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
-  { value: "SONGSIM", label: "서울 캠퍼스" },
-  { value: "SONGSIN", label: "신촌 캠퍼스" },
+  { value: "SONGSIM", label: "성심교정" },
+  { value: "SONGSIN", label: "성신교정" },
 ];
 
 export function LoginForm() {
