@@ -779,31 +779,37 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
             return (
               <article key={course.lectureSeq} className="course-card">
-                <h3>{course.title}</h3>
-                <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
-                <p>진도율 <strong>{course.progressPercent}%</strong></p>
-                <p className="muted">전체 과제: 총 {course.totalTaskCount}개 / 완료 {course.completedTaskCount}개 / 미완료 {course.pendingTaskCount}개</p>
-                <p className="muted">{weekSummaryLabel}</p>
-                <p className="muted">현재 기준 주차: {course.currentWeekNo ?? "-"}</p>
-                <p className="muted">{weekHealthLabel}</p>
-                <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>
-                <p className="muted">현재주차 미완료 유형: {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}</p>
-                <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
-                <div className="muted pending-week-detail">
-                  <span className="pending-week-title">미완료 주차 상세:</span>
-                  {pendingWeeks.length === 0 ? (
-                    <span className="pending-week-empty">미완료 주차 없음</span>
-                  ) : (
-                    <ul className="pending-week-list">
-                      {pendingWeeks.map((summary) => (
-                        <li key={`${course.lectureSeq}:${summary.weekNo}`}>{formatWeekStatusLine(summary)}</li>
-                      ))}
-                    </ul>
-                  )}
+                <div className="course-card-head">
+                  <h3 className="course-title">{course.title}</h3>
+                  <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
                 </div>
-                <p className="muted">공지: 총 {course.noticeCount}개 / 미확인 {course.unreadNoticeCount}개</p>
-                <p className="muted">{deadlineLabel}: {formatNextDeadline(course.nextPendingTask)}</p>
-                <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
+                <div className="course-card-body">
+                  <p>진도율 <strong>{course.progressPercent}%</strong></p>
+                  <p className="muted">전체 과제: 총 {course.totalTaskCount}개 / 완료 {course.completedTaskCount}개 / 미완료 {course.pendingTaskCount}개</p>
+                  <p className="muted">{weekSummaryLabel}</p>
+                  <p className="muted">현재 기준 주차: {course.currentWeekNo ?? "-"}</p>
+                  <p className="muted">{weekHealthLabel}</p>
+                  <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>
+                  <p className="muted">현재주차 미완료 유형: {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}</p>
+                  <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
+                  <div className="muted pending-week-detail">
+                    <span className="pending-week-title">미완료 주차 상세:</span>
+                    {pendingWeeks.length === 0 ? (
+                      <span className="pending-week-empty">미완료 주차 없음</span>
+                    ) : (
+                      <ul className="pending-week-list">
+                        {pendingWeeks.map((summary) => (
+                          <li key={`${course.lectureSeq}:${summary.weekNo}`}>{formatWeekStatusLine(summary)}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <p className="muted">{deadlineLabel}: {formatNextDeadline(course.nextPendingTask)}</p>
+                </div>
+                <div className="course-card-footer">
+                  <p className="muted">공지: 총 {course.noticeCount}개 / 미확인 {course.unreadNoticeCount}개</p>
+                  <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
+                </div>
               </article>
             );
           })}

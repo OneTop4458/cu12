@@ -180,6 +180,7 @@ main {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
 }
 
 .table-wrap {
@@ -1068,8 +1069,46 @@ textarea:focus {
   border-radius: var(--radius-md);
   padding: 14px;
   background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.course-card-head {
   display: grid;
+  gap: 6px;
+}
+
+.course-title {
+  margin: 0;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.course-card-body {
+  display: grid;
+  gap: 7px;
+}
+
+.course-card-body p,
+.course-card-footer p {
+  margin: 0;
+}
+
+.course-card-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.course-card-footer .ghost-btn {
+  width: fit-content;
+  align-self: flex-start;
 }
 
 .pending-week-detail {
@@ -1091,6 +1130,8 @@ textarea:focus {
   padding-left: 16px;
   display: grid;
   gap: 4px;
+  max-height: 8.5rem;
+  overflow: auto;
 }
 
 .pending-week-list li {
