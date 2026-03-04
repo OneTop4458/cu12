@@ -25,6 +25,7 @@
 1. Update docs in the same PR as behavior changes.
 2. Update OpenAPI whenever request/response semantics change.
 3. Add migration notes when auth or data model changes.
+4. For AI-assisted changes, update implementation + operation docs together and include validation commands that were run.
 
 ## Validation
 
@@ -35,6 +36,8 @@ npm run check:text
 npm run typecheck
 npm run build:web
 ```
+
+For AI-assisted changes, pushing is allowed only after this check sequence completes successfully.
 
 ## Review Checklist
 

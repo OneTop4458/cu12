@@ -23,6 +23,12 @@
 2. Course list and notices align with synced data.
 3. Job history endpoint includes latest state transitions.
 
+### Validation Gate (AI-assisted or release validation)
+
+1. `npm run check:text`
+2. `npm run typecheck`
+3. `npm run build:web`
+
 ## End-to-End
 
 1. New environment bootstrap -> admin first login -> invite issuance -> user first login.

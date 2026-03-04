@@ -42,6 +42,15 @@ npm run typecheck
 npm run build:web
 ```
 
+## Operator Execution Rule (Including AI)
+
+1. Any code or doc change must run the full validation sequence in order before commit/push:
+   1. `npm run check:text`
+   2. `npm run typecheck`
+   3. `npm run build:web` (for web scope changes)
+2. `npm run prisma:generate` must be re-run when Prisma schema or Prisma model usage changes.
+3. Do not commit or push if the above checks fail.
+
 ## Deployment Baseline
 
 1. DB update: `DB Bootstrap` or `npm run prisma:push`
@@ -59,6 +68,7 @@ npm run build:web
 3. `npm run check:text` must pass.
 4. `npm run typecheck` must pass.
 5. Run `npm run build:web` when touching web code.
+6. AI-assisted changes must complete validation and then commit/push together.
 
 ## Prohibited Actions
 

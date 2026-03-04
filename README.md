@@ -139,6 +139,11 @@ npm run typecheck
 npm run build:web
 ```
 
+When changes are made by AI-assisted workflows, commits and pushes must only happen after:
+- `npm run check:text`
+- `npm run typecheck`
+- `npm run build:web` (when web scope is touched)
+
 ## 2026-03-04 UI/UX Modernization
 
 - Added a modernized web shell in `apps/web` with shared visual tokens in `apps/web/app/globals.css`.
