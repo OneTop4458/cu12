@@ -654,7 +654,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </div>,
       host,
     );
-  }, [maintenanceNotice, visibleBroadcastNotices, dismissBroadcastNotice]);
+    }, [maintenanceNotice, visibleBroadcastNotices, dismissedBroadcastNoticeIds, expandedNoticeIds, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

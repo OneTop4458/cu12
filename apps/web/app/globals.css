@@ -131,6 +131,10 @@ a {
   box-shadow: 0 12px 22px rgb(2 6 23 / 10%);
 }
 
+.session-notice-card.is-collapsed {
+  max-height: var(--session-banner-height);
+}
+
 .session-warning-bar {
   width: 100%;
   min-height: var(--session-banner-height);
@@ -833,10 +837,15 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .action-kicker {
   color: var(--text-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .topbar-notice-stack {
@@ -873,6 +882,8 @@ textarea:focus {
   margin-bottom: 0;
   pointer-events: none;
   transition: max-height 0.24s ease, opacity 0.2s ease, margin 0.2s ease;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .session-notice-card.is-expanded .topbar-notice-subtitle,
@@ -884,6 +895,7 @@ textarea:focus {
   pointer-events: auto;
   margin-top: 2px;
   margin-bottom: 0;
+  white-space: normal;
 }
 
 .session-notice-card .topbar-notice-title {
