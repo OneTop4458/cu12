@@ -266,7 +266,7 @@ function formatNextDeadline(task: Course["nextPendingTask"]): string {
 function sanitizeNotificationMessage(message: string): string {
   return message
     .replace(/^(?:\s*\[[^\]]+\]\s*)?/, "")
-    .replace(/\s*(아직|미확인|읽지않음|not-read|not_checked)\s*$/gi, "")
+    .replace(/\s*(미확인|읽지않음|not-read|not_checked|아직\s*읽지\s*않음)\s*$/gi, "")
     .trim();
 }
 

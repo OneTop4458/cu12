@@ -274,6 +274,11 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
       "button.notice_title",
       "a.notice_title",
       "a[class*='notice']",
+      "a[href*='A_SEQ=']",
+      "a[href*='NOTICE_SEQ=']",
+      "a[href*='notice_seq=']",
+      "a[href*='artl_seq=']",
+      "a[href*='notice_list_form.acl']",
       ".notice_title",
       ".class_notice_title",
       "[onclick*='noticeShow']",
@@ -358,7 +363,7 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
   ).toArray();
 
   const stripUnreadSuffix = (value: string): string =>
-    normalizeNoticeText(value).replace(/\s*(아직|미확인|읽지않음|not-read|not_checked)\s*$/i, "").trim();
+    normalizeNoticeText(value).replace(/\s*(미확인|읽지않음|not-read|not_checked|아직\s*읽지\s*않음)\s*$/i, "").trim();
 
   for (const rawItem of itemCandidates) {
     const item = $(rawItem);

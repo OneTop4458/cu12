@@ -24,8 +24,9 @@ jobs:
       - run: npm install
       - id: dispatch
         run: |
-          npm --workspace @cu12/worker run dispatch:digest -- --min-interval-minutes=60 --summary-json=dispatch-summary.json
-          CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('dispatch-summary.json','utf8')); process.stdout.write(String(data.createdCount ?? 0));")
+          SUMMARY_JSON="apps/worker/dispatch-summary.json"
+          npm --workspace @cu12/worker run dispatch:digest -- --min-interval-minutes=60 --summary-json="$SUMMARY_JSON"
+          CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON")
           echo "created_count=$CREATED_COUNT" >> "$GITHUB_OUTPUT"
 
   consume:
