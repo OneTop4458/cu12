@@ -1,9 +1,40 @@
 import { CourseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
+interface ActivityTypeCounts {
+  VOD: number;
+  QUIZ: number;
+  ASSIGNMENT: number;
+  ETC: number;
+}
+
+interface CourseWeekSummary {
+  weekNo: number;
+  totalTaskCount: number;
+  completedTaskCount: number;
+  pendingTaskCount: number;
+  totalTaskTypeCounts: ActivityTypeCounts;
+  pendingTaskTypeCounts: ActivityTypeCounts;
+}
+
 function daysUntil(target: Date, now: Date): number {
   const diff = target.getTime() - now.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function createActivityTypeCounts(): ActivityTypeCounts {
+  return {
+    VOD: 0,
+    QUIZ: 0,
+    ASSIGNMENT: 0,
+    ETC: 0,
+  };
+}
+
+function mapNoticeCountsByLecture(
+  rows: Array<{ lectureSeq: number; _count: { _all: number } }>,
+): Map<number, number> {
+  return new Map(rows.map((row) => [row.lectureSeq, row._count._all]));
 }
 
 export async function getDashboardSummary(userId: string) {
@@ -56,7 +87,9 @@ export async function getDashboardSummary(userId: string) {
 }
 
 export async function getCourses(userId: string) {
-  const [courses, tasks] = await Promise.all([
+  const now = new Date();
+
+  const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
     prisma.courseSnapshot.findMany({
       where: { userId },
       orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
@@ -75,6 +108,16 @@ export async function getCourses(userId: string) {
         dueAt: true,
       },
     }),
+    prisma.courseNotice.groupBy({
+      by: ["lectureSeq"],
+      where: { userId },
+      _count: { _all: true },
+    }),
+    prisma.courseNotice.groupBy({
+      by: ["lectureSeq"],
+      where: { userId, isRead: false },
+      _count: { _all: true },
+    }),
   ]);
 
   const grouped = new Map<number, typeof tasks>();
@@ -83,6 +126,9 @@ export async function getCourses(userId: string) {
     list.push(task);
     grouped.set(task.lectureSeq, list);
   }
+
+  const noticeCountByLectureSeq = mapNoticeCountsByLecture(noticeCounts);
+  const unreadNoticeCountByLectureSeq = new Map<number, number>(unreadNoticeCounts.map((row) => [row.lectureSeq, row._count._all]));
 
   return courses.map((course) => {
     const taskList = grouped.get(course.lectureSeq) ?? [];
@@ -96,19 +142,65 @@ export async function getCourses(userId: string) {
         return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
       });
 
-    const completedCount = taskList.filter((task) => task.state === "COMPLETED").length;
+    const completed = taskList.filter((task) => task.state === "COMPLETED");
     const totalTaskCount = taskList.length;
+    const completedTaskCount = completed.length;
+    const pendingTaskCount = pending.length;
     const totalRequiredSeconds = taskList.reduce((acc, task) => acc + task.requiredSeconds, 0);
     const totalLearnedSeconds = taskList.reduce((acc, task) => acc + task.learnedSeconds, 0);
 
+    const taskTypeCounts = createActivityTypeCounts();
+    const pendingTaskTypeCounts = createActivityTypeCounts();
+    const weekProgressByWeek = new Map<number, Omit<CourseWeekSummary, "pendingTaskTypeCounts"> & {
+      pendingTaskTypeCounts: ActivityTypeCounts;
+    }>();
+
+    for (const task of taskList) {
+      taskTypeCounts[task.activityType] += 1;
+
+      const existing = weekProgressByWeek.get(task.weekNo) ?? {
+        weekNo: task.weekNo,
+        totalTaskCount: 0,
+        completedTaskCount: 0,
+        pendingTaskCount: 0,
+        totalTaskTypeCounts: createActivityTypeCounts(),
+        pendingTaskTypeCounts: createActivityTypeCounts(),
+      };
+
+      existing.totalTaskCount += 1;
+      existing.totalTaskTypeCounts[task.activityType] += 1;
+
+      if (task.state === "COMPLETED") {
+        existing.completedTaskCount += 1;
+      } else {
+        existing.pendingTaskCount += 1;
+        pendingTaskTypeCounts[task.activityType] += 1;
+        existing.pendingTaskTypeCounts[task.activityType] += 1;
+      }
+
+      weekProgressByWeek.set(task.weekNo, existing);
+    }
+
+    const weekSummaries = Array.from(weekProgressByWeek.values())
+      .sort((a, b) => a.weekNo - b.weekNo)
+      .map((summary) => summary);
+
+    const nowPending = pending.find((task) => task.dueAt && task.dueAt >= now);
+    const currentWeekNo = nowPending?.weekNo ?? pending[0]?.weekNo ?? taskList[0]?.weekNo ?? null;
+
     return {
       ...course,
-      pendingTaskCount: pending.length,
-      completedTaskCount: completedCount,
+      pendingTaskCount,
+      completedTaskCount,
       totalTaskCount,
       totalRequiredSeconds,
       totalLearnedSeconds,
-      currentWeekNo: pending[0]?.weekNo ?? taskList[0]?.weekNo ?? null,
+      currentWeekNo,
+      taskTypeCounts,
+      pendingTaskTypeCounts,
+      weekSummaries,
+      noticeCount: noticeCountByLectureSeq.get(course.lectureSeq) ?? 0,
+      unreadNoticeCount: unreadNoticeCountByLectureSeq.get(course.lectureSeq) ?? 0,
       nextPendingTask: pending[0]
         ? {
           weekNo: pending[0].weekNo,
@@ -165,7 +257,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
 
   return tasks.map((task) => ({
     ...task,
-    courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+    courseTitle: titleBySeq.get(task.lectureSeq) ?? `코스 ${task.lectureSeq}`,
     remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
     daysLeft: task.dueAt ? daysUntil(task.dueAt, now) : null,
   }));

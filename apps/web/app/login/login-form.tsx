@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useState } from "react";
 import type { Route } from "next";
@@ -93,7 +93,7 @@ export function LoginForm() {
         return;
       }
 
-      router.push((payload.user.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
+      router.push("/dashboard" as Route);
       router.refresh();
     } catch {
       setError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
@@ -143,7 +143,7 @@ export function LoginForm() {
       const payload = (await response.json()) as AuthenticatedResponse;
       setShowInviteModal(false);
       setChallengeToken(null);
-      router.push((payload.user.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
+      router.push("/dashboard" as Route);
       router.refresh();
     } catch {
       setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");

@@ -209,6 +209,7 @@ export async function persistSnapshot(
 
   for (const notice of data.notices) {
     const isNewRecord = !existingNoticeSet.has(notice.noticeKey);
+    const normalizedBodyText = notice.bodyText?.trim();
 
     await runWithPrismaRetry(() =>
       prisma.courseNotice.upsert({
@@ -223,9 +224,9 @@ export async function persistSnapshot(
           title: notice.title,
           author: notice.author,
           postedAt: toDate(notice.postedAt),
-          bodyText: notice.bodyText,
           isNew: notice.isNew,
           syncedAt: new Date(notice.syncedAt),
+          ...(normalizedBodyText ? { bodyText: notice.bodyText } : {}),
         },
         create: {
           userId,

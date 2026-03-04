@@ -13,6 +13,6 @@ export default async function HomePage() {
     redirect("/login" as Route);
   }
 
-  redirect((session.role === "ADMIN" ? "/admin" : "/dashboard") as Route);
+  redirect("/dashboard" as Route);
 }
 

@@ -32,13 +32,38 @@ interface Summary {
   initialSyncRequired: boolean;
 }
 
+interface ActivityTypeCounts {
+  VOD: number;
+  QUIZ: number;
+  ASSIGNMENT: number;
+  ETC: number;
+}
+
+interface CourseWeekSummary {
+  weekNo: number;
+  totalTaskCount: number;
+  completedTaskCount: number;
+  pendingTaskCount: number;
+  totalTaskTypeCounts: ActivityTypeCounts;
+  pendingTaskTypeCounts: ActivityTypeCounts;
+}
+
 interface Course {
   lectureSeq: number;
   title: string;
   instructor: string | null;
   progressPercent: number;
   pendingTaskCount: number;
+  completedTaskCount: number;
+  totalTaskCount: number;
   currentWeekNo: number | null;
+  totalRequiredSeconds: number;
+  totalLearnedSeconds: number;
+  taskTypeCounts: ActivityTypeCounts;
+  pendingTaskTypeCounts: ActivityTypeCounts;
+  weekSummaries: CourseWeekSummary[];
+  noticeCount: number;
+  unreadNoticeCount: number;
   nextPendingTask: { weekNo: number; lessonNo: number; dueAt: string | null } | null;
 }
 
@@ -176,6 +201,15 @@ function parseAutoProgress(value: unknown): AutoProgress | null {
   const maybe = value as Partial<AutoProgress>;
   if (maybe.kind !== "AUTOLEARN_PROGRESS" || !maybe.progress) return null;
   return maybe as AutoProgress;
+}
+
+function formatTaskCountsByType(counts: ActivityTypeCounts): string {
+  return `영상 ${counts.VOD}개 / 과제 ${counts.ASSIGNMENT}개 / 시험 ${counts.QUIZ}개 / 기타 ${counts.ETC}개`;
+}
+
+function findCurrentWeekSummary(course: Course): CourseWeekSummary | null {
+  if (course.currentWeekNo === null) return null;
+  return course.weekSummaries.find((entry) => entry.weekNo === course.currentWeekNo) ?? null;
 }
 
 export function DashboardClient({ initialUser }: DashboardClientProps) {
@@ -637,8 +671,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <h2>미확인 알림</h2>
         <div className="notification-list">
           {unreadNotifications.length === 0 ? <p className="muted">새 알림이 없습니다.</p> : unreadNotifications.map((item) => (
-            <button key={item.id} className="notification-item is-unread" onClick={() => void markNotificationRead(item)}>
-              {item.courseTitle || "시스템"}
+            <button
+              key={item.id}
+              className="notification-item is-unread"
+              onClick={() => void markNotificationRead(item)}
+            >
+              <span>{item.courseTitle || "시스템"}</span>
               <span className="muted">{item.message}</span>
             </button>
           ))}
@@ -648,16 +686,28 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       <section className="card">
         <h2>강좌 현황</h2>
         <div className="course-grid">
-          {courses.map((course) => (
-            <article key={course.lectureSeq} className="course-card">
-              <h3>{course.title}</h3>
-              <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
-              <p>진도율 <strong>{course.progressPercent}%</strong></p>
-              <p className="muted">현재 주차 {course.currentWeekNo ?? "-"} / 미완료 {course.pendingTaskCount}개</p>
-              <p className="muted">다음 차시 마감: {toDateTime(course.nextPendingTask?.dueAt ?? null)}</p>
-              <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
-            </article>
-          ))}
+          {courses.map((course) => {
+            const currentWeekSummary = findCurrentWeekSummary(course);
+            const weekLabel = currentWeekSummary
+              ? `현재주차(${course.currentWeekNo}): 총 ${currentWeekSummary.totalTaskCount}개 / 미완료 ${currentWeekSummary.pendingTaskCount}개`
+              : `현재주차: ${course.currentWeekNo ?? "-"} / 미완료 ${course.pendingTaskCount}개`;
+            const weekTypeLabel = currentWeekSummary ? formatTaskCountsByType(currentWeekSummary.pendingTaskTypeCounts) : "미완료 데이터 없음";
+
+            return (
+              <article key={course.lectureSeq} className="course-card">
+                <h3>{course.title}</h3>
+                <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
+                <p>진도율 <strong>{course.progressPercent}%</strong></p>
+                <p className="muted">전체 과제: 총 {course.totalTaskCount}개 / 완료 {course.completedTaskCount}개 / 미완료 {course.pendingTaskCount}개</p>
+                <p className="muted">{weekLabel}</p>
+                <p className="muted">현재주차 유형 분포: {weekTypeLabel}</p>
+                <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.pendingTaskTypeCounts)}</p>
+                <p className="muted">공지: 총 {course.noticeCount}개 / 미확인 {course.unreadNoticeCount}개</p>
+                <p className="muted">다음 차시 마감: {toDateTime(course.nextPendingTask?.dueAt ?? null)}</p>
+                <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
+              </article>
+            );
+          })}
         </div>
       </section>
 

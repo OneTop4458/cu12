@@ -91,11 +91,24 @@ function parseTaskWindow(raw: string):
 
 function parseDurationToSeconds(raw: string | null | undefined): number {
   if (!raw) return 0;
-  const m = raw.match(/(\d+)\s*분(?:\s*(\d+)\s*초)?/);
-  if (!m) return 0;
-  const minutes = Number(m[1] ?? 0);
-  const seconds = Number(m[2] ?? 0);
-  return minutes * 60 + seconds;
+  const normalized = normalizeWhitespace(raw);
+  const clockMatch = normalized.match(/(\d+):(\d{1,2})(?::(\d{1,2}))?/);
+  if (clockMatch) {
+    return Number(clockMatch[1]) * 3600 + Number(clockMatch[2]) * 60 + Number(clockMatch[3] ?? 0);
+  }
+
+  const parsed = normalized.match(
+    /(?:(\d+)\s*시간\s*)?(?:(\d+)\s*분\s*)?(?:(\d+)\s*초)?/,
+  );
+  if (!parsed) return 0;
+
+  const hours = Number(parsed[1] ?? 0);
+  const minutes = Number(parsed[2] ?? 0);
+  const seconds = Number(parsed[3] ?? 0);
+  if (Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(seconds)) {
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+  return 0;
 }
 
 export function parseMyCourseHtml(html: string, userId: string, status: CourseState["status"] = "ACTIVE"): CourseState[] {
@@ -161,7 +174,7 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
 
   const primaryCandidates = $('button.notice_title[id^="notice_tit_"]').toArray();
   const fallbackCandidates = $("button, a")
-    .filter((_, el) => /공지사항제목|공지\s*제목/.test(normalizeWhitespace($(el).text())))
+    .filter((_, el) => /공지사항|공지\s*제목|공지\s*제공/.test(normalizeWhitespace($(el).text())))
     .toArray();
   const candidates = primaryCandidates.length > 0 ? primaryCandidates : fallbackCandidates;
 
@@ -170,10 +183,12 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
     const lineText = normalizeWhitespace(node.text());
     const noticeSeq =
       node.attr("id")?.match(/notice_tit_(\d+)/)?.[1]
-      ?? node.attr("onclick")?.match(/noticeShow\('\d+',\s*'(\d+)'\)/)?.[1]
+      ?? node.attr("onclick")?.match(/noticeShow\([^,]+,\s*'?(?:\s*)?(\d+)\s*'?\)/)?.[1]
+      ?? node.attr("onclick")?.match(/noticeShow\([^,]+,\s*(\d+)\s*\)/)?.[1]
+      ?? node.attr("data-notice-seq")
       ?? null;
 
-    const title = normalizeWhitespace(node.find(".class_notice_title_sub").first().text())
+    const title = normalizeWhitespace(node.find(".class_notice_title_sub, .notice_title").first().text())
       || lineText.match(/공지사항제목\s*(.*?)\s*등록일/)?.[1]?.trim()
       || lineText.match(/공지\s*제목\s*(.*?)\s*등록일/)?.[1]?.trim()
       || `notice-${index + 1}`;
@@ -206,6 +221,8 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
       node.next(),
       node.parent().next(),
       nearbyContainer.find(".view_cont, .notice_cont, .cont, .content, .txt").first(),
+      nearbyContainer.find(".class_notice_body, .class_notice_content").first(),
+      node.closest(".accordion").find(".class_notice_body, .class_notice_content").first(),
     ];
 
     const controlTarget = node.attr("aria-controls")
@@ -213,7 +230,16 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
       ?? node.attr("href")?.match(/#([A-Za-z0-9_-]+)/)?.[1]
       ?? (noticeSeq ? `notice_txt_${noticeSeq}` : undefined);
     if (controlTarget) {
-      bodyCandidates.push($(`#${controlTarget.replace(/^#/, "")}`));
+      const target = controlTarget.replace(/^#/, "");
+      bodyCandidates.push($(`#${target}`));
+      bodyCandidates.push(nearbyContainer.find(`#${target}`));
+    }
+    if (noticeSeq) {
+      bodyCandidates.push($(`#notice_${noticeSeq}`));
+      bodyCandidates.push($(`#notice_txt_${noticeSeq}`));
+      bodyCandidates.push($(`#notice-content-${noticeSeq}`));
+      bodyCandidates.push($(`#notice-content_${noticeSeq}`));
+      bodyCandidates.push($(`#notice_body_${noticeSeq}`));
     }
 
     const cleanedBody = bodyCandidates
@@ -287,20 +313,32 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
 export function parseTodoVodTasks(html: string, userId: string, lectureSeq: number): LearningTask[] {
   const $ = load(html);
   const tasks: LearningTask[] = [];
+  const activityTypeByCode: Record<string, LearningTask["activityType"]> = {
+    C01: "VOD",
+    C02: "ASSIGNMENT",
+    C03: "QUIZ",
+    C04: "ASSIGNMENT",
+    C05: "QUIZ",
+    C06: "ETC",
+  };
 
-  $('a[href^="javascript:viewGo(\'C01\'"]').each((_, el) => {
+  $('a[href*="javascript:viewGo("]').each((_, el) => {
     const item = $(el);
     const href = item.attr("href") ?? "";
-    const match = href.match(/viewGo\('C01',\s*'(\d+)',\s*'(\d+)',\s*'(\d+)'/);
+    const match = href.match(
+      /viewGo\(\s*["']?([^"',\s)]+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)/,
+    );
     if (!match) return;
 
-    const courseContentsSeq = Number(match[1]);
-    const weekNo = Number(match[2]);
-    const lessonNo = Number(match[3]);
+    const activityCode = match[1];
+    const courseContentsSeq = Number(match[2]);
+    const weekNo = Number(match[3]);
+    const lessonNo = Number(match[4]);
     const raw = normalizeWhitespace(item.text());
+    const activityType = activityTypeByCode[activityCode] ?? "ETC";
 
-    const requiredSeconds = parseDurationToSeconds(raw.match(/인정시간\s*:\s*(\d+분\s*\d*초?)/)?.[1]);
-    const learnedSeconds = parseDurationToSeconds(raw.match(/학습시간\s*:\s*(\d+분\s*\d*초?)/)?.[1]);
+    const requiredSeconds = parseDurationToSeconds(raw.match(/인정시간\s*[:：]?\s*([^|\r\n]+)/)?.[1]);
+    const learnedSeconds = parseDurationToSeconds(raw.match(/학습시간\s*[:：]?\s*([^|\r\n]+)/)?.[1]);
     const completed = /완료됨|활동이 완료/.test(raw);
     const candidateTexts = [
       raw,
@@ -324,7 +362,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       courseContentsSeq,
       weekNo,
       lessonNo,
-      activityType: "VOD",
+      activityType,
       requiredSeconds,
       learnedSeconds,
       state: completed ? "COMPLETED" : "PENDING",
