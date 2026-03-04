@@ -510,6 +510,10 @@ textarea:focus {
 }
 
 .processing-overlay {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  transform: none;
   pointer-events: none;
   display: flex;
   align-items: center;

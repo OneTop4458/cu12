@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { createPortal } from "react-dom";
 
 type Campus = "SONGSIM" | "SONGSIN";
 
@@ -26,6 +27,11 @@ interface ApiErrorResponse {
   error?: string;
   errorCode?: string;
 }
+
+const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
+  { value: "SONGSIM", label: "서울" },
+  { value: "SONGSIN", label: "신촌" },
+];
 
 export function LoginForm() {
   const router = useRouter();
@@ -178,8 +184,11 @@ export function LoginForm() {
         <label className="field">
           <span>캠퍼스</span>
           <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
-            <option value="SONGSIM">SONGSIM</option>
-            <option value="SONGSIN">SONGSIN</option>
+            {CAMPUS_OPTIONS.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -246,15 +255,18 @@ export function LoginForm() {
         </div>
       ) : null}
 
-      {isProcessing ? (
-        <div className="modal-overlay processing-overlay" role="presentation">
-          <section className="modal-card processing-card">
-            <h2>처리 중</h2>
-            <p className="muted">{processingMessage}</p>
-            <div className="loading-bar"><span /></div>
-          </section>
-        </div>
-      ) : null}
+      {isProcessing && typeof document !== "undefined"
+        ? createPortal(
+          <div className="modal-overlay processing-overlay" role="presentation">
+            <section className="modal-card processing-card">
+              <h2>처리 중</h2>
+              <p className="muted">{processingMessage}</p>
+              <div className="loading-bar"><span /></div>
+            </section>
+          </div>,
+          document.body,
+        )
+        : null}
     </>
   );
 }

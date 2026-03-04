@@ -114,6 +114,11 @@ interface InviteCreateResponse {
   expiresAt: string;
 }
 
+interface InviteDeleteResponse {
+  deleted: boolean;
+  inviteId: string;
+}
+
 interface InviteToggleResponse {
   invite: Pick<Invite, "id" | "cu12Id" | "isActive" | "expiresAt" | "usedAt">;
 }
@@ -577,6 +582,23 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     });
   }, [fetchJson, logPage, refreshAll, withBlocking, inviteBusyId]);
 
+  const deleteInvite = useCallback((invite: Invite) => {
+    if (inviteBusyId) return;
+    if (!window.confirm(`${invite.cu12Id} 초대 코드를 삭제할까요?`)) return;
+
+    setInviteBusyId(invite.id);
+    void withBlocking("초대 코드 삭제 처리 중...", async () => {
+      await fetchJson<InviteDeleteResponse>("/api/auth/invite", {
+        method: "DELETE",
+        body: JSON.stringify({ inviteId: invite.id }),
+      });
+      setMessage(`${invite.cu12Id} 초대 코드가 삭제되었습니다.`);
+      await refreshAll(logPage, true);
+    }).finally(() => {
+      setInviteBusyId(null);
+    });
+  }, [fetchJson, inviteBusyId, logPage, refreshAll, withBlocking]);
+
   const goToLogPage = useCallback((page: number) => {
     if (!logPagination || loading || logBusy) return;
     const safePage = Math.max(1, Math.min(page, logPagination.totalPages || 1));
@@ -1004,6 +1026,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                         disabled={inviteBusyId === invite.id}
                       >
                         {inviteBusyId === invite.id ? "처리 중..." : invite.isActive ? "비활성화" : "활성화"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        onClick={() => void deleteInvite(invite)}
+                        disabled={inviteBusyId === invite.id}
+                      >
+                        {inviteBusyId === invite.id ? "처리 중..." : "삭제"}
                       </button>
                     </td>
                   </tr>

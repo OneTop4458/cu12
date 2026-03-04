@@ -263,6 +263,28 @@ paths:
           description: Invite token updated
         "403":
           description: Forbidden
+    delete:
+      tags: [Admin]
+      summary: Delete invite token
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inviteId]
+              properties:
+                inviteId:
+                  type: string
+      responses:
+        "200":
+          description: Invite token deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Invite token not found
 
   /api/cu12/account:
     get:

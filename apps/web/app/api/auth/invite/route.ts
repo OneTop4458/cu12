@@ -1,8 +1,10 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { jsonError, jsonOk, parseBody, requireUser } from "@/lib/http";
+import { jsonError, jsonOk, parseBody, requireAdminActor, requireUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/token";
+import { writeAuditLog } from "@/server/audit-log";
 
 const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
@@ -14,6 +16,10 @@ const BodySchema = z.object({
 const PatchSchema = z.object({
   inviteId: z.string().min(1),
   isActive: z.boolean(),
+});
+
+const DeleteSchema = z.object({
+  inviteId: z.string().min(1),
 });
 
 export async function GET(request: NextRequest) {
@@ -112,3 +118,47 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  const context = await requireAdminActor(request);
+  if (!context) return jsonError("Forbidden", 403);
+
+  try {
+    const body = await parseBody(request, DeleteSchema);
+
+    const invite = await prisma.inviteToken.findUnique({
+      where: { id: body.inviteId },
+      select: { id: true, cu12Id: true },
+    });
+    if (!invite) {
+      return jsonError("Invite token not found", 404);
+    }
+
+    await prisma.inviteToken.delete({ where: { id: body.inviteId } });
+
+    await writeAuditLog({
+      category: "ADMIN",
+      severity: "WARN",
+      actorUserId: context.actor.userId,
+      message: "Admin deleted invite token",
+      meta: {
+        inviteId: body.inviteId,
+        cu12Id: invite.cu12Id,
+      },
+    });
+
+    return jsonOk({
+      deleted: true,
+      inviteId: body.inviteId,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2025") {
+        return jsonError("Invite token not found", 404);
+      }
+    }
+    return jsonError("Failed to delete invite", 500);
+  }
+}

@@ -21,6 +21,11 @@ export default async function LoginPage() {
       </div>
       <section className="auth-stage">
         <section className="auth-brand">
+          <img
+            src="/brand/catholic/logo-wordmark.png"
+            alt="Catholic University logo"
+            className="brand-wordmark"
+          />
           <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 [CU12 Automation]</p>
           <h1>가톨릭대학교 공유대학 수강 지원 솔루션</h1>
           <p className="muted">CU12 로그인부터 학습·알림·수강 이력을 한 화면에서 안전하게 관리할 수 있는 통합 솔루션입니다.</p>
@@ -32,11 +37,6 @@ export default async function LoginPage() {
 
         <section className="card auth-card brand-login">
           <div className="brand-ribbon" />
-          <img
-            src="/brand/catholic/logo-wordmark.png"
-            alt="Catholic University logo"
-            className="brand-wordmark"
-          />
           <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 [CU12 Automation]</p>
           <h1>로그인</h1>
           <p className="muted">아이디와 비밀번호를 입력해 이용을 시작해 주세요.</p>
