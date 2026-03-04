@@ -5,38 +5,71 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeDateText(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return normalizeWhitespace(
+    raw
+      .replace(/\u00a0/g, " ")
+      .replace(/\uC624\uC804/gi, "AM")
+      .replace(/\uC624\uD6C4/gi, "PM")
+      .replace(/\uC815\uC624/gi, "PM")
+      .replace(/\uC790\uC815/gi, "AM")
+      .replace(/[\uFF5E\u301C]/g, "-")
+      .replace(/\u3000/g, " "),
+  );
+}
+
 function toIsoDate(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const cleaned = raw.replace(/\([^)]*\)/g, "").trim();
-  const match = cleaned.match(/(\d{4})\.(\d{2})\.(\d{2})/);
+  const cleaned = raw.replace(/\([^)]*\)/g, "").replace(/\s+/g, "").trim();
+  const match = cleaned.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
   if (!match) return null;
-  return `${match[1]}-${match[2]}-${match[3]}`;
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
 }
 
 function toIsoDateTime(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const cleaned = raw
-    .replace(/\([^)]*\)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const match = cleaned.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!match) return null;
-  const hour = match[4].padStart(2, "0");
-  const minute = match[5].padStart(2, "0");
-  const second = (match[6] ?? "00").padStart(2, "0");
-  return `${match[1]}-${match[2]}-${match[3]}T${hour}:${minute}:${second}+09:00`;
+  const cleaned = normalizeDateText(raw).replace(/\([^)]*\)/g, "");
+
+  const dateOnlyMatch = cleaned.match(/(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/);
+  if (!dateOnlyMatch) return null;
+
+  const dateMatch = cleaned.match(
+    /(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})(?:\s*(AM|PM))?(?:\s+(\d{1,2})(?::(\d{2})(?::(\d{2}))?)?)?/i,
+  );
+  if (!dateMatch) {
+    return `${dateOnlyMatch[1]}-${dateOnlyMatch[2].padStart(2, "0")}-${dateOnlyMatch[3].padStart(2, "0")}T00:00:00+09:00`;
+  }
+
+  const year = dateMatch[1];
+  const month = dateMatch[2].padStart(2, "0");
+  const day = dateMatch[3].padStart(2, "0");
+  const period = (dateMatch[4] ?? "").toUpperCase();
+  const rawHour = Number(dateMatch[5]);
+  if (!Number.isFinite(rawHour)) {
+    return `${year}-${month}-${day}T00:00:00+09:00`;
+  }
+
+  let hour = rawHour;
+  const minute = (dateMatch[6] ?? "00").padStart(2, "0");
+  const second = (dateMatch[7] ?? "00").padStart(2, "0");
+  if (period === "PM" && hour < 12) hour += 12;
+  if (period === "AM" && hour === 12) hour = 0;
+
+  const normalizedHour = String(hour).padStart(2, "0");
+  return `${year}-${month}-${day}T${normalizedHour}:${minute}:${second}+09:00`;
 }
 
 function extractDateTimeCandidates(raw: string): string[] {
-  const normalized = normalizeWhitespace(raw);
-  const dateTimePattern = /(\d{4}[.\-]\d{2}[.\-]\d{2})(?:\s*\([^)]*\))?\s*(\d{1,2}:\d{2}(?::\d{2})?)?/g;
+  const normalized = normalizeDateText(raw);
+  const dateTimePattern = /(\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}(?:\s*(?:AM|PM))?(?:\s+\d{1,2}(?::\d{2}){0,2})?)/g;
   const results: string[] = [];
   const seen = new Set<string>();
 
   let match: RegExpExecArray | null;
   while ((match = dateTimePattern.exec(normalized)) !== null) {
-    const candidate = `${match[1]}${match[2] ? ` ${match[2]}` : ""}`.trim();
-    if (seen.has(candidate)) continue;
+    const candidate = normalizeWhitespace(match[1]);
+    if (!candidate || seen.has(candidate)) continue;
     seen.add(candidate);
     results.push(candidate);
   }
@@ -44,46 +77,34 @@ function extractDateTimeCandidates(raw: string): string[] {
   return results;
 }
 
-function parseTaskWindow(raw: string):
-  | {
-      availableFrom: string | null;
-      dueAt: string | null;
-    }
-  | null {
-  const normalized = normalizeWhitespace(raw);
-
-  const rangeLabel = normalized.match(
-    /(학습인정기간|마감기한|마감일|제출기한|제출일|기한)\s*[:：]?\s*(.+?)[~\-\u2013]?(.*?)$/,
-  );
-  if (rangeLabel && rangeLabel[2] && rangeLabel[3]) {
-    const availableFrom = toIsoDateTime(rangeLabel[2]);
-    const dueAt = toIsoDateTime(rangeLabel[3]);
-    if (dueAt || availableFrom) {
-      return { availableFrom, dueAt };
-    }
-  }
-
-  const dueLabel = normalized.match(
-    /(?:학습인정기간|마감기한|마감일|제출기한|제출일|기한)\s*[:：]?\s*(\d{4}[.\-]\d{2}[.\-]\d{2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/,
-  );
-  if (dueLabel?.[1]) {
-    const dueAt = toIsoDateTime(dueLabel[1]);
-    if (dueAt) {
-      return { availableFrom: null, dueAt };
-    }
-  }
-
-  const candidates = extractDateTimeCandidates(normalized);
+function parseDateRangeFromText(raw: string): { availableFrom: string | null; dueAt: string | null } | null {
+  const candidates = extractDateTimeCandidates(raw);
   if (candidates.length >= 2) {
     const availableFrom = toIsoDateTime(candidates[0]);
     const dueAt = toIsoDateTime(candidates[1]);
-    if (dueAt || availableFrom) {
+    if (availableFrom || dueAt) {
       return { availableFrom, dueAt };
     }
   }
+  return null;
+}
 
-  if (candidates.length === 1) {
-    return { availableFrom: toIsoDateTime(candidates[0]), dueAt: null };
+function parseTaskWindow(raw: string): { availableFrom: string | null; dueAt: string | null } | null {
+  const normalized = normalizeDateText(raw);
+
+  const labeledRange = normalized.match(/(?:학습인정기간|학습인정|응시기간|시험기간|제출기간|과제기간|마감일|마감|차시기간|진도인정)\s*[:\-]?\s*([\s\S]+)/i);
+  if (labeledRange?.[1]) {
+    const directRange = parseDateRangeFromText(labeledRange[1]);
+    if (directRange) return directRange;
+  }
+
+  const directRange = parseDateRangeFromText(normalized);
+  if (directRange) return directRange;
+
+  const dueOnly = normalized.match(/(\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}(?:\s*(?:AM|PM))?(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?)/);
+  if (dueOnly?.[1]) {
+    const dueAt = toIsoDateTime(dueOnly[1]);
+    return { availableFrom: null, dueAt };
   }
 
   return null;
@@ -92,23 +113,96 @@ function parseTaskWindow(raw: string):
 function parseDurationToSeconds(raw: string | null | undefined): number {
   if (!raw) return 0;
   const normalized = normalizeWhitespace(raw);
+
   const clockMatch = normalized.match(/(\d+):(\d{1,2})(?::(\d{1,2}))?/);
   if (clockMatch) {
     return Number(clockMatch[1]) * 3600 + Number(clockMatch[2]) * 60 + Number(clockMatch[3] ?? 0);
   }
 
-  const parsed = normalized.match(
-    /(?:(\d+)\s*시간\s*)?(?:(\d+)\s*분\s*)?(?:(\d+)\s*초)?/,
-  );
-  if (!parsed) return 0;
-
-  const hours = Number(parsed[1] ?? 0);
-  const minutes = Number(parsed[2] ?? 0);
-  const seconds = Number(parsed[3] ?? 0);
-  if (Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(seconds)) {
+  const hours = Number(normalized.match(/(\d+)\s*시간/)?.[1] ?? 0);
+  const minutes = Number(normalized.match(/(\d+)\s*분/)?.[1] ?? 0);
+  const seconds = Number(normalized.match(/(\d+)\s*초/)?.[1] ?? 0);
+  if (hours > 0 || minutes > 0 || seconds > 0) {
     return hours * 3600 + minutes * 60 + seconds;
   }
-  return 0;
+
+  const fallback = Number(normalized.match(/\d+/)?.[0] ?? 0);
+  return fallback;
+}
+
+function normalizeNoticeText(raw: string): string {
+  return normalizeWhitespace(raw)
+    .replace(/^공지\s*/g, "")
+    .replace(/^\[[^\]]+\]\s*/g, "")
+    .trim();
+}
+
+function parseNoticeSeqFromNode(node: any): string | null {
+  const id = node.attr("id")?.trim();
+  const idMatch = id?.match(/notice_tit_(\d+)/)?.[1];
+  if (idMatch) return idMatch;
+
+  const onclick = node.attr("onclick") ?? "";
+  return (
+    onclick.match(/noticeShow\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+    ?? onclick.match(/noticeShow\(\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+    ?? onclick.match(/noticeView\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+    ?? onclick.match(/noticeView\(\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+    ?? onclick.match(/notice_open\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+    ?? onclick.match(/notiOpen\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+    ?? node.attr("data-notice-seq")
+    ?? node.attr("data-notice_seq")
+    ?? node.attr("data-artl-seq")
+    ?? node.attr("data-seq")
+    ?? node.attr("href")?.match(/notice_seq=(\d+)/i)?.[1]
+    ?? node.attr("href")?.match(/artl_seq=(\d+)/i)?.[1]
+    ?? node.attr("href")?.match(/NOTICE_SEQ=(\d+)/i)?.[1]
+    ?? node.attr("href")?.match(/A_SEQ=(\d+)/i)?.[1]
+    ?? null
+  );
+}
+
+function parseNoticeBodyCandidates(
+  $: ReturnType<typeof load>,
+  source: any,
+  noticeSeq: string | null,
+): string {
+  const bodySelectors = [
+    `#notice_${noticeSeq}`,
+    `#notice_txt_${noticeSeq}`,
+    `#notice-content-${noticeSeq}`,
+    `#notice-content_${noticeSeq}`,
+    `#notice_body_${noticeSeq}`,
+    `#noticeArea_${noticeSeq}`,
+    `#board_${noticeSeq}`,
+    `.notice_${noticeSeq}`,
+    `.notice-content-${noticeSeq}`,
+    `.notice-content_${noticeSeq}`,
+    `.notice-body-${noticeSeq}`,
+    `.notice_body_${noticeSeq}`,
+    `.class_notice_content_${noticeSeq}`,
+    `.class_notice_body_${noticeSeq}`,
+    `.editor_content_${noticeSeq}`,
+  ].filter((selector): selector is string => Boolean(selector));
+
+  const nearby = source.closest("li, tr, dd, dl, article, div, .accordion_item, .notice_item, .board_item, .notice_list").first();
+  const candidates = [
+    source.parent().find("textarea, .view_cont, .notice_cont, .cont, .txt, .contents").first(),
+    source.next(),
+    source.parent().next(),
+    nearby,
+    nearby.find(".class_notice_body, .class_notice_content, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice").first(),
+    nearby.find(".notice_view, .notice-detail, .notice_content, .notice-body, .notice_body, .bbs_contents").first(),
+    nearby.find(".notice_txt").first(),
+    $(".notice-content, .notice_content, .editor_content").first(),
+    ...bodySelectors.map((selector) => $(selector)),
+  ];
+
+  const candidateText = candidates
+    .map((item) => normalizeNoticeText(item?.text() ?? ""))
+    .find((value) => value.length > 0);
+
+  return candidateText ?? "";
 }
 
 export function parseMyCourseHtml(html: string, userId: string, status: CourseState["status"] = "ACTIVE"): CourseState[] {
@@ -117,148 +211,114 @@ export function parseMyCourseHtml(html: string, userId: string, status: CourseSt
   const seen = new Set<number>();
   const items: CourseState[] = [];
 
-  $('a[href^="javascript:enterClass("]')
-    .filter((_, el) => normalizeWhitespace($(el).text()).includes("강의실로 이동"))
-    .each((_, el) => {
-      const link = $(el);
-      const href = link.attr("href") ?? "";
-      const lectureSeqMatch = href.match(/enterClass\((\d+)\)/);
-      const lectureSeq = Number(lectureSeqMatch?.[1] ?? 0);
+  $('a[href^="javascript:enterClass(")').each((_, el) => {
+    const link = $(el);
+    const href = link.attr("href") ?? "";
+    const lectureSeqMatch = href.match(/enterClass\((\d+)\)/);
+    const lectureSeq = Number(lectureSeqMatch?.[1] ?? 0);
 
-      if (!lectureSeq || seen.has(lectureSeq)) {
-        return;
-      }
-      seen.add(lectureSeq);
+    if (!lectureSeq || seen.has(lectureSeq)) return;
+    seen.add(lectureSeq);
 
-      let card = link.parent();
-      while (card.length > 0) {
-        const text = normalizeWhitespace(card.text());
-        if (/진도율\s*\d+%/.test(text) && /학습기간/.test(text)) {
-          break;
-        }
-        card = card.parent();
-      }
-      const cardText = normalizeWhitespace(card.text());
+    let card = link.parent();
+    while (card.length > 0) {
+      const text = normalizeWhitespace(card.text());
+      if (/\d+%/.test(text)) break;
+      card = card.parent();
+    }
 
-      const title = normalizeWhitespace(link.text()).replace(/\s*강의실로 이동$/, "");
-      const instructor = normalizeWhitespace(card.find('a[href^="javascript:goProfile("]').first().text()) || null;
-      const progressPercent = Number(cardText.match(/진도율\s*(\d+)%/)?.[1] ?? 0);
-      const remainDays = Number(cardText.match(/남은기간\s*(\d+)일/)?.[1] ?? Number.NaN);
-      const recentLearnedAt = toIsoDate(cardText.match(/최근학습\s*(없음|\d{4}\.\d{2}\.\d{2}\s*\([^)]*\))/)?.[1]);
+    const cardText = normalizeWhitespace(card.text());
+    const title = normalizeWhitespace(link.text()).replace(/\s*강좌\s*$/, "");
+    const instructor = normalizeWhitespace(card.find('a[href^="javascript:goProfile("]').first().text()) || null;
+    const progressPercent = Number(cardText.match(/(\d+)\s*%/)?.[1] ?? 0);
+    const remainDays = Number(cardText.match(/(\d+)\s*일/)?.[1] ?? Number.NaN);
+    const recentLearnedAt = toIsoDate(cardText.match(/(\d{4}\.\d{1,2}\.\d{1,2}(?:\([^)]*\))?)/)?.[1]);
 
-      const periodRange = cardText.match(/(\d{4}\.\d{2}\.\d{2}\s*\([^)]*\)\s*~\s*\d{4}\.\d{2}\.\d{2}\s*\([^)]*\))/)?.[1] ?? null;
-      const [rawStart, rawEnd] = periodRange ? periodRange.split("~").map((v) => v.trim()) : [null, null];
+    const periodRange = cardText.match(
+      /(\d{4}\.\d{1,2}\.\d{1,2}(?:\([^)]*\))?\s*~\s*\d{4}\.\d{1,2}\.\d{1,2}(?:\([^)]*\))?)/,
+    )?.[1] ?? null;
+    const [rawStart, rawEnd] = periodRange ? periodRange.split("~").map((v) => v.trim()) : [null, null];
 
-      items.push({
-        userId,
-        lectureSeq,
-        title,
-        instructor,
-        progressPercent,
-        remainDays: Number.isFinite(remainDays) ? remainDays : null,
-        recentLearnedAt,
-        periodStart: toIsoDate(rawStart),
-        periodEnd: toIsoDate(rawEnd),
-        status,
-        syncedAt,
-      });
+    items.push({
+      userId,
+      lectureSeq,
+      title,
+      instructor,
+      progressPercent,
+      remainDays: Number.isFinite(remainDays) ? remainDays : null,
+      recentLearnedAt,
+      periodStart: toIsoDate(rawStart),
+      periodEnd: toIsoDate(rawEnd),
+      status,
+      syncedAt,
     });
+  });
 
   return items;
+}
+
+function detectNoticeListContext($: ReturnType<typeof load>, node: any): string {
+  const nearby = node.closest("li, tr, .board_item, .notice_item, .accordion_item, .card, .notice_area").first();
+  return normalizeWhitespace(`${node.text()} ${nearby.text()}`);
 }
 
 export function parseNoticeListHtml(html: string, userId: string, lectureSeq: number): CourseNotice[] {
   const $ = load(html);
   const syncedAt = new Date().toISOString();
   const notices: CourseNotice[] = [];
+  const seen = new Set<string>();
 
-  const primaryCandidates = $('button.notice_title[id^="notice_tit_"]').toArray();
-  const fallbackCandidates = $("button, a")
-    .filter((_, el) => /공지사항|공지\s*제목|공지\s*제공/.test(normalizeWhitespace($(el).text())))
-    .toArray();
-  const candidates = primaryCandidates.length > 0 ? primaryCandidates : fallbackCandidates;
+  const rawCandidates = $(
+    [
+      'button[id^="notice_tit_"]',
+      "button.notice_title",
+      "a.notice_title",
+      "a[class*='notice']",
+      ".notice_title",
+      ".class_notice_title",
+      "[onclick*='noticeShow']",
+      "[onclick*='noticeView']",
+      "[onclick*='notice_open']",
+      "[onclick*='notiOpen']",
+      "[data-notice-seq]",
+      "[data-notice_seq]",
+      "[data-notice-id]",
+      "[id^='notice_tit_']",
+    ].join(", "),
+  );
 
-  for (const [index, el] of candidates.entries()) {
+  for (const el of rawCandidates.toArray()) {
     const node = $(el);
-    const lineText = normalizeWhitespace(node.text());
-    const noticeSeq =
-      node.attr("id")?.match(/notice_tit_(\d+)/)?.[1]
-      ?? node.attr("onclick")?.match(/noticeShow\([^,]+,\s*'?(?:\s*)?(\d+)\s*'?\)/)?.[1]
-      ?? node.attr("onclick")?.match(/noticeShow\([^,]+,\s*(\d+)\s*\)/)?.[1]
-      ?? node.attr("data-notice-seq")
-      ?? null;
+    const lineText = normalizeNoticeText(node.text());
+    if (!lineText) continue;
 
-    const title = normalizeWhitespace(node.find(".class_notice_title_sub, .notice_title").first().text())
-      || lineText.match(/공지사항제목\s*(.*?)\s*등록일/)?.[1]?.trim()
-      || lineText.match(/공지\s*제목\s*(.*?)\s*등록일/)?.[1]?.trim()
-      || `notice-${index + 1}`;
-
-    const postedRaw =
-      node
-        .find(".class_notice_date")
-        .toArray()
-        .map((item) => normalizeWhitespace($(item).text()))
-        .find((text) => text.startsWith("등록일"))
-      ?? lineText.match(/등록일\s*(\d{4}\.\d{2}\.\d{2})/)?.[0]
-      ?? "";
-    const postedAt = toIsoDate(postedRaw.match(/(\d{4}\.\d{2}\.\d{2})/)?.[1]);
-
-    const authorRaw =
-      node
-        .find(".class_notice_date")
-        .toArray()
-        .map((item) => normalizeWhitespace($(item).text()))
-        .find((text) => text.startsWith("등록자"))
-      ?? lineText.match(/등록자\s*[^\s]+/)?.[0]
-      ?? "";
-    const author = authorRaw.match(/등록자\s*(.+)$/)?.[1]?.trim() ?? null;
-
-    const isNew = node.find(".notice_new_icon, img[alt*='새']").length > 0 || /새\s*글|새글/.test(lineText);
-
-    const nearbyContainer =
-      node.closest("li, tr, .board_item, .notice_item, .accordion_item, .card").first();
-    const bodyCandidates: Array<{ text: () => string }> = [
-      node.next(),
-      node.parent().next(),
-      nearbyContainer.find(".view_cont, .notice_cont, .cont, .content, .txt").first(),
-      nearbyContainer.find(".class_notice_body, .class_notice_content").first(),
-      node.closest(".accordion").find(".class_notice_body, .class_notice_content").first(),
-    ];
-
-    const controlTarget = node.attr("aria-controls")
-      ?? node.attr("data-target")
-      ?? node.attr("href")?.match(/#([A-Za-z0-9_-]+)/)?.[1]
-      ?? (noticeSeq ? `notice_txt_${noticeSeq}` : undefined);
-    if (controlTarget) {
-      const target = controlTarget.replace(/^#/, "");
-      bodyCandidates.push($(`#${target}`));
-      bodyCandidates.push(nearbyContainer.find(`#${target}`));
-    }
-    if (noticeSeq) {
-      bodyCandidates.push($(`#notice_${noticeSeq}`));
-      bodyCandidates.push($(`#notice_txt_${noticeSeq}`));
-      bodyCandidates.push($(`#notice-content-${noticeSeq}`));
-      bodyCandidates.push($(`#notice-content_${noticeSeq}`));
-      bodyCandidates.push($(`#notice_body_${noticeSeq}`));
-    }
-
-    const cleanedBody = bodyCandidates
-      .map((item) => normalizeWhitespace((item?.text() ?? "").replace(/^공지내용/, "")))
-      .find((text) => text.length > 0 && text !== lineText)
-      ?? "";
-
-    const bodyText = cleanedBody.length > 0
-      ? cleanedBody
-      : normalizeWhitespace(
-        nearbyContainer
-          .text()
-          .replace(lineText, "")
-          .replace(/^공지내용/, ""),
-      );
+    const noticeSeq = parseNoticeSeqFromNode(node);
+    const title =
+      normalizeNoticeText(
+        node.find('.class_notice_title_sub, .class_notice_title, .notice_title, .title').first().text(),
+      ) || lineText.split(/\s{2,}|\n/)[0]?.trim() || lineText || `notice-${Math.random().toString(36).slice(2, 8)}`;
 
     const noticeKey = noticeSeq
       ? `${lectureSeq}:seq:${noticeSeq}`
-      : `${lectureSeq}:${postedAt ?? "undated"}:${title}`;
+      : `${lectureSeq}:${normalizeNoticeText(title).slice(0, 80)}:${normalizeNoticeText(node.text()).slice(0, 20)}`;
+    if (seen.has(noticeKey)) continue;
+    seen.add(noticeKey);
+
+    const infoText = detectNoticeListContext($, node);
+    const postedAtMatch = infoText.match(/(\d{4}\.\d{1,2}\.\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/);
+    const postedAt = toIsoDate(postedAtMatch?.[1] ?? null);
+    const author = normalizeNoticeText(
+      node.closest("li, tr, .board_item, .notice_item").find('.writer, .author, .regist, .reg, .notice-writer, .name').first().text(),
+    ) || null;
+
+    const isNew = node.find('.notice_new_icon, .new, .icon-new, img[alt*="new"], .badge-new').length > 0
+      || node.parent().find('.notice_new_icon, .new').length > 0
+      || /\bnew\b/i.test(lineText);
+
+    const bodyText = normalizeNoticeText(
+      parseNoticeBodyCandidates($, node, noticeSeq)
+      || parseNoticeBodyCandidates($, node.closest('li, tr, .notice_item, .board_item').first(), noticeSeq),
+    );
 
     notices.push({
       userId,
@@ -281,31 +341,98 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
   const $ = load(html);
   const syncedAt = new Date().toISOString();
   const events: NotificationEvent[] = [];
+  const seen = new Set<string>();
 
-  $("a.notification_content").each((_, el) => {
-    const item = $(el);
-    const href = item.attr("href") ?? "";
-    const notifierSeq = href.match(/NOTIFIER_SEQ=(\d+)/)?.[1] ?? "";
-    const text = normalizeWhitespace(item.text());
+  const itemCandidates = $(
+    [
+      'a.notification_content',
+      'a.notice_content',
+      '.notification_content',
+      '.notification_item',
+      '.alarm_content',
+      '.notice_item',
+      '.notification_list_item',
+      'li[id*="noti"]',
+      'li[id*="alarm"]',
+    ].join(", "),
+  ).toArray();
 
-    const heading = item.closest("div").prevAll(".notification_title").first().text();
-    const occurredAt = toIsoDate(heading);
+  const stripUnreadSuffix = (value: string): string =>
+    normalizeNoticeText(value).replace(/\s*(아직|미확인|읽지않음|not-read|not_checked)\s*$/i, "").trim();
 
-    const category = text.match(/\[(.*?)\]/)?.[1] ?? "SYSTEM";
-    const courseTitle = text.match(/^(.*?)\s*\[(.*?)\]/)?.[1]?.trim() ?? text.split(" ")[0] ?? "";
+  for (const rawItem of itemCandidates) {
+    const item = $(rawItem);
+    const lineText = normalizeNoticeText(item.text());
+    if (!lineText) continue;
+
+    const subjectText = normalizeNoticeText(
+      item.find('.notification_subject, .notification_title, .subject, .course-title, .title').first().text(),
+    ) || normalizeNoticeText(item.attr("data-course-title") ?? "");
+    const subject = subjectText || normalizeNoticeText(lineText.split(/\n|\s{2,}/)[0]) || "공지";
+
+    const fullText = normalizeNoticeText(item.text());
+    const inlineText = normalizeNoticeText(
+      item.find('.notification_text, .notification_body, .message, .noti_txt, .cont, .description').first().text(),
+    );
+    const attributeText = normalizeNoticeText(
+      [
+        item.attr("data-message"),
+        item.attr("data-msg"),
+        item.attr("data-content"),
+        item.attr("title"),
+        item.attr("aria-label"),
+      ]
+        .filter((value): value is string => Boolean(value && value.trim()))
+        .join(" "),
+    );
+
+    const candidate = [inlineText, attributeText, fullText]
+      .map((value) => stripUnreadSuffix(value))
+      .filter((value) => value.length > 0)
+      .sort((a, b) => b.length - a.length)[0] ?? "";
+    const bracket = candidate.match(/^\s*\[(.*?)\]\s*(.*)$/);
+    const messageBody = stripUnreadSuffix(bracket?.[2] || candidate);
+    const withCategory = subject && messageBody.startsWith(subject)
+      ? stripUnreadSuffix(messageBody.slice(subject.length))
+      : messageBody;
+    const category = normalizeNoticeText(
+      bracket?.[1] || item.attr("data-category") || item.attr('class')?.match(/(\S*알림\S*|\S*공지\S*|notice[^\s]*)/)?.[1] || "알림",
+    );
+    const message = stripUnreadSuffix(withCategory) || "내용 없음";
+
+    const rawTime =
+      normalizeNoticeText(item.find('.notification_day, .notification-day, .time, .date, .notification_time').text())
+      || normalizeNoticeText(fullText.match(/(\d{4}\.\s*\d{1,2}\.\s*\d{1,2}(?:\s*(?:오전|오후|AM|PM)\s*\d{1,2}:\d{2}(?::\d{2})?)?)/)?.[1] ?? '');
+    const occurredAt = toIsoDateTime(rawTime);
+
+    const notifierSeq =
+      item.attr('data-notifier-seq')
+      ?? item.attr('data-notice-seq')
+      ?? item.attr('data-notification-seq')
+      ?? item.attr('href')?.match(/NOTIFIER_SEQ=(\d+)/)?.[1]
+      ?? item.attr('href')?.match(/(?:A_SEQ|NOTICE_SEQ|notice_seq|artl_seq)=(\d+)/i)?.[1]
+      ?? item.closest('a, li').attr('id')?.match(/(\d+)$/)?.[1]
+      ?? String(
+        Math.abs(
+          `${subject}|${message}|${rawTime}`.split("").reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 7),
+        ),
+      );
+
+    if (seen.has(notifierSeq)) continue;
+    seen.add(notifierSeq);
 
     events.push({
       userId,
       notifierSeq,
-      courseTitle,
+      courseTitle: subject,
       category,
-      message: text,
+      message,
       occurredAt,
-      isCanceled: /취소된\s*알림/.test(text),
-      isUnread: /아직$/.test(text),
+      isCanceled: /취소|중단|동결|마감/.test(`${lineText} ${category}`),
+      isUnread: /미확인|아직|읽지않음|not_checked|not-read/.test(`${lineText} ${fullText} ${rawTime}`),
       syncedAt,
     });
-  });
+  }
 
   return events;
 }
@@ -320,41 +447,109 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     C04: "ASSIGNMENT",
     C05: "QUIZ",
     C06: "ETC",
+    C10: "ASSIGNMENT",
+    C11: "QUIZ",
+    C12: "ASSIGNMENT",
   };
 
-  $('a[href*="javascript:viewGo("]').each((_, el) => {
+  const candidates = $(
+    [
+      'a[href*="javascript:viewGo("]',
+      'a[onclick*="viewGo("]',
+      "a[href*='viewGo']",
+      'a[href*="javascript:pageGo("]',
+      'a[onclick*="pageGo("]',
+      "a[href*='pageGo']",
+      "a.todo_link",
+      "a.view_go",
+      ".todo_title",
+      ".learning_task",
+      ".class_todo",
+      "[onclick*='viewGo']",
+      "[onclick*='pageGo']",
+      "tr[id*='todo_']",
+    ].join(", "),
+  );
+
+  for (const el of candidates.toArray()) {
     const item = $(el);
-    const href = item.attr("href") ?? "";
-    const match = href.match(
-      /viewGo\(\s*["']?([^"',\s)]+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)/,
-    );
-    if (!match) return;
-
-    const activityCode = match[1];
-    const courseContentsSeq = Number(match[2]);
-    const weekNo = Number(match[3]);
-    const lessonNo = Number(match[4]);
     const raw = normalizeWhitespace(item.text());
-    const activityType = activityTypeByCode[activityCode] ?? "ETC";
+    if (!raw) continue;
 
-    const requiredSeconds = parseDurationToSeconds(raw.match(/인정시간\s*[:：]?\s*([^|\r\n]+)/)?.[1]);
-    const learnedSeconds = parseDurationToSeconds(raw.match(/학습시간\s*[:：]?\s*([^|\r\n]+)/)?.[1]);
-    const completed = /완료됨|활동이 완료/.test(raw);
+    const onclick = item.attr("onclick") ?? "";
+    const href = item.attr("href") ?? "";
+    const argsRaw = `${onclick} ${href}`;
+    const viewGoMatch = argsRaw.match(
+      /viewGo\(\s*['"]?([^\",\s]+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?/, 
+    );
+
+    let activityCode = "";
+    let courseContentsSeq = 0;
+    let weekNo = 0;
+    let lessonNo = 0;
+    let pathHint = "";
+
+    if (viewGoMatch) {
+      activityCode = viewGoMatch[1]?.trim() ?? "";
+      courseContentsSeq = Number(viewGoMatch[2]);
+      weekNo = Number(viewGoMatch[3]);
+      lessonNo = Number(viewGoMatch[4]);
+    } else {
+      const pageGoRaw =
+        argsRaw.match(/pageGo\(\s*['"]([^'"]+)['"]\s*\)/i)?.[1]
+        ?? href.match(/^javascript:\s*pageGo\(\s*['"]([^'"]+)['"]\s*\)/i)?.[1]
+        ?? "";
+      if (pageGoRaw) {
+        const normalizedPageGoUrl = pageGoRaw.replace(/&amp;/gi, "&").trim();
+        pathHint = normalizedPageGoUrl;
+
+        try {
+          const parsed = new URL(
+            normalizedPageGoUrl.startsWith("http")
+              ? normalizedPageGoUrl
+              : `https://placeholder.local${normalizedPageGoUrl.startsWith("/") ? "" : "/"}${normalizedPageGoUrl}`,
+          );
+          courseContentsSeq = Number(parsed.searchParams.get("COURSE_CONTENTS_SEQ") ?? parsed.searchParams.get("contents_seq") ?? 0);
+          weekNo = Number(parsed.searchParams.get("WEEK_NO") ?? parsed.searchParams.get("week_no") ?? 0);
+          lessonNo = Number(parsed.searchParams.get("LESSNS_NO") ?? parsed.searchParams.get("lesson_no") ?? 0);
+          pathHint = parsed.pathname;
+        } catch {
+          courseContentsSeq = Number(normalizedPageGoUrl.match(/[?&](?:COURSE_CONTENTS_SEQ|contents_seq)=(\d+)/i)?.[1] ?? 0);
+          weekNo = Number(normalizedPageGoUrl.match(/[?&](?:WEEK_NO|week_no)=(\d+)/i)?.[1] ?? 0);
+          lessonNo = Number(normalizedPageGoUrl.match(/[?&](?:LESSNS_NO|lesson_no)=(\d+)/i)?.[1] ?? 0);
+        }
+      }
+    }
+
+    if (!courseContentsSeq || !weekNo || !lessonNo) continue;
+
+    const activityType =
+      (activityCode ? activityTypeByCode[activityCode] : undefined)
+      ?? (/contents_vod|온라인강의|동영상|vod/i.test(`${pathHint} ${raw}`) ? "VOD" : undefined)
+      ?? (/contents_(?:quiz|test)|quiz|exam|기말시험|중간시험|시험|퀴즈/i.test(`${pathHint} ${raw}`) ? "QUIZ" : undefined)
+      ?? (/contents_(?:survey|assignment|report|discussion|debate|board)|과제|설문|토론|리포트/i.test(`${pathHint} ${raw}`) ? "ASSIGNMENT" : undefined)
+      ?? "ETC";
+
+    const requiredLabel = raw.match(/(?:필수시간|학습인정시간|인정시간|소요시간|수강시간|제출시간)\s*[:\-]?\s*([^|\r\n]+)/)?.[1];
+    const learnedLabel = raw.match(/(?:학습완료시간|수강완료시간|학습완료|완료시간|완료)\s*[:\-]?\s*([^|\r\n]+)/)?.[1];
+    const requiredSeconds = parseDurationToSeconds(requiredLabel ?? "");
+    const learnedSeconds = parseDurationToSeconds(learnedLabel ?? "");
+
     const candidateTexts = [
       raw,
-      item.text(),
       item.parent().text(),
       item.closest("tr").text(),
       item.closest("li").text(),
       item.closest("td").text(),
       item.closest("div").text(),
+      item.closest(".todo_item, .class_box, .contents_item, .class_contents, .lecture_cont").text(),
+      item.closest("tr").find("td").slice(1).text(),
+      item.closest(".todo_list").text(),
+      item.closest(".todo").text(),
     ];
-    const window = candidateTexts
-      .map((text) => parseTaskWindow(text))
-      .find((entry) => entry !== null && (entry.dueAt !== null || entry.availableFrom !== null));
 
-    const availableFrom = window?.availableFrom ?? null;
-    const dueAt = window?.dueAt ?? null;
+    const hasCompleteKeyword = /완료|학습완료|수강완료|제출완료|done/i.test(raw);
+    const window = candidateTexts.map((text) => parseTaskWindow(text)).find((entry) => entry !== null && (entry.dueAt !== null || entry.availableFrom !== null));
 
     tasks.push({
       userId,
@@ -365,12 +560,11 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       activityType,
       requiredSeconds,
       learnedSeconds,
-      state: completed ? "COMPLETED" : "PENDING",
-      availableFrom,
-      dueAt,
+      state: hasCompleteKeyword || (learnedSeconds > 0 && requiredSeconds > 0 && learnedSeconds >= requiredSeconds) ? "COMPLETED" : "PENDING",
+      availableFrom: window?.availableFrom ?? null,
+      dueAt: window?.dueAt ?? null,
     });
-  });
+  }
 
   return tasks;
 }
-

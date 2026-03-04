@@ -14,7 +14,7 @@ export default async function LoginPage() {
     cookieStore.get(IDLE_SESSION_COOKIE_NAME)?.value,
   );
   if (session) {
-    redirect(session.role === "ADMIN" ? "/admin" : "/dashboard");
+    redirect("/dashboard");
   }
 
   const [broadcastNotices, maintenanceNotices] = await Promise.all([

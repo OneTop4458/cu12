@@ -31,6 +31,13 @@ export function NotificationCenter({ notifications, onOpen, onMarkRead }: Notifi
     return date.toLocaleString("ko-KR");
   }
 
+  function sanitizeMessage(message: string): string {
+    return message
+      .replace(/^(?:\s*\[[^\]]+\]\s*)?/, "")
+      .replace(/\s*(아직|미확인|읽지않음|not-read|not_checked)\s*$/gi, "")
+      .trim();
+  }
+
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -67,7 +74,7 @@ export function NotificationCenter({ notifications, onOpen, onMarkRead }: Notifi
                   type="button"
                 >
                   <span className="notification-list-title">{item.courseTitle || "시스템 알림"}</span>
-                  <span className="notification-list-message">{item.message}</span>
+                  <span className="notification-list-message">{sanitizeMessage(item.message)}</span>
                   <span className="notification-list-time">{formatDate(item.occurredAt ?? item.createdAt)}</span>
                 </button>
               ))

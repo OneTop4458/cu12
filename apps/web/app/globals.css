@@ -474,6 +474,13 @@ textarea:focus {
   display: grid;
   gap: 4px;
   white-space: normal;
+  min-width: 0;
+}
+
+.notification-item-message {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .notification-item.is-unread {
@@ -805,12 +812,14 @@ textarea:focus {
 
 .notification-list-item.unread {
   border-color: color-mix(in oklab, var(--primary) 48%, transparent);
+  min-width: 0;
 }
 
 .notification-list-title {
   font-size: 0.82rem;
   color: var(--text);
   font-weight: 700;
+  word-break: break-word;
 }
 
 .notification-list-message {
@@ -819,6 +828,7 @@ textarea:focus {
   display: block;
   overflow-wrap: anywhere;
   white-space: normal;
+  word-break: break-word;
 }
 
 .notification-list-time {

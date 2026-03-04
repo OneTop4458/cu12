@@ -64,7 +64,8 @@ interface Course {
   weekSummaries: CourseWeekSummary[];
   noticeCount: number;
   unreadNoticeCount: number;
-  nextPendingTask: { weekNo: number; lessonNo: number; dueAt: string | null } | null;
+  nextPendingTask: { weekNo: number; lessonNo: number; dueAt: string | null; availableFrom: string | null } | null;
+  deadlineLabel: string;
 }
 
 interface Deadline {
@@ -210,6 +211,65 @@ function formatTaskCountsByType(counts: ActivityTypeCounts): string {
 function findCurrentWeekSummary(course: Course): CourseWeekSummary | null {
   if (course.currentWeekNo === null) return null;
   return course.weekSummaries.find((entry) => entry.weekNo === course.currentWeekNo) ?? null;
+}
+
+function formatCourseWeekProgress(course: Course): string {
+  if (course.currentWeekNo === null) return "현재주차: -";
+  const summary = findCurrentWeekSummary(course);
+  if (!summary) {
+    return `현재주차: ${course.currentWeekNo}주차`;
+  }
+  return `현재주차 ${course.currentWeekNo}주차: 총 ${summary.totalTaskCount}개, 완료 ${summary.completedTaskCount}개, 미완료 ${summary.pendingTaskCount}개`;
+}
+
+function formatPendingByType(summary: CourseWeekSummary | null): string {
+  const target = summary ?? null;
+  if (!target) return "미완료 항목 없음";
+  const parts: string[] = [];
+  if (target.pendingTaskCount === 0) return "이번 주차 미완료 없음";
+  parts.push(`영상 ${target.pendingTaskTypeCounts.VOD}개`);
+  parts.push(`과제 ${target.pendingTaskTypeCounts.ASSIGNMENT}개`);
+  parts.push(`시험 ${target.pendingTaskTypeCounts.QUIZ}개`);
+  parts.push(`기타 ${target.pendingTaskTypeCounts.ETC}개`);
+  return parts.join(" / ");
+}
+
+function formatWeekStatusLine(summary: CourseWeekSummary): string {
+  if (summary.pendingTaskCount === 0) {
+    return `${summary.weekNo}주차: 완료`;
+  }
+
+  const parts = [
+    `영상 ${summary.pendingTaskTypeCounts.VOD}개`,
+    `과제 ${summary.pendingTaskTypeCounts.ASSIGNMENT}개`,
+    `시험 ${summary.pendingTaskTypeCounts.QUIZ}개`,
+    `기타 ${summary.pendingTaskTypeCounts.ETC}개`,
+  ];
+  return `${summary.weekNo}주차: 미완료 ${summary.pendingTaskCount}개 (${parts.join(", ")})`;
+}
+
+function formatCourseWeekHealth(course: Course): string {
+  if (course.weekSummaries.length === 0) return "주차 데이터 없음";
+  const pendingWeeks = course.weekSummaries.filter((entry) => entry.pendingTaskCount > 0);
+  const stableCount = course.weekSummaries.length - pendingWeeks.length;
+  return `총 ${course.weekSummaries.length}주차 중 ${stableCount}주차 정상, ${pendingWeeks.length}주차 미완료`;
+}
+
+function formatPendingWeeks(course: Course): string {
+  const pendingWeeks = course.weekSummaries.filter((summary) => summary.pendingTaskCount > 0);
+  if (pendingWeeks.length === 0) return "미완료 주차 없음";
+  return pendingWeeks.map(formatWeekStatusLine).join(" | ");
+}
+
+function formatNextDeadline(task: Course["nextPendingTask"]): string {
+  return toDateTime(task?.dueAt ?? task?.availableFrom ?? null);
+}
+
+function sanitizeNotificationMessage(message: string): string {
+  return message
+    .replace(/^(?:\s*\[[^\]]+\]\s*)?/, "")
+    .replace(/\s*(아직|미확인|읽지않음|not-read|not_checked)\s*$/gi, "")
+    .trim();
 }
 
 export function DashboardClient({ initialUser }: DashboardClientProps) {
@@ -670,28 +730,30 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       <section className="card">
         <h2>미확인 알림</h2>
         <div className="notification-list">
-          {unreadNotifications.length === 0 ? <p className="muted">새 알림이 없습니다.</p> : unreadNotifications.map((item) => (
-            <button
-              key={item.id}
-              className="notification-item is-unread"
-              onClick={() => void markNotificationRead(item)}
-            >
-              <span>{item.courseTitle || "시스템"}</span>
-              <span className="muted">{item.message}</span>
-            </button>
-          ))}
-        </div>
-      </section>
+            {unreadNotifications.length === 0 ? <p className="muted">새 알림이 없습니다.</p> : unreadNotifications.map((item) => (
+              <button
+                key={item.id}
+                className="notification-item is-unread"
+                onClick={() => void markNotificationRead(item)}
+              >
+                <span>{item.courseTitle || "시스템"}</span>
+                <span className="muted notification-item-message">{sanitizeNotificationMessage(item.message)}</span>
+                <span>{toDateTime(item.occurredAt ?? item.createdAt)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
 
       <section className="card">
         <h2>강좌 현황</h2>
         <div className="course-grid">
           {courses.map((course) => {
-            const currentWeekSummary = findCurrentWeekSummary(course);
-            const weekLabel = currentWeekSummary
-              ? `현재주차(${course.currentWeekNo}): 총 ${currentWeekSummary.totalTaskCount}개 / 미완료 ${currentWeekSummary.pendingTaskCount}개`
-              : `현재주차: ${course.currentWeekNo ?? "-"} / 미완료 ${course.pendingTaskCount}개`;
-            const weekTypeLabel = currentWeekSummary ? formatTaskCountsByType(currentWeekSummary.pendingTaskTypeCounts) : "미완료 데이터 없음";
+                const currentWeekSummary = findCurrentWeekSummary(course);
+                const weekSummaryLabel = formatCourseWeekProgress(course);
+                const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
+                const deadlineLabel = course.deadlineLabel === "이번 차시 마감" ? "이번 차시 마감" : "다음 차시 마감";
+                const weekHealthLabel = formatCourseWeekHealth(course);
+                const pendingWeeksLabel = formatPendingWeeks(course);
 
             return (
               <article key={course.lectureSeq} className="course-card">
@@ -699,11 +761,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
                 <p>진도율 <strong>{course.progressPercent}%</strong></p>
                 <p className="muted">전체 과제: 총 {course.totalTaskCount}개 / 완료 {course.completedTaskCount}개 / 미완료 {course.pendingTaskCount}개</p>
-                <p className="muted">{weekLabel}</p>
-                <p className="muted">현재주차 유형 분포: {weekTypeLabel}</p>
-                <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.pendingTaskTypeCounts)}</p>
+                <p className="muted">{weekSummaryLabel}</p>
+                <p className="muted">현재 기준 주차: {course.currentWeekNo ?? "-"}</p>
+                <p className="muted">{weekHealthLabel}</p>
+                <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>
+                <p className="muted">현재주차 미완료 유형: {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}</p>
+                <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
+                <p className="muted">미완료 주차 상세: {pendingWeeksLabel}</p>
                 <p className="muted">공지: 총 {course.noticeCount}개 / 미확인 {course.unreadNoticeCount}개</p>
-                <p className="muted">다음 차시 마감: {toDateTime(course.nextPendingTask?.dueAt ?? null)}</p>
+                <p className="muted">{deadlineLabel}: {formatNextDeadline(course.nextPendingTask)}</p>
                 <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
               </article>
             );
@@ -801,7 +867,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           <section className="modal-card" onClick={(event) => event.stopPropagation()}>
             <h2>{activeNotification.courseTitle || "시스템 알림"}</h2>
             <p className="muted">{toDateTime(activeNotification.occurredAt ?? activeNotification.createdAt)}</p>
-            <p>{activeNotification.message}</p>
+            <p>{sanitizeNotificationMessage(activeNotification.message)}</p>
             <button className="ghost-btn" onClick={() => setActiveNotification(null)}>닫기</button>
           </section>
         </div>

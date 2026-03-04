@@ -1,4 +1,4 @@
-import { CourseStatus } from "@prisma/client";
+﻿import { CourseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 interface ActivityTypeCounts {
@@ -88,6 +88,7 @@ export async function getDashboardSummary(userId: string) {
 
 export async function getCourses(userId: string) {
   const now = new Date();
+  const nowMs = now.getTime();
 
   const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
     prisma.courseSnapshot.findMany({
@@ -133,6 +134,20 @@ export async function getCourses(userId: string) {
   return courses.map((course) => {
     const taskList = grouped.get(course.lectureSeq) ?? [];
     const toDueTime = (task: typeof taskList[number]) => task.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const toWindowTime = (task: typeof taskList[number]) => {
+      if (task.dueAt) return task.dueAt.getTime();
+      if (task.availableFrom) return task.availableFrom.getTime();
+      return Number.MAX_SAFE_INTEGER;
+    };
+    const pendingWithWindow = taskList
+      .filter((task) => task.state === "PENDING")
+      .sort((a, b) => {
+        const dueA = toWindowTime(a);
+        const dueB = toWindowTime(b);
+        if (dueA !== dueB) return dueA - dueB;
+        return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
+      });
+
     const pending = taskList
       .filter((task) => task.state === "PENDING")
       .sort((a, b) => {
@@ -185,8 +200,16 @@ export async function getCourses(userId: string) {
       .sort((a, b) => a.weekNo - b.weekNo)
       .map((summary) => summary);
 
-    const nowPending = pending.find((task) => task.dueAt && task.dueAt >= now);
-    const currentWeekNo = nowPending?.weekNo ?? pending[0]?.weekNo ?? taskList[0]?.weekNo ?? null;
+    const windowPendingTasks = pendingWithWindow.filter((task) => task.dueAt || task.availableFrom);
+    const nowWindowPending = windowPendingTasks.find((task) => {
+      const startMs = task.availableFrom ? task.availableFrom.getTime() : Number.MIN_SAFE_INTEGER;
+      const dueMs = task.dueAt ? task.dueAt.getTime() : Number.MAX_SAFE_INTEGER;
+      return startMs <= nowMs && nowMs <= dueMs;
+    }) ?? null;
+    const nextWindowPending = windowPendingTasks.find((task) => (task.dueAt ? task.dueAt.getTime() >= nowMs : true)) ?? windowPendingTasks[0] ?? null;
+    const currentWeekNo = nowWindowPending?.weekNo ?? nextWindowPending?.weekNo ?? pendingWithWindow[0]?.weekNo ?? taskList[0]?.weekNo ?? null;
+    const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
+    const deadlineLabel = nowWindowPending ? "이번 차시 마감" : "다음 차시 마감";
 
     return {
       ...course,
@@ -201,17 +224,18 @@ export async function getCourses(userId: string) {
       weekSummaries,
       noticeCount: noticeCountByLectureSeq.get(course.lectureSeq) ?? 0,
       unreadNoticeCount: unreadNoticeCountByLectureSeq.get(course.lectureSeq) ?? 0,
-      nextPendingTask: pending[0]
+      nextPendingTask: nextWindowPending
         ? {
-          weekNo: pending[0].weekNo,
-          lessonNo: pending[0].lessonNo,
-          activityType: pending[0].activityType,
-          requiredSeconds: pending[0].requiredSeconds,
-          learnedSeconds: pending[0].learnedSeconds,
-          availableFrom: pending[0].availableFrom,
-          dueAt: pending[0].dueAt,
+          weekNo: nextWindowPending.weekNo,
+          lessonNo: nextWindowPending.lessonNo,
+          activityType: nextWindowPending.activityType,
+          requiredSeconds: nextWindowPending.requiredSeconds,
+          learnedSeconds: nextWindowPending.learnedSeconds,
+          availableFrom: nextWindowPending.availableFrom,
+          dueAt: nextWindowPending.dueAt,
         }
         : null,
+      deadlineLabel,
     };
   });
 }
@@ -257,7 +281,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
 
   return tasks.map((task) => ({
     ...task,
-    courseTitle: titleBySeq.get(task.lectureSeq) ?? `코스 ${task.lectureSeq}`,
+      courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
     remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
     daysLeft: task.dueAt ? daysUntil(task.dueAt, now) : null,
   }));
@@ -286,4 +310,3 @@ export async function getNotifications(
     take: options?.limit ?? 200,
   });
 }
-

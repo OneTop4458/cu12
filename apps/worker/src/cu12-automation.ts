@@ -1,4 +1,4 @@
-import {
+﻿import {
   parseMyCourseHtml,
   parseNoticeListHtml,
   parseNotificationListHtml,
@@ -119,7 +119,9 @@ async function ensureLogin(page: Page, creds: Cu12Credentials) {
 
 async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<{ noticeSeq: string; bodyText: string }>> {
   return page.evaluate(async (seq) => {
-    const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
+    const normalize = (text: string): string => text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+
+    const waitMs = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
     function stripMarkup(container: HTMLElement): string {
       container.querySelectorAll("script, style, link").forEach((node) => node.remove());
@@ -133,12 +135,20 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
 
       const onclick = node.getAttribute("onclick") ?? "";
       const onClickMatch =
-        onclick.match(/noticeShow\([^,]+,\s*["']?(\d+)["']?\)/)?.[1]
-        ?? onclick.match(/noticeShow\([^,]+,\s*(\d+)\s*\)/)?.[1]
-        ?? onclick.match(/notiOpen\([^,]+,\s*["']?(\d+)["']?\)/)?.[1];
+        onclick.match(/noticeShow\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+        ?? onclick.match(/noticeShow\(\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+        ?? onclick.match(/noticeView\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+        ?? onclick.match(/noticeView\(\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+        ?? onclick.match(/notice_open\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1]
+        ?? onclick.match(/notiOpen\(\s*['"]?\d+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/)?.[1];
       if (onClickMatch) return onClickMatch;
 
-      const dataNoticeSeq = node.getAttribute("data-notice-seq");
+      const dataNoticeSeq =
+        node.getAttribute("data-notice-seq")
+        ?? node.getAttribute("data-notice_seq")
+        ?? node.getAttribute("data-artl-seq")
+        ?? node.getAttribute("data-notice-id")
+        ?? node.getAttribute("data-seq");
       if (dataNoticeSeq) return dataNoticeSeq;
 
       const anchor = node.getAttribute("href") ?? "";
@@ -146,6 +156,7 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         anchor.match(/noticeView\.acl[^?]*\?[^#]*notice_seq=(\d+)/i)?.[1]
         ?? anchor.match(/notice_seq=(\d+)/i)?.[1]
         ?? anchor.match(/artl_seq=(\d+)/i)?.[1]
+        ?? anchor.match(/A_SEQ=(\d+)/i)?.[1]
         ?? anchor.match(/notice_id=(\d+)/i)?.[1];
       if (hrefMatch) return hrefMatch;
 
@@ -155,7 +166,11 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
     function collectNoticeSeqs(): string[] {
       const rawNodes = [
         ...Array.from(document.querySelectorAll("button.notice_title[id^='notice_tit_'], button.notice_title, a.notice_title")),
-        ...Array.from(document.querySelectorAll("li, tr, div, dd, dl, article")).filter((item) => /����/.test(item.textContent ?? "")),
+        ...Array.from(
+          document.querySelectorAll(
+            "button.notice_title[id^='notice_tit_'], button.notice_title, a.notice_title, .notice_title, [onclick*='noticeShow'], [onclick*='noticeView'], [onclick*='notice_open'], [onclick*='notiOpen'], [data-notice-seq], [data-notice_seq], [data-artl-seq], [data-seq], .notification_title, .class_notice_title, a[href*='A_SEQ='], a[href*='notice_seq='], a[href*='artl_seq='], a[href*='notice_list_form.acl']",
+          ),
+        ),
       ];
 
       const seqs = rawNodes
@@ -163,6 +178,121 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         .filter((seq): seq is string => Boolean(seq));
 
       return Array.from(new Set(seqs));
+    }
+
+    function extractNoticeDetailUrlFromNode(node: Element, noticeSeqHint?: string): string | null {
+      const href = (node.getAttribute("href") ?? "").trim();
+      const onclick = node.getAttribute("onclick") ?? "";
+      const pageGoUrl =
+        href.match(/pageGo\(\s*['"]([^'"]+)['"]\s*\)/i)?.[1]
+        ?? onclick.match(/pageGo\(\s*['"]([^'"]+)['"]\s*\)/i)?.[1]
+        ?? "";
+
+      const normalized = (pageGoUrl || href).replace(/&amp;/gi, "&").trim();
+      if (!normalized) return null;
+
+      if (/^https?:\/\//i.test(normalized)) {
+        return /notice_list_form\.acl/i.test(normalized) ? normalized : null;
+      }
+      if (normalized.startsWith("/")) {
+        return /notice_list_form\.acl/i.test(normalized) ? normalized : null;
+      }
+      if (/notice_list_form\.acl/i.test(normalized)) {
+        return normalized.startsWith("?") ? `/el/class/notice_list_form.acl${normalized}` : normalized;
+      }
+
+      const noticeSeq = noticeSeqHint ?? extractNoticeSeqFromNode(node);
+      if (!noticeSeq) return null;
+      return `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&A_SEQ=${noticeSeq}&encoding=utf-8`;
+    }
+
+    function collectNoticeDetailUrlBySeq(): Map<string, string> {
+      const map = new Map<string, string>();
+      const nodes = Array.from(
+        document.querySelectorAll(
+          "a[href*='A_SEQ='], a[href*='notice_seq='], a[href*='artl_seq='], a[href*='notice_list_form.acl'], [onclick*='pageGo']",
+        ),
+      );
+
+      for (const node of nodes) {
+        const href = node.getAttribute("href") ?? "";
+        const onclick = node.getAttribute("onclick") ?? "";
+        const noticeSeq =
+          extractNoticeSeqFromNode(node)
+          ?? href.match(/[?&]A_SEQ=(\d+)/i)?.[1]
+          ?? href.match(/[?&](?:NOTICE_SEQ|notice_seq|artl_seq)=(\d+)/i)?.[1]
+          ?? onclick.match(/(?:A_SEQ|NOTICE_SEQ|notice_seq|artl_seq)=(\d+)/i)?.[1]
+          ?? null;
+        if (!noticeSeq) continue;
+
+        const detailUrl = extractNoticeDetailUrlFromNode(node, noticeSeq);
+        if (!detailUrl) continue;
+
+        if (!map.has(noticeSeq)) {
+          map.set(noticeSeq, detailUrl);
+        }
+      }
+
+      return map;
+    }
+
+    function locateNoticeTrigger(seq: string): HTMLElement | null {
+      const selectors = [
+        `#notice_tit_${seq}`,
+        `button.notice_title#notice_tit_${seq}`,
+        `a.notice_title#notice_tit_${seq}`,
+        `.notice_title[data-notice-seq='${seq}']`,
+        `.notice_title[data-notice_seq='${seq}']`,
+        `.notice_title[data-artl-seq='${seq}']`,
+        `.notice_title[data-seq='${seq}']`,
+        `[onclick*="noticeShow"]`,
+        `[onclick*="noticeView"]`,
+        `[onclick*="notice_open"]`,
+        `[onclick*="notiOpen"]`,
+      ];
+
+      const directByClickText = Array.from(document.querySelectorAll(`a, button`))
+        .find((candidate) =>
+          extractNoticeSeqFromNode(candidate as Element) === seq
+          && ['A', 'BUTTON'].includes((candidate as Element).tagName)
+        );
+      if (directByClickText) {
+        return directByClickText as HTMLElement;
+      }
+
+      for (const selector of selectors) {
+        const target = document.querySelector(selector) as HTMLElement | null;
+        if (target && /notice/i.test(target.tagName)) return target;
+        if (target && extractNoticeSeqFromNode(target) === seq) return target;
+      }
+
+      return null;
+    }
+
+    async function openNotice(seq: string): Promise<boolean> {
+      if (!seq) return false;
+      const trigger = locateNoticeTrigger(seq);
+      if (!trigger) return false;
+
+      try {
+        trigger.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+      } catch {
+        // Ignore scroll failures
+      }
+
+      try {
+        trigger.click();
+      } catch {
+        // Ignore click failures
+      }
+
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        const extracted = extractNoticeNodeFromHtml(document, seq);
+        if (extracted) return true;
+        await waitMs(150);
+      }
+      return false;
     }
 
     function extractNoticeNodeFromHtml(container: ParentNode, noticeSeq: string): HTMLElement | null {
@@ -177,6 +307,7 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         `.notice-body-${noticeSeq}`,
         `.notice_body_${noticeSeq}`,
         `.notice_${noticeSeq}`,
+        `#board_${noticeSeq}`,
       ];
 
       for (const selector of selectors) {
@@ -192,20 +323,59 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
     function parseNoticeBodyFromHtml(rawHtml: string, noticeSeq: string): string {
       const wrapper = document.createElement("div");
       wrapper.innerHTML = rawHtml;
+      wrapper.querySelectorAll("script, style, link").forEach((node) => node.remove());
+      const cleanupNoticeBody = (value: string): string =>
+        normalize(value)
+          .replace(/^(?:공지내용\s*(?:닫기\s*)?)+/i, "")
+          .replace(/^해당 공지사항을 열람할 수 없습니다\.\s*/i, "")
+          .trim();
+
       const candidates = [
         extractNoticeNodeFromHtml(wrapper, noticeSeq),
-        wrapper.querySelector(".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt"),
+        wrapper.querySelector(
+          ".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice, .bbs_contents, .notice_content, .notice_body, .bbs_view",
+        ),
         wrapper.querySelector(`#content_${noticeSeq}`),
+        wrapper.querySelector(".notice_view"),
+        wrapper.querySelector("#notice_view"),
+        wrapper.querySelector(`#noticeArea_${noticeSeq}`),
       ];
 
       const body = candidates
         .map((node) => stripMarkup((node as HTMLElement) ?? document.createElement("span")))
         .find((text) => text.length > 0);
 
-      if (body) return body;
+      if (body) {
+        return cleanupNoticeBody(body);
+      }
+
+      const labelContainers = Array.from(wrapper.querySelectorAll("tr, li, dl, div, article"));
+      for (const container of labelContainers) {
+        const labelText = normalize(container.textContent ?? "");
+        if (!labelText || !/공지내용/.test(labelText)) continue;
+
+        const detailNodes = [
+          container.querySelector("td"),
+          container.querySelector("dd"),
+          container.querySelector(".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice, .bbs_contents, .notice_content, .notice_body, .bbs_view"),
+          container.nextElementSibling,
+        ];
+        const detailText = detailNodes
+          .map((node) => stripMarkup((node as HTMLElement) ?? document.createElement("span")))
+          .find((text) => text.length > 0);
+        if (detailText) {
+          return cleanupNoticeBody(detailText);
+        }
+      }
 
       const textMatch = rawHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? rawHtml;
-      return normalize((textMatch ?? "").replace(/<[^>]*>/g, ""));
+      const plainText = (textMatch ?? "")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "\n")
+        .replace(/<\/div>/gi, "\n")
+        .replace(/<[^>]*>/g, " ");
+      const labeledBody = plainText.match(/공지내용(?:\s*닫기)?\s*공지내용?\s*([\s\S]+)/i)?.[1] ?? plainText;
+      return cleanupNoticeBody(labeledBody);
     }
 
     function extractContentsSeq(html: string): string | null {
@@ -235,7 +405,7 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         .filter((item): item is { name: string; url: string } => Boolean(item));
 
       if (directLinks.length > 0) {
-        return directLinks;
+        return dedupeAttachments(directLinks);
       }
 
       const fallbackRows = Array.from(doc.querySelectorAll("tr, li, .file-row, .item"))
@@ -249,7 +419,17 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         })
         .filter((item): item is { name: string; url: string } => Boolean(item));
 
-      return fallbackRows;
+      return dedupeAttachments(fallbackRows);
+    }
+
+    function dedupeAttachments(rows: Array<{ name: string; url: string }>): Array<{ name: string; url: string }> {
+      const seen = new Set<string>();
+      return rows.filter((row) => {
+        const key = normalize(row.url);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     }
 
     async function requestText(url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<string> {
@@ -268,13 +448,19 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
       const scriptText = Array.from(document.querySelectorAll("script"))
         .map((script) => script.textContent ?? "")
         .join("\n");
+      const mappedDetailUrl = detailUrlBySeq.get(noticeSeq) ?? null;
 
-      const courseSeq =
-        document.querySelector('input[name="COURSE_SEQ"]')?.getAttribute("value")
-        ?? scriptText.match(/COURSE_SEQ\s*:\s*"(\d+)"/i)?.[1]
-        ?? "";
+       const courseSeq = String(
+         Number(
+           document.querySelector('input[name="COURSE_SEQ"]')?.getAttribute("value")
+           ?? scriptText.match(/COURSE_SEQ\s*[:=]\s*["']?(\d+)["']?/i)?.[1]
+           ?? scriptText.match(/course_seq\s*[:=]\s*["']?(\d+)["']?/i)?.[1]
+           ?? scriptText.match(/COURSESEQ\s*[:=]\s*["']?(\d+)["']?/i)?.[1]
+           ?? String(seq),
+         ),
+       );
 
-      const queryString = new URLSearchParams({
+      const queryBody = new URLSearchParams({
         COURSE_SEQ: courseSeq,
         LECTURE_SEQ: String(seq),
         CUR_LECTURE_SEQ: String(seq),
@@ -283,19 +469,44 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         CONTENTS_SEQ: noticeSeq,
         artl_seq: noticeSeq,
         notice_seq: noticeSeq,
+        A_SEQ: noticeSeq,
+        ARTL_NO: noticeSeq,
+        NOTICE: noticeSeq,
+        artl_no: noticeSeq,
         encoding: "utf-8",
-      }).toString();
+      });
 
+      const fallbackParams = new URLSearchParams({
+        encoding: "utf-8",
+        LECTURE_SEQ: String(seq),
+        COURSE_SEQ: courseSeq,
+        NOTICE_SEQ: noticeSeq,
+        CUR_LECTURE_SEQ: String(seq),
+        ARTL_SEQ: noticeSeq,
+      });
+
+      const queryBodyString = queryBody.toString();
+      const fallbackQueryBodyString = fallbackParams.toString();
       const detailCandidates = [
-        { method: "POST", url: "/el/class/notice_view.acl", body: queryString, contentType: true },
-        { method: "POST", url: "/el/class/notice_list.acl", body: queryString, contentType: true },
-        { method: "POST", url: "/el/class/notice_read.acl", body: queryString, contentType: true },
-        { method: "GET", url: `/el/class/notice_view.acl?${queryString}` },
-        { method: "GET", url: `/el/class/notice_list.acl?${queryString}` },
-        { method: "GET", url: `/el/class/notice_read.acl?${queryString}` },
+        ...(mappedDetailUrl ? [{ method: "GET", url: mappedDetailUrl }] : []),
+        { method: "GET", url: `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&A_SEQ=${noticeSeq}&encoding=utf-8` },
+        { method: "GET", url: `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&A_SEQ=${noticeSeq}` },
+        { method: "POST", url: "/el/class/notice_list.acl", body: queryBodyString },
+        { method: "POST", url: "/el/class/notice_list.acl", body: `${queryBodyString}&mode=ajax` },
+        { method: "POST", url: "/el/class/notice_list.acl", body: `NOTICE_SEQ=${noticeSeq}&COURSE_SEQ=${courseSeq}&LECTURE_SEQ=${seq}&encoding=utf-8` },
+        { method: "GET", url: `/el/class/notice_list.acl?NOTICE_SEQ=${noticeSeq}&LECTURE_SEQ=${seq}&COURSE_SEQ=${courseSeq}&encoding=utf-8` },
+        { method: "GET", url: `/el/class/notice_list.acl?${queryBodyString}` },
+        { method: "POST", url: "/el/class/notice_list_form.acl", body: queryBodyString },
+        { method: "POST", url: "/el/class/notice_list_form.acl", body: `NOTICE_SEQ=${noticeSeq}&LECTURE_SEQ=${seq}&encoding=utf-8` },
+        { method: "GET", url: `/el/class/notice_list_form.acl?NOTICE_SEQ=${noticeSeq}&LECTURE_SEQ=${seq}&encoding=utf-8` },
+        { method: "POST", url: "/el/co/notice_detail.acl", body: queryBodyString },
+        { method: "GET", url: `/el/class/notice_view_form.acl?${fallbackQueryBodyString}` },
+        { method: "POST", url: "/el/class/notice_view_form.acl", body: queryBodyString },
+        { method: "GET", url: `/el/class/notice_view_form.acl?${queryBodyString}` },
       ];
 
       const requestHtmls: string[] = [];
+      await openNotice(noticeSeq);
       const inlineNode = extractNoticeNodeFromHtml(document, noticeSeq);
       if (inlineNode) {
         const inlineText = stripMarkup(inlineNode as HTMLElement);
@@ -305,9 +516,7 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
       for (const request of detailCandidates) {
         const text = await requestText(request.url, {
           method: request.method,
-          headers: request.contentType
-            ? { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
-            : undefined,
+          headers: request.method === "POST" ? { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" } : undefined,
           ...(request.method === "POST" ? { body: request.body } : {}),
         });
         if (text) requestHtmls.push(text);
@@ -317,21 +526,19 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         const bodyText = parseNoticeBodyFromHtml(raw, noticeSeq);
         if (!bodyText) continue;
 
-        const attachments = extractAttachments(raw);
+        const attachments = dedupeAttachments(extractAttachments(raw));
         const contentsSeq = extractContentsSeq(raw);
+
         if (contentsSeq) {
           const fileListText = await requestText(
             `/el/co/file_list_user4.acl?CONTENTS_SEQ=${contentsSeq}&LECTURE_SEQ=${seq}&encoding=utf-8`,
           );
-          const fileAttachments = extractAttachments(fileListText);
-          const mergedAttachments = [...attachments, ...fileAttachments];
-          if (mergedAttachments.length > 0) {
-            return {
-              bodyText: `${bodyText}\n\n[÷������]\n${mergedAttachments.map((file) => `- ${file.name} (${file.url})`).join("\n")}`.trim(),
-              attachments: mergedAttachments,
-            };
+          const fileAttachments = dedupeAttachments([...attachments, ...extractAttachments(fileListText)]);
+          if (fileAttachments.length > 0) {
+            return { bodyText, attachments: fileAttachments };
           }
         }
+
         return { bodyText, attachments };
       }
 
@@ -339,20 +546,30 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
     }
 
     const noticeSeqs = collectNoticeSeqs();
-    const fallbackNoticeSeqs = Array.from(document.querySelectorAll<HTMLButtonElement>('button.notice_title'))
-      .map((button) => button.id.replace("notice_tit_", "").trim())
+    const detailUrlBySeq = collectNoticeDetailUrlBySeq();
+    const fallbackNoticeSeqs = Array.from(document.querySelectorAll<HTMLButtonElement>("[id*='notice_tit_'], .notice_title"))
+      .map((button) => button.id.match(/(\d+)/)?.[1] ?? "")
       .filter((noticeSeq) => noticeSeq.length > 0);
     const normalizedSeqs = noticeSeqs.length > 0 ? noticeSeqs : fallbackNoticeSeqs;
 
     const results: Array<{ noticeSeq: string; bodyText: string }> = [];
+    const cached = new Map<string, string>();
     for (const noticeSeq of normalizedSeqs) {
       try {
+        if (cached.has(noticeSeq)) {
+          const bodyText = cached.get(noticeSeq) ?? "";
+          results.push({ noticeSeq, bodyText });
+          continue;
+        }
+
         const { bodyText, attachments } = await resolveNoticeContent(noticeSeq);
         const attachmentBlock =
           attachments.length === 0
             ? ""
-            : `\n\n[÷������]\n${attachments.map((file) => `- ${file.name} (${file.url})`).join("\n")}`;
-        results.push({ noticeSeq, bodyText: `${bodyText}${attachmentBlock}`.trim() });
+            : `\n\n[첨부파일]\n${attachments.map((file) => `- ${file.name} (${file.url})`).join("\n")}`;
+        const normalizedBody = `${bodyText}${attachmentBlock}`.trim();
+        cached.set(noticeSeq, normalizedBody);
+        results.push({ noticeSeq, bodyText: normalizedBody });
       } catch {
         results.push({ noticeSeq, bodyText: "" });
       }
@@ -522,7 +739,7 @@ async function planTasks(
     });
 
     const pending = parseTodoVodTasks(await page.content(), userId, seq)
-      .filter((task) => task.state === "PENDING")
+      .filter((task) => task.state === "PENDING" && task.activityType === "VOD")
       .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
 
     if (mode === "SINGLE_NEXT") {
@@ -644,4 +861,6 @@ export async function runAutoLearning(
     await context.close();
   }
 }
+
+
 
