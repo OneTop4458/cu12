@@ -57,7 +57,16 @@ export function SessionActivityGuard() {
     }
   };
 
+  const redirectToLogin = (reason: "session-timeout" | "session-expired") => {
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
+    const url = new URL("/login", window.location.origin);
+    url.searchParams.set("reason", reason);
+    window.location.assign(`${url.pathname}${url.search}`);
+  };
+
   const tryRefresh = async (now: number) => {
+    if (loggingOutRef.current) return;
     if (now - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
     lastRefreshAtRef.current = now;
 
@@ -67,8 +76,7 @@ export function SessionActivityGuard() {
         credentials: "same-origin",
       });
       if (response.status === 401) {
-        loggingOutRef.current = true;
-        window.location.assign("/login");
+        redirectToLogin("session-expired");
       }
     } catch {
       // Ignore transient network failures.
@@ -76,6 +84,7 @@ export function SessionActivityGuard() {
   };
 
   const registerActivity = (now: number) => {
+    if (loggingOutRef.current) return;
     if (now - lastActivityHandledAtRef.current < ACTIVITY_APPLY_GAP_MS) return;
     lastActivityHandledAtRef.current = now;
     setActiveStateNow(now);
@@ -116,6 +125,7 @@ export function SessionActivityGuard() {
     };
 
     const onStorage = (event: StorageEvent) => {
+      if (loggingOutRef.current) return;
       if (event.key !== LAST_ACTIVITY_KEY || !event.newValue) return;
       const parsed = Number(event.newValue);
       if (Number.isFinite(parsed) && parsed > lastActivityAtRef.current) {
@@ -131,7 +141,6 @@ export function SessionActivityGuard() {
 
       if (remaining > 0) return;
 
-      loggingOutRef.current = true;
       try {
         await fetch("/api/auth/logout", {
           method: "POST",
@@ -140,7 +149,7 @@ export function SessionActivityGuard() {
       } catch {
         // Logout endpoint failure should still redirect to login.
       } finally {
-        window.location.assign("/login");
+        redirectToLogin("session-timeout");
       }
     };
 
@@ -179,49 +188,18 @@ export function SessionActivityGuard() {
     <div
       role="status"
       aria-live="polite"
-      className="session-warning-bar"
-      style={{
-        width: "100%",
-        display: "grid",
-        gridTemplateColumns: "1fr auto auto",
-        alignItems: "center",
-        gap: 14,
-        padding: "10px 14px",
-        boxSizing: "border-box",
-        background: warningMode
-          ? "linear-gradient(100deg, #7f1d1d 0%, #991b1b 55%, #b45309 100%)"
-          : "linear-gradient(100deg, #0f766e 0%, #0d9488 52%, #14b8a6 100%)",
-        color: "#ffffff",
-        fontSize: 12,
-        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-        borderBottom: "1px solid rgba(255,255,255,.28)",
-        boxShadow: "0 10px 24px rgba(0,0,0,.2)",
-      }}
+      className={`session-warning-bar ${warningMode ? "is-warning" : "is-active"}`}
     >
-      <div>
-        <div style={{ fontWeight: 800, letterSpacing: "0.2px", marginBottom: 2 }}>자동 로그아웃</div>
-        <div style={{ opacity: 0.92 }}>
+      <div className="session-warning-copy">
+        <div className="session-warning-title">자동 로그아웃</div>
+        <div className="session-warning-sub">
           남은 시간 {formatRemaining(remainingSeconds * 1000)} / 30:00
         </div>
       </div>
-      <div
-        style={{
-          width: 220,
-          background: "rgba(15, 23, 42, 0.35)",
-          borderRadius: 999,
-          height: 9,
-          overflow: "hidden",
-        }}
-      >
+      <div className="session-warning-progress-wrap">
         <div
-          style={{
-            height: "100%",
-            width: `${Math.max(2, warningRatio * 100)}%`,
-            background: warningMode
-              ? "linear-gradient(90deg, #fecdd3, #fca5a5)"
-              : "linear-gradient(90deg, #d1fae5, #bae6fd)",
-            transition: "width 0.8s ease",
-          }}
+          className={`session-warning-progress ${warningMode ? "is-warning" : ""}`}
+          style={{ width: `${Math.max(2, warningRatio * 100)}%` }}
         />
       </div>
       <button
@@ -229,17 +207,7 @@ export function SessionActivityGuard() {
         onClick={() => {
           void extendSession();
         }}
-        style={{
-          border: "1px solid rgba(255,255,255,0.45)",
-          borderRadius: 8,
-          background: "rgba(255,255,255,0.15)",
-          color: "#ffffff",
-          padding: "8px 12px",
-          fontSize: 12,
-          fontWeight: 700,
-          fontFamily: "inherit",
-          cursor: "pointer",
-        }}
+        className="session-warning-button"
       >
         세션 연장
       </button>
