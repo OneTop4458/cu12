@@ -116,6 +116,9 @@ interface Job {
   type: "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
   status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
   createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastError: string | null;
   result?: unknown;
 }
 
@@ -158,6 +161,8 @@ interface AutoProgress {
   };
 }
 
+type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
+
 const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
 
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
@@ -169,6 +174,8 @@ const POLL_TRACKING_MS = 10000;
 const POLL_TRACKING_RUNNING_MS = 2500;
 const POLL_TRACKING_PENDING_MS = 4500;
 const POLL_TRACKING_HIDDEN_MS = 12000;
+const SYNC_PENDING_STALE_MS = 5 * 60 * 1000;
+const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 
 interface DashboardBootstrap {
   context: SessionContext;
@@ -209,6 +216,83 @@ function parseAutoProgress(value: unknown): AutoProgress | null {
   const maybe = value as Partial<AutoProgress>;
   if (maybe.kind !== "AUTOLEARN_PROGRESS" || !maybe.progress) return null;
   return maybe as AutoProgress;
+}
+
+function parseDateMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
+  state: SyncQueueState;
+  staleJobIds: string[];
+  statusMessage: string;
+} {
+  let hasRunningFresh = false;
+  let hasPendingFresh = false;
+  let hasStaleRunning = false;
+  let hasStalePending = false;
+  const staleJobIds: string[] = [];
+
+  for (const job of jobs) {
+    if (job.type !== "SYNC" && job.type !== "NOTICE_SCAN") continue;
+
+    if (job.status === "RUNNING") {
+      const startedAtMs = parseDateMs(job.startedAt);
+      const isStale = startedAtMs === null || nowMs - startedAtMs > SYNC_RUNNING_STALE_MS;
+      if (isStale) staleJobIds.push(job.id);
+      else hasRunningFresh = true;
+      if (isStale) hasStaleRunning = true;
+      continue;
+    }
+
+    if (job.status === "PENDING") {
+      const createdAtMs = parseDateMs(job.createdAt);
+      const isStale = createdAtMs === null || nowMs - createdAtMs > SYNC_PENDING_STALE_MS;
+      if (isStale) staleJobIds.push(job.id);
+      if (isStale) hasStalePending = true;
+      else hasPendingFresh = true;
+    }
+  }
+
+  if (hasRunningFresh) {
+    return {
+      state: "RUNNING",
+      staleJobIds: [],
+      statusMessage: "동기화 작업이 진행 중입니다.",
+    };
+  }
+
+  if (hasPendingFresh) {
+    return {
+      state: hasStaleRunning ? "RUNNING_STALE" : "PENDING",
+      staleJobIds,
+      statusMessage: "동기화 요청이 처리 대기 중입니다.",
+    };
+  }
+
+  if (hasStaleRunning) {
+    return {
+      state: "RUNNING_STALE",
+      staleJobIds,
+      statusMessage: "동기화 작업이 장시간 진행되거나 멈춘 상태입니다.",
+    };
+  }
+
+  if (hasStalePending) {
+    return {
+      state: "PENDING_STALE",
+      staleJobIds,
+      statusMessage: "동기화 요청이 오래되어 처리되지 않았을 수 있습니다.",
+    };
+  }
+
+  return {
+    state: "IDLE",
+    staleJobIds: [],
+    statusMessage: "",
+  };
 }
 
 function formatTaskCountsByType(counts: ActivityTypeCounts): string {
@@ -310,6 +394,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
   const [bootstrapSyncing, setBootstrapSyncing] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [syncQueueCleanupSubmitting, setSyncQueueCleanupSubmitting] = useState(false);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -323,12 +408,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [jobs],
   );
+  const syncQueueAnalysis = useMemo(() => analyzeSyncQueueState(jobs, Date.now()), [jobs]);
+  const syncQueueState = syncQueueAnalysis.state;
+  const syncQueueStaleJobIds = syncQueueAnalysis.staleJobIds;
+  const syncQueueStatusMessage = syncQueueAnalysis.statusMessage;
   const hasActiveJobs = useMemo(() => jobs.some((job) => !TERMINAL.has(job.status)), [jobs]);
-  const syncInProgress = sortedJobs.some((job) => (job.type === "SYNC" || job.type === "NOTICE_SCAN") && (job.status === "PENDING" || job.status === "RUNNING"));
+  const syncInProgress = syncQueueState !== "IDLE";
   const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "RUNNING"));
   const unreadNotifications = notifications.filter((item) => item.isUnread);
   const autoProgress = parseAutoProgress(trackingDetail?.result);
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
+  const syncButtonLabel = useMemo(() => {
+    switch (syncQueueState) {
+      case "RUNNING":
+        return "동기화 진행 중";
+      case "RUNNING_STALE":
+        return "동기화 진행 지연";
+      case "PENDING":
+        return "동기화 대기 중";
+      case "PENDING_STALE":
+        return "동기화 대기 지연";
+      case "IDLE":
+      default:
+        return "즉시 동기화";
+    }
+  }, [syncQueueState]);
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(url, init);
@@ -493,6 +597,41 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [trackingJobId, fetchJson, refreshAll]);
+
+  async function cancelSyncQueueJobs() {
+    if (!syncQueueStaleJobIds.length || syncQueueCleanupSubmitting) return;
+    setSyncQueueCleanupSubmitting(true);
+    setBlockingMessage("오래된 동기화 요청을 정리 중입니다...");
+    let hasFailure = false;
+    try {
+      let cancelledCount = 0;
+      for (const jobId of syncQueueStaleJobIds) {
+        try {
+          const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${jobId}/cancel`, {
+            method: "POST",
+          });
+          if (payload.updated) cancelledCount += 1;
+        } catch (inner) {
+          hasFailure = true;
+        }
+      }
+      if (cancelledCount > 0) {
+        setMessage(`${cancelledCount}건의 오래된 동기화 요청을 정리했습니다.`);
+      } else if (hasFailure) {
+        setMessage("일부 동기화 요청 정리에 실패했습니다.");
+      } else {
+        setMessage("정리할 동기화 요청이 없습니다.");
+      }
+      await refreshAll(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSyncQueueCleanupSubmitting(false);
+      if (!bootstrapSyncing) {
+        setBlockingMessage(null);
+      }
+    }
+  }
 
   async function runAction(action: "SYNC" | "AUTOLEARN", silent = false) {
     setActionSubmitting(true);
@@ -721,9 +860,25 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       <section className="card">
         <h2>자동 수강</h2>
         <div className="button-row">
-          <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncInProgress ? "동기화 진행 중" : "즉시 동기화"}</button>
+          <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
           <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
         </div>
+        {syncInProgress ? (
+          <p className="sync-status-note muted">동기화 상태: {syncQueueStatusMessage}</p>
+        ) : null}
+        {(syncQueueState === "PENDING_STALE" || syncQueueState === "RUNNING_STALE" || syncQueueState === "PENDING") &&
+        syncQueueStaleJobIds.length > 0 ? (
+          <div className="button-row top-gap">
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void cancelSyncQueueJobs()}
+              disabled={syncQueueCleanupSubmitting}
+            >
+              {syncQueueCleanupSubmitting ? "정리 중..." : "오래된 동기화 요청 정리"}
+            </button>
+          </div>
+        ) : null}
         <div className="form-grid top-gap">
           <label className="field">
             <span>모드</span>

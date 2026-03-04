@@ -100,6 +100,12 @@ h3 {
   font-size: 0.85rem;
 }
 
+.sync-status-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -1168,6 +1174,8 @@ textarea:focus {
 .course-card-footer .ghost-btn {
   width: fit-content;
   align-self: flex-start;
+  max-width: 160px;
+  white-space: nowrap;
 }
 
 .pending-week-detail {
@@ -1286,6 +1294,11 @@ code {
     align-items: flex-start;
   }
 
+  .topbar-main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .topbar-actions {
     width: 100%;
     justify-content: flex-start;
@@ -1319,8 +1332,11 @@ code {
   }
 
   .topbar {
-    position: static;
     padding: 12px;
+  }
+
+  .topbar-main {
+    gap: 10px;
   }
 
   button,
@@ -1349,5 +1365,17 @@ code {
 
   .topbar-brand {
     gap: 8px;
+  }
+
+  .course-card-footer .ghost-btn {
+    width: 100%;
+  }
+
+  .topbar-notice-row {
+    align-items: center;
+  }
+
+  .topbar-notice-dismiss {
+    width: auto;
   }
 }

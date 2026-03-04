@@ -50,6 +50,7 @@ npm run build:web
    3. `npm run build:web` (for web scope changes)
 2. `npm run prisma:generate` must be re-run when Prisma schema or Prisma model usage changes.
 3. Do not commit or push if the above checks fail.
+4. For AI-assisted changes, run the validation sequence first, then commit and push in the same workflow.
 
 ## Deployment Baseline
 
