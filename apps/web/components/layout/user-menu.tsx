@@ -65,7 +65,7 @@ export function UserMenu({
           {role === "ADMIN" && onGoAdmin ? (
             <DropdownMenu.Item className="user-menu-item" onSelect={onGoAdmin}>
               <ShieldCheck size={16} />
-              <span>관리자 화면</span>
+              <span>관리자 센터</span>
             </DropdownMenu.Item>
           ) : null}
           {onOpenSettings ? (
@@ -84,4 +84,3 @@ export function UserMenu({
     </DropdownMenu.Root>
   );
 }
-

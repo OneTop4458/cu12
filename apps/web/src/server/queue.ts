@@ -286,6 +286,46 @@ export async function cancelJob(jobId: string) {
   return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
 }
 
+export async function retryJob(jobId: string, options: { allowCompleted?: boolean } = {}) {
+  const existing = await prisma.jobQueue.findUnique({
+    where: { id: jobId },
+    select: {
+      status: true,
+      userId: true,
+      id: true,
+    },
+  });
+
+  if (!existing) {
+    throw new Error("Job not found");
+  }
+
+  if (existing.status === JobStatus.RUNNING) {
+    throw new Error("Cannot retry running job");
+  }
+
+  if (existing.status === JobStatus.SUCCEEDED && !options.allowCompleted) {
+    throw new Error("Completed job requires force retry");
+  }
+
+  if (existing.status === JobStatus.PENDING) {
+    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+  }
+
+  return prisma.jobQueue.update({
+    where: { id: jobId },
+    data: {
+      status: JobStatus.PENDING,
+      startedAt: null,
+      workerId: null,
+      finishedAt: null,
+      runAfter: new Date(),
+      lastError: null,
+      result: Prisma.JsonNull,
+    },
+  });
+}
+
 export async function getJobStatus(jobId: string) {
   return prisma.jobQueue.findUnique({
     where: { id: jobId },

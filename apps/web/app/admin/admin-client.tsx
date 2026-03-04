@@ -82,6 +82,15 @@ interface AdminLog {
   message: string;
 }
 
+interface LogFilters {
+  category: string;
+  severity: string;
+  targetUserId: string;
+  actorUserId: string;
+  from: string;
+  to: string;
+}
+
 interface LogPagination {
   page: number;
   limit: number;
@@ -142,7 +151,24 @@ interface AdminNotification {
   isUnread: boolean;
 }
 
+interface MemberSyncResponse {
+  jobId: string;
+  status: string;
+  deduplicated: boolean;
+  dispatched: boolean;
+  dispatchError: string | null;
+  notice: string;
+}
+
 const LOGS_PAGE_SIZE = 25;
+const INITIAL_LOG_FILTERS: LogFilters = {
+  category: "",
+  severity: "",
+  targetUserId: "",
+  actorUserId: "",
+  from: "",
+  to: "",
+};
 
 function parseError(payload: unknown): string {
   if (payload && typeof payload === "object" && "error" in payload) {
@@ -160,6 +186,14 @@ function formatDateTime(value: string | null): string {
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("ko-KR");
 }
+
+function formatFilterDate(value: string): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function toDateTime(value: string | null): string {
   return formatDateTime(value);
 }
@@ -202,11 +236,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [message, setMessage] = useState<string | null>(null);
 
   const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
+  const [memberSyncBusyId, setMemberSyncBusyId] = useState<string | null>(null);
   const [mailTestUserId, setMailTestUserId] = useState<string | null>(null);
   const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logPage, setLogPage] = useState(1);
   const [activeNotification, setActiveNotification] = useState<AdminNotification | null>(null);
+  const [logFilters, setLogFilters] = useState<LogFilters>(INITIAL_LOG_FILTERS);
+  const [logFilterDraft, setLogFilterDraft] = useState<LogFilters>(INITIAL_LOG_FILTERS);
 
   const [newCu12Id, setNewCu12Id] = useState("");
   const [newName, setNewName] = useState("");
@@ -266,7 +303,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     }
   }, []);
 
-  const refreshAll = useCallback(async (page = 1, silent = false) => {
+  const refreshAll = useCallback(async (page = 1, silent = false, filters: LogFilters = logFilters) => {
     const safePage = Math.max(1, Math.floor(page));
     if (!silent) {
       setLoading(true);
@@ -274,12 +311,25 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     }
     setError(null);
 
+    const query = new URLSearchParams({
+      page: String(safePage),
+      limit: String(LOGS_PAGE_SIZE),
+    });
+    if (filters.category) query.set("category", filters.category);
+    if (filters.severity) query.set("severity", filters.severity);
+    if (filters.targetUserId) query.set("targetUserId", filters.targetUserId);
+    if (filters.actorUserId) query.set("actorUserId", filters.actorUserId);
+    const from = formatFilterDate(filters.from);
+    if (from) query.set("from", from);
+    const to = formatFilterDate(filters.to);
+    if (to) query.set("to", to);
+
     try {
       const [contextPayload, membersPayload, invitesPayload, logsPayload] = await Promise.all([
         fetchJson<SessionContext>("/api/session/context"),
         fetchJson<MembersPayload>("/api/admin/members"),
         fetchJson<InvitesPayload>("/api/auth/invite"),
-        fetchJson<LogsPayload>(`/api/admin/logs?page=${safePage}&limit=${LOGS_PAGE_SIZE}`),
+        fetchJson<LogsPayload>(`/api/admin/logs?${query.toString()}`),
       ]);
 
       setContext(contextPayload);
@@ -304,7 +354,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       }
       setLogBusy(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, logFilters]);
 
   useEffect(() => {
     void refreshAll(1, false);
@@ -466,6 +516,24 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     originalEditModeIsTestUser,
   ]);
 
+  const syncMember = useCallback((member: Member) => {
+    if (!member.cu12Account?.cu12Id || memberSyncBusyId === member.id) {
+      if (!member.cu12Account?.cu12Id) {
+        setError("CU12 연동 계정이 없는 사용자는 동기화 할 수 없습니다.");
+      }
+      return;
+    }
+
+    setMemberSyncBusyId(member.id);
+    void withBlocking(`${member.email} 동기화 요청 중...`, async () => {
+      const response = await fetchJson<MemberSyncResponse>(`/api/admin/members/${member.id}/sync`, { method: "POST" });
+      setMessage(response.notice ?? "동기화 요청이 완료되었습니다.");
+      await refreshAll(logPage, true);
+    }).finally(() => {
+      setMemberSyncBusyId(null);
+    });
+  }, [fetchJson, logPage, refreshAll, withBlocking, memberSyncBusyId]);
+
   const toggleMemberActive = useCallback((member: Member) => {
     if (memberBusyId) return;
 
@@ -608,6 +676,25 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     void refreshAll(safePage, true);
   }, [logPagination, loading, logBusy, refreshAll]);
 
+  const applyLogFilters = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLogFilters(logFilterDraft);
+    void refreshAll(1, false, logFilterDraft);
+  }, [logFilterDraft, refreshAll]);
+
+  const resetLogFilters = useCallback(() => {
+    setLogFilterDraft(INITIAL_LOG_FILTERS);
+    setLogFilters(INITIAL_LOG_FILTERS);
+    void refreshAll(1, false, INITIAL_LOG_FILTERS);
+  }, [refreshAll]);
+
+  const updateLogFilterDraft = useCallback((key: keyof LogFilters, value: string) => {
+    setLogFilterDraft((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }, []);
+
   const logPageButtons = useMemo(() => {
     const current = logPagination?.page ?? 1;
     const total = logPagination?.totalPages ?? 1;
@@ -679,6 +766,12 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           </button>
           <Link className="ghost-btn" href={"/admin/site-notices" as any}>
             공지/점검 설정
+          </Link>
+          <Link className="ghost-btn" href={"/admin/operations" as any}>
+            운영 메뉴
+          </Link>
+          <Link className="ghost-btn" href={"/admin/system" as any}>
+            시스템 상태
           </Link>
           <ThemeToggle />
           <NotificationCenter
@@ -890,6 +983,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                     <td>{formatDateTime(member.createdAt)}</td>
                     <td>
                       <div className="action-row">
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => syncMember(member)}
+                          disabled={memberSyncBusyId === member.id || memberBusyId === member.id || !member.cu12Account}
+                        >
+                          {memberSyncBusyId === member.id ? "동기화 중..." : "동기화"}
+                        </button>
                         <button type="button" className="ghost-btn" onClick={() => startImpersonation(member)}>
                           대리접속
                         </button>
@@ -1050,6 +1151,77 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
       <section className="card">
         <h2>운영 로그</h2>
+        <form className="form-grid top-gap" onSubmit={applyLogFilters}>
+          <label className="field">
+            <span>카테고리</span>
+            <select
+              value={logFilterDraft.category}
+              onChange={(event) => updateLogFilterDraft("category", event.target.value)}
+            >
+              <option value="">전체</option>
+              <option value="AUTH">AUTH</option>
+              <option value="ADMIN">ADMIN</option>
+              <option value="JOB">JOB</option>
+              <option value="WORKER">WORKER</option>
+              <option value="MAIL">MAIL</option>
+              <option value="PARSER">PARSER</option>
+              <option value="IMPERSONATION">IMPERSONATION</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>심각도</span>
+            <select
+              value={logFilterDraft.severity}
+              onChange={(event) => updateLogFilterDraft("severity", event.target.value)}
+            >
+              <option value="">전체</option>
+              <option value="INFO">INFO</option>
+              <option value="WARN">WARN</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>행위자 사용자 ID</span>
+            <input
+              value={logFilterDraft.actorUserId}
+              onChange={(event) => updateLogFilterDraft("actorUserId", event.target.value)}
+              placeholder="UUID"
+            />
+          </label>
+          <label className="field">
+            <span>대상 사용자 ID</span>
+            <input
+              value={logFilterDraft.targetUserId}
+              onChange={(event) => updateLogFilterDraft("targetUserId", event.target.value)}
+              placeholder="UUID"
+            />
+          </label>
+          <label className="field">
+            <span>시작 시간</span>
+            <input
+              type="datetime-local"
+              value={logFilterDraft.from}
+              onChange={(event) => updateLogFilterDraft("from", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>종료 시간</span>
+            <input
+              type="datetime-local"
+              value={logFilterDraft.to}
+              onChange={(event) => updateLogFilterDraft("to", event.target.value)}
+            />
+          </label>
+          <div className="align-end">
+            <button className="btn-success" type="submit">
+              필터 적용
+            </button>
+            <button className="ghost-btn" type="button" onClick={resetLogFilters}>
+              필터 초기화
+            </button>
+          </div>
+        </form>
+
         <div className="table-wrap">
           <table>
             <thead>

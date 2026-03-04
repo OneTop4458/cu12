@@ -37,6 +37,9 @@ export interface ListAuditLogInput {
   category?: AuditCategory;
   severity?: AuditSeverity;
   targetUserId?: string;
+  actorUserId?: string;
+  createdAfter?: Date;
+  createdBefore?: Date;
 }
 
 export async function listAuditLogs(input: ListAuditLogInput | undefined = {}) {
@@ -88,6 +91,18 @@ function buildAuditLogWhere(input?: ListAuditLogInput) {
   }
   if (input?.targetUserId) {
     where.targetUserId = input.targetUserId;
+  }
+  if (input?.actorUserId) {
+    where.actorUserId = input.actorUserId;
+  }
+  if (input?.createdAfter || input?.createdBefore) {
+    where.createdAt = {};
+    if (input.createdAfter) {
+      where.createdAt.gte = input.createdAfter;
+    }
+    if (input.createdBefore) {
+      where.createdAt.lte = input.createdBefore;
+    }
   }
 
   return where;

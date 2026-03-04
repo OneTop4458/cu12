@@ -50,7 +50,7 @@ export function NotificationCenter({ notifications, onOpen, onMarkRead }: Notifi
         >
           <div className="notification-panel-head">
             <span>알림</span>
-            <span>{unreadCount}개 안읽음</span>
+            <span>읽지 않음 {unreadCount}건</span>
           </div>
           <div className="notification-panel-list">
             {latest.length === 0 ? (
@@ -78,4 +78,3 @@ export function NotificationCenter({ notifications, onOpen, onMarkRead }: Notifi
     </Popover.Root>
   );
 }
-

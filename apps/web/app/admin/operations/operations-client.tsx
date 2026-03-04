@@ -1,0 +1,713 @@
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ChevronLeft, RefreshCw, RotateCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ThemeToggle } from "../../../components/theme/theme-toggle";
+import { UserMenu } from "../../../components/layout/user-menu";
+
+type RoleType = "ADMIN" | "USER";
+type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+type JobType = "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
+
+type CleanupStatus = "SUCCEEDED" | "FAILED" | "CANCELED";
+
+interface AdminOperationsClientProps {
+  initialUser: {
+    email: string;
+    role: RoleType;
+  };
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+interface AdminJob {
+  id: string;
+  userId: string;
+  type: JobType;
+  status: JobStatus;
+  attempts: number;
+  runAfter: string;
+  workerId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  result: unknown;
+  payload: unknown;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  } | null;
+}
+
+interface AdminJobsPayload {
+  jobs: AdminJob[];
+  pagination: Pagination;
+}
+
+interface WorkerHeartbeat {
+  workerId: string;
+  lastSeenAt: string;
+}
+
+interface WorkersPayload {
+  workers: WorkerHeartbeat[];
+  summary: {
+    total: number;
+    active: number;
+    stale: number;
+    staleMinutes: number;
+    capturedAt: string;
+    staleCutoff: string;
+  };
+}
+
+interface CleanupPayload {
+  deleted: number;
+  olderThanDays: number;
+  statusFilter: CleanupStatus[];
+  cutoff: string;
+}
+
+interface ApiErrorPayload {
+  error?: string;
+  errorCode?: string;
+}
+
+const JOB_STATUS_OPTIONS: Array<JobStatus | ""> = ["", "PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
+const JOB_TYPE_OPTIONS: Array<JobType | ""> = ["", "SYNC", "AUTOLEARN", "NOTICE_SCAN", "MAIL_DIGEST"];
+const CLEANUP_STATUSES: CleanupStatus[] = ["SUCCEEDED", "FAILED", "CANCELED"];
+
+const JOB_STATUS_LABELS: Record<JobStatus, string> = {
+  PENDING: "대기",
+  RUNNING: "실행 중",
+  SUCCEEDED: "?�공",
+  FAILED: "?�패",
+  CANCELED: "취소",
+};
+
+const EMPTY_COUNTS: Record<JobStatus, number> = {
+  PENDING: 0,
+  RUNNING: 0,
+  SUCCEEDED: 0,
+  FAILED: 0,
+  CANCELED: 0,
+};
+
+function parseError(payload: unknown): string {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const maybeError = (payload as ApiErrorPayload).error;
+    if (typeof maybeError === "string" && maybeError.trim()) {
+      return maybeError.trim();
+    }
+  }
+  return "?????�는 ?�류가 발생?�습?�다.";
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("ko-KR");
+}
+
+function statusClassForJob(status: JobStatus): string {
+  switch (status) {
+    case "PENDING":
+      return "status-pending";
+    case "RUNNING":
+      return "status-running";
+    case "SUCCEEDED":
+      return "status-succeeded";
+    case "FAILED":
+    case "CANCELED":
+      return "status-failed";
+    default:
+      return "status-failed";
+  }
+}
+
+export function AdminOperationsClient({ initialUser }: AdminOperationsClientProps) {
+  const router = useRouter();
+
+  const [jobs, setJobs] = useState<AdminJob[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [workers, setWorkers] = useState<WorkerHeartbeat[]>([]);
+  const [workerSummary, setWorkerSummary] = useState<WorkersPayload["summary"] | null>(null);
+  const [jobCounts, setJobCounts] = useState<Record<JobStatus, number>>(EMPTY_COUNTS);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [loadingWorkers, setLoadingWorkers] = useState(true);
+  const [loadingSummary, setLoadingSummary] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [jobBusyId, setJobBusyId] = useState<string | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+
+  const [jobPage, setJobPage] = useState(1);
+  const [jobType, setJobType] = useState<"" | JobType>("");
+  const [jobStatus, setJobStatus] = useState<"" | JobStatus>("");
+  const [jobUserId, setJobUserId] = useState("");
+  const [staleMinutes, setStaleMinutes] = useState(10);
+  const [cleanupOlderDays, setCleanupOlderDays] = useState(30);
+  const [cleanupStatuses, setCleanupStatuses] = useState<Record<CleanupStatus, boolean>>({
+    SUCCEEDED: true,
+    FAILED: true,
+    CANCELED: true,
+  });
+
+  const parseJson = useCallback(async <T,>(response: Response): Promise<T> => {
+    const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
+    if (!response.ok) throw new Error(parseError(payload));
+    return payload;
+  }, []);
+
+  const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
+    const response = await fetch(url, init);
+    if (response.status === 401) {
+      router.push("/login");
+      throw new Error("Unauthorized");
+    }
+    return parseJson<T>(response);
+  }, [parseJson, router]);
+
+  const loadWorkers = useCallback(async (nextStaleMinutes = staleMinutes) => {
+    setLoadingWorkers(true);
+    setError(null);
+    try {
+      const payload = await fetchJson<WorkersPayload>(`/api/admin/workers?staleMinutes=${nextStaleMinutes}`);
+      setWorkers(Array.isArray(payload.workers) ? payload.workers : []);
+      setWorkerSummary(payload.summary ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "?�커 목록 조회 �??�류가 발생?�습?�다.");
+      setWorkers([]);
+      setWorkerSummary(null);
+    } finally {
+      setLoadingWorkers(false);
+    }
+  }, [fetchJson, staleMinutes]);
+
+  const loadJobs = useCallback(async (page = jobPage, silent = false) => {
+    const safePage = Math.max(1, Math.trunc(page));
+    if (!silent) {
+      setLoadingJobs(true);
+    }
+    setError(null);
+
+    const query = new URLSearchParams({
+      page: String(safePage),
+      limit: "50",
+    });
+    if (jobType) {
+      query.set("type", jobType);
+    }
+    if (jobStatus) {
+      query.set("status", jobStatus);
+    }
+    if (jobUserId.trim()) {
+      query.set("userId", jobUserId.trim());
+    }
+
+    try {
+      const payload = await fetchJson<AdminJobsPayload>(`/api/admin/jobs?${query.toString()}`);
+      setJobs(Array.isArray(payload.jobs) ? payload.jobs : []);
+      setPagination(payload.pagination ?? null);
+      setJobPage(payload.pagination?.page ?? safePage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "?�업 목록 조회 �??�류가 발생?�습?�다.");
+      setJobs([]);
+      setPagination(null);
+    } finally {
+      setLoadingJobs(false);
+    }
+  }, [fetchJson, jobStatus, jobType, jobUserId, jobPage]);
+
+  const loadJobCounts = useCallback(async () => {
+    setLoadingSummary(true);
+    setError(null);
+    try {
+      const requests = (Object.keys(EMPTY_COUNTS) as JobStatus[]).map((status) => {
+        return fetchJson<AdminJobsPayload>(`/api/admin/jobs?status=${status}&limit=1`);
+      });
+      const responses = await Promise.all(requests);
+      const nextCounts: Record<JobStatus, number> = { ...EMPTY_COUNTS };
+      (Object.keys(EMPTY_COUNTS) as JobStatus[]).forEach((status, idx) => {
+        nextCounts[status] = responses[idx]?.pagination?.total ?? 0;
+      });
+      setJobCounts(nextCounts);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "?�업 ?�태 집계 �??�류가 발생?�습?�다.");
+      setJobCounts(EMPTY_COUNTS);
+    } finally {
+      setLoadingSummary(false);
+    }
+  }, [fetchJson]);
+
+  const refreshAll = useCallback(() => {
+    void loadJobs(jobPage, false);
+    void loadWorkers(staleMinutes);
+    void loadJobCounts();
+  }, [jobPage, loadJobs, loadWorkers, loadJobCounts, staleMinutes]);
+
+  useEffect(() => {
+    void refreshAll();
+  }, [refreshAll]);
+
+  const applyFilters = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void loadJobs(1, false);
+  }, [loadJobs]);
+
+  const goPage = useCallback((next: number) => {
+    if (!pagination || jobBusyId) return;
+    const safePage = Math.max(1, Math.min(next, pagination.totalPages || 1));
+    if (safePage === pagination.page) return;
+    setJobPage(safePage);
+    void loadJobs(safePage, false);
+  }, [jobBusyId, loadJobs, pagination]);
+
+  const pageButtons = useMemo(() => {
+    if (!pagination) return [] as number[];
+    const total = pagination.totalPages || 1;
+    const current = pagination.page || 1;
+    const maxButtons = 8;
+    const start = Math.max(1, current - Math.floor(maxButtons / 2));
+    const end = Math.min(total, start + maxButtons - 1);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [pagination]);
+
+  const isActiveWorker = useCallback((lastSeenAt: string) => {
+    if (!workerSummary) return false;
+    const last = new Date(lastSeenAt);
+    if (Number.isNaN(last.getTime())) return false;
+    const cutoff = new Date(workerSummary.staleCutoff);
+    return last.getTime() >= cutoff.getTime();
+  }, [workerSummary]);
+
+  const workerCountsText = useMemo(() => {
+    if (!workerSummary) return "로딩 �?..";
+    return `�?${workerSummary.total} / ?�성 ${workerSummary.active} / 비활??${workerSummary.stale}`;
+  }, [workerSummary]);
+
+  const jobSummaryText = useMemo(() => {
+    return `?��?${jobCounts.PENDING} / ?�행�?${jobCounts.RUNNING} / ?�패 ${jobCounts.FAILED} / 취소 ${jobCounts.CANCELED} / ?�료 ${jobCounts.SUCCEEDED}`;
+  }, [jobCounts]);
+
+  const canCancelJob = useCallback((status: JobStatus) => status === "PENDING" || status === "RUNNING", []);
+
+  const canRetryJob = useCallback((status: JobStatus) => status === "FAILED" || status === "CANCELED", []);
+
+  const cancelJob = useCallback((job: AdminJob) => {
+    if (!canCancelJob(job.status) || jobBusyId) return;
+    setJobBusyId(job.id);
+    void (async () => {
+      setError(null);
+      try {
+        await fetchJson(`/api/admin/jobs/${job.id}/cancel`, { method: "POST" });
+        setMessage(`${job.id} ?�업 취소 ?�청???�료?�었?�니??`);
+        await loadJobs(jobPage, true);
+        await loadJobCounts();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "?�업 취소 ?�청???�패?�습?�다.");
+      } finally {
+        setJobBusyId(null);
+      }
+    })();
+  }, [canCancelJob, fetchJson, jobBusyId, jobPage, loadJobs, loadJobCounts]);
+
+  const retryJob = useCallback((job: AdminJob) => {
+    if (!canRetryJob(job.status) || jobBusyId) return;
+    setJobBusyId(job.id);
+    void (async () => {
+      setError(null);
+      try {
+        await fetchJson(`/api/admin/jobs/${job.id}/retry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force: false }),
+        });
+        setMessage(`${job.id} ?�업???�실???�에 ?�시 ?�었?�니??`);
+        await loadJobs(jobPage, true);
+        await loadJobCounts();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "?�업 ?�시???�청???�패?�습?�다.");
+      } finally {
+        setJobBusyId(null);
+      }
+    })();
+  }, [canRetryJob, fetchJson, jobBusyId, jobPage, loadJobs, loadJobCounts]);
+
+  const workerRefreshMinutes = useMemo(() => {
+    const stale = workerSummary?.staleMinutes ?? staleMinutes;
+    return stale > 0 ? stale : staleMinutes;
+  }, [staleMinutes, workerSummary]);
+
+  const cleanupPayloadText = useMemo(() => {
+    const selected = CLEANUP_STATUSES.filter((status) => cleanupStatuses[status]);
+    if (selected.length === 0) return [];
+    return selected;
+  }, [cleanupStatuses]);
+
+  const runCleanup = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (cleanupPayloadText.length === 0) {
+        setError("?�리???�태�?최소 1�??�상 ?�택?�세??");
+        return;
+      }
+      if (cleanupOlderDays < 1) {
+        setError("보�? 기간?� 1???�상 ?�력?�야 ?�니??");
+        return;
+      }
+
+      setCleanupBusy(true);
+      setError(null);
+      void (async () => {
+        try {
+          const payload = await fetchJson<CleanupPayload>("/api/admin/jobs/cleanup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              olderThanDays: cleanupOlderDays,
+              statuses: cleanupPayloadText,
+            }),
+          });
+          const selected = payload.statusFilter.join(", ");
+          setMessage(`?�업 ?�리 ?�료: ${payload.deleted}�???�� (?�태: ${selected})`);
+          await loadJobCounts();
+          await loadJobs(jobPage, true);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "?�업 ?�리가 ?�패?�습?�다.");
+        } finally {
+          setCleanupBusy(false);
+        }
+      })();
+    },
+    [cleanupOlderDays, cleanupPayloadText, fetchJson, jobPage, loadJobCounts, loadJobs],
+  );
+
+  const toggleCleanupStatus = useCallback((status: CleanupStatus, checked: boolean) => {
+    setCleanupStatuses((previous) => ({
+      ...previous,
+      [status]: checked,
+    }));
+  }, []);
+
+  return (
+    <main className="dashboard-main page-shell">
+      <header className="topbar">
+        <div className="topbar-brand">
+          <div>
+            <p className="brand-kicker">관리자 ?�업</p>
+            <h1>?�영 ?�?�보??| ?�업/?�커 ?�영</h1>
+            <div className="topbar-stats">
+              <span className="action-kicker">관리자: {initialUser.email}</span>
+            </div>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary}>
+            <RefreshCw size={16} />
+          </button>
+          <ThemeToggle />
+          <Link className="ghost-btn" href={"/admin/system" as any} as={"/admin/system" as any}>
+            ?�스???�태
+          </Link>
+          <button type="button" className="ghost-btn" onClick={() => router.push("/admin")}>
+            <ChevronLeft size={16} />
+            관리자 ??          </button>
+          <UserMenu
+            email={initialUser.email}
+            role={initialUser.role}
+            impersonating={false}
+            onDashboard={() => router.push("/dashboard")}
+            onGoAdmin={() => router.push("/admin")}
+            onLogout={() => {
+              void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
+                router.push("/login");
+                router.refresh();
+              });
+            }}
+          />
+        </div>
+      </header>
+
+      <section className="admin-stats">
+        <article className="admin-stat card">
+          <h2>�??�업</h2>
+          <p className="metric">{pagination?.total ?? 0}</p>
+          <p className="muted">페이지 기준 처리된 작업 수</p>
+        </article>
+        <article className="admin-stat card">
+          <h2>?�크 ???�약</h2>
+          <p className="metric">{loadingSummary ? "..." : `${jobCounts.PENDING + jobCounts.RUNNING}`}</p>
+          <p className="muted">{loadingSummary ? "집계 �?.." : jobSummaryText}</p>
+        </article>
+        <article className="admin-stat card">
+          <h2>?�성 ?�커</h2>
+          <p className="metric">{workerSummary?.active ?? 0}</p>
+          <p className="muted">{`�?${workerSummary?.total ?? 0}, 비활??${workerSummary?.stale ?? 0} (기�? ${workerRefreshMinutes}�?`}</p>
+        </article>
+        <article className="admin-stat card">
+          <h2>?�크 ?�태</h2>
+          <p className="metric">{workerSummary ? formatDateTime(workerSummary.capturedAt) : "-"}</p>
+          <p className="muted">{workerSummary ? "?�커 ?�태 ?�데?�트 ?�각" : "?�커 ?�이???�음"}</p>
+        </article>
+      </section>
+
+      {error ? <p className="error-text">{error}</p> : null}
+      {message ? <p className="ok-text">{message}</p> : null}
+
+      <section className="card">
+        <div className="table-toolbar">
+          <h2>?�업 목록</h2>
+          <span className="muted text-small">{workerCountsText}</span>
+        </div>
+        <form className="form-grid top-gap" onSubmit={applyFilters}>
+          <label className="field">
+            <span>작업 유형</span>
+            <select value={jobType} onChange={(event) => setJobType(event.target.value as "" | JobType)}>
+              {JOB_TYPE_OPTIONS.map((type) => (
+                <option key={type || "all"} value={type}>
+                  {type || "?�체"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>?�태</span>
+            <select value={jobStatus} onChange={(event) => setJobStatus(event.target.value as "" | JobStatus)}>
+              {JOB_STATUS_OPTIONS.map((status) => (
+                <option key={status || "all"} value={status}>
+                  {status ? JOB_STATUS_LABELS[status] : "?�체"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>?�용??ID</span>
+            <input value={jobUserId} onChange={(event) => setJobUserId(event.target.value)} placeholder="UUID ?�력" />
+          </label>
+          <div className="align-end">
+            <button className="btn-success" type="submit" disabled={loadingJobs}>
+              {loadingJobs ? "조회 �?.." : "?�터 ?�용"}
+            </button>
+          </div>
+        </form>
+        <div className="table-wrap top-gap">
+          <table>
+            <thead>
+              <tr>
+                <th>?�업 ID</th>
+                <th>요청 사용자</th>
+                <th>?�형</th>
+                <th>?�태</th>
+                <th>?�도</th>
+                <th>실행 일시</th>
+                <th>?�행 ?�정 ?�각</th>
+                <th>최근 ?�류</th>
+                <th>조치</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingJobs ? (
+                <tr>
+                  <td colSpan={9}>로딩 �?..</td>
+                </tr>
+              ) : jobs.length === 0 ? (
+                <tr>
+                  <td colSpan={9}>조회???�업???�습?�다.</td>
+                </tr>
+              ) : (
+                jobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>{job.id}</td>
+                    <td>{job.user?.email ?? job.userId}</td>
+                    <td>{job.type}</td>
+                    <td>
+                      <span className={`status-chip ${statusClassForJob(job.status)}`}>{JOB_STATUS_LABELS[job.status]}</span>
+                    </td>
+                    <td>{job.attempts}</td>
+                    <td>{job.workerId ?? "-"}</td>
+                    <td>{formatDateTime(job.runAfter)}</td>
+                    <td>
+                      <span className="muted" style={{ maxWidth: 260, display: "inline-block", overflowWrap: "anywhere" }}>
+                        {job.lastError ?? "-"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="action-row">
+                        <button
+                          type="button"
+                          className="btn-success"
+                          disabled={jobBusyId === job.id || !canRetryJob(job.status)}
+                          onClick={() => void retryJob(job)}
+                        >
+                          {jobBusyId === job.id ? (
+                            <>
+                              <RotateCw size={14} />
+                              처리 �?..
+                            </>
+                          ) : (
+                            "재시도"
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          disabled={jobBusyId === job.id || !canCancelJob(job.status)}
+                          onClick={() => void cancelJob(job)}
+                        >
+                          {jobBusyId === job.id ? "처리 �?.." : "취소"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {pagination && pagination.totalPages > 1 ? (
+          <div className="pagination">
+            <button
+              type="button"
+              className="pagination-button ghost-btn"
+              onClick={() => goPage((pagination.page ?? 1) - 1)}
+              disabled={!pagination.hasPrevPage || loadingJobs}
+            >
+              ?�전
+            </button>
+            {pageButtons.map((page) => (
+              <button
+                type="button"
+                key={page}
+                className={`pagination-button ghost-btn${(pagination.page ?? 1) === page ? " active" : ""}`}
+                onClick={() => goPage(page)}
+                disabled={loadingJobs}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="pagination-button ghost-btn"
+              onClick={() => goPage((pagination.page ?? 1) + 1)}
+              disabled={!pagination.hasNextPage || loadingJobs}
+            >
+              ?�음
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card">
+        <div className="table-toolbar">
+          <h2>?�커 목록</h2>
+          <label className="field">
+            <span>비활??기�?(�?</span>
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={staleMinutes}
+              onChange={(event) => setStaleMinutes(Math.max(1, Number(event.target.value) || 1))}
+            />
+          </label>
+          <button className="ghost-btn" type="button" onClick={() => void loadWorkers(staleMinutes)} disabled={loadingWorkers}>
+            갱신
+          </button>
+        </div>
+        <div className="table-wrap top-gap">
+          <table>
+            <thead>
+              <tr>
+                <th>?�커 ID</th>
+                <th>마�?�??�답</th>
+                <th>?�태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingWorkers ? (
+                <tr>
+                  <td colSpan={3}>로딩 �?..</td>
+                </tr>
+              ) : workers.length === 0 ? (
+                <tr>
+                  <td colSpan={3}>?�록???�커가 ?�습?�다.</td>
+                </tr>
+              ) : (
+                workers.map((worker) => {
+                  const active = isActiveWorker(worker.lastSeenAt);
+                  return (
+                    <tr key={worker.workerId}>
+                      <td>{worker.workerId}</td>
+                      <td>{formatDateTime(worker.lastSeenAt)}</td>
+                      <td>
+                        <span className={`status-chip ${active ? "status-active" : "status-failed"}`}>
+                          {active ? "활성" : "비활성"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="table-toolbar">
+          <h2>?�료/?�패 ?�업 ?�리</h2>
+          <span className="muted text-small">?�료·?�패·취소???�업??기간 기�??�로 ??��?�니??</span>
+        </div>
+        <form className="form-grid top-gap" onSubmit={runCleanup}>
+          <label className="field">
+            <span>?�리 기�?(??</span>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={cleanupOlderDays}
+              onChange={(event) => setCleanupOlderDays(Math.max(1, Number(event.target.value) || 1))}
+            />
+          </label>
+          <label className="field">
+            <span>?�태</span>
+            <div className="action-row">
+              {CLEANUP_STATUSES.map((status) => (
+                <label className="check-field" key={status}>
+                  <input
+                    type="checkbox"
+                    checked={cleanupStatuses[status]}
+                    onChange={(event) => {
+                      toggleCleanupStatus(status, event.currentTarget.checked);
+                    }}
+                  />
+                  <span>{JOB_STATUS_LABELS[status]}</span>
+                </label>
+              ))}
+            </div>
+          </label>
+          <div className="align-end">
+            <button className="btn-success" type="submit" disabled={cleanupBusy}>
+              {cleanupBusy ? "?�리 �?.." : "?�택 ?�업 ?�리"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </main>
+  );
+}
+

@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Route } from "next";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
@@ -47,6 +48,8 @@ interface ApiErrorPayload {
   errorCode?: string;
 }
 
+type VisibilityStatus = "active" | "scheduled" | "expired" | "inactive";
+
 const NOTICE_TYPE_OPTIONS: { value: NoticeType; label: string }[] = [
   { value: "BROADCAST", label: "전체 공지" },
   { value: "MAINTENANCE", label: "시스템 점검" },
@@ -76,6 +79,63 @@ function toUtcIso(value: string | null): string | null {
   return parsed.toISOString();
 }
 
+function resolveVisibilityStatus(notice: SiteNotice, now: Date): VisibilityStatus {
+  if (!notice.isActive) {
+    return "inactive";
+  }
+
+  if (notice.visibleFrom) {
+    const from = new Date(notice.visibleFrom);
+    if (!Number.isNaN(from.getTime()) && now.getTime() < from.getTime()) {
+      return "scheduled";
+    }
+  }
+
+  if (notice.visibleTo) {
+    const to = new Date(notice.visibleTo);
+    if (!Number.isNaN(to.getTime()) && now.getTime() > to.getTime()) {
+      return "expired";
+    }
+  }
+
+  return "active";
+}
+
+function formatVisibilityStatus(status: VisibilityStatus): string {
+  switch (status) {
+    case "active":
+      return "현재 노출";
+    case "scheduled":
+      return "예약";
+    case "expired":
+      return "만료";
+    case "inactive":
+    default:
+      return "비활성";
+  }
+}
+
+function formatVisibilityStatusClass(status: VisibilityStatus): string {
+  switch (status) {
+    case "active":
+      return "status-active";
+    case "scheduled":
+      return "status-pending";
+    case "expired":
+      return "status-failed";
+    case "inactive":
+    default:
+      return "status-failed";
+  }
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("ko-KR");
+}
+
 export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientProps) {
   const router = useRouter();
 
@@ -96,10 +156,14 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const [submitting, setSubmitting] = useState(false);
 
   const [busyNoticeId, setBusyNoticeId] = useState<string | null>(null);
-  const [activeCount, setActiveCount] = useState(0);
-  const [inactiveCount, setInactiveCount] = useState(0);
 
+  const now = useMemo(() => new Date(), []);
   const hasNoticeDraft = useMemo(() => Boolean(formTitle.trim() || formMessage.trim()), [formTitle, formMessage]);
+  const totalCount = notices.length;
+  const activeCount = notices.filter((notice) => notice.isActive).length;
+  const inactiveCount = notices.length - activeCount;
+  const broadcastCount = notices.filter((notice) => notice.type === "BROADCAST").length;
+  const maintenanceCount = notices.filter((notice) => notice.type === "MAINTENANCE").length;
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
@@ -121,7 +185,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       );
       setNotices(Array.isArray(payload.siteNotices) ? payload.siteNotices : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "공지 목록을 불러오지 못했습니다.");
+      setError(err instanceof Error ? err.message : "공지 목록을 불러오는 중 오류가 발생했습니다.");
       setNotices([]);
     } finally {
       setLoading(false);
@@ -131,12 +195,6 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   useEffect(() => {
     void loadNotices();
   }, [loadNotices]);
-
-  useEffect(() => {
-    const active = notices.filter((notice) => notice.isActive).length;
-    setActiveCount(active);
-    setInactiveCount(notices.length - active);
-  }, [notices]);
 
   const resetForm = useCallback(() => {
     setEditingNotice(null);
@@ -158,14 +216,14 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
     setFormIsActive(notice.isActive);
     setFormVisibleFrom(toDateTimeInput(notice.visibleFrom));
     setFormVisibleTo(toDateTimeInput(notice.visibleTo));
-    setMessage(`"${notice.title}" 공지를 수정합니다.`);
+    setMessage(`"${notice.title}" 공지를 편집합니다.`);
   }, []);
 
   const onSubmitNotice = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitting) return;
     if (!formTitle.trim() || !formMessage.trim()) {
-      setError("제목/내용은 필수입니다.");
+      setError("제목과 내용을 입력해 주세요.");
       return;
     }
     setSubmitting(true);
@@ -189,14 +247,14 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
         });
-        setMessage("공지 내용이 수정되었습니다.");
+        setMessage("공지 내용을 수정했습니다.");
       } else {
         await fetchJson<NoticeResponse>("/api/admin/site-notices", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
         });
-        setMessage("공지 항목이 생성되었습니다.");
+        setMessage("공지 항목을 생성했습니다.");
       }
       resetForm();
       await loadNotices(includeInactive);
@@ -232,7 +290,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ isActive: next }),
         });
-        setMessage(`공지 상태를 ${next ? "활성화" : "비활성화"}했습니다.`);
+        setMessage(`공지 상태를 ${next ? "활성" : "비활성"}로 변경했습니다.`);
         await loadNotices(includeInactive);
       } catch (err) {
         setError(err instanceof Error ? err.message : "공지 상태 변경에 실패했습니다.");
@@ -266,7 +324,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       <header className="topbar">
         <div className="topbar-brand">
           <div>
-            <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
+            <p className="brand-kicker">운영자 공지 페이지 설정</p>
             <h1>전체 공지 / 점검 관리</h1>
             <div className="topbar-stats">
               <span className="action-kicker">관리자: {initialUser.email}</span>
@@ -278,6 +336,12 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             <RefreshCw size={16} />
           </button>
           <ThemeToggle />
+          <Link className="ghost-btn" href={"/admin/operations" as any}>
+            작업 운영
+          </Link>
+          <Link className="ghost-btn" href={"/admin/system" as any}>
+            시스템 상태
+          </Link>
           <button type="button" className="ghost-btn" onClick={() => router.push("/admin" as Route)}>
             <ChevronLeft size={16} />
             운영자 홈
@@ -300,13 +364,19 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
 
       <section className="admin-stats">
         <article className="admin-stat card">
-          <h2>전체 항목</h2>
-          <p className="metric">{notices.length}</p>
-          <p className="muted">활성 {activeCount} / 비활성 {inactiveCount}</p>
+          <h2>전체 공지</h2>
+          <p className="metric">{totalCount}</p>
+          <p className="muted">
+            전체 {broadcastCount}건, 점검 {maintenanceCount}건
+          </p>
         </article>
         <article className="admin-stat card">
-          <h2>표시 범위</h2>
-          <p className="metric">{includeInactive ? "전체" : "활성만"}</p>
+          <h2>활성/비활성</h2>
+          <p className="metric">{activeCount} / {inactiveCount}</p>
+          <p className="muted">활성 기준으로 즉시 노출되는 공지 수</p>
+        </article>
+        <article className="admin-stat card">
+          <h2>노출 포함 범위</h2>
           <label className="check-field" style={{ marginTop: 8 }}>
             <input
               type="checkbox"
@@ -316,7 +386,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
                 void loadNotices(event.target.checked);
               }}
             />
-            <span>비활성 포함</span>
+            <span>비활성/만료 공지까지 함께 보기</span>
           </label>
         </article>
       </section>
@@ -365,14 +435,14 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             />
           </label>
           <label className="field">
-            <span>활성화</span>
+            <span>활성</span>
             <select value={formIsActive ? "true" : "false"} onChange={(event) => setFormIsActive(event.target.value === "true")}>
               <option value="true">활성</option>
               <option value="false">비활성</option>
             </select>
           </label>
           <label className="field">
-            <span>노출 시작 (선택)</span>
+            <span>시작 시간 (선택)</span>
             <input
               type="datetime-local"
               value={formVisibleFrom}
@@ -380,7 +450,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             />
           </label>
           <label className="field">
-            <span>노출 종료 (선택)</span>
+            <span>종료 시간 (선택)</span>
             <input
               type="datetime-local"
               value={formVisibleTo}
@@ -388,7 +458,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             />
           </label>
           <label className="field">
-            <span>메시지</span>
+            <span>내용</span>
             <textarea
               value={formMessage}
               onChange={(event) => setFormMessage(event.target.value)}
@@ -400,8 +470,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           </label>
           <div className="align-end">
             <button className="btn-success" type="submit" disabled={submitting || !hasNoticeDraft}>
-              {submitting ? "처리 중..." : editingNotice ? "수정 저장" : "등록"}
-              {submitting ? <Save size={16} /> : null}
+              {submitting ? <><Save size={16} /> 저장 중...</> : editingNotice ? "수정" : "등록"}
             </button>
             {editingNotice ? (
               <button type="button" className="ghost-btn" onClick={resetForm} disabled={submitting}>
@@ -418,10 +487,11 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           <table>
             <thead>
               <tr>
-                <th>유형</th>
+                <th>타입</th>
                 <th>제목</th>
                 <th>우선순위</th>
                 <th>상태</th>
+                <th>노출 범위</th>
                 <th>시작</th>
                 <th>종료</th>
                 <th>수정</th>
@@ -430,51 +500,59 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7}>불러오는 중...</td>
+                  <td colSpan={8}>공지 목록을 불러오는 중...</td>
                 </tr>
               ) : notices.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>등록된 공지가 없습니다.</td>
+                  <td colSpan={8}>등록된 공지가 없습니다.</td>
                 </tr>
               ) : (
-                notices.map((notice) => (
-                  <tr key={notice.id}>
-                    <td>{notice.type === "BROADCAST" ? "전체 공지" : "시스템 점검"}</td>
-                    <td>{notice.title}</td>
-                    <td>{notice.priority}</td>
-                    <td>{notice.isActive ? "활성" : "비활성"}</td>
-                    <td>{notice.visibleFrom ? new Date(notice.visibleFrom).toLocaleString("ko-KR") : "-"}</td>
-                    <td>{notice.visibleTo ? new Date(notice.visibleTo).toLocaleString("ko-KR") : "-"}</td>
-                    <td>
-                      <div className="action-row">
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => selectEditNotice(notice)}
-                          disabled={busyNoticeId === notice.id}
-                        >
-                          수정
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => toggleNoticeActive(notice)}
-                          disabled={busyNoticeId === notice.id}
-                        >
-                          {notice.isActive ? "비활성화" : "활성화"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-danger"
-                          onClick={() => deleteNotice(notice)}
-                          disabled={busyNoticeId === notice.id}
-                        >
-                          {busyNoticeId === notice.id ? "삭제 중..." : <><Trash2 size={14} /> 삭제</>}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                notices.map((notice) => {
+                  const visibility = resolveVisibilityStatus(notice, now);
+                  return (
+                    <tr key={notice.id}>
+                      <td>{notice.type === "BROADCAST" ? "전체 공지" : "시스템 점검"}</td>
+                      <td>{notice.title}</td>
+                      <td>{notice.priority}</td>
+                      <td>{notice.isActive ? "활성" : "비활성"}</td>
+                      <td>
+                        <span className={`status-chip ${formatVisibilityStatusClass(visibility)}`}>
+                          {formatVisibilityStatus(visibility)}
+                        </span>
+                      </td>
+                      <td>{notice.visibleFrom ? formatDateTime(notice.visibleFrom) : "-"}</td>
+                      <td>{notice.visibleTo ? formatDateTime(notice.visibleTo) : "-"}</td>
+                      <td>
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            className="ghost-btn"
+                            onClick={() => selectEditNotice(notice)}
+                            disabled={busyNoticeId === notice.id}
+                          >
+                            수정
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-btn"
+                            onClick={() => toggleNoticeActive(notice)}
+                            disabled={busyNoticeId === notice.id}
+                          >
+                            {notice.isActive ? "비활성" : "활성"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-danger"
+                            onClick={() => deleteNotice(notice)}
+                            disabled={busyNoticeId === notice.id}
+                          >
+                            {busyNoticeId === notice.id ? "삭제 중..." : <><Trash2 size={14} /> 삭제</>}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
