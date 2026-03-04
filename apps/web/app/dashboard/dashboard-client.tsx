@@ -158,6 +158,8 @@ interface AutoProgress {
   };
 }
 
+const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
+
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
 const POLL_ACTIVE_MS = 120000;
 const POLL_IDLE_MS = 300000;
@@ -315,6 +317,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
   const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
+  const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
 
   const sortedJobs = useMemo(
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -432,10 +435,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [summary, loading, syncInProgress]);
 
   const broadcastNotices = useMemo(() => siteNotices.filter((notice) => notice.type === "BROADCAST"), [siteNotices]);
+  const visibleBroadcastNotices = useMemo(
+    () => broadcastNotices.filter((notice) => !dismissedBroadcastNoticeIds.has(notice.id)),
+    [broadcastNotices, dismissedBroadcastNoticeIds],
+  );
   const maintenanceNotice = useMemo(
     () => siteNotices.find((notice) => notice.type === "MAINTENANCE" && notice.isActive),
     [siteNotices],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.sessionStorage.getItem(BROADCAST_NOTICE_DISMISS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const next = new Set(
+          parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0),
+        );
+        setDismissedBroadcastNoticeIds(next);
+      }
+    } catch {
+      // keep default empty set
+    }
+  }, []);
 
   useEffect(() => {
     if (!trackingJobId) return;
@@ -548,6 +572,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setNotices((prev) => prev.map((item) => (item.id === noticeId ? { ...item, isRead: true } : item)));
   }
 
+  function dismissBroadcastNotice(noticeId: string) {
+    setDismissedBroadcastNoticeIds((prev) => {
+      if (prev.has(noticeId)) return prev;
+      const next = new Set(prev);
+      next.add(noticeId);
+      try {
+        window.sessionStorage.setItem(BROADCAST_NOTICE_DISMISS_KEY, JSON.stringify(Array.from(next)));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+  }
+
   async function saveMail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!mailDraft) return;
@@ -579,59 +617,94 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       <header className="topbar">
-        <div className="topbar-brand">
-          <img
-            src="/brand/catholic/crest-mark.png"
-            alt="Catholic University crest"
-            loading="lazy"
-          />
-          <div>
-            <p className="brand-kicker">CU12 자동화 · 학습 운영 대시보드</p>
-            <h1>나의 학습 홈</h1>
-            <div className="topbar-stats">
-              <span className="action-kicker">{context?.effective.email ?? initialUser.email}</span>
-              {context?.impersonating ? (
-                <span className="error-text">관리자 대리 실행 모드: {context?.effective.email}</span>
-              ) : null}
+        <div className="topbar-main">
+          <div className="topbar-brand">
+            <img
+              src="/brand/catholic/crest-mark.png"
+              alt="Catholic University crest"
+              loading="lazy"
+            />
+            <div>
+              <p className="brand-kicker">CU12 자동화 · 학습 운영 대시보드</p>
+              <h1>나의 학습 홈</h1>
+              <div className="topbar-stats">
+                <span className="action-kicker">{context?.effective.email ?? initialUser.email}</span>
+                {context?.impersonating ? (
+                  <span className="error-text">관리자 대리 실행 모드: {context?.effective.email}</span>
+                ) : null}
+              </div>
             </div>
           </div>
+          <div className="topbar-actions">
+            <button
+              className="icon-btn"
+              onClick={() => void refreshAll(false)}
+              disabled={loading || refreshing}
+              title="새로고침"
+              type="button"
+            >
+              <RotateCw size={16} />
+            </button>
+            <ThemeToggle />
+            <Link className="ghost-btn" href={"/notices" as any}>
+              전체 공지
+            </Link>
+            <Link className="ghost-btn" href={"/maintenance" as any}>
+              점검 안내
+            </Link>
+            <NotificationCenter
+              notifications={notifications}
+              onOpen={setActiveNotification}
+              onMarkRead={(item) => {
+                if (item.isUnread) {
+                  void markNotificationRead(item);
+                }
+              }}
+            />
+            <UserMenu
+              email={context?.effective.email ?? initialUser.email}
+              role={initialUser.role}
+              impersonating={context?.impersonating ?? false}
+              onDashboard={() => {}}
+              onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onLogout={logout}
+            />
+          </div>
         </div>
-        <div className="topbar-actions">
-          <button
-            className="icon-btn"
-            onClick={() => void refreshAll(false)}
-            disabled={loading || refreshing}
-            title="새로고침"
-            type="button"
-          >
-            <RotateCw size={16} />
-          </button>
-          <ThemeToggle />
-          <Link className="ghost-btn" href={"/notices" as any}>
-            전체 공지
-          </Link>
-          <Link className="ghost-btn" href={"/maintenance" as any}>
-            점검 안내
-          </Link>
-          <NotificationCenter
-            notifications={notifications}
-            onOpen={setActiveNotification}
-            onMarkRead={(item) => {
-              if (item.isUnread) {
-                void markNotificationRead(item);
-              }
-            }}
-          />
-          <UserMenu
-            email={context?.effective.email ?? initialUser.email}
-            role={initialUser.role}
-            impersonating={context?.impersonating ?? false}
-            onDashboard={() => {}}
-            onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onLogout={logout}
-          />
-        </div>
+        {(maintenanceNotice || visibleBroadcastNotices.length > 0) ? (
+          <div className="topbar-notice-stack">
+            {maintenanceNotice ? (
+              <section className="topbar-notice topbar-notice-warning">
+                <p className="topbar-notice-title">시스템 점검 공지</p>
+                <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
+                <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
+                <p className="muted">
+                  우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
+                </p>
+                <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
+              </section>
+            ) : null}
+            {visibleBroadcastNotices.length > 0 ? (
+              visibleBroadcastNotices.map((notice) => (
+                <section className="topbar-notice topbar-notice-broadcast" key={notice.id}>
+                  <div className="topbar-notice-row">
+                    <p className="topbar-notice-title">전체 공지</p>
+                    <button
+                      className="topbar-notice-dismiss ghost-btn"
+                      type="button"
+                      onClick={() => dismissBroadcastNotice(notice.id)}
+                    >
+                      닫기
+                    </button>
+                  </div>
+                  <p className="topbar-notice-subtitle">{notice.title}</p>
+                  <p className="topbar-notice-body muted">{notice.message}</p>
+                </section>
+              ))
+            ) : null}
+          </div>
+        ) : null}
       </header>
       {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
 
@@ -644,44 +717,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <article className="card"><h2>미확인 공지</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
         <article className="card"><h2>임박 차시</h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
       </section>
-
-      {maintenanceNotice ? (
-        <section className="card">
-          <h2>시스템 점검 공지</h2>
-          <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
-          <article className="notice-detail">
-            <h3>{maintenanceNotice.title}</h3>
-            <p className="muted">
-              우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
-            </p>
-            <pre>{maintenanceNotice.message || "공지 내용이 없습니다."}</pre>
-          </article>
-        </section>
-      ) : null}
-
-      {broadcastNotices.length > 0 ? (
-        <section className="card">
-          <h2>전체 공지</h2>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>제목</th>
-                  <th>내용</th>
-                </tr>
-              </thead>
-              <tbody>
-                {broadcastNotices.map((notice) => (
-                  <tr key={notice.id}>
-                    <td>{notice.title}</td>
-                    <td>{notice.message}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
 
       <section className="card">
         <h2>자동 수강</h2>

@@ -644,12 +644,20 @@ textarea:focus {
   top: 0;
   z-index: 30;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  justify-content: flex-start;
+  margin: -4px 0 10px;
+  padding: 12px;
+}
+
+.topbar-main {
+  display: flex;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  margin: -4px 0 10px;
-  padding: 12px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: color-mix(in oklab, var(--surface) 84%, transparent);
@@ -697,6 +705,57 @@ textarea:focus {
 
 .action-kicker {
   color: var(--text-muted);
+}
+
+.topbar-notice-stack {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+
+.topbar-notice {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  background: var(--surface);
+  display: grid;
+  gap: 6px;
+}
+
+.topbar-notice-warning {
+  border-color: color-mix(in oklab, var(--warn) 48%, var(--border));
+  background: color-mix(in oklab, var(--warn-soft) 36%, transparent);
+}
+
+.topbar-notice-title {
+  font-weight: 700;
+  margin: 0;
+}
+
+.topbar-notice-subtitle {
+  margin: 0;
+  color: var(--text);
+}
+
+.topbar-notice-body {
+  margin: 0;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.topbar-notice-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.topbar-notice-dismiss {
+  align-self: flex-start;
+  width: auto;
+  padding: 4px 10px;
+  border-radius: 10px;
 }
 
 .notification-trigger,
