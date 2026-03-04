@@ -86,6 +86,36 @@ a {
   min-height: 100dvh;
 }
 
+.session-banner-shell {
+  width: 100%;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+
+.session-banner-stack {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-notice-host {
+  width: 100%;
+}
+
+.session-notice-stack {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+
+.session-warning-bar {
+  width: 100%;
+}
+
 h1,
 h2,
 h3 {
@@ -1333,6 +1363,10 @@ code {
 
   .topbar {
     padding: 12px;
+  }
+
+  .session-banner-shell {
+    padding: 0 16px;
   }
 
   .topbar-main {

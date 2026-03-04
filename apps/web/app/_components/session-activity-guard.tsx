@@ -179,10 +179,8 @@ export function SessionActivityGuard() {
     <div
       role="status"
       aria-live="polite"
+      className="session-warning-bar"
       style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 1000,
         width: "100%",
         display: "grid",
         gridTemplateColumns: "1fr auto auto",

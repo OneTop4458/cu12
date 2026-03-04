@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -164,6 +165,7 @@ interface AutoProgress {
 type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
 
 const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
+const SITE_NOTICE_HOST_ID = "dashboard-site-notice-host";
 
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
 const POLL_ACTIVE_MS = 120000;
@@ -548,6 +550,62 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     [siteNotices],
   );
 
+  const dismissBroadcastNotice = useCallback((noticeId: string) => {
+    setDismissedBroadcastNoticeIds((prev) => {
+      if (prev.has(noticeId)) return prev;
+      const next = new Set(prev);
+      next.add(noticeId);
+      try {
+        window.sessionStorage.setItem(BROADCAST_NOTICE_DISMISS_KEY, JSON.stringify(Array.from(next)));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+  }, []);
+
+  const siteNoticePortal = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    if (!maintenanceNotice && visibleBroadcastNotices.length === 0) return null;
+    const host = document.getElementById(SITE_NOTICE_HOST_ID);
+    if (!host) return null;
+
+    return createPortal(
+      <div className="session-notice-stack">
+        {maintenanceNotice ? (
+          <section className="topbar-notice topbar-notice-warning">
+            <p className="topbar-notice-title">시스템 점검 공지</p>
+            <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
+            <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
+            <p className="muted">
+              우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
+            </p>
+            <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
+          </section>
+        ) : null}
+        {visibleBroadcastNotices.length > 0 ? (
+          visibleBroadcastNotices.map((notice) => (
+            <section className="topbar-notice topbar-notice-broadcast" key={notice.id}>
+              <div className="topbar-notice-row">
+                <p className="topbar-notice-title">전체 공지</p>
+                <button
+                  className="topbar-notice-dismiss ghost-btn"
+                  type="button"
+                  onClick={() => dismissBroadcastNotice(notice.id)}
+                >
+                  닫기
+                </button>
+              </div>
+              <p className="topbar-notice-subtitle">{notice.title}</p>
+              <p className="topbar-notice-body muted">{notice.message}</p>
+            </section>
+          ))
+        ) : null}
+      </div>,
+      host,
+    );
+  }, [maintenanceNotice, visibleBroadcastNotices, dismissBroadcastNotice]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -711,20 +769,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setNotices((prev) => prev.map((item) => (item.id === noticeId ? { ...item, isRead: true } : item)));
   }
 
-  function dismissBroadcastNotice(noticeId: string) {
-    setDismissedBroadcastNoticeIds((prev) => {
-      if (prev.has(noticeId)) return prev;
-      const next = new Set(prev);
-      next.add(noticeId);
-      try {
-        window.sessionStorage.setItem(BROADCAST_NOTICE_DISMISS_KEY, JSON.stringify(Array.from(next)));
-      } catch {
-        // no-op
-      }
-      return next;
-    });
-  }
-
   async function saveMail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!mailDraft) return;
@@ -755,6 +799,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   return (
     <>
+      {siteNoticePortal}
       <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
@@ -811,39 +856,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             />
           </div>
         </div>
-        {(maintenanceNotice || visibleBroadcastNotices.length > 0) ? (
-          <div className="topbar-notice-stack">
-            {maintenanceNotice ? (
-              <section className="topbar-notice topbar-notice-warning">
-                <p className="topbar-notice-title">시스템 점검 공지</p>
-                <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
-                <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
-                <p className="muted">
-                  우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
-                </p>
-                <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
-              </section>
-            ) : null}
-            {visibleBroadcastNotices.length > 0 ? (
-              visibleBroadcastNotices.map((notice) => (
-                <section className="topbar-notice topbar-notice-broadcast" key={notice.id}>
-                  <div className="topbar-notice-row">
-                    <p className="topbar-notice-title">전체 공지</p>
-                    <button
-                      className="topbar-notice-dismiss ghost-btn"
-                      type="button"
-                      onClick={() => dismissBroadcastNotice(notice.id)}
-                    >
-                      닫기
-                    </button>
-                  </div>
-                  <p className="topbar-notice-subtitle">{notice.title}</p>
-                  <p className="topbar-notice-body muted">{notice.message}</p>
-                </section>
-              ))
-            ) : null}
-          </div>
-        ) : null}
       </header>
       {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
 

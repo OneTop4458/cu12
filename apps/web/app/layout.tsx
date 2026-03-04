@@ -15,7 +15,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body>
         <AppThemeProvider>
-          <SessionActivityGuard />
+          <div className="session-banner-shell">
+            <div className="session-banner-stack">
+              <SessionActivityGuard />
+              <div id="dashboard-site-notice-host" className="session-notice-host" />
+            </div>
+          </div>
           <ConsoleSecurityWarning />
           <div className="app-root">{children}</div>
           <Toaster richColors position="top-right" closeButton />
