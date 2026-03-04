@@ -478,6 +478,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           body: JSON.stringify({
             cu12Id: trimmedCu12Id,
             cu12Password: newCu12Password.trim(),
+            localPassword: newIsTestUser ? newLocalPassword.trim() : undefined,
             name: newName.trim() || undefined,
             campus: newCampus,
             role: newRole,

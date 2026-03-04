@@ -6,6 +6,33 @@ type SendMailResult = {
   reason: string | null;
 };
 
+function buildSendMailReason(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Unknown error";
+  }
+
+  const code = (error as { code?: string }).code;
+  const lowerMessage = error.message.toLowerCase();
+
+  if (code === "ESOCKET") {
+    return `Failed to send test mail: SMTP socket error (${code})`;
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return `Failed to send test mail: SMTP server host DNS lookup failed (${code})`;
+  }
+  if (code === "ECONNREFUSED" || code === "ECONNRESET") {
+    return `Failed to send test mail: SMTP server connection refused (${code})`;
+  }
+  if (code === "ETIMEDOUT" || lowerMessage.includes("timeout")) {
+    return `Failed to send test mail: SMTP connection timed out`;
+  }
+  if (code === "EAUTH" || lowerMessage.includes("authentication failed") || lowerMessage.includes("invalid login")) {
+    return `Failed to send test mail: SMTP authentication failed`;
+  }
+
+  return `Failed to send test mail: ${error.message}`;
+}
+
 export async function sendMail(
   to: string,
   subject: string,
@@ -36,10 +63,6 @@ export async function sendMail(
 
     return { sent: true, reason: null };
   } catch (error) {
-    const reason = error instanceof Error && error.message ? error.message : "Unknown error";
-    return {
-      sent: false,
-      reason: `Failed to send test mail: ${reason}`,
-    };
+    return { sent: false, reason: buildSendMailReason(error) };
   }
 }

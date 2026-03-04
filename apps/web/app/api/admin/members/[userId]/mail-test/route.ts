@@ -27,6 +27,21 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (reason === "SMTP_NOT_CONFIGURED") {
       return "SMTP 설정이 누락되어 테스트 메일을 보낼 수 없습니다.";
     }
+    if (reason.includes("SMTP connection timed out")) {
+      return "SMTP 서버 연결이 시간 초과되어 테스트 메일을 보낼 수 없습니다.";
+    }
+    if (reason.includes("SMTP server connection refused")) {
+      return "SMTP 서버 연결이 거부되었습니다.";
+    }
+    if (reason.includes("SMTP authentication failed")) {
+      return "SMTP 인증에 실패했습니다. SMTP 계정 정보(아이디/비밀번호) 확인이 필요합니다.";
+    }
+    if (reason.includes("SMTP server host DNS lookup failed")) {
+      return "SMTP 서버 주소(DNS)를 확인할 수 없습니다.";
+    }
+    if (reason.includes("SMTP socket error")) {
+      return "SMTP 소켓 오류로 테스트 메일을 발송하지 못했습니다.";
+    }
     if (reason === "Failed to send test mail" || reason.startsWith("Failed to send test mail:")) {
       return "메일 테스트 발송에 실패했습니다.";
     }

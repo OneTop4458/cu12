@@ -93,12 +93,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, CreateMemberSchema);
+    const localPassword = body.localPassword?.trim();
     const campus = body.campus ?? "SONGSIM";
     const role = body.role ?? "USER";
     const isActive = body.isActive ?? true;
     const isTestUser = body.isTestUser ?? false;
 
-    if (isTestUser && !body.localPassword) {
+    if (isTestUser && !localPassword) {
       return jsonError("localPassword is required for test users", 400, "VALIDATION_ERROR");
     }
     if (!isTestUser && !body.cu12Password) {
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
 
     if (!userId) {
       const passwordHash = isTestUser
-        ? await hashPassword(body.localPassword ?? generateToken(16))
+        ? await hashPassword(localPassword!)
         : await hashPassword(generateToken(16));
       const createdUser = await prisma.user.create({
         data: {
@@ -172,8 +173,8 @@ export async function POST(request: NextRequest) {
         email: body.cu12Id,
       };
 
-      if (isTestUser && body.localPassword) {
-        updateData.passwordHash = await hashPassword(body.localPassword);
+      if (isTestUser && localPassword) {
+        updateData.passwordHash = await hashPassword(localPassword!);
       }
 
       await prisma.user.update({
