@@ -3,6 +3,8 @@ import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { getCourses, getDashboardSummary, getNotifications, getUpcomingDeadlines } from "@/server/dashboard";
 import { listJobsForUser } from "@/server/queue";
+import { listSiteNotices } from "@/server/site-notice";
+import { SiteNoticeType } from "@prisma/client";
 
 function parseLimit(value: string | null, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -55,12 +57,13 @@ export async function GET(request: NextRequest) {
   const jobsLimit = parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
   const userId = context.effective.userId;
 
-  const [summary, courses, deadlines, notifications, jobs, account, preference] = await Promise.all([
+  const [summary, courses, deadlines, notifications, jobs, siteNotices, account, preference] = await Promise.all([
     getDashboardSummary(userId),
     getCourses(userId),
     getUpcomingDeadlines(userId, deadlinesLimit),
     getNotifications(userId, { limit: notificationsLimit }),
     listJobsForUser(userId, jobsLimit),
+    listSiteNotices(undefined, false),
     prisma.cu12Account.findUnique({
       where: { userId },
       select: {
@@ -76,6 +79,7 @@ export async function GET(request: NextRequest) {
   if (!preference) {
     return jsonError("User not found", 404);
   }
+  const maintenanceNotice = siteNotices.find((notice) => notice.type === SiteNoticeType.MAINTENANCE) ?? null;
 
   return jsonOk({
     context: {
@@ -88,6 +92,8 @@ export async function GET(request: NextRequest) {
     deadlines,
     notifications,
     jobs,
+    siteNotices,
+    maintenanceNotice,
     account,
     preference,
   });

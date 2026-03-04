@@ -1,9 +1,17 @@
-"use client";
-
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
 
 type RoleType = "ADMIN" | "USER";
+
+type UserMenuProps = {
+  email: string;
+  role: RoleType;
+  impersonating: boolean;
+  onDashboard?: () => void;
+  onGoAdmin?: () => void;
+  onOpenSettings?: () => void;
+  onLogout: () => void;
+};
 
 export function UserMenu({
   email,
@@ -13,15 +21,7 @@ export function UserMenu({
   onGoAdmin,
   onOpenSettings,
   onLogout,
-}: {
-  email: string;
-  role: RoleType;
-  impersonating: boolean;
-  onDashboard?: () => void;
-  onGoAdmin?: () => void;
-  onOpenSettings?: () => void;
-  onLogout: () => void;
-}) {
+}: UserMenuProps) {
   const initials = email.slice(0, 2).toUpperCase();
 
   return (
@@ -35,17 +35,26 @@ export function UserMenu({
             <span className="user-menu-email">{email}</span>
             <span className="user-menu-role">
               <ShieldCheck size={12} />
-              <span>{role}{impersonating ? " (대행중)" : ""}</span>
+              <span>
+                {role === "ADMIN" ? "관리자" : "일반 사용자"}
+                {impersonating ? " (대리접속)" : ""}
+              </span>
             </span>
           </span>
           <ChevronDown size={16} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="user-menu-content" align="end" sideOffset={10}>
+        <DropdownMenu.Content
+          className="user-menu-content"
+          align="end"
+          sideOffset={10}
+          collisionPadding={8}
+          avoidCollisions
+        >
           <DropdownMenu.Label className="user-menu-label">
             <UserRound size={16} />
-            <span>현재 계정</span>
+            <span>사용자 메뉴</span>
           </DropdownMenu.Label>
           {onDashboard ? (
             <DropdownMenu.Item className="user-menu-item" onSelect={onDashboard}>
@@ -56,13 +65,13 @@ export function UserMenu({
           {role === "ADMIN" && onGoAdmin ? (
             <DropdownMenu.Item className="user-menu-item" onSelect={onGoAdmin}>
               <ShieldCheck size={16} />
-              <span>관리자 콘솔</span>
+              <span>관리자 화면</span>
             </DropdownMenu.Item>
           ) : null}
           {onOpenSettings ? (
             <DropdownMenu.Item className="user-menu-item" onSelect={onOpenSettings}>
               <Settings size={16} />
-              <span>회원 설정</span>
+              <span>설정</span>
             </DropdownMenu.Item>
           ) : null}
           <DropdownMenu.Separator className="user-menu-separator" />
@@ -75,3 +84,4 @@ export function UserMenu({
     </DropdownMenu.Root>
   );
 }
+

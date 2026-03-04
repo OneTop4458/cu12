@@ -1,10 +1,9 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { createPortal } from "react-dom";
 
 type Campus = "SONGSIM" | "SONGSIN";
 
@@ -29,8 +28,8 @@ interface ApiErrorResponse {
 }
 
 const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
-  { value: "SONGSIM", label: "서울" },
-  { value: "SONGSIN", label: "신촌" },
+  { value: "SONGSIM", label: "서울 캠퍼스" },
+  { value: "SONGSIN", label: "신촌 캠퍼스" },
 ];
 
 export function LoginForm() {
@@ -255,18 +254,15 @@ export function LoginForm() {
         </div>
       ) : null}
 
-      {isProcessing && typeof document !== "undefined"
-        ? createPortal(
-          <div className="modal-overlay processing-overlay" role="presentation">
-            <section className="modal-card processing-card">
-              <h2>처리 중</h2>
-              <p className="muted">{processingMessage}</p>
-              <div className="loading-bar"><span /></div>
-            </section>
-          </div>,
-          document.body,
-        )
-        : null}
+      {isProcessing ? (
+        <div className="modal-overlay processing-overlay" role="presentation">
+          <section className="modal-card processing-card">
+            <h2>처리 중</h2>
+            <p className="muted">{processingMessage}</p>
+            <div className="loading-bar"><span /></div>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

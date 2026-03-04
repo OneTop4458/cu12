@@ -17,6 +17,7 @@ tags:
   - name: Dashboard
   - name: Mail
   - name: Admin
+  - name: SiteNotice
 
 paths:
   /api/health:
@@ -656,6 +657,210 @@ paths:
         "200":
           description: Updated
 
+  /api/site-notices:
+    get:
+      tags: [SiteNotice]
+      summary: List active site notices (optionally by type)
+      parameters:
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [BROADCAST, MAINTENANCE]
+      responses:
+        "200":
+          description: Active site notices
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [siteNotices]
+                properties:
+                  siteNotices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteNotice"
+        "400":
+          description: Validation error
+
+  /api/admin/site-notices:
+    get:
+      tags: [SiteNotice]
+      summary: List site notices (admin)
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: includeInactive
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Site notice list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [siteNotices]
+                properties:
+                  siteNotices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteNotice"
+        "403":
+          description: Forbidden
+    post:
+      tags: [SiteNotice]
+      summary: Create a site notice
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type
+                - title
+                - message
+                - isActive
+                - priority
+              properties:
+                type:
+                  $ref: "#/components/schemas/SiteNoticeType"
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 3000
+                isActive:
+                  type: boolean
+                priority:
+                  type: integer
+                  minimum: -999
+                  maximum: 999
+                visibleFrom:
+                  type: string
+                  format: date-time
+                  nullable: true
+                visibleTo:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        "200":
+          description: Notice created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created, notice]
+                properties:
+                  created:
+                    type: boolean
+                  notice:
+                    $ref: "#/components/schemas/SiteNotice"
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+
+  /api/admin/site-notices/{noticeId}:
+    patch:
+      tags: [SiteNotice]
+      summary: Update a site notice
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: noticeId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  $ref: "#/components/schemas/SiteNoticeType"
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 3000
+                isActive:
+                  type: boolean
+                priority:
+                  type: integer
+                  minimum: -999
+                  maximum: 999
+                visibleFrom:
+                  type: string
+                  format: date-time
+                  nullable: true
+                visibleTo:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        "200":
+          description: Notice updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, notice]
+                properties:
+                  updated:
+                    type: boolean
+                    const: true
+                  notice:
+                    $ref: "#/components/schemas/SiteNotice"
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "404":
+          description: Notice not found
+    delete:
+      tags: [SiteNotice]
+      summary: Delete a site notice
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: noticeId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Notice deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: boolean
+        "403":
+          description: Forbidden
+        "404":
+          description: Notice not found
+
   /api/mail/preferences:
     get:
       tags: [Mail]
@@ -1194,6 +1399,62 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    SiteNoticeType:
+      type: string
+      enum: [BROADCAST, MAINTENANCE]
+
+    SiteNotice:
+      type: object
+      required:
+        [
+          id,
+          title,
+          message,
+          type,
+          isActive,
+          priority,
+          visibleFrom,
+          visibleTo,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        type:
+          $ref: "#/components/schemas/SiteNoticeType"
+        isActive:
+          type: boolean
+        priority:
+          type: integer
+        visibleFrom:
+          type: string
+          format: date-time
+          nullable: true
+        visibleTo:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        createdByUser:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+              format: email
 
     JobDispatchResponse:
       type: object

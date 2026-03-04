@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "next";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { RotateCw } from "lucide-react";
@@ -71,6 +72,19 @@ interface Notification {
   isUnread: boolean;
 }
 
+interface SiteNotice {
+  id: string;
+  title: string;
+  message: string;
+  type: "BROADCAST" | "MAINTENANCE";
+  isActive: boolean;
+  priority: number;
+  visibleFrom: string | null;
+  visibleTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface Job {
   id: string;
   type: "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
@@ -130,6 +144,8 @@ interface DashboardBootstrap {
   deadlines: Deadline[];
   notifications: Notification[];
   jobs: Job[];
+  siteNotices: SiteNotice[];
+  maintenanceNotice: SiteNotice | null;
   account: Account | null;
   preference: MailPreference;
 }
@@ -179,6 +195,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
 
@@ -241,6 +258,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setDeadlines(payload.deadlines);
       setNotifications(payload.notifications);
       setJobs(payload.jobs);
+      setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
       setMailDraft(payload.preference);
       const requiresMailSetup = payload.preference.updatedAt === null;
@@ -307,6 +325,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       void runAction("SYNC", true);
     }
   }, [summary, loading, syncInProgress]);
+
+  const broadcastNotices = useMemo(() => siteNotices.filter((notice) => notice.type === "BROADCAST"), [siteNotices]);
+  const maintenanceNotice = useMemo(
+    () => siteNotices.find((notice) => notice.type === "MAINTENANCE" && notice.isActive),
+    [siteNotices],
+  );
 
   useEffect(() => {
     if (!trackingJobId) return;
@@ -467,6 +491,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <RotateCw size={16} />
           </button>
           <ThemeToggle />
+          <Link className="ghost-btn" href={"/notices" as any}>
+            전체 공지
+          </Link>
+          <Link className="ghost-btn" href={"/maintenance" as any}>
+            점검 안내
+          </Link>
           <NotificationCenter
             notifications={notifications}
             onOpen={setActiveNotification}
@@ -498,6 +528,44 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <article className="card"><h2>미확인 공지</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
         <article className="card"><h2>임박 차시</h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
       </section>
+
+      {maintenanceNotice ? (
+        <section className="card">
+          <h2>시스템 점검 공지</h2>
+          <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
+          <article className="notice-detail">
+            <h3>{maintenanceNotice.title}</h3>
+            <p className="muted">
+              우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
+            </p>
+            <pre>{maintenanceNotice.message || "공지 내용이 없습니다."}</pre>
+          </article>
+        </section>
+      ) : null}
+
+      {broadcastNotices.length > 0 ? (
+        <section className="card">
+          <h2>전체 공지</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>제목</th>
+                  <th>내용</th>
+                </tr>
+              </thead>
+              <tbody>
+                {broadcastNotices.map((notice) => (
+                  <tr key={notice.id}>
+                    <td>{notice.title}</td>
+                    <td>{notice.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="card">
         <h2>자동 수강</h2>

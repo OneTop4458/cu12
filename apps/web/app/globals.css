@@ -624,6 +624,7 @@ textarea:focus {
   gap: 12px;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   margin: -4px 0 10px;
   padding: 12px;
   border-radius: var(--radius-lg);
@@ -657,6 +658,12 @@ textarea:focus {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.topbar-actions > * {
+  flex-shrink: 0;
 }
 
 .topbar-stats {
@@ -676,6 +683,7 @@ textarea:focus {
   height: 40px;
   border-radius: 12px;
   padding: 0;
+  flex-shrink: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
@@ -747,6 +755,8 @@ textarea:focus {
   box-shadow: var(--shadow-mid);
   background: var(--surface);
   overflow: hidden;
+  z-index: 1000;
+  position: relative;
 }
 
 .notification-panel-head {
@@ -774,6 +784,7 @@ textarea:focus {
   display: grid;
   gap: 4px;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .notification-list-item.unread {
@@ -790,6 +801,8 @@ textarea:focus {
   font-size: 0.84rem;
   color: var(--text-muted);
   display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .notification-list-time {
@@ -855,6 +868,8 @@ textarea:focus {
   padding: 8px;
   background: var(--surface);
   box-shadow: var(--shadow-mid);
+  z-index: 1000;
+  position: relative;
 }
 
 .user-menu-label {
@@ -893,6 +908,15 @@ textarea:focus {
   height: 1px;
   background: var(--border);
   margin: 6px;
+}
+
+.notification-trigger:hover,
+.notification-trigger:focus-visible,
+.user-menu-trigger:hover,
+.user-menu-trigger:focus-visible,
+.icon-btn:hover,
+.icon-btn:focus-visible {
+  transform: none;
 }
 
 .admin-hero,

@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
 import { NotificationCenter } from "../../components/notifications/notification-center";
@@ -676,6 +677,9 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           >
             <RotateCw size={16} />
           </button>
+          <Link className="ghost-btn" href={"/admin/site-notices" as any}>
+            공지/점검 설정
+          </Link>
           <ThemeToggle />
           <NotificationCenter
             notifications={recentLogNotifications}
