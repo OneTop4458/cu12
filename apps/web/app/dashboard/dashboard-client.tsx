@@ -162,6 +162,11 @@ const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
 const POLL_ACTIVE_MS = 120000;
 const POLL_IDLE_MS = 300000;
 const POLL_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
+const POLL_ACTIVE_WITH_WORK_MS = 45000;
+const POLL_TRACKING_MS = 10000;
+const POLL_TRACKING_RUNNING_MS = 2500;
+const POLL_TRACKING_PENDING_MS = 4500;
+const POLL_TRACKING_HIDDEN_MS = 12000;
 
 interface DashboardBootstrap {
   context: SessionContext;
@@ -315,6 +320,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [jobs],
   );
+  const hasActiveJobs = useMemo(() => jobs.some((job) => !TERMINAL.has(job.status)), [jobs]);
   const syncInProgress = sortedJobs.some((job) => (job.type === "SYNC" || job.type === "NOTICE_SCAN") && (job.status === "PENDING" || job.status === "RUNNING"));
   const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "RUNNING"));
   const unreadNotifications = notifications.filter((item) => item.isUnread);
@@ -382,8 +388,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const scheduleNext = () => {
+      const isHidden = document.hidden;
       const idleMs = Date.now() - lastInteractionAtRef.current;
-      const nextMs = document.hidden || idleMs >= POLL_IDLE_THRESHOLD_MS ? POLL_IDLE_MS : POLL_ACTIVE_MS;
+      const nextMs = isHidden
+        ? POLL_IDLE_MS
+        : hasActiveJobs || trackingJobId
+          ? POLL_ACTIVE_WITH_WORK_MS
+          : idleMs >= POLL_IDLE_THRESHOLD_MS
+            ? POLL_IDLE_MS
+            : POLL_ACTIVE_MS;
       timeoutId = setTimeout(() => {
         if (!document.hidden) {
           void refreshAll(true);
@@ -406,7 +419,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       interactionEvents.forEach((eventName) => document.removeEventListener(eventName, touch));
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshAll]);
+  }, [refreshAll, hasActiveJobs, trackingJobId]);
 
   useEffect(() => {
     if (!summary || loading) return;
@@ -427,8 +440,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   useEffect(() => {
     if (!trackingJobId) return;
     let stopped = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       if (stopped) return;
+      let nextMs = POLL_TRACKING_RUNNING_MS;
       try {
         const detail = await fetchJson<JobDetail>(`/api/jobs/${trackingJobId}`);
         setTrackingDetail(detail);
@@ -439,11 +454,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           await refreshAll(true);
           return;
         }
+        if (detail.status === "PENDING") {
+          nextMs = POLL_TRACKING_PENDING_MS;
+        }
       } catch {}
-      setTimeout(poll, 3000);
+      if (document.hidden) {
+        nextMs = Math.max(nextMs, POLL_TRACKING_HIDDEN_MS);
+      }
+      timeoutId = setTimeout(poll, nextMs);
     };
     void poll();
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [trackingJobId, fetchJson, refreshAll]);
 
   async function runAction(action: "SYNC" | "AUTOLEARN", silent = false) {
