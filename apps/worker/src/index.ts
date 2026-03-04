@@ -607,8 +607,8 @@ async function main() {
   const env = getEnv();
   const args = parseArgs();
   const once = process.argv.includes("--once");
-  const onceGraceMs = Math.max(90_000, Math.min(5 * 60_000, env.POLL_INTERVAL_MS * 4));
-  const onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
+  const onceGraceMs = Math.max(5 * 60_000, Math.min(20 * 60_000, env.POLL_INTERVAL_MS * 12));
+  let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
   const jobTypes = parseJobTypes(args.get("types"));
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const heartbeat = startHeartbeatLoop(workerId, env.POLL_INTERVAL_MS);
@@ -665,13 +665,22 @@ async function main() {
           }
 
           await finishJob(job.id, result);
+          if (once) {
+            onceNoJobDeadline = Date.now() + onceGraceMs;
+          }
         } catch (jobError) {
           const message = errMessage(jobError);
           const terminalStatus = await getJobStatus(job.id);
           if (message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR || terminalStatus === JobStatus.CANCELED) {
+            if (once) {
+              onceNoJobDeadline = Date.now() + onceGraceMs;
+            }
             continue;
           }
           await failJob(job.id, message);
+          if (once) {
+            onceNoJobDeadline = Date.now() + onceGraceMs;
+          }
         }
       } catch (loopError) {
         if (once) {

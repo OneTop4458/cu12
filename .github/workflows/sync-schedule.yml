@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       created_count: ${{ steps.dispatch.outputs.created_count }}
+      existing_count: ${{ steps.dispatch.outputs.existing_count }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -28,11 +29,13 @@ jobs:
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
           npm --workspace @cu12/worker run dispatch:sync -- --min-interval-minutes=120 --summary-json="$SUMMARY_JSON_WORKER"
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
+          EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           echo "created_count=$CREATED_COUNT" >> "$GITHUB_OUTPUT"
+          echo "existing_count=$EXISTING_COUNT" >> "$GITHUB_OUTPUT"
 
   consume:
     needs: dispatch
-    if: ${{ needs.dispatch.outputs.created_count != '0' }}
+    if: ${{ needs.dispatch.outputs.created_count != '0' || needs.dispatch.outputs.existing_count != '0' }}
     uses: ./.github/workflows/worker-consume.yml
     with:
       trigger: sync
