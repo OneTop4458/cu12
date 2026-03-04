@@ -92,8 +92,8 @@ const CLEANUP_STATUSES: CleanupStatus[] = ["SUCCEEDED", "FAILED", "CANCELED"];
 const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   PENDING: "대기",
   RUNNING: "실행 중",
-  SUCCEEDED: "?�공",
-  FAILED: "?�패",
+  SUCCEEDED: "성공",
+  FAILED: "실패",
   CANCELED: "취소",
 };
 
@@ -112,7 +112,7 @@ function parseError(payload: unknown): string {
       return maybeError.trim();
     }
   }
-  return "?????�는 ?�류가 발생?�습?�다.";
+  return "알 수 없는 오류가 발생했습니다.";
 }
 
 function formatDateTime(value: string | null): string {
@@ -189,7 +189,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       setWorkers(Array.isArray(payload.workers) ? payload.workers : []);
       setWorkerSummary(payload.summary ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "?�커 목록 조회 �??�류가 발생?�습?�다.");
+      setError(err instanceof Error ? err.message : "워커 목록 조회 중 오류가 발생했습니다.");
       setWorkers([]);
       setWorkerSummary(null);
     } finally {
@@ -224,7 +224,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       setPagination(payload.pagination ?? null);
       setJobPage(payload.pagination?.page ?? safePage);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "?�업 목록 조회 �??�류가 발생?�습?�다.");
+      setError(err instanceof Error ? err.message : "작업 목록 조회 중 오류가 발생했습니다.");
       setJobs([]);
       setPagination(null);
     } finally {
@@ -246,7 +246,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       });
       setJobCounts(nextCounts);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "?�업 ?�태 집계 �??�류가 발생?�습?�다.");
+      setError(err instanceof Error ? err.message : "작업 상태 집계 중 오류가 발생했습니다.");
       setJobCounts(EMPTY_COUNTS);
     } finally {
       setLoadingSummary(false);
@@ -295,12 +295,12 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   }, [workerSummary]);
 
   const workerCountsText = useMemo(() => {
-    if (!workerSummary) return "로딩 �?..";
-    return `�?${workerSummary.total} / ?�성 ${workerSummary.active} / 비활??${workerSummary.stale}`;
+    if (!workerSummary) return "로딩 중..";
+    return `총 ${workerSummary.total} / 활성 ${workerSummary.active} / 비활성 ${workerSummary.stale}`;
   }, [workerSummary]);
 
   const jobSummaryText = useMemo(() => {
-    return `?��?${jobCounts.PENDING} / ?�행�?${jobCounts.RUNNING} / ?�패 ${jobCounts.FAILED} / 취소 ${jobCounts.CANCELED} / ?�료 ${jobCounts.SUCCEEDED}`;
+    return `대기 ${jobCounts.PENDING} / 실행 중 ${jobCounts.RUNNING} / 실패 ${jobCounts.FAILED} / 취소 ${jobCounts.CANCELED} / 성공 ${jobCounts.SUCCEEDED}`;
   }, [jobCounts]);
 
   const canCancelJob = useCallback((status: JobStatus) => status === "PENDING" || status === "RUNNING", []);
@@ -314,11 +314,11 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       setError(null);
       try {
         await fetchJson(`/api/admin/jobs/${job.id}/cancel`, { method: "POST" });
-        setMessage(`${job.id} ?�업 취소 ?�청???�료?�었?�니??`);
+        setMessage(`${job.id} 작업 취소 요청이 완료되었습니다.`);
         await loadJobs(jobPage, true);
         await loadJobCounts();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "?�업 취소 ?�청???�패?�습?�다.");
+        setError(err instanceof Error ? err.message : "작업 취소 요청이 실패했습니다.");
       } finally {
         setJobBusyId(null);
       }
@@ -336,11 +336,11 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ force: false }),
         });
-        setMessage(`${job.id} ?�업???�실???�에 ?�시 ?�었?�니??`);
+        setMessage(`${job.id} 작업 재시도 요청이 완료되었습니다.`);
         await loadJobs(jobPage, true);
         await loadJobCounts();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "?�업 ?�시???�청???�패?�습?�다.");
+        setError(err instanceof Error ? err.message : "작업 재시도 요청이 실패했습니다.");
       } finally {
         setJobBusyId(null);
       }
@@ -363,11 +363,11 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       event.preventDefault();
 
       if (cleanupPayloadText.length === 0) {
-        setError("?�리???�태�?최소 1�??�상 ?�택?�세??");
+        setError("최소 1개 이상의 상태를 선택해 주세요.");
         return;
       }
       if (cleanupOlderDays < 1) {
-        setError("보�? 기간?� 1???�상 ?�력?�야 ?�니??");
+        setError("보관 기간은 1 이상으로 입력해야 합니다.");
         return;
       }
 
@@ -384,11 +384,11 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             }),
           });
           const selected = payload.statusFilter.join(", ");
-          setMessage(`?�업 ?�리 ?�료: ${payload.deleted}�???�� (?�태: ${selected})`);
+          setMessage(`작업 ${payload.deleted}개가 정리되었습니다. (상태: ${selected})`);
           await loadJobCounts();
           await loadJobs(jobPage, true);
         } catch (err) {
-          setError(err instanceof Error ? err.message : "?�업 ?�리가 ?�패?�습?�다.");
+          setError(err instanceof Error ? err.message : "작업 정리가 실패했습니다.");
         } finally {
           setCleanupBusy(false);
         }
@@ -409,8 +409,8 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       <header className="topbar">
         <div className="topbar-brand">
           <div>
-            <p className="brand-kicker">관리자 ?�업</p>
-            <h1>?�영 ?�?�보??| ?�업/?�커 ?�영</h1>
+            <p className="brand-kicker">관리자 작업</p>
+            <h1>운영 | 작업/워커 운영</h1>
             <div className="topbar-stats">
               <span className="action-kicker">관리자: {initialUser.email}</span>
             </div>
@@ -422,11 +422,12 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </button>
           <ThemeToggle />
           <Link className="ghost-btn" href={"/admin/system" as any} as={"/admin/system" as any}>
-            ?�스???�태
+            시스템 상태
           </Link>
           <button type="button" className="ghost-btn" onClick={() => router.push("/admin")}>
             <ChevronLeft size={16} />
-            관리자 ??          </button>
+            관리자 홈
+          </button>
           <UserMenu
             email={initialUser.email}
             role={initialUser.role}
@@ -445,24 +446,24 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
       <section className="admin-stats">
         <article className="admin-stat card">
-          <h2>�??�업</h2>
+          <h2>총 작업</h2>
           <p className="metric">{pagination?.total ?? 0}</p>
           <p className="muted">페이지 기준 처리된 작업 수</p>
         </article>
         <article className="admin-stat card">
-          <h2>?�크 ???�약</h2>
+          <h2>실행 작업</h2>
           <p className="metric">{loadingSummary ? "..." : `${jobCounts.PENDING + jobCounts.RUNNING}`}</p>
-          <p className="muted">{loadingSummary ? "집계 �?.." : jobSummaryText}</p>
+          <p className="muted">{loadingSummary ? "집계 중..." : jobSummaryText}</p>
         </article>
         <article className="admin-stat card">
-          <h2>?�성 ?�커</h2>
+          <h2>워커 상태</h2>
           <p className="metric">{workerSummary?.active ?? 0}</p>
-          <p className="muted">{`�?${workerSummary?.total ?? 0}, 비활??${workerSummary?.stale ?? 0} (기�? ${workerRefreshMinutes}�?`}</p>
+          <p className="muted">{`총 ${workerSummary?.total ?? 0}, 비활성 ${workerSummary?.stale ?? 0} (기준 ${workerRefreshMinutes}분)`}</p>
         </article>
         <article className="admin-stat card">
-          <h2>?�크 ?�태</h2>
+          <h2>마지막 갱신</h2>
           <p className="metric">{workerSummary ? formatDateTime(workerSummary.capturedAt) : "-"}</p>
-          <p className="muted">{workerSummary ? "?�커 ?�태 ?�데?�트 ?�각" : "?�커 ?�이???�음"}</p>
+          <p className="muted">{workerSummary ? "워커 상태 업데이트 시간" : "워커 상태 없음"}</p>
         </article>
       </section>
 
@@ -471,7 +472,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>?�업 목록</h2>
+          <h2>작업 목록</h2>
           <span className="muted text-small">{workerCountsText}</span>
         </div>
         <form className="form-grid top-gap" onSubmit={applyFilters}>
@@ -480,28 +481,28 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             <select value={jobType} onChange={(event) => setJobType(event.target.value as "" | JobType)}>
               {JOB_TYPE_OPTIONS.map((type) => (
                 <option key={type || "all"} value={type}>
-                  {type || "?�체"}
+                  {type || "전체"}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
-            <span>?�태</span>
+            <span>상태</span>
             <select value={jobStatus} onChange={(event) => setJobStatus(event.target.value as "" | JobStatus)}>
               {JOB_STATUS_OPTIONS.map((status) => (
                 <option key={status || "all"} value={status}>
-                  {status ? JOB_STATUS_LABELS[status] : "?�체"}
+                  {status ? JOB_STATUS_LABELS[status] : "전체"}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
-            <span>?�용??ID</span>
-            <input value={jobUserId} onChange={(event) => setJobUserId(event.target.value)} placeholder="UUID ?�력" />
+            <span>요청 사용자 ID</span>
+            <input value={jobUserId} onChange={(event) => setJobUserId(event.target.value)} placeholder="UUID 입력" />
           </label>
           <div className="align-end">
             <button className="btn-success" type="submit" disabled={loadingJobs}>
-              {loadingJobs ? "조회 �?.." : "?�터 ?�용"}
+              {loadingJobs ? "조회 중.." : "조회"}
             </button>
           </div>
         </form>
@@ -509,25 +510,25 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           <table>
             <thead>
               <tr>
-                <th>?�업 ID</th>
+                <th>작업 ID</th>
                 <th>요청 사용자</th>
-                <th>?�형</th>
-                <th>?�태</th>
-                <th>?�도</th>
-                <th>실행 일시</th>
-                <th>?�행 ?�정 ?�각</th>
-                <th>최근 ?�류</th>
+                <th>유형</th>
+                <th>상태</th>
+                <th>시도</th>
+                <th>워커</th>
+                <th>실행 예정</th>
+                <th>최근 오류</th>
                 <th>조치</th>
               </tr>
             </thead>
             <tbody>
               {loadingJobs ? (
                 <tr>
-                  <td colSpan={9}>로딩 �?..</td>
+                  <td colSpan={9}>로딩 중..</td>
                 </tr>
               ) : jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>조회???�업???�습?�다.</td>
+                  <td colSpan={9}>조회된 작업이 없습니다.</td>
                 </tr>
               ) : (
                 jobs.map((job) => (
@@ -557,7 +558,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
                           {jobBusyId === job.id ? (
                             <>
                               <RotateCw size={14} />
-                              처리 �?..
+                              처리 중..
                             </>
                           ) : (
                             "재시도"
@@ -569,7 +570,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
                           disabled={jobBusyId === job.id || !canCancelJob(job.status)}
                           onClick={() => void cancelJob(job)}
                         >
-                          {jobBusyId === job.id ? "처리 �?.." : "취소"}
+                          {jobBusyId === job.id ? "처리 중.." : "취소"}
                         </button>
                       </div>
                     </td>
@@ -588,7 +589,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
               onClick={() => goPage((pagination.page ?? 1) - 1)}
               disabled={!pagination.hasPrevPage || loadingJobs}
             >
-              ?�전
+              이전
             </button>
             {pageButtons.map((page) => (
               <button
@@ -607,7 +608,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
               onClick={() => goPage((pagination.page ?? 1) + 1)}
               disabled={!pagination.hasNextPage || loadingJobs}
             >
-              ?�음
+              다음
             </button>
           </div>
         ) : null}
@@ -615,9 +616,9 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>?�커 목록</h2>
+          <h2>워커 목록</h2>
           <label className="field">
-            <span>비활??기�?(�?</span>
+            <span>비활성 기준(분)</span>
             <input
               type="number"
               min={1}
@@ -634,19 +635,19 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           <table>
             <thead>
               <tr>
-                <th>?�커 ID</th>
-                <th>마�?�??�답</th>
-                <th>?�태</th>
+                <th>워커 ID</th>
+                <th>마지막 heartbeat</th>
+                <th>상태</th>
               </tr>
             </thead>
             <tbody>
               {loadingWorkers ? (
                 <tr>
-                  <td colSpan={3}>로딩 �?..</td>
+                  <td colSpan={3}>로딩 중..</td>
                 </tr>
               ) : workers.length === 0 ? (
                 <tr>
-                  <td colSpan={3}>?�록???�커가 ?�습?�다.</td>
+                  <td colSpan={3}>워커가 없습니다.</td>
                 </tr>
               ) : (
                 workers.map((worker) => {
@@ -671,12 +672,12 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>?�료/?�패 ?�업 ?�리</h2>
-          <span className="muted text-small">?�료·?�패·취소???�업??기간 기�??�로 ??��?�니??</span>
+          <h2>완료/실패/취소 작업 정리</h2>
+          <span className="muted text-small">완료·실패·취소 작업만 기간 기준으로 정리됩니다.</span>
         </div>
         <form className="form-grid top-gap" onSubmit={runCleanup}>
           <label className="field">
-            <span>?�리 기�?(??</span>
+            <span>보관 기간(일)</span>
             <input
               type="number"
               min={1}
@@ -686,7 +687,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             />
           </label>
           <label className="field">
-            <span>?�태</span>
+            <span>상태</span>
             <div className="action-row">
               {CLEANUP_STATUSES.map((status) => (
                 <label className="check-field" key={status}>
@@ -704,7 +705,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </label>
           <div className="align-end">
             <button className="btn-success" type="submit" disabled={cleanupBusy}>
-              {cleanupBusy ? "?�리 �?.." : "?�택 ?�업 ?�리"}
+              {cleanupBusy ? "정리 중.." : "선택 작업 정리"}
             </button>
           </div>
         </form>
@@ -712,4 +713,3 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
     </main>
   );
 }
-
