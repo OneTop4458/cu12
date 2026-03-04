@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 const LAST_ACTIVITY_KEY = "cu12:last-activity-at";
+const IDLE_TIMEOUT_OVERRIDE_KEY = "cu12:session-idle-timeout-ms";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const REFRESH_MIN_INTERVAL_MS = 2 * 60 * 1000;
 const COUNTDOWN_TICK_MS = 1000;
@@ -35,6 +36,16 @@ function formatRemaining(ms: number): string {
   return `${String(minutes).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
 }
 
+function getIdleTimeoutMs(): number {
+  if (typeof window === "undefined") return IDLE_TIMEOUT_MS;
+  const raw = window.localStorage.getItem(IDLE_TIMEOUT_OVERRIDE_KEY);
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return IDLE_TIMEOUT_MS;
+  }
+  return Math.max(1000, Math.trunc(parsed));
+}
+
 export function SessionActivityGuard() {
   const pathname = usePathname();
   const active = isProtectedPath(pathname);
@@ -43,12 +54,12 @@ export function SessionActivityGuard() {
   const lastActivityHandledAtRef = useRef<number>(0);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
   const loggingOutRef = useRef<boolean>(false);
-  const [remainingSeconds, setRemainingSeconds] = useState<number>(Math.ceil(IDLE_TIMEOUT_MS / 1000));
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(() => Math.ceil(getIdleTimeoutMs() / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
 
   const setActiveStateNow = (timestamp: number) => {
     lastActivityAtRef.current = timestamp;
-    setRemainingSeconds(Math.ceil(IDLE_TIMEOUT_MS / 1000));
+    setRemainingSeconds(Math.ceil(getIdleTimeoutMs() / 1000));
     setWarningMode(false);
     try {
       window.localStorage.setItem(LAST_ACTIVITY_KEY, String(timestamp));
@@ -135,9 +146,11 @@ export function SessionActivityGuard() {
 
     const checkIdle = async () => {
       if (loggingOutRef.current) return;
-      const remaining = IDLE_TIMEOUT_MS - (Date.now() - lastActivityAtRef.current);
+      const idleTimeoutMs = getIdleTimeoutMs();
+      const remaining = idleTimeoutMs - (Date.now() - lastActivityAtRef.current);
+      const warningThresholdMs = Math.min(WARNING_THRESHOLD_MS, Math.max(5000, idleTimeoutMs * 0.2));
       setRemainingSeconds(Math.max(0, Math.ceil(remaining / 1000)));
-      setWarningMode(remaining <= WARNING_THRESHOLD_MS);
+      setWarningMode(remaining <= warningThresholdMs);
 
       if (remaining > 0) return;
 
@@ -182,7 +195,7 @@ export function SessionActivityGuard() {
 
   if (!active) return null;
 
-  const warningRatio = Math.min(1, remainingSeconds / (IDLE_TIMEOUT_MS / 1000));
+  const warningRatio = Math.min(1, remainingSeconds / (Math.max(1, getIdleTimeoutMs() / 1000)));
 
   return (
     <div
@@ -193,7 +206,7 @@ export function SessionActivityGuard() {
       <div className="session-warning-copy">
         <div className="session-warning-title">자동 로그아웃</div>
         <div className="session-warning-sub">
-          남은 시간 {formatRemaining(remainingSeconds * 1000)} / 30:00
+          남은 시간 {formatRemaining(remainingSeconds * 1000)} / {formatRemaining(getIdleTimeoutMs())}
         </div>
       </div>
       <div className="session-warning-progress-wrap">
