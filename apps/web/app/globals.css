@@ -17,6 +17,7 @@
   --warn: #b54708;
   --warn-soft: #fff7ed;
   --border: #d5deef;
+  --session-banner-height: 44px;
   --radius-lg: 18px;
   --radius-md: 12px;
   --radius-sm: 10px;
@@ -116,9 +117,23 @@ a {
   width: 100%;
 }
 
+.session-notice-card {
+  min-height: var(--session-banner-height);
+  max-height: var(--session-banner-height);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  transition: max-height 0.22s ease, box-shadow 0.22s ease;
+}
+
+.session-notice-card.is-expanded {
+  max-height: 420px;
+  box-shadow: 0 12px 22px rgb(2 6 23 / 10%);
+}
+
 .session-warning-bar {
   width: 100%;
-  min-height: 38px;
+  min-height: var(--session-banner-height);
   box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(130px, 1fr) minmax(150px, 1fr) auto;
@@ -840,6 +855,44 @@ textarea:focus {
   gap: 4px;
 }
 
+.topbar-notice-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-notice-card .topbar-notice-subtitle,
+.session-notice-card .topbar-notice-body,
+.session-notice-card .muted,
+.session-notice-card .error-text {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-top: 0;
+  margin-bottom: 0;
+  pointer-events: none;
+  transition: max-height 0.24s ease, opacity 0.2s ease, margin 0.2s ease;
+}
+
+.session-notice-card.is-expanded .topbar-notice-subtitle,
+.session-notice-card.is-expanded .topbar-notice-body,
+.session-notice-card.is-expanded .muted,
+.session-notice-card.is-expanded .error-text {
+  max-height: 320px;
+  opacity: 1;
+  pointer-events: auto;
+  margin-top: 2px;
+  margin-bottom: 0;
+}
+
+.session-notice-card .topbar-notice-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .topbar-notice-warning {
   border-color: color-mix(in oklab, var(--warn) 48%, var(--border));
   background: color-mix(in oklab, var(--warn-soft) 36%, transparent);
@@ -864,13 +917,6 @@ textarea:focus {
   line-height: 1.35;
   color: var(--text-muted);
   white-space: pre-wrap;
-}
-
-.topbar-notice-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .topbar-notice-dismiss {

@@ -166,6 +166,7 @@ type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDIN
 
 const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
 const SITE_NOTICE_HOST_ID = "dashboard-site-notice-host";
+const MAINTENANCE_NOTICE_ID = "maintenance-notice";
 
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
 const POLL_ACTIVE_MS = 120000;
@@ -405,6 +406,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
   const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
+  const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
 
   const sortedJobs = useMemo(
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -564,6 +566,26 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     });
   }, []);
 
+  const toggleNoticeExpanded = useCallback((noticeId: string) => {
+    setExpandedNoticeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(noticeId)) {
+        next.delete(noticeId);
+      } else {
+        next.add(noticeId);
+      }
+      return next;
+    });
+  }, []);
+
+  const isNoticeExpanded = useCallback((noticeId: string) => {
+    return expandedNoticeIds.has(noticeId);
+  }, [expandedNoticeIds]);
+
+  const getNoticeExpandedClass = useCallback((noticeId: string, baseClassName: string) => {
+    return `${baseClassName} ${isNoticeExpanded(noticeId) ? "is-expanded" : "is-collapsed"}`;
+  }, [isNoticeExpanded]);
+
   const siteNoticePortal = useMemo(() => {
     if (typeof window === "undefined") return null;
     if (!maintenanceNotice && visibleBroadcastNotices.length === 0) return null;
@@ -573,7 +595,19 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     return createPortal(
       <div className="session-notice-stack">
         {maintenanceNotice ? (
-          <section className="topbar-notice topbar-notice-warning">
+          <section
+            className={getNoticeExpandedClass(MAINTENANCE_NOTICE_ID, "topbar-notice topbar-notice-warning session-notice-card")}
+            role="button"
+            tabIndex={0}
+            aria-expanded={isNoticeExpanded(MAINTENANCE_NOTICE_ID)}
+            onClick={() => toggleNoticeExpanded(MAINTENANCE_NOTICE_ID)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleNoticeExpanded(MAINTENANCE_NOTICE_ID);
+              }
+            }}
+          >
             <p className="topbar-notice-title">시스템 점검 공지</p>
             <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
             <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
@@ -585,13 +619,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
         {visibleBroadcastNotices.length > 0 ? (
           visibleBroadcastNotices.map((notice) => (
-            <section className="topbar-notice topbar-notice-broadcast" key={notice.id}>
+            <section
+              key={notice.id}
+              className={getNoticeExpandedClass(notice.id, "topbar-notice topbar-notice-broadcast session-notice-card")}
+              role="button"
+              tabIndex={0}
+              aria-expanded={isNoticeExpanded(notice.id)}
+              onClick={() => toggleNoticeExpanded(notice.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  toggleNoticeExpanded(notice.id);
+                }
+              }}
+            >
               <div className="topbar-notice-row">
                 <p className="topbar-notice-title">전체 공지</p>
                 <button
                   className="topbar-notice-dismiss ghost-btn"
                   type="button"
-                  onClick={() => dismissBroadcastNotice(notice.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    dismissBroadcastNotice(notice.id);
+                  }}
                 >
                   닫기
                 </button>
