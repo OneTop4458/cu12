@@ -292,6 +292,33 @@ export async function persistSnapshot(
   }
 
   for (const task of data.tasks) {
+    const availableFrom = toDate(task.availableFrom ?? null);
+    const dueAt = toDate(task.dueAt ?? null);
+    const taskUpdate: {
+      weekNo: number;
+      lessonNo: number;
+      activityType: "VOD" | "QUIZ" | "ASSIGNMENT" | "ETC";
+      requiredSeconds: number;
+      learnedSeconds: number;
+      state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+      availableFrom?: Date | null;
+      dueAt?: Date | null;
+    } = {
+      weekNo: task.weekNo,
+      lessonNo: task.lessonNo,
+      activityType: task.activityType,
+      requiredSeconds: task.requiredSeconds,
+      learnedSeconds: task.learnedSeconds,
+      state: task.state,
+    };
+
+    if (task.availableFrom && availableFrom) {
+      taskUpdate.availableFrom = availableFrom;
+    }
+    if (task.dueAt && dueAt) {
+      taskUpdate.dueAt = dueAt;
+    }
+
     await runWithPrismaRetry(() =>
       prisma.learningTask.upsert({
         where: {
@@ -302,14 +329,7 @@ export async function persistSnapshot(
           },
         },
         update: {
-          weekNo: task.weekNo,
-          lessonNo: task.lessonNo,
-          activityType: task.activityType,
-          requiredSeconds: task.requiredSeconds,
-          learnedSeconds: task.learnedSeconds,
-          state: task.state,
-          availableFrom: toDate(task.availableFrom ?? null),
-          dueAt: toDate(task.dueAt ?? null),
+          ...taskUpdate,
         },
         create: {
           userId,
@@ -321,8 +341,8 @@ export async function persistSnapshot(
           requiredSeconds: task.requiredSeconds,
           learnedSeconds: task.learnedSeconds,
           state: task.state,
-          availableFrom: toDate(task.availableFrom ?? null),
-          dueAt: toDate(task.dueAt ?? null),
+          availableFrom,
+          dueAt,
         },
       }),
     );
@@ -330,16 +350,32 @@ export async function persistSnapshot(
 
   const now = Date.now();
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  type ParsedDeadlineTask = {
+    lectureSeq: number;
+    courseContentsSeq: number;
+    weekNo: number;
+    lessonNo: number;
+    dueAt: string;
+    dueAtMs: number;
+  };
+
   const deadlineTasks = data.tasks
-    .filter((task) => task.state === "PENDING" && typeof task.dueAt === "string")
-    .map((task) => ({
-      lectureSeq: task.lectureSeq,
-      courseContentsSeq: task.courseContentsSeq,
-      weekNo: task.weekNo,
-      lessonNo: task.lessonNo,
-      dueAt: task.dueAt as string,
-      dueAtMs: new Date(task.dueAt as string).getTime(),
-    }))
+    .map((task): ParsedDeadlineTask | null => {
+      if (task.state !== "PENDING" || typeof task.dueAt !== "string") return null;
+      const dueAt = new Date(task.dueAt);
+      const dueAtMs = dueAt.getTime();
+      if (!Number.isFinite(dueAtMs)) return null;
+
+      return {
+        lectureSeq: task.lectureSeq,
+        courseContentsSeq: task.courseContentsSeq,
+        weekNo: task.weekNo,
+        lessonNo: task.lessonNo,
+        dueAt: task.dueAt,
+        dueAtMs,
+      };
+    })
+    .filter((task): task is ParsedDeadlineTask => task !== null)
     .filter((task) => Number.isFinite(task.dueAtMs) && task.dueAtMs >= now && task.dueAtMs - now <= sevenDaysMs)
     .sort((a, b) => a.dueAtMs - b.dueAtMs)
     .map((task) => ({

@@ -86,11 +86,12 @@ export async function getCourses(userId: string) {
 
   return courses.map((course) => {
     const taskList = grouped.get(course.lectureSeq) ?? [];
+    const toDueTime = (task: typeof taskList[number]) => task.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const pending = taskList
       .filter((task) => task.state === "PENDING")
       .sort((a, b) => {
-        const dueA = a.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        const dueB = b.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const dueA = toDueTime(a);
+        const dueB = toDueTime(b);
         if (dueA !== dueB) return dueA - dueB;
         return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
       });

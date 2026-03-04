@@ -15,10 +15,78 @@ function toIsoDate(raw: string | null | undefined): string | null {
 
 function toIsoDateTime(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const cleaned = raw.replace(/\([^)]*\)/g, "").trim();
-  const match = cleaned.match(/(\d{4})\.(\d{2})\.(\d{2})\s+(\d{2}):(\d{2})/);
+  const cleaned = raw
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = cleaned.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (!match) return null;
-  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:00+09:00`;
+  const hour = match[4].padStart(2, "0");
+  const minute = match[5].padStart(2, "0");
+  const second = (match[6] ?? "00").padStart(2, "0");
+  return `${match[1]}-${match[2]}-${match[3]}T${hour}:${minute}:${second}+09:00`;
+}
+
+function extractDateTimeCandidates(raw: string): string[] {
+  const normalized = normalizeWhitespace(raw);
+  const dateTimePattern = /(\d{4}[.\-]\d{2}[.\-]\d{2})(?:\s*\([^)]*\))?\s*(\d{1,2}:\d{2}(?::\d{2})?)?/g;
+  const results: string[] = [];
+  const seen = new Set<string>();
+
+  let match: RegExpExecArray | null;
+  while ((match = dateTimePattern.exec(normalized)) !== null) {
+    const candidate = `${match[1]}${match[2] ? ` ${match[2]}` : ""}`.trim();
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    results.push(candidate);
+  }
+
+  return results;
+}
+
+function parseTaskWindow(raw: string):
+  | {
+      availableFrom: string | null;
+      dueAt: string | null;
+    }
+  | null {
+  const normalized = normalizeWhitespace(raw);
+
+  const rangeLabel = normalized.match(
+    /(학습인정기간|마감기한|마감일|제출기한|제출일|기한)\s*[:：]?\s*(.+?)[~\-\u2013]?(.*?)$/,
+  );
+  if (rangeLabel && rangeLabel[2] && rangeLabel[3]) {
+    const availableFrom = toIsoDateTime(rangeLabel[2]);
+    const dueAt = toIsoDateTime(rangeLabel[3]);
+    if (dueAt || availableFrom) {
+      return { availableFrom, dueAt };
+    }
+  }
+
+  const dueLabel = normalized.match(
+    /(?:학습인정기간|마감기한|마감일|제출기한|제출일|기한)\s*[:：]?\s*(\d{4}[.\-]\d{2}[.\-]\d{2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/,
+  );
+  if (dueLabel?.[1]) {
+    const dueAt = toIsoDateTime(dueLabel[1]);
+    if (dueAt) {
+      return { availableFrom: null, dueAt };
+    }
+  }
+
+  const candidates = extractDateTimeCandidates(normalized);
+  if (candidates.length >= 2) {
+    const availableFrom = toIsoDateTime(candidates[0]);
+    const dueAt = toIsoDateTime(candidates[1]);
+    if (dueAt || availableFrom) {
+      return { availableFrom, dueAt };
+    }
+  }
+
+  if (candidates.length === 1) {
+    return { availableFrom: toIsoDateTime(candidates[0]), dueAt: null };
+  }
+
+  return null;
 }
 
 function parseDurationToSeconds(raw: string | null | undefined): number {
@@ -234,11 +302,21 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     const requiredSeconds = parseDurationToSeconds(raw.match(/인정시간\s*:\s*(\d+분\s*\d*초?)/)?.[1]);
     const learnedSeconds = parseDurationToSeconds(raw.match(/학습시간\s*:\s*(\d+분\s*\d*초?)/)?.[1]);
     const completed = /완료됨|활동이 완료/.test(raw);
-    const periodMatch = raw.match(
-      /학습인정기간\s*:\s*(\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2})\s*~\s*(\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2})/,
-    );
-    const availableFrom = toIsoDateTime(periodMatch?.[1]);
-    const dueAt = toIsoDateTime(periodMatch?.[2]);
+    const candidateTexts = [
+      raw,
+      item.text(),
+      item.parent().text(),
+      item.closest("tr").text(),
+      item.closest("li").text(),
+      item.closest("td").text(),
+      item.closest("div").text(),
+    ];
+    const window = candidateTexts
+      .map((text) => parseTaskWindow(text))
+      .find((entry) => entry !== null && (entry.dueAt !== null || entry.availableFrom !== null));
+
+    const availableFrom = window?.availableFrom ?? null;
+    const dueAt = window?.dueAt ?? null;
 
     tasks.push({
       userId,
