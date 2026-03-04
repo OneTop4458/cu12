@@ -255,10 +255,8 @@ function formatCourseWeekHealth(course: Course): string {
   return `총 ${course.weekSummaries.length}주차 중 ${stableCount}주차 정상, ${pendingWeeks.length}주차 미완료`;
 }
 
-function formatPendingWeeks(course: Course): string {
-  const pendingWeeks = course.weekSummaries.filter((summary) => summary.pendingTaskCount > 0);
-  if (pendingWeeks.length === 0) return "미완료 주차 없음";
-  return pendingWeeks.map(formatWeekStatusLine).join(" | ");
+function getPendingWeeks(course: Course): CourseWeekSummary[] {
+  return course.weekSummaries.filter((summary) => summary.pendingTaskCount > 0);
 }
 
 function formatNextDeadline(task: Course["nextPendingTask"]): string {
@@ -753,7 +751,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
                 const deadlineLabel = course.deadlineLabel === "이번 차시 마감" ? "이번 차시 마감" : "다음 차시 마감";
                 const weekHealthLabel = formatCourseWeekHealth(course);
-                const pendingWeeksLabel = formatPendingWeeks(course);
+                const pendingWeeks = getPendingWeeks(course);
 
             return (
               <article key={course.lectureSeq} className="course-card">
@@ -767,7 +765,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>
                 <p className="muted">현재주차 미완료 유형: {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}</p>
                 <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
-                <p className="muted">미완료 주차 상세: {pendingWeeksLabel}</p>
+                <div className="muted pending-week-detail">
+                  <span className="pending-week-title">미완료 주차 상세:</span>
+                  {pendingWeeks.length === 0 ? (
+                    <span className="pending-week-empty">미완료 주차 없음</span>
+                  ) : (
+                    <ul className="pending-week-list">
+                      {pendingWeeks.map((summary) => (
+                        <li key={`${course.lectureSeq}:${summary.weekNo}`}>{formatWeekStatusLine(summary)}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
                 <p className="muted">공지: 총 {course.noticeCount}개 / 미확인 {course.unreadNoticeCount}개</p>
                 <p className="muted">{deadlineLabel}: {formatNextDeadline(course.nextPendingTask)}</p>
                 <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>

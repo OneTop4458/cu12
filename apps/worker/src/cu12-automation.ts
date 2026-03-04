@@ -335,6 +335,7 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         wrapper.querySelector(
           ".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice, .bbs_contents, .notice_content, .notice_body, .bbs_view",
         ),
+        wrapper.querySelector("textarea[name*='notice'], textarea[id*='notice'], textarea"),
         wrapper.querySelector(`#content_${noticeSeq}`),
         wrapper.querySelector(".notice_view"),
         wrapper.querySelector("#notice_view"),
@@ -346,7 +347,8 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         .find((text) => text.length > 0);
 
       if (body) {
-        return cleanupNoticeBody(body);
+        const cleaned = cleanupNoticeBody(body);
+        if (cleaned) return cleaned;
       }
 
       const labelContainers = Array.from(wrapper.querySelectorAll("tr, li, dl, div, article"));
@@ -357,6 +359,7 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         const detailNodes = [
           container.querySelector("td"),
           container.querySelector("dd"),
+          container.querySelector("textarea"),
           container.querySelector(".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice, .bbs_contents, .notice_content, .notice_body, .bbs_view"),
           container.nextElementSibling,
         ];
@@ -364,7 +367,8 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
           .map((node) => stripMarkup((node as HTMLElement) ?? document.createElement("span")))
           .find((text) => text.length > 0);
         if (detailText) {
-          return cleanupNoticeBody(detailText);
+          const cleaned = cleanupNoticeBody(detailText);
+          if (cleaned) return cleaned;
         }
       }
 
@@ -491,6 +495,8 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
         ...(mappedDetailUrl ? [{ method: "GET", url: mappedDetailUrl }] : []),
         { method: "GET", url: `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&A_SEQ=${noticeSeq}&encoding=utf-8` },
         { method: "GET", url: `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&A_SEQ=${noticeSeq}` },
+        { method: "GET", url: `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&NOTICE_SEQ=${noticeSeq}&encoding=utf-8` },
+        { method: "GET", url: `/el/class/notice_list_form.acl?LECTURE_SEQ=${seq}&ARTL_SEQ=${noticeSeq}&encoding=utf-8` },
         { method: "POST", url: "/el/class/notice_list.acl", body: queryBodyString },
         { method: "POST", url: "/el/class/notice_list.acl", body: `${queryBodyString}&mode=ajax` },
         { method: "POST", url: "/el/class/notice_list.acl", body: `NOTICE_SEQ=${noticeSeq}&COURSE_SEQ=${courseSeq}&LECTURE_SEQ=${seq}&encoding=utf-8` },
@@ -578,6 +584,106 @@ async function fetchNoticeBodies(page: Page, lectureSeq: number): Promise<Array<
     return results;
   }, lectureSeq);
 }
+
+async function extractNoticeBodyFromCurrentPage(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const normalize = (text: string): string => text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    const cleanup = (text: string): string =>
+      normalize(text)
+        .replace(/^(?:공지내용\s*(?:닫기\s*)?)+/i, "")
+        .replace(/^해당 공지사항을 열람할 수 없습니다\.\s*/i, "")
+        .trim();
+
+    const readNodeText = (node: Element | null): string => {
+      if (!node) return "";
+      if (node instanceof HTMLTextAreaElement) {
+        return cleanup(node.value || node.textContent || "");
+      }
+
+      const clone = node.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("script, style, link").forEach((child) => child.remove());
+      return cleanup(clone.textContent ?? "");
+    };
+
+    const selectors = [
+      ".class_notice_content",
+      ".class_notice_body",
+      ".editor_content",
+      ".view_cont",
+      ".notice_cont",
+      ".bbs_notice",
+      ".bbs_contents",
+      ".notice_content",
+      ".notice_body",
+      ".bbs_view",
+      "textarea[name*='notice']",
+      "textarea[id*='notice']",
+      "textarea",
+    ];
+
+    for (const selector of selectors) {
+      const text = readNodeText(document.querySelector(selector));
+      if (text) return text;
+    }
+
+    const labelContainers = Array.from(document.querySelectorAll("tr, li, dl, div, article, section"));
+    for (const container of labelContainers) {
+      const labelText = normalize(container.textContent ?? "");
+      if (!labelText || !/공지내용/.test(labelText)) continue;
+
+      const detailNodes = [
+        container.querySelector("td"),
+        container.querySelector("dd"),
+        container.querySelector("textarea"),
+        container.querySelector(".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .bbs_notice, .bbs_contents, .notice_content, .notice_body, .bbs_view"),
+        container.nextElementSibling,
+      ];
+      for (const node of detailNodes) {
+        const text = readNodeText(node);
+        if (text) return text;
+      }
+    }
+
+    const plainText = normalize(document.body?.innerText ?? document.documentElement?.textContent ?? "");
+    const matched = plainText.match(/공지내용(?:\s*닫기)?\s*공지내용?\s*([\s\S]+)/i)?.[1] ?? plainText;
+    return cleanup(matched);
+  });
+}
+
+async function fetchNoticeBodiesFromDetailPages(
+  page: Page,
+  lectureSeq: number,
+  noticeSeqs: string[],
+): Promise<Map<string, string>> {
+  const env = getEnv();
+  const bodyByNoticeSeq = new Map<string, string>();
+  const uniqueSeqs = Array.from(new Set(noticeSeqs.filter((noticeSeq) => /^\d+$/.test(noticeSeq))));
+
+  for (const noticeSeq of uniqueSeqs) {
+    const urls = [
+      `${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&A_SEQ=${noticeSeq}&encoding=utf-8`,
+      `${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&NOTICE_SEQ=${noticeSeq}&encoding=utf-8`,
+      `${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&ARTL_SEQ=${noticeSeq}&encoding=utf-8`,
+    ];
+
+    for (const url of urls) {
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+      } catch {
+        continue;
+      }
+
+      const bodyText = (await extractNoticeBodyFromCurrentPage(page)).trim();
+      if (!bodyText) continue;
+
+      bodyByNoticeSeq.set(noticeSeq, bodyText);
+      break;
+    }
+  }
+
+  return bodyByNoticeSeq;
+}
+
 async function fetchNotificationHtml(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const response = await fetch("/el/co/notification_list.acl", {
@@ -629,15 +735,33 @@ export async function collectCu12Snapshot(
       const noticeBodies = await fetchNoticeBodies(page, course.lectureSeq);
       const fallbackBodies = noticeBodies.map((item) => item.bodyText);
       const bodiesByNoticeSeq = new Map(noticeBodies.map((item) => [item.noticeSeq, item.bodyText]));
-      notices.push(
-        ...noticeList.map((notice, index) => {
-          const bodyText = notice.noticeSeq ? (bodiesByNoticeSeq.get(notice.noticeSeq) ?? fallbackBodies[index]) : fallbackBodies[index];
-          return {
-            ...notice,
-            bodyText: bodyText || notice.bodyText,
-          };
-        }),
+      let resolvedNotices = noticeList.map((notice, index) => {
+        const bodyText = notice.noticeSeq ? (bodiesByNoticeSeq.get(notice.noticeSeq) ?? fallbackBodies[index]) : fallbackBodies[index];
+        return {
+          ...notice,
+          bodyText: bodyText || notice.bodyText,
+        };
+      });
+
+      const missingBodyNoticeSeqs = Array.from(
+        new Set(
+          resolvedNotices
+            .filter((notice) => !notice.bodyText?.trim() && notice.noticeSeq)
+            .map((notice) => String(notice.noticeSeq)),
+        ),
       );
+
+      if (missingBodyNoticeSeqs.length > 0) {
+        const detailBodiesBySeq = await fetchNoticeBodiesFromDetailPages(page, course.lectureSeq, missingBodyNoticeSeqs);
+        resolvedNotices = resolvedNotices.map((notice) => {
+          const noticeSeq = notice.noticeSeq ? String(notice.noticeSeq) : "";
+          if (!noticeSeq || notice.bodyText?.trim()) return notice;
+          const detailBodyText = detailBodiesBySeq.get(noticeSeq);
+          return detailBodyText ? { ...notice, bodyText: detailBodyText } : notice;
+        });
+      }
+
+      notices.push(...resolvedNotices);
 
       if (await shouldCancel()) {
         throw new Error("JOB_CANCELLED");

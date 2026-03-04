@@ -471,6 +471,27 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     ].join(", "),
   );
 
+  const pageText = normalizeWhitespace($.root().text());
+  const weekWindowByWeekNo = new Map<number, { availableFrom: string | null; dueAt: string | null }>();
+  const weekBlockPatterns = [
+    /(?:^|\s)(\d{1,2})\s*주차([\s\S]*?)(?=(?:^|\s)\d{1,2}\s*주차|$)/g,
+    /(?:^|\s)제?\s*(\d{1,2})\s*주([\s\S]*?)(?=(?:^|\s)제?\s*\d{1,2}\s*주|$)/g,
+  ];
+
+  for (const pattern of weekBlockPatterns) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(pageText)) !== null) {
+      const parsedWeekNo = Number(match[1] ?? 0);
+      if (!parsedWeekNo || weekWindowByWeekNo.has(parsedWeekNo)) continue;
+      const blockText = normalizeWhitespace(`${match[1] ?? ""}주차 ${match[2] ?? ""}`);
+      const blockWindow = parseTaskWindow(blockText);
+      if (blockWindow && (blockWindow.availableFrom || blockWindow.dueAt)) {
+        weekWindowByWeekNo.set(parsedWeekNo, blockWindow);
+      }
+    }
+  }
+
   for (const el of candidates.toArray()) {
     const item = $(el);
     const raw = normalizeWhitespace(item.text());
@@ -538,18 +559,28 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     const candidateTexts = [
       raw,
       item.parent().text(),
+      item.parent().siblings().text(),
       item.closest("tr").text(),
+      item.closest("tr").prev().text(),
+      item.closest("tr").next().text(),
       item.closest("li").text(),
       item.closest("td").text(),
       item.closest("div").text(),
       item.closest(".todo_item, .class_box, .contents_item, .class_contents, .lecture_cont").text(),
+      item.closest(".study_design, .study_list, .contents_wrap, .week_cont, .week_box").text(),
+      item.closest("[id*='week_'], [id*='chapter_'], [class*='week']").text(),
       item.closest("tr").find("td").slice(1).text(),
       item.closest(".todo_list").text(),
       item.closest(".todo").text(),
     ];
 
-    const hasCompleteKeyword = /완료|학습완료|수강완료|제출완료|done/i.test(raw);
-    const window = candidateTexts.map((text) => parseTaskWindow(text)).find((entry) => entry !== null && (entry.dueAt !== null || entry.availableFrom !== null));
+    const hasCompleteKeyword = /(학습완료|수강완료|제출완료|완료시간|done)/i.test(raw);
+    const window =
+      candidateTexts
+        .map((text) => parseTaskWindow(text))
+        .find((entry) => entry !== null && (entry.dueAt !== null || entry.availableFrom !== null))
+      ?? weekWindowByWeekNo.get(weekNo)
+      ?? null;
 
     tasks.push({
       userId,

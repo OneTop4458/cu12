@@ -1072,6 +1072,31 @@ textarea:focus {
   gap: 8px;
 }
 
+.pending-week-detail {
+  display: grid;
+  gap: 4px;
+}
+
+.pending-week-title {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.pending-week-empty {
+  color: var(--text-muted);
+}
+
+.pending-week-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.pending-week-list li {
+  line-height: 1.4;
+}
+
 .course-head {
   display: flex;
   align-items: flex-start;

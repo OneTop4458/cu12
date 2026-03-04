@@ -209,7 +209,9 @@ export async function getCourses(userId: string) {
     const nextWindowPending = windowPendingTasks.find((task) => (task.dueAt ? task.dueAt.getTime() >= nowMs : true)) ?? windowPendingTasks[0] ?? null;
     const currentWeekNo = nowWindowPending?.weekNo ?? nextWindowPending?.weekNo ?? pendingWithWindow[0]?.weekNo ?? taskList[0]?.weekNo ?? null;
     const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
-    const deadlineLabel = nowWindowPending ? "이번 차시 마감" : "다음 차시 마감";
+    const deadlineLabel = (nowWindowPending || (pending.length > 0 && !nextWindowPending))
+      ? "이번 차시 마감"
+      : "다음 차시 마감";
 
     return {
       ...course,
@@ -285,6 +287,173 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
     remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
     daysLeft: task.dueAt ? daysUntil(task.dueAt, now) : null,
   }));
+}
+
+export async function getDashboardDiagnostics(
+  userId: string,
+  options?: {
+    lectureSeq?: number;
+    sampleLimit?: number;
+  },
+) {
+  const now = new Date();
+  const nowMs = now.getTime();
+  const sampleLimit = Math.min(Math.max(options?.sampleLimit ?? 20, 1), 100);
+  const lectureFilter = options?.lectureSeq ? { lectureSeq: options.lectureSeq } : {};
+
+  const [courses, tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
+    prisma.courseSnapshot.findMany({
+      where: { userId, ...lectureFilter },
+      select: {
+        lectureSeq: true,
+        title: true,
+      },
+      orderBy: { lectureSeq: "asc" },
+    }),
+    prisma.learningTask.findMany({
+      where: { userId, ...lectureFilter },
+      select: {
+        lectureSeq: true,
+        courseContentsSeq: true,
+        weekNo: true,
+        lessonNo: true,
+        activityType: true,
+        state: true,
+        availableFrom: true,
+        dueAt: true,
+        requiredSeconds: true,
+        learnedSeconds: true,
+      },
+      orderBy: [{ lectureSeq: "asc" }, { weekNo: "asc" }, { lessonNo: "asc" }],
+    }),
+    prisma.courseNotice.count({
+      where: { userId, ...lectureFilter },
+    }),
+    prisma.courseNotice.count({
+      where: { userId, ...lectureFilter, bodyText: "" },
+    }),
+    prisma.courseNotice.findMany({
+      where: { userId, ...lectureFilter },
+      take: sampleLimit,
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        lectureSeq: true,
+        title: true,
+        postedAt: true,
+        bodyText: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.jobQueue.findMany({
+      where: {
+        userId,
+        type: { in: ["SYNC", "NOTICE_SCAN"] },
+      },
+      take: Math.min(sampleLimit, 30),
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        createdAt: true,
+        startedAt: true,
+        finishedAt: true,
+        lastError: true,
+      },
+    }),
+  ]);
+
+  const titleByLectureSeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
+  const groupedTasks = new Map<number, typeof tasks>();
+  for (const task of tasks) {
+    const list = groupedTasks.get(task.lectureSeq) ?? [];
+    list.push(task);
+    groupedTasks.set(task.lectureSeq, list);
+  }
+
+  const lectureSeqs = Array.from(
+    new Set([
+      ...courses.map((course) => course.lectureSeq),
+      ...tasks.map((task) => task.lectureSeq),
+    ]),
+  ).sort((a, b) => a - b);
+
+  const lectures = lectureSeqs.map((lectureSeq) => {
+    const taskList = groupedTasks.get(lectureSeq) ?? [];
+    const pendingTasks = taskList.filter((task) => task.state === "PENDING");
+    const pendingWithWindow = pendingTasks.filter((task) => task.dueAt || task.availableFrom);
+    const pendingWithoutWindow = pendingTasks.filter((task) => !task.dueAt && !task.availableFrom);
+    const sortedWindow = [...pendingWithWindow].sort((a, b) => {
+      const aTime = a.dueAt?.getTime() ?? a.availableFrom?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const bTime = b.dueAt?.getTime() ?? b.availableFrom?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (aTime !== bTime) return aTime - bTime;
+      return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
+    });
+    const nowWindowPending = sortedWindow.find((task) => {
+      const startMs = task.availableFrom ? task.availableFrom.getTime() : Number.MIN_SAFE_INTEGER;
+      const dueMs = task.dueAt ? task.dueAt.getTime() : Number.MAX_SAFE_INTEGER;
+      return startMs <= nowMs && nowMs <= dueMs;
+    }) ?? null;
+    const nextWindowPending = sortedWindow.find((task) => (task.dueAt ? task.dueAt.getTime() >= nowMs : true))
+      ?? sortedWindow[0]
+      ?? null;
+    const nextPendingCandidate = nowWindowPending ?? nextWindowPending;
+
+    return {
+      lectureSeq,
+      title: titleByLectureSeq.get(lectureSeq) ?? `강좌 ${lectureSeq}`,
+      pendingTotal: pendingTasks.length,
+      pendingWithWindow: pendingWithWindow.length,
+      pendingWithoutWindow: pendingWithoutWindow.length,
+      nextPendingCandidate: nextPendingCandidate
+        ? {
+          courseContentsSeq: nextPendingCandidate.courseContentsSeq,
+          weekNo: nextPendingCandidate.weekNo,
+          lessonNo: nextPendingCandidate.lessonNo,
+          activityType: nextPendingCandidate.activityType,
+          availableFrom: nextPendingCandidate.availableFrom,
+          dueAt: nextPendingCandidate.dueAt,
+          requiredSeconds: nextPendingCandidate.requiredSeconds,
+          learnedSeconds: nextPendingCandidate.learnedSeconds,
+          state: nextPendingCandidate.state,
+          isCurrentWindow: nowWindowPending?.courseContentsSeq === nextPendingCandidate.courseContentsSeq,
+        }
+        : null,
+    };
+  });
+
+  const pendingTaskCount = tasks.filter((task) => task.state === "PENDING").length;
+  const pendingWithDueAtCount = tasks.filter((task) => task.state === "PENDING" && Boolean(task.dueAt)).length;
+  const pendingWithWindowCount = tasks.filter((task) => task.state === "PENDING" && Boolean(task.dueAt || task.availableFrom)).length;
+  const pendingWithoutWindowCount = tasks.filter((task) => task.state === "PENDING" && !task.dueAt && !task.availableFrom).length;
+
+  return {
+    generatedAt: now.toISOString(),
+    summary: {
+      courseCount: courses.length,
+      taskCount: tasks.length,
+      pendingTaskCount,
+      pendingWithDueAtCount,
+      pendingWithWindowCount,
+      pendingWithoutWindowCount,
+    },
+    lectures,
+    notices: {
+      totalCount: totalNoticeCount,
+      emptyBodyCount: emptyNoticeCount,
+      samples: noticeSamples.map((row) => ({
+        id: row.id,
+        lectureSeq: row.lectureSeq,
+        title: row.title,
+        postedAt: row.postedAt,
+        updatedAt: row.updatedAt,
+        bodyLength: row.bodyText.trim().length,
+        isEmpty: row.bodyText.trim().length === 0,
+      })),
+    },
+    jobs: recentJobs,
+  };
 }
 
 export async function getNotices(userId: string, lectureSeq: number) {
