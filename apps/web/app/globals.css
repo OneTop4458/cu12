@@ -488,6 +488,7 @@ textarea:focus {
   padding: 16px;
   background: rgb(6 13 23 / 58%);
   backdrop-filter: blur(2px);
+  pointer-events: auto;
 }
 
 .modal-card {
@@ -506,6 +507,17 @@ textarea:focus {
 
 .processing-card {
   border-color: color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
+.processing-overlay {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.processing-overlay .processing-card {
+  pointer-events: auto;
 }
 
 .brand-kicker {

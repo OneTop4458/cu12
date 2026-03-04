@@ -47,6 +47,7 @@ interface Member {
   id: string;
   email: string;
   role: RoleType;
+  name: string | null;
   isActive: boolean;
   isTestUser: boolean;
   createdAt: string;
@@ -119,6 +120,11 @@ interface InviteToggleResponse {
 
 interface MemberCreateResponse {
   created: boolean;
+}
+
+interface MemberUpdateResponse {
+  updated: boolean;
+  user: Member;
 }
 
 interface AdminNotification {
@@ -205,12 +211,16 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [newCu12Password, setNewCu12Password] = useState("");
   const [newLocalPassword, setNewLocalPassword] = useState("");
   const [memberSubmitting, setMemberSubmitting] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
 
   const [inviteCu12Id, setInviteCu12Id] = useState("");
   const [inviteRole, setInviteRole] = useState<RoleType>("USER");
   const [inviteExpiresHours, setInviteExpiresHours] = useState(72);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [latestToken, setLatestToken] = useState<string | null>(null);
+  const isEditMode = editingMemberId !== null;
+  const originalEditModeIsTestUser = editingMember?.isTestUser ?? false;
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, {
@@ -333,15 +343,47 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     });
   }, [fetchJson, logPage, refreshAll, withBlocking]);
 
+  const resetMemberForm = useCallback(() => {
+    setEditingMemberId(null);
+    setEditingMember(null);
+    setNewCu12Id("");
+    setNewName("");
+    setNewCampus("SONGSIM");
+    setNewRole("USER");
+    setNewIsTestUser(false);
+    setNewIsActive(true);
+    setNewCu12Password("");
+    setNewLocalPassword("");
+  }, []);
+
+  const startEditMember = useCallback((member: Member) => {
+    setEditingMemberId(member.id);
+    setEditingMember(member);
+    setNewCu12Id(member.cu12Account?.cu12Id ?? member.email);
+    setNewName(member.name ?? "");
+    setNewCampus(member.cu12Account?.campus ?? "SONGSIM");
+    setNewRole(member.role);
+    setNewIsTestUser(member.isTestUser);
+    setNewIsActive(member.isActive);
+    setNewCu12Password("");
+    setNewLocalPassword("");
+    setMessage(`${member.email} 회원 정보를 수정해주세요.`);
+  }, []);
+
+  const cancelEditMember = useCallback(() => {
+    resetMemberForm();
+    setMessage("회원 수정이 취소되었습니다.");
+  }, [resetMemberForm]);
+
   const createMember = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (memberSubmitting) return;
 
-    if (newIsTestUser && !newLocalPassword.trim()) {
+    if (newIsTestUser && (!isEditMode || !originalEditModeIsTestUser) && !newLocalPassword.trim()) {
       setError("테스트 계정은 테스트용 비밀번호를 입력해 주세요.");
       return;
     }
-    if (!newIsTestUser && !newCu12Password.trim()) {
+    if (!isEditMode && !newIsTestUser && !newCu12Password.trim()) {
       setError("CU12 계정은 CU12 비밀번호를 입력해 주세요.");
       return;
     }
@@ -349,35 +391,53 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     const trimmedCu12Id = newCu12Id.trim();
     if (!trimmedCu12Id) return;
 
-    const body = {
-      cu12Id: trimmedCu12Id,
-      cu12Password: newIsTestUser ? undefined : newCu12Password.trim(),
-      localPassword: newIsTestUser ? newLocalPassword.trim() : undefined,
-      name: newName.trim() || undefined,
-      campus: newCampus,
-      role: newRole,
-      isTestUser: newIsTestUser,
-      isActive: newIsActive,
-    };
-
     setMemberSubmitting(true);
-    const result = await withBlocking("회원 등록/수정 처리 중...", async () => {
-      const payload = await fetchJson<MemberCreateResponse>("/api/admin/members", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+    const result = await withBlocking(
+      isEditMode ? "회원 정보 수정 중..." : "회원 등록 중...",
+      async () => {
+        if (isEditMode && editingMemberId) {
+          const patchPayload: Record<string, unknown> = {
+            role: newRole,
+            isTestUser: newIsTestUser,
+            isActive: newIsActive,
+          };
+          const trimmedName = newName.trim();
+          if (trimmedName) {
+            patchPayload.name = trimmedName;
+          }
+          if (newIsTestUser && newLocalPassword.trim()) {
+            patchPayload.localPassword = newLocalPassword.trim();
+          }
 
-      setNewCu12Id("");
-      setNewName("");
-      setNewCu12Password("");
-      setNewLocalPassword("");
-      setNewIsActive(true);
-      setMessage(payload.created ? "회원 등록을 완료했습니다." : "회원 정보를 갱신했습니다.");
-      return payload;
-    });
+          const payload = await fetchJson<MemberUpdateResponse>(`/api/admin/members/${editingMemberId}`, {
+            method: "PATCH",
+            body: JSON.stringify(patchPayload),
+          });
+          setMessage(payload.updated ? "회원 정보를 갱신했습니다." : "회원 수정이 반영되지 않았습니다.");
+          return payload;
+        }
+
+        const payload = await fetchJson<MemberCreateResponse>("/api/admin/members", {
+          method: "POST",
+          body: JSON.stringify({
+            cu12Id: trimmedCu12Id,
+            cu12Password: newCu12Password.trim(),
+            name: newName.trim() || undefined,
+            campus: newCampus,
+            role: newRole,
+            isTestUser: newIsTestUser,
+            isActive: newIsActive,
+          }),
+        });
+
+        setMessage(payload.created ? "회원 등록을 완료했습니다." : "회원 정보를 갱신했습니다.");
+        return payload;
+      },
+    );
 
     setMemberSubmitting(false);
     if (result) {
+      resetMemberForm();
       runAfterMutation(logPage);
     }
   }, [
@@ -394,6 +454,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     logPage,
     runAfterMutation,
     withBlocking,
+    resetMemberForm,
+    isEditMode,
+    editingMemberId,
+    originalEditModeIsTestUser,
   ]);
 
   const toggleMemberActive = useCallback((member: Member) => {
@@ -644,8 +708,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>회원 등록/수정</h2>
-          <span className="text-small muted">신규 사용자 등록 또는 기존 계정 갱신</span>
+          <h2>{isEditMode ? "회원 정보 수정" : "회원 등록"}</h2>
+          <span className="text-small muted">
+            {isEditMode ? "목록에서 선택한 회원 정보를 수정합니다." : "신규 사용자 등록 또는 기존 계정 갱신"}
+          </span>
         </div>
         <form className="form-grid top-gap" onSubmit={createMember}>
           <label className="field">
@@ -654,6 +720,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               value={newCu12Id}
               onChange={(event) => setNewCu12Id(event.target.value)}
               minLength={4}
+              readOnly={isEditMode}
               required
               placeholder="예: student1234"
             />
@@ -669,10 +736,17 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           </label>
           <label className="field">
             <span>캠퍼스</span>
-            <select value={newCampus} onChange={(event) => setNewCampus(event.target.value as CampusType)}>
-              <option value="SONGSIM">서울 SONGSIM</option>
-              <option value="SONGSIN">신촌 SONGSIN</option>
+            <select
+              value={newCampus}
+              onChange={(event) => setNewCampus(event.target.value as CampusType)}
+              disabled={isEditMode}
+            >
+              <option value="SONGSIM">SONGSIM</option>
+              <option value="SONGSIN">SONGSIN</option>
             </select>
+            {isEditMode ? (
+              <p className="muted text-small">캠퍼스는 등록 후 별도 API에서 별도 수정하세요.</p>
+            ) : null}
           </label>
           <label className="field">
             <span>역할</span>
@@ -713,21 +787,32 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               />
             </label>
           ) : (
-            <label className="field">
-              <span>CU12 비밀번호</span>
-              <input
-                type="password"
-                value={newCu12Password}
-                onChange={(event) => setNewCu12Password(event.target.value)}
-                minLength={4}
-                required
-              />
-            </label>
+            <>
+              {isEditMode ? (
+                <p className="muted">CU12 비밀번호는 이 화면에서 수정할 수 없습니다.</p>
+              ) : (
+                <label className="field">
+                  <span>CU12 비밀번호</span>
+                  <input
+                    type="password"
+                    value={newCu12Password}
+                    onChange={(event) => setNewCu12Password(event.target.value)}
+                    minLength={4}
+                    required
+                  />
+                </label>
+              )}
+            </>
           )}
           <div className="align-end">
             <button className="btn-success" type="submit" disabled={memberSubmitting}>
-              {memberSubmitting ? "처리 중..." : "회원 등록/수정"}
+              {memberSubmitting ? "처리 중..." : isEditMode ? "회원 수정" : "회원 등록"}
             </button>
+            {isEditMode ? (
+              <button className="ghost-btn" type="button" onClick={() => void cancelEditMember()} disabled={memberSubmitting}>
+                수정 취소
+              </button>
+            ) : null}
           </div>
         </form>
       </section>
@@ -781,6 +866,16 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                       <div className="action-row">
                         <button type="button" className="ghost-btn" onClick={() => startImpersonation(member)}>
                           대리접속
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => {
+                            startEditMember(member);
+                          }}
+                          disabled={memberSubmitting}
+                        >
+                          수정
                         </button>
                         <button
                           type="button"

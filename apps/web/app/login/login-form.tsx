@@ -41,6 +41,7 @@ export function LoginForm() {
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
+  const isProcessing = submitting || inviteSubmitting;
   const processingMessage = submitting
     ? "로그인 요청 처리 중..."
     : inviteSubmitting
@@ -177,8 +178,8 @@ export function LoginForm() {
         <label className="field">
           <span>캠퍼스</span>
           <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
-            <option value="SONGSIM">서울 SONGSIM</option>
-            <option value="SONGSIN">신촌 SONGSIN</option>
+            <option value="SONGSIM">SONGSIM</option>
+            <option value="SONGSIN">SONGSIN</option>
           </select>
         </label>
 
@@ -245,8 +246,8 @@ export function LoginForm() {
         </div>
       ) : null}
 
-      {processingMessage ? (
-        <div className="modal-overlay">
+      {isProcessing ? (
+        <div className="modal-overlay processing-overlay" role="presentation">
           <section className="modal-card processing-card">
             <h2>처리 중</h2>
             <p className="muted">{processingMessage}</p>
