@@ -153,7 +153,7 @@ export function LoginForm() {
   }
 
   return (
-    <>
+    <div className="login-form-shell">
       <form onSubmit={onSubmit} className="form-stack">
         <label className="field">
           <span>CU12 ID</span>
@@ -255,7 +255,7 @@ export function LoginForm() {
       ) : null}
 
       {isProcessing ? (
-        <div className="modal-overlay processing-overlay" role="presentation">
+        <div className="processing-overlay" role="presentation" aria-live="polite" aria-busy={isProcessing}>
           <section className="modal-card processing-card">
             <h2>처리 중</h2>
             <p className="muted">{processingMessage}</p>
@@ -263,6 +263,6 @@ export function LoginForm() {
           </section>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }
