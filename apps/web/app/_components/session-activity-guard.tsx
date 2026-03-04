@@ -36,8 +36,11 @@ function formatRemaining(ms: number): string {
   return `${String(minutes).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
 }
 
+const isTimeoutOverrideEnabled = process.env.NODE_ENV !== "production";
+
 function getIdleTimeoutMs(): number {
   if (typeof window === "undefined") return IDLE_TIMEOUT_MS;
+  if (!isTimeoutOverrideEnabled) return IDLE_TIMEOUT_MS;
   const raw = window.localStorage.getItem(IDLE_TIMEOUT_OVERRIDE_KEY);
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
