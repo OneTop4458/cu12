@@ -18,6 +18,7 @@
   --warn-soft: #fff7ed;
   --border: #d5deef;
   --session-banner-height: 44px;
+  --session-notice-collapsed-height: 72px;
   --radius-lg: 18px;
   --radius-md: 12px;
   --radius-sm: 10px;
@@ -106,6 +107,11 @@ a {
   gap: 6px;
 }
 
+.session-warning-bar,
+.session-notice-stack {
+  pointer-events: auto;
+}
+
 .session-notice-host {
   width: 100%;
 }
@@ -118,21 +124,24 @@ a {
 }
 
 .session-notice-card {
-  min-height: var(--session-banner-height);
-  max-height: var(--session-banner-height);
+  min-height: var(--session-notice-collapsed-height);
+  max-height: var(--session-notice-collapsed-height);
   overflow: hidden;
   cursor: pointer;
   user-select: none;
+  pointer-events: auto;
   transition: max-height 0.22s ease, box-shadow 0.22s ease;
+  touch-action: manipulation;
 }
 
 .session-notice-card.is-expanded {
-  max-height: 420px;
+  max-height: min(82vh, 560px);
   box-shadow: 0 12px 22px rgb(2 6 23 / 10%);
+  overflow: auto;
 }
 
 .session-notice-card.is-collapsed {
-  max-height: var(--session-banner-height);
+  max-height: var(--session-notice-collapsed-height);
 }
 
 .session-warning-bar {
@@ -776,16 +785,19 @@ textarea:focus {
 }
 
 .topbar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: stretch;
   justify-content: flex-start;
-  margin: -4px 0 10px;
-  padding: 12px;
+  margin: 0;
+  padding: 12px 24px 0;
+  pointer-events: auto;
 }
 
 .topbar-main {
@@ -796,8 +808,16 @@ textarea:focus {
   flex-wrap: wrap;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 84%, transparent);
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  background: var(--surface);
   backdrop-filter: blur(8px);
+  box-shadow: 0 10px 18px rgb(15 23 42 / 10%);
+  padding: 12px 14px;
+}
+
+.topbar-spacer {
+  height: 88px;
 }
 
 .topbar-brand {
@@ -807,11 +827,21 @@ textarea:focus {
   min-width: 0;
 }
 
+.topbar-brand > div {
+  min-width: 0;
+}
+
 .topbar-brand h1 {
   font-size: 1.05rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.topbar-brand .muted {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .topbar-brand img {
@@ -831,21 +861,6 @@ textarea:focus {
 
 .topbar-actions > * {
   flex-shrink: 0;
-}
-
-.topbar-stats {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.action-kicker {
-  color: var(--text-muted);
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .topbar-notice-stack {
@@ -921,6 +936,15 @@ textarea:focus {
   margin: 0;
   font-size: 12px;
   color: var(--text);
+}
+
+.topbar-notice-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .topbar-notice-body {
@@ -1539,6 +1563,10 @@ code {
 
   .topbar {
     padding: 12px;
+  }
+
+  .topbar-spacer {
+    height: 132px;
   }
 
   .session-banner-shell {

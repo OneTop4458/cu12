@@ -197,50 +197,53 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar">
-        <div className="topbar-brand">
-          <img src="/brand/catholic/crest-mark.png" alt="Catholic University crest" loading="lazy" />
-          <div>
-            <p className="brand-kicker">가톨릭대학교 공유대학 운영</p>
-            <h1>시스템 상태</h1>
-            <p className="muted">운영자: {initialUser.email}</p>
+      <header className="topbar topbar-fixed">
+        <div className="topbar-main">
+          <div className="topbar-brand">
+            <img src="/brand/catholic/crest-mark.png" alt="Catholic University crest" loading="lazy" />
+            <div>
+              <p className="brand-kicker">가톨릭대학교 공유대학 운영</p>
+              <h1>시스템 상태</h1>
+              <p className="muted">운영자: {initialUser.email}</p>
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <button
+              className="icon-btn"
+              type="button"
+              onClick={() => void refreshAll(true)}
+              disabled={loading || refreshing}
+              title="새로고침"
+            >
+              <RefreshCw size={16} />
+            </button>
+            <Link className="ghost-btn" href="/admin/site-notices" as="/admin/site-notices" >
+              공지/점검 설정
+            </Link>
+            <Link className="ghost-btn" href={"/admin/operations" as any} as={"/admin/operations" as any} >
+              작업 운영
+            </Link>
+            <Link className="ghost-btn" href="/admin" as="/admin" >
+              관리 홈
+            </Link>
+            <ThemeToggle />
+            <UserMenu
+              email={initialUser.email}
+              role={initialUser.role}
+              impersonating={false}
+              onDashboard={() => router.push("/dashboard")}
+              onGoAdmin={() => router.push("/admin")}
+              onLogout={() => {
+                void fetch("/api/auth/logout", { method: "POST" }).then(() => {
+                  router.push("/login");
+                  router.refresh();
+                });
+              }}
+            />
           </div>
         </div>
-        <div className="topbar-actions">
-          <button
-            className="icon-btn"
-            type="button"
-            onClick={() => void refreshAll(true)}
-            disabled={loading || refreshing}
-            title="새로고침"
-          >
-            <RefreshCw size={16} />
-          </button>
-          <Link className="ghost-btn" href="/admin/site-notices" as="/admin/site-notices" >
-            공지/점검 설정
-          </Link>
-          <Link className="ghost-btn" href={"/admin/operations" as any} as={"/admin/operations" as any} >
-            작업 운영
-          </Link>
-          <Link className="ghost-btn" href="/admin" as="/admin" >
-            관리 홈
-          </Link>
-          <ThemeToggle />
-          <UserMenu
-            email={initialUser.email}
-            role={initialUser.role}
-            impersonating={false}
-            onDashboard={() => router.push("/dashboard")}
-            onGoAdmin={() => router.push("/admin")}
-            onLogout={() => {
-              void fetch("/api/auth/logout", { method: "POST" }).then(() => {
-                router.push("/login");
-                router.refresh();
-              });
-            }}
-          />
-        </div>
       </header>
+      <div className="topbar-spacer" aria-hidden="true" />
 
       {loading ? <p className="muted">시스템 상태를 불러오는 중입니다...</p> : null}
       {error ? <p className="error-text">{error}</p> : null}

@@ -321,46 +321,47 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
 
   return (
     <>
-      <header className="topbar">
-        <div className="topbar-brand">
-          <div>
-            <p className="brand-kicker">운영자 공지 페이지 설정</p>
-            <h1>전체 공지 / 점검 관리</h1>
-            <div className="topbar-stats">
-              <span className="action-kicker">관리자: {initialUser.email}</span>
+      <header className="topbar topbar-fixed">
+        <div className="topbar-main">
+          <div className="topbar-brand">
+            <div>
+              <p className="brand-kicker">운영자 공지 페이지 설정</p>
+              <h1>전체 공지 / 점검 관리</h1>
+              <p className="muted">관리자: {initialUser.email}</p>
             </div>
           </div>
-        </div>
-        <div className="topbar-actions">
-          <button className="icon-btn" type="button" onClick={() => void loadNotices()} disabled={loading}>
-            <RefreshCw size={16} />
-          </button>
-          <ThemeToggle />
-          <Link className="ghost-btn" href={"/admin/operations" as any}>
-            작업 운영
-          </Link>
-          <Link className="ghost-btn" href={"/admin/system" as any}>
-            시스템 상태
-          </Link>
-          <button type="button" className="ghost-btn" onClick={() => router.push("/admin" as Route)}>
-            <ChevronLeft size={16} />
-            운영자 홈
-          </button>
-          <UserMenu
-            email={initialUser.email}
-            role={initialUser.role}
-            impersonating={false}
-            onDashboard={() => router.push("/dashboard" as Route)}
-            onGoAdmin={() => router.push("/admin" as Route)}
-            onLogout={() => {
-              void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
-                router.push("/login" as Route);
-                router.refresh();
-              });
-            }}
-          />
+          <div className="topbar-actions">
+            <button className="icon-btn" type="button" onClick={() => void loadNotices()} disabled={loading}>
+              <RefreshCw size={16} />
+            </button>
+            <ThemeToggle />
+            <Link className="ghost-btn" href={"/admin/operations" as any}>
+              작업 운영
+            </Link>
+            <Link className="ghost-btn" href={"/admin/system" as any}>
+              시스템 상태
+            </Link>
+            <button type="button" className="ghost-btn" onClick={() => router.push("/admin" as Route)}>
+              <ChevronLeft size={16} />
+              운영자 홈
+            </button>
+            <UserMenu
+              email={initialUser.email}
+              role={initialUser.role}
+              impersonating={false}
+              onDashboard={() => router.push("/dashboard" as Route)}
+              onGoAdmin={() => router.push("/admin" as Route)}
+              onLogout={() => {
+                void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
+                  router.push("/login" as Route);
+                  router.refresh();
+                });
+              }}
+            />
+          </div>
         </div>
       </header>
+      <div className="topbar-spacer" aria-hidden="true" />
 
       <section className="admin-stats">
         <article className="admin-stat card">

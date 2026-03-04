@@ -737,59 +737,61 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar">
-        <div className="topbar-brand">
-          <img
-            src="/brand/catholic/crest-mark.png"
-            alt="Catholic University crest"
-            loading="lazy"
-          />
-          <div>
-            <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
-            <h1>운영 관리센터</h1>
-            <div className="topbar-stats">
-              <span className="action-kicker">현재 운영자: {context.effective.email}</span>
-              {context.impersonating ? (
-                <span className="error-text">대리접속 중: {context.actor.email} → {context.effective.email}</span>
-              ) : null}
+      <header className="topbar topbar-fixed">
+        <div className="topbar-main">
+          <div className="topbar-brand">
+            <img
+              src="/brand/catholic/crest-mark.png"
+              alt="Catholic University crest"
+              loading="lazy"
+            />
+            <div>
+              <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
+              <h1>운영 관리센터</h1>
+              <p className="muted">
+                {context.impersonating
+                  ? `대리접속: ${context.actor.email} → ${context.effective.email}`
+                  : `현재 운영자: ${context.effective.email}`}
+              </p>
             </div>
           </div>
-        </div>
-        <div className="topbar-actions">
-          <button
-            className="icon-btn"
-            type="button"
-            onClick={() => void refreshAll(logPage, false)}
-            disabled={loading || !!blockingMessage}
-            title="새로고침"
-          >
-            <RotateCw size={16} />
-          </button>
-          <Link className="ghost-btn" href={"/admin/site-notices" as any}>
-            공지/점검 설정
-          </Link>
-          <Link className="ghost-btn" href={"/admin/operations" as any}>
-            운영 메뉴
-          </Link>
-          <Link className="ghost-btn" href={"/admin/system" as any}>
-            시스템 상태
-          </Link>
-          <ThemeToggle />
-          <NotificationCenter
-            notifications={recentLogNotifications}
-            onOpen={(item) => setActiveNotification(item)}
-            onMarkRead={() => {}}
-          />
-          <UserMenu
-            email={context.effective.email}
-            role={initialUser.role}
-            impersonating={context.impersonating}
-            onDashboard={() => goDashboard()}
-            onOpenSettings={undefined}
-            onLogout={logout}
-          />
+          <div className="topbar-actions">
+            <button
+              className="icon-btn"
+              type="button"
+              onClick={() => void refreshAll(logPage, false)}
+              disabled={loading || !!blockingMessage}
+              title="새로고침"
+            >
+              <RotateCw size={16} />
+            </button>
+            <Link className="ghost-btn" href={"/admin/site-notices" as any}>
+              공지/점검 설정
+            </Link>
+            <Link className="ghost-btn" href={"/admin/operations" as any}>
+              운영 메뉴
+            </Link>
+            <Link className="ghost-btn" href={"/admin/system" as any}>
+              시스템 상태
+            </Link>
+            <ThemeToggle />
+            <NotificationCenter
+              notifications={recentLogNotifications}
+              onOpen={(item) => setActiveNotification(item)}
+              onMarkRead={() => {}}
+            />
+            <UserMenu
+              email={context.effective.email}
+              role={initialUser.role}
+              impersonating={context.impersonating}
+              onDashboard={() => goDashboard()}
+              onOpenSettings={undefined}
+              onLogout={logout}
+            />
+          </div>
         </div>
       </header>
+      <div className="topbar-spacer" aria-hidden="true" />
       <section className="card admin-hero">
         <div>
           <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 관리자</p>

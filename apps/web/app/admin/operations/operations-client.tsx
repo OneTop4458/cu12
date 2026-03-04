@@ -406,43 +406,44 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar">
-        <div className="topbar-brand">
-          <div>
-            <p className="brand-kicker">관리자 작업</p>
-            <h1>운영 | 작업/워커 운영</h1>
-            <div className="topbar-stats">
-              <span className="action-kicker">관리자: {initialUser.email}</span>
+      <header className="topbar topbar-fixed">
+        <div className="topbar-main">
+          <div className="topbar-brand">
+            <div>
+              <p className="brand-kicker">관리자 작업</p>
+              <h1>운영 | 작업/워커 운영</h1>
+              <p className="muted">관리자: {initialUser.email}</p>
             </div>
           </div>
-        </div>
-        <div className="topbar-actions">
-          <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary}>
-            <RefreshCw size={16} />
-          </button>
-          <ThemeToggle />
-          <Link className="ghost-btn" href={"/admin/system" as any} as={"/admin/system" as any}>
-            시스템 상태
-          </Link>
-          <button type="button" className="ghost-btn" onClick={() => router.push("/admin")}>
-            <ChevronLeft size={16} />
-            관리자 홈
-          </button>
-          <UserMenu
-            email={initialUser.email}
-            role={initialUser.role}
-            impersonating={false}
-            onDashboard={() => router.push("/dashboard")}
-            onGoAdmin={() => router.push("/admin")}
-            onLogout={() => {
-              void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
-                router.push("/login");
-                router.refresh();
-              });
-            }}
-          />
+          <div className="topbar-actions">
+            <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary}>
+              <RefreshCw size={16} />
+            </button>
+            <ThemeToggle />
+            <Link className="ghost-btn" href={"/admin/system" as any} as={"/admin/system" as any}>
+              시스템 상태
+            </Link>
+            <button type="button" className="ghost-btn" onClick={() => router.push("/admin")}>
+              <ChevronLeft size={16} />
+              관리자 홈
+            </button>
+            <UserMenu
+              email={initialUser.email}
+              role={initialUser.role}
+              impersonating={false}
+              onDashboard={() => router.push("/dashboard")}
+              onGoAdmin={() => router.push("/admin")}
+              onLogout={() => {
+                void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
+                  router.push("/login");
+                  router.refresh();
+                });
+              }}
+            />
+          </div>
         </div>
       </header>
+      <div className="topbar-spacer" aria-hidden="true" />
 
       <section className="admin-stats">
         <article className="admin-stat card">

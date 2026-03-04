@@ -607,9 +607,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 toggleNoticeExpanded(MAINTENANCE_NOTICE_ID);
               }
             }}
+            onTouchStart={() => toggleNoticeExpanded(MAINTENANCE_NOTICE_ID)}
           >
             <p className="topbar-notice-title">시스템 점검 공지</p>
-            <p className="error-text">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
+            <p className="topbar-notice-summary">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
             <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
             <p className="muted">
               우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
@@ -632,6 +633,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   toggleNoticeExpanded(notice.id);
                 }
               }}
+              onTouchStart={() => toggleNoticeExpanded(notice.id)}
             >
               <div className="topbar-notice-row">
                 <p className="topbar-notice-title">전체 공지</p>
@@ -850,7 +852,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       {siteNoticePortal}
-      <header className="topbar">
+      <header className="topbar topbar-fixed">
         <div className="topbar-main">
           <div className="topbar-brand">
             <img
@@ -861,12 +863,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <div>
               <p className="brand-kicker">CU12 자동화 · 학습 운영 대시보드</p>
               <h1>나의 학습 홈</h1>
-              <div className="topbar-stats">
-                <span className="action-kicker">{context?.effective.email ?? initialUser.email}</span>
-                {context?.impersonating ? (
-                  <span className="error-text">관리자 대리 실행 모드: {context?.effective.email}</span>
-                ) : null}
-              </div>
+              <p className="muted">{context?.effective.email ?? initialUser.email}</p>
             </div>
           </div>
           <div className="topbar-actions">
@@ -907,6 +904,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           </div>
         </div>
       </header>
+      <div className="topbar-spacer" aria-hidden="true" />
       {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
 
       {error ? <p className="error-text">{error}</p> : null}
