@@ -1,0 +1,87 @@
+name: Reconcile Health Check
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    env:
+      WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
+      WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check reconcile status
+        run: |
+          node <<'NODE'
+          async function main() {
+            const baseUrl = process.env.WEB_INTERNAL_BASE_URL;
+            const workerToken = process.env.WORKER_SHARED_TOKEN;
+
+            if (!baseUrl || !workerToken) {
+              console.error("[reconcile] missing required environment variables.");
+              process.exit(1);
+            }
+
+            const targetUrl = `${baseUrl.replace(/\/$/, "")}/internal/admin/jobs/reconcile`;
+            const response = await fetch(targetUrl, {
+              method: "GET",
+              headers: {
+                "x-worker-token": workerToken,
+              },
+            });
+
+            const text = await response.text();
+            if (!response.ok) {
+              console.error(`[reconcile] request failed: ${response.status} ${response.statusText}`);
+              console.error(text);
+              process.exit(1);
+            }
+
+            let payload;
+            try {
+              payload = JSON.parse(text);
+            } catch (error) {
+              console.error("[reconcile] invalid JSON response.");
+              console.error(text);
+              process.exit(1);
+            }
+
+            const summary = payload.summary || {};
+            const checkedAt = payload.checkedAt || new Date().toISOString();
+            const canReconcileWithGitHub = Boolean(payload.canReconcileWithGitHub);
+            const orphanedRunningJobsCount = Number(summary.orphanedRunningJobsCount ?? 0);
+            const ghostRunsCount = Number(summary.ghostRunsCount ?? 0);
+            const runningJobsCount = Number(summary.runningJobsCount ?? 0);
+            const nonparseableWorkerIdCount = Number(summary.nonparseableWorkerIdCount ?? 0);
+
+            console.log(`[reconcile] checkedAt=${checkedAt}`);
+            console.log(`[reconcile] runningJobs=${runningJobsCount}, orphanedRunning=${orphanedRunningJobsCount}, ghostRuns=${ghostRunsCount}, nonparseableWorkerId=${nonparseableWorkerIdCount}`);
+            console.log(`[reconcile] canReconcileWithGitHub=${canReconcileWithGitHub}`);
+
+            if (!canReconcileWithGitHub) {
+              console.error("[reconcile] skipped reconciliation because GitHub credentials/config were unavailable.");
+              if (payload.error) {
+                console.error(`[reconcile] error=${payload.error}`);
+              }
+              process.exit(1);
+            }
+
+            if (orphanedRunningJobsCount > 0 || ghostRunsCount > 0) {
+              console.error("[reconcile] mismatch detected between DB RUNNING jobs and active GitHub runs.");
+              process.exit(1);
+            }
+
+            console.log("[reconcile] check passed");
+          }
+
+          main().catch((error) => {
+            console.error(`[reconcile] unexpected failure: ${error?.message ?? String(error)}`);
+            process.exit(1);
+          });
+          NODE

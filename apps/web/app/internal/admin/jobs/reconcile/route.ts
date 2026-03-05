@@ -1,10 +1,12 @@
-import { jsonError, jsonOk, requireAdminActor } from "@/lib/http";
 import { NextRequest } from "next/server";
+import { jsonError, jsonOk } from "@/lib/http";
+import { isWorkerAuthorized } from "@/lib/worker-auth";
 import { getJobReconcileResult } from "@/server/jobs-reconcile";
 
 export async function GET(request: NextRequest) {
-  const context = await requireAdminActor(request);
-  if (!context) return jsonError("Forbidden", 403);
+  if (!isWorkerAuthorized(request)) {
+    return jsonError("Forbidden", 403);
+  }
 
   return jsonOk(await getJobReconcileResult());
 }

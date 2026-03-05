@@ -27,19 +27,23 @@
 - Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
 - Calls `worker-consume.yml` only when new digest jobs were enqueued.
 
-6. `db-retention-cleanup.yml`
+6. `reconcile-health-check.yml`
+- Calls `/internal/admin/jobs/reconcile` every 30 minutes using `WORKER_SHARED_TOKEN`.
+- Fails the workflow when active job/run divergence is detected (`orphanedRunningJobsCount > 0` or `ghostRunsCount > 0`).
+
+7. `db-retention-cleanup.yml`
 - Deletes old rows by retention policy:
   - `AuditLog`: 30 days
   - `JobQueue` terminal states: 14 days
   - `MailDelivery`: 30 days
 
-7. `actions-usage-forecast.yml`
+8. `actions-usage-forecast.yml`
 - Forecasts monthly Actions usage and writes utilization summary.
 
-8. `db-bootstrap.yml`
+9. `db-bootstrap.yml`
 - Applies DB schema initialization (`prisma db push`).
 
-9. `auth-reset-bootstrap.yml`
+10. `auth-reset-bootstrap.yml`
 - Resets auth-related data and issues fresh admin invite code.
 
 ## Required Secrets
