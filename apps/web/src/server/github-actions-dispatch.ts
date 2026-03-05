@@ -1,16 +1,25 @@
-﻿import { getEnv } from "@/lib/env";
+import { getEnv } from "@/lib/env";
 
 export type WorkerDispatchType = "sync" | "autolearn";
+export type WorkerDispatchState = "DISPATCHED" | "NOT_CONFIGURED" | "FAILED";
 
 export interface WorkerDispatchResult {
+  state: WorkerDispatchState;
   dispatched: boolean;
+  errorCode: string | null;
   error?: string;
+  statusCode?: number;
 }
 
 export async function dispatchWorkerRun(type: WorkerDispatchType, userId?: string): Promise<WorkerDispatchResult> {
   const env = getEnv();
   if (!env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_WORKFLOW_ID || !env.GITHUB_TOKEN) {
-    return { dispatched: false, error: "GITHUB_DISPATCH_NOT_CONFIGURED" };
+    return {
+      state: "NOT_CONFIGURED",
+      dispatched: false,
+      errorCode: "GITHUB_DISPATCH_NOT_CONFIGURED",
+      error: "GITHUB_DISPATCH_NOT_CONFIGURED",
+    };
   }
 
   const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/dispatches`;
@@ -39,8 +48,18 @@ export async function dispatchWorkerRun(type: WorkerDispatchType, userId?: strin
 
   if (response.status !== 204) {
     const text = await response.text();
-    return { dispatched: false, error: `GITHUB_DISPATCH_FAILED:${response.status}:${text}` };
+    return {
+      state: "FAILED",
+      dispatched: false,
+      errorCode: "GITHUB_DISPATCH_FAILED",
+      error: `GITHUB_DISPATCH_FAILED:${response.status}:${text}`,
+      statusCode: response.status,
+    };
   }
 
-  return { dispatched: true };
+  return {
+    state: "DISPATCHED",
+    dispatched: true,
+    errorCode: null,
+  };
 }

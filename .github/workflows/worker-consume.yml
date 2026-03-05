@@ -36,7 +36,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cu12-worker-consume
+  group: cu12-worker-consume-${{ inputs.trigger || github.event.inputs.trigger || 'sync' }}
   cancel-in-progress: false
 
 jobs:
@@ -51,7 +51,10 @@ jobs:
       CU12_BASE_URL: ${{ secrets.CU12_BASE_URL }}
       POLL_INTERVAL_MS: 30000
       AUTOLEARN_TIME_FACTOR: ${{ secrets.AUTOLEARN_TIME_FACTOR }}
+      AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS: 60
+      AUTOLEARN_STALL_TIMEOUT_SECONDS: 1200
       AUTOLEARN_MAX_TASKS: ${{ secrets.AUTOLEARN_MAX_TASKS }}
+      WORKER_ONCE_IDLE_GRACE_MS: 60000
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -85,7 +88,14 @@ jobs:
             echo "needs_playwright=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
-        run: npx playwright install --with-deps chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-chromium-
+      - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
+        run: npx playwright install chromium
       - run: npm --workspace @cu12/worker run once -- --types=${{ steps.resolve.outputs.job_types }}

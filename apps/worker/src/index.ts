@@ -111,6 +111,7 @@ function parseArgs() {
 }
 
 const AUTOLEARN_CANCEL_ERROR = "AUTOLEARN_CANCELLED";
+const AUTOLEARN_STALLED_ERROR = "AUTOLEARN_STALLED";
 const JOB_CANCEL_ERROR = "JOB_CANCELLED";
 
 type CancelCheck = () => Promise<boolean>;
@@ -151,6 +152,7 @@ async function reportJobProgress(jobId: string, progress: AutoLearnProgress) {
       kind: "AUTOLEARN_PROGRESS",
       progress,
       updatedAt: new Date().toISOString(),
+      heartbeatAt: progress.heartbeatAt ?? null,
     });
   } catch {
     // progress update must not break the main worker flow
@@ -446,6 +448,17 @@ async function processAutolearn(
 
   const env = getEnv();
   const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
+  const stallTimeoutMs = Math.max(120_000, env.AUTOLEARN_STALL_TIMEOUT_SECONDS * 1000);
+  let lastHeartbeatAtMs = Date.now();
+  let lastHeartbeatAt = new Date(lastHeartbeatAtMs).toISOString();
+  let stallDetected = false;
+  const stallWatchdog = setInterval(() => {
+    if (stallDetected) return;
+    const idleMs = Date.now() - lastHeartbeatAtMs;
+    if (idleMs <= stallTimeoutMs) return;
+    stallDetected = true;
+    console.error(`[AUTOLEARN] stalled job=${jobId} idle=${Math.floor(idleMs / 1000)}s`);
+  }, 5000);
   try {
     const autoResult = await runAutoLearning(
       browser,
@@ -453,13 +466,32 @@ async function processAutolearn(
       creds,
       { mode, lectureSeq },
       async (progress) => {
+        const nowIso = progress.heartbeatAt ?? new Date().toISOString();
+        lastHeartbeatAt = nowIso;
+        lastHeartbeatAtMs = Date.parse(nowIso) || Date.now();
+        if (progress.phase === "RUNNING" && progress.current) {
+          const elapsed = progress.current.elapsedSeconds ?? 0;
+          console.log(
+            `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
+            + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
+            + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
+            + ` watched=${progress.watchedSeconds}s`,
+          );
+        }
         await reportJobProgress(jobId, progress);
       },
       async () => {
+        if (stallDetected) return true;
+        const externalCancel = onCancelCheck ? await onCancelCheck() : false;
+        if (externalCancel) return true;
         const status = await getJobStatus(jobId);
         return status === null || status === JobStatus.CANCELED;
       },
     );
+    if (stallDetected) {
+      throw new Error(AUTOLEARN_STALLED_ERROR);
+    }
+    clearInterval(stallWatchdog);
 
     await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, watched=${autoResult.watchedTaskCount}`);
 
@@ -500,8 +532,12 @@ async function processAutolearn(
       lectureSeqs: autoResult.lectureSeqs,
     };
   } catch (error) {
-    const message = errMessage(error);
+    let message = errMessage(error);
+    if ((message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR) && stallDetected) {
+      message = AUTOLEARN_STALLED_ERROR;
+    }
     const isCancelled = message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR;
+    const isStalled = message === AUTOLEARN_STALLED_ERROR;
 
     if (!isCancelled) {
       await recordLearningRun(userId, lectureSeq ?? null, "FAILED", message);
@@ -514,6 +550,9 @@ async function processAutolearn(
           jobId,
           lectureSeq: lectureSeq ?? null,
           error: message,
+          stalled: isStalled,
+          lastHeartbeatAt,
+          stallTimeoutSeconds: env.AUTOLEARN_STALL_TIMEOUT_SECONDS,
         },
       });
     } else {
@@ -529,8 +568,9 @@ async function processAutolearn(
       });
     }
 
-    throw error;
+    throw message === errMessage(error) ? error : new Error(message);
   } finally {
+    clearInterval(stallWatchdog);
     await browser.close();
   }
 }
@@ -633,7 +673,7 @@ async function main() {
   const env = getEnv();
   const args = parseArgs();
   const once = process.argv.includes("--once");
-  const onceGraceMs = Math.max(5 * 60_000, Math.min(20 * 60_000, env.POLL_INTERVAL_MS * 12));
+  const onceGraceMs = env.WORKER_ONCE_IDLE_GRACE_MS;
   let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
   const jobTypes = parseJobTypes(args.get("types"));
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
@@ -648,7 +688,7 @@ async function main() {
           if (once) {
             const deadline = onceNoJobDeadline ?? 0;
             if (Date.now() >= deadline) break;
-            await sleep(Math.min(Math.max(2_000, Math.floor(env.POLL_INTERVAL_MS / 3)), 10_000));
+            await sleep(Math.min(Math.max(2_000, Math.floor(env.POLL_INTERVAL_MS / 6)), 5_000));
             continue;
           }
           await sleep(env.POLL_INTERVAL_MS);

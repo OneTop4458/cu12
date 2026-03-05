@@ -30,28 +30,17 @@ export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>)
   return schema.parse(body);
 }
 
-async function isUserActive(userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { isActive: true },
-  });
-  return user?.isActive ?? false;
-}
-
 export async function requireUser(request: NextRequest): Promise<SessionTokenPayload | null> {
   const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const idleToken = request.cookies.get(IDLE_SESSION_COOKIE_NAME)?.value;
   const session = await verifyActiveSession(sessionToken, idleToken);
   if (!session) return null;
 
-  const isActive = await isUserActive(session.userId);
-  if (!isActive) return null;
-
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { email: true, role: true },
+    select: { email: true, role: true, isActive: true },
   });
-  if (!user) return null;
+  if (!user || !user.isActive) return null;
 
   return {
     userId: session.userId,

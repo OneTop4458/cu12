@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 const LAST_ACTIVITY_KEY = "cu12:last-activity-at";
 const IDLE_TIMEOUT_OVERRIDE_KEY = "cu12:session-idle-timeout-ms";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const MAX_IDLE_TIMEOUT_MS = IDLE_TIMEOUT_MS;
 const REFRESH_MIN_INTERVAL_MS = 2 * 60 * 1000;
 const COUNTDOWN_TICK_MS = 1000;
 const WARNING_THRESHOLD_MS = 5 * 60 * 1000;
@@ -31,8 +32,17 @@ function readStoredActivityAt(): number {
 
 function formatRemaining(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const days = Math.floor(totalSeconds / (24 * 60 * 60));
+  const hours = Math.floor((totalSeconds % (24 * 60 * 60)) / 3600);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+  if (days > 0) {
+    const dayMinutes = Math.floor((totalSeconds % (24 * 60 * 60)) / 60);
+    return `${days}일 ${String(Math.floor(dayMinutes / 60)).padStart(2, "0")} : ${String(dayMinutes % 60).padStart(2, "0")}`;
+  }
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")} : ${String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
+  }
   return `${String(minutes).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
 }
 
@@ -43,12 +53,12 @@ function readStoredIdleTimeoutMs(): number | null {
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
   }
-  return Math.max(1000, Math.trunc(parsed));
+  return Math.min(MAX_IDLE_TIMEOUT_MS, Math.max(1000, Math.trunc(parsed)));
 }
 
 function writeStoredIdleTimeoutMs(timeoutMs: number): void {
   if (typeof window === "undefined") return;
-  const safe = Math.max(1000, Math.trunc(timeoutMs));
+  const safe = Math.min(MAX_IDLE_TIMEOUT_MS, Math.max(1000, Math.trunc(timeoutMs)));
   try {
     window.localStorage.setItem(IDLE_TIMEOUT_OVERRIDE_KEY, String(safe));
   } catch {

@@ -11,6 +11,10 @@
 3. `worker-consume.yml`
 - Claims and processes queue jobs via worker runtime.
 - Can be scheduled or manually dispatched.
+- Uses trigger-scoped concurrency group (`sync` / `autolearn` / `digest`) to avoid global queue blocking.
+- Uses `npm ci --prefer-offline --no-audit` and Playwright cache for faster startup.
+- Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
+- Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
 
 4. `sync-schedule.yml`
 - Dispatches periodic `SYNC` jobs every 2 hours.
@@ -94,5 +98,6 @@
 ### Dispatch succeeded but no processing
 
 1. Check queue status via `/api/jobs`.
-2. Review failed logs with `gh run view <run_id> --log-failed`.
-3. Confirm `WEB_INTERNAL_BASE_URL` points to production URL.
+2. Confirm API response `dispatchState` is `DISPATCHED` (not `NOT_CONFIGURED` / `FAILED`).
+3. Review failed logs with `gh run view <run_id> --log-failed`.
+4. Confirm `WEB_INTERNAL_BASE_URL` points to production URL.

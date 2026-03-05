@@ -480,7 +480,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
 
       <section className="card">
         <h2>공지 목록</h2>
-        <div className="table-wrap">
+        <div className="table-wrap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -508,18 +508,18 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
                   const visibility = resolveVisibilityStatus(notice, now);
                   return (
                     <tr key={notice.id}>
-                      <td>{notice.type === "BROADCAST" ? "전체 공지" : "시스템 점검"}</td>
-                      <td>{notice.title}</td>
-                      <td>{notice.priority}</td>
-                      <td>{notice.isActive ? "활성" : "비활성"}</td>
-                      <td>
+                      <td data-label="Type">{notice.type === "BROADCAST" ? "전체 공지" : "시스템 점검"}</td>
+                      <td data-label="Title">{notice.title}</td>
+                      <td data-label="Priority">{notice.priority}</td>
+                      <td data-label="Active">{notice.isActive ? "활성" : "비활성"}</td>
+                      <td data-label="Visibility">
                         <span className={`status-chip ${formatVisibilityStatusClass(visibility)}`}>
                           {formatVisibilityStatus(visibility)}
                         </span>
                       </td>
-                      <td>{notice.visibleFrom ? formatDateTime(notice.visibleFrom) : "-"}</td>
-                      <td>{notice.visibleTo ? formatDateTime(notice.visibleTo) : "-"}</td>
-                      <td>
+                      <td data-label="Visible From">{notice.visibleFrom ? formatDateTime(notice.visibleFrom) : "-"}</td>
+                      <td data-label="Visible To">{notice.visibleTo ? formatDateTime(notice.visibleTo) : "-"}</td>
+                      <td data-label="Actions">
                         <div className="action-row">
                           <button
                             type="button"

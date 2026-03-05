@@ -8,7 +8,6 @@ export const IDLE_SESSION_COOKIE_NAME = "cu12_idle";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 export const REMEMBER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export const IDLE_SESSION_MAX_AGE_SECONDS = 60 * 30;
-export const REMEMBER_IDLE_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
 const IMPERSONATION_PURPOSE = "ADMIN_IMPERSONATION";
 const IDLE_SESSION_PURPOSE = "IDLE_SESSION";
@@ -50,7 +49,7 @@ export function resolveSessionLifetimePolicy(rememberSession: boolean | null | u
   return {
     rememberSession: remember,
     sessionMaxAgeSeconds: remember ? REMEMBER_SESSION_MAX_AGE_SECONDS : SESSION_MAX_AGE_SECONDS,
-    idleSessionMaxAgeSeconds: remember ? REMEMBER_IDLE_SESSION_MAX_AGE_SECONDS : IDLE_SESSION_MAX_AGE_SECONDS,
+    idleSessionMaxAgeSeconds: IDLE_SESSION_MAX_AGE_SECONDS,
   };
 }
 

@@ -531,7 +531,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             </button>
           </div>
         </form>
-        <div className="table-wrap top-gap">
+        <div className="table-wrap top-gap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -558,21 +558,21 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
               ) : (
                 jobs.map((job) => (
                   <tr key={job.id}>
-                    <td>{job.id}</td>
-                    <td>{job.user?.email ?? job.userId}</td>
-                    <td>{job.type}</td>
-                    <td>
+                    <td data-label="Job ID">{job.id}</td>
+                    <td data-label="User">{job.user?.email ?? job.userId}</td>
+                    <td data-label="Type">{job.type}</td>
+                    <td data-label="Status">
                       <span className={`status-chip ${statusClassForJob(job.status)}`}>{JOB_STATUS_LABELS[job.status]}</span>
                     </td>
-                    <td>{job.attempts}</td>
-                    <td>{job.workerId ?? "-"}</td>
-                    <td>{formatDateTime(job.runAfter)}</td>
-                    <td>
+                    <td data-label="Attempts">{job.attempts}</td>
+                    <td data-label="Worker">{job.workerId ?? "-"}</td>
+                    <td data-label="Run After">{formatDateTime(job.runAfter)}</td>
+                    <td data-label="Last Error">
                       <span className="muted" style={{ maxWidth: 260, display: "inline-block", overflowWrap: "anywhere" }}>
                         {job.lastError ?? "-"}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Actions">
                       <div className="action-row">
                         <button
                           type="button"
@@ -664,7 +664,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             {workerPurgeBusy ? "정리 중..." : "워커 전체 정리"}
           </button>
         </div>
-        <div className="table-wrap top-gap">
+        <div className="table-wrap top-gap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -687,9 +687,9 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
                   const active = isActiveWorker(worker.lastSeenAt);
                   return (
                     <tr key={worker.workerId}>
-                      <td>{worker.workerId}</td>
-                      <td>{formatDateTime(worker.lastSeenAt)}</td>
-                      <td>
+                      <td data-label="Worker ID">{worker.workerId}</td>
+                      <td data-label="Last Heartbeat">{formatDateTime(worker.lastSeenAt)}</td>
+                      <td data-label="Status">
                         <span className={`status-chip ${active ? "status-active" : "status-failed"}`}>
                           {active ? "활성" : "비활성"}
                         </span>

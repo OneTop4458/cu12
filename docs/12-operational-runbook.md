@@ -10,13 +10,13 @@
 ## Manual Sync Procedure
 
 1. User triggers `POST /api/jobs/sync-now`.
-2. Confirm response includes `jobId`.
+2. Confirm response includes `jobId` and `dispatchState`.
 3. Track progression in `/api/jobs/{jobId}`.
 
 ## Manual Auto-learning Procedure
 
 1. User triggers `POST /api/jobs/autolearn-request`.
-2. Confirm queue entry and dispatch status.
+2. Confirm queue entry and dispatch status (`dispatchState`).
 3. Validate worker logs and learning run records.
 
 ## New Environment Bootstrap
@@ -37,8 +37,10 @@
 
 - Inspect VOD page contract changes and modal behavior.
 - Review timeout/factor settings.
+- If error is `AUTOLEARN_STALLED`, check whether heartbeat updates stopped for 20 minutes and inspect the worker log around the last heartbeat line.
 
 ### Workflow failures
 
 - Validate secrets and internal URL alignment.
 - Review runner quota and runtime constraints.
+- If queue stays `PENDING`, inspect dispatch responses first (`NOT_CONFIGURED` or `FAILED`).

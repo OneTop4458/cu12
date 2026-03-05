@@ -301,7 +301,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
             {refreshing ? "갱신 중..." : "워커 다시 조회"}
           </button>
         </div>
-        <div className="table-wrap top-gap">
+        <div className="table-wrap top-gap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -322,9 +322,9 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
                     : false;
                   return (
                     <tr key={worker.workerId}>
-                      <td>{worker.workerId}</td>
-                      <td>{formatDate(worker.lastSeenAt)}</td>
-                      <td>
+                      <td data-label="Worker ID">{worker.workerId}</td>
+                      <td data-label="Last Heartbeat">{formatDate(worker.lastSeenAt)}</td>
+                      <td data-label="Status">
                         <span className={`status-chip ${isActive ? "status-active" : "status-failed"}`}>
                           {isActive ? "정상" : "비정상"}
                         </span>
@@ -340,7 +340,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
       <section className="card">
         <h2>현재 공지/점검 목록</h2>
-        <div className="table-wrap top-gap">
+        <div className="table-wrap top-gap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -360,12 +360,12 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
               ) : (
                 sortedNotices.slice(0, 30).map((notice) => (
                   <tr key={notice.id}>
-                    <td>{NOTICE_TYPE_LABEL[notice.type]}</td>
-                    <td>{notice.title}</td>
-                    <td>{notice.priority}</td>
-                    <td>{notice.isActive ? "활성" : "비활성"}</td>
-                    <td>{formatDate(notice.visibleFrom)}</td>
-                    <td>{formatDate(notice.visibleTo)}</td>
+                    <td data-label="Type">{NOTICE_TYPE_LABEL[notice.type]}</td>
+                    <td data-label="Title">{notice.title}</td>
+                    <td data-label="Priority">{notice.priority}</td>
+                    <td data-label="Status">{notice.isActive ? "활성" : "비활성"}</td>
+                    <td data-label="Visible From">{formatDate(notice.visibleFrom)}</td>
+                    <td data-label="Visible To">{formatDate(notice.visibleTo)}</td>
                   </tr>
                 ))
               )}

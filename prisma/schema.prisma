@@ -153,8 +153,9 @@ model JobQueue {
   updatedAt      DateTime  @updatedAt
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([status, type, runAfter])
+  @@index([status, type, runAfter, createdAt])
   @@index([userId, createdAt])
+  @@index([userId, type, status, finishedAt])
   @@index([idempotencyKey])
 }
 
@@ -181,6 +182,8 @@ model WorkerHeartbeat {
   workerId   String   @id
   lastSeenAt DateTime
   updatedAt  DateTime @updatedAt
+
+  @@index([lastSeenAt])
 }
 
 model CourseSnapshot {
@@ -222,6 +225,7 @@ model CourseNotice {
 
   @@unique([userId, lectureSeq, noticeKey])
   @@index([userId, lectureSeq, postedAt])
+  @@index([userId, isRead, lectureSeq])
 }
 
 model NotificationEvent {

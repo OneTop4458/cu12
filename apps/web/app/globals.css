@@ -1584,6 +1584,11 @@ code {
     gap: 10px;
   }
 
+  .topbar-actions {
+    gap: 6px;
+    align-items: stretch;
+  }
+
   button,
   .btn {
     width: 100%;
@@ -1622,5 +1627,75 @@ code {
 
   .topbar-notice-dismiss {
     width: auto;
+  }
+
+  .table-wrap.mobile-card-table {
+    border: 0;
+    overflow: visible;
+  }
+
+  .table-wrap.mobile-card-table table {
+    min-width: 0;
+    display: block;
+  }
+
+  .table-wrap.mobile-card-table thead {
+    display: none;
+  }
+
+  .table-wrap.mobile-card-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .table-wrap.mobile-card-table tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .table-wrap.mobile-card-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+
+  .table-wrap.mobile-card-table td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .table-wrap.mobile-card-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .table-wrap.mobile-card-table td[colspan] {
+    display: block;
+    padding: 12px 10px;
+    text-align: left;
+  }
+
+  .table-wrap.mobile-card-table td[colspan]::before {
+    content: none;
+  }
+
+  .table-wrap.mobile-card-table td .action-row,
+  .table-wrap.mobile-card-table td .button-row {
+    width: 100%;
+  }
+
+  .table-wrap.mobile-card-table td .action-row > *,
+  .table-wrap.mobile-card-table td .button-row > * {
+    width: 100%;
   }
 }

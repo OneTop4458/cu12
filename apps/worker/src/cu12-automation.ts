@@ -52,11 +52,13 @@ export interface AutoLearnProgress {
   completedTasks: number;
   watchedSeconds: number;
   estimatedRemainingSeconds: number;
+  heartbeatAt?: string;
   current?: {
     lectureSeq: number;
     weekNo: number;
     lessonNo: number;
     remainingSeconds: number;
+    elapsedSeconds?: number;
   };
 }
 
@@ -71,6 +73,7 @@ export interface AutoLearnResult {
 }
 
 type CancelCheck = () => Promise<boolean>;
+type PlaybackTick = (state: { elapsedSeconds: number; remainingSeconds: number }) => Promise<void> | void;
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -877,8 +880,14 @@ export async function collectCu12Snapshot(
   }
 }
 
-async function waitForPlayback(page: Page, waitSeconds: number, shouldCancel: CancelCheck): Promise<void> {
+async function waitForPlayback(
+  page: Page,
+  waitSeconds: number,
+  shouldCancel: CancelCheck,
+  onTick?: PlaybackTick,
+): Promise<void> {
   let remainingMs = Math.max(0, waitSeconds * 1000);
+  const totalMs = remainingMs;
   const tickMs = 1000;
 
   while (remainingMs > 0) {
@@ -889,6 +898,11 @@ async function waitForPlayback(page: Page, waitSeconds: number, shouldCancel: Ca
     const chunkMs = Math.min(tickMs, remainingMs);
     await page.waitForTimeout(chunkMs);
     remainingMs -= chunkMs;
+    if (onTick) {
+      const elapsedSeconds = Math.floor((totalMs - remainingMs) / 1000);
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      await onTick({ elapsedSeconds, remainingSeconds });
+    }
   }
 }
 
@@ -897,6 +911,7 @@ async function watchVodTask(
   lectureSeq: number,
   task: LearningTask,
   shouldCancel: CancelCheck,
+  onTick?: PlaybackTick,
 ): Promise<number> {
   const env = getEnv();
   const remainingSeconds = Math.max(0, task.requiredSeconds - task.learnedSeconds);
@@ -912,7 +927,7 @@ async function watchVodTask(
 
   // The service records attendance by periodic heartbeats during playback;
   // we keep the page open for the remaining required time.
-  await waitForPlayback(page, waitSeconds, shouldCancel);
+  await waitForPlayback(page, waitSeconds, shouldCancel, onTick);
 
   await page.evaluate(() => {
     const fn = (window as unknown as { pageExit?: (isExit?: boolean) => void }).pageExit;
@@ -1001,6 +1016,7 @@ export async function runAutoLearning(
     await ensureLogin(page, creds);
 
     const mode = options.mode;
+    const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
     const plannedAll = await planTasks(page, env.CU12_BASE_URL, userId, mode, options.lectureSeq);
     const truncated = plannedAll.length > env.AUTOLEARN_MAX_TASKS;
     const planned = plannedAll.slice(0, env.AUTOLEARN_MAX_TASKS);
@@ -1015,6 +1031,7 @@ export async function runAutoLearning(
         completedTasks: 0,
         watchedSeconds: 0,
         estimatedRemainingSeconds: estimatedTotalSeconds,
+        heartbeatAt: new Date().toISOString(),
       });
     }
 
@@ -1028,6 +1045,7 @@ export async function runAutoLearning(
 
       if (onProgress) {
         const consumed = watchedSeconds;
+        const plannedWaitSeconds = Math.ceil(row.remainingSeconds * env.AUTOLEARN_TIME_FACTOR);
         await onProgress({
           phase: "RUNNING",
           mode,
@@ -1035,16 +1053,48 @@ export async function runAutoLearning(
           completedTasks: watchedTaskCount,
           watchedSeconds,
           estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - consumed),
+          heartbeatAt: new Date().toISOString(),
           current: {
             lectureSeq: row.lectureSeq,
             weekNo: row.task.weekNo,
             lessonNo: row.task.lessonNo,
-            remainingSeconds: row.remainingSeconds,
+            remainingSeconds: plannedWaitSeconds,
+            elapsedSeconds: 0,
           },
         });
       }
 
-      const watched = await watchVodTask(page, row.lectureSeq, row.task, shouldCancel);
+      let lastReportedElapsedSeconds = 0;
+      const watched = await watchVodTask(
+        page,
+        row.lectureSeq,
+        row.task,
+        shouldCancel,
+        async ({ elapsedSeconds, remainingSeconds }) => {
+          if (!onProgress) return;
+          if (remainingSeconds > 0 && elapsedSeconds % heartbeatIntervalSeconds !== 0) return;
+          if (elapsedSeconds <= lastReportedElapsedSeconds && remainingSeconds > 0) return;
+
+          lastReportedElapsedSeconds = elapsedSeconds;
+          const consumed = watchedSeconds + elapsedSeconds;
+          await onProgress({
+            phase: "RUNNING",
+            mode,
+            totalTasks: planned.length,
+            completedTasks: watchedTaskCount,
+            watchedSeconds: consumed,
+            estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - consumed),
+            heartbeatAt: new Date().toISOString(),
+            current: {
+              lectureSeq: row.lectureSeq,
+              weekNo: row.task.weekNo,
+              lessonNo: row.task.lessonNo,
+              remainingSeconds,
+              elapsedSeconds,
+            },
+          });
+        },
+      );
       if (watched > 0) {
         watchedTaskCount += 1;
         watchedSeconds += watched;
@@ -1059,6 +1109,7 @@ export async function runAutoLearning(
         completedTasks: watchedTaskCount,
         watchedSeconds,
         estimatedRemainingSeconds: 0,
+        heartbeatAt: new Date().toISOString(),
       });
     }
 

@@ -55,6 +55,8 @@ export async function POST(request: NextRequest) {
         lectureSeq: body.lectureSeq ?? null,
         deduplicated,
         dispatched: dispatch.dispatched,
+        dispatchState: dispatch.state,
+        dispatchErrorCode: dispatch.errorCode,
       },
     });
 
@@ -63,7 +65,9 @@ export async function POST(request: NextRequest) {
       status: job.status,
       deduplicated,
       dispatched: dispatch.dispatched,
+      dispatchState: dispatch.state,
       dispatchError: dispatch.error,
+      dispatchErrorCode: dispatch.errorCode,
       notice,
     });
   } catch (error) {

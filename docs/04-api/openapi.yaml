@@ -2420,7 +2420,16 @@ components:
 
     JobDispatchResponse:
       type: object
-      required: [jobId, status, deduplicated, dispatched, notice]
+      required:
+        [
+          jobId,
+          status,
+          deduplicated,
+          dispatched,
+          dispatchState,
+          dispatchErrorCode,
+          notice,
+        ]
       properties:
         jobId:
           type: string
@@ -2431,7 +2440,13 @@ components:
           type: boolean
         dispatched:
           type: boolean
+        dispatchState:
+          type: string
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED]
         dispatchError:
+          type: string
+          nullable: true
+        dispatchErrorCode:
           type: string
           nullable: true
         notice:
@@ -2493,6 +2508,98 @@ components:
           type: string
           format: date-time
 
+    AutoLearnProgressResult:
+      type: object
+      required: [kind, progress]
+      properties:
+        kind:
+          type: string
+          enum: [AUTOLEARN_PROGRESS]
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        heartbeatAt:
+          type: string
+          format: date-time
+          nullable: true
+        progress:
+          type: object
+          required:
+            [phase, mode, totalTasks, completedTasks, watchedSeconds, estimatedRemainingSeconds]
+          properties:
+            phase:
+              type: string
+              enum: [PLANNING, RUNNING, DONE]
+            mode:
+              type: string
+              enum: [SINGLE_NEXT, SINGLE_ALL, ALL_COURSES]
+            totalTasks:
+              type: integer
+            completedTasks:
+              type: integer
+            watchedSeconds:
+              type: integer
+            estimatedRemainingSeconds:
+              type: integer
+            heartbeatAt:
+              type: string
+              format: date-time
+              nullable: true
+            current:
+              type: object
+              nullable: true
+              properties:
+                lectureSeq:
+                  type: integer
+                weekNo:
+                  type: integer
+                lessonNo:
+                  type: integer
+                remainingSeconds:
+                  type: integer
+                elapsedSeconds:
+                  type: integer
+                  nullable: true
+
+    SyncProgressResult:
+      type: object
+      required: [kind, progress]
+      properties:
+        kind:
+          type: string
+          enum: [SYNC_PROGRESS]
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        progress:
+          type: object
+          required:
+            [phase, totalCourses, completedCourses, noticeCount, taskCount, notificationCount]
+          properties:
+            phase:
+              type: string
+              enum: [COURSES, NOTICES, TASKS, NOTIFICATIONS, DONE]
+            totalCourses:
+              type: integer
+            completedCourses:
+              type: integer
+            noticeCount:
+              type: integer
+            taskCount:
+              type: integer
+            notificationCount:
+              type: integer
+            current:
+              type: object
+              nullable: true
+              properties:
+                lectureSeq:
+                  type: integer
+                title:
+                  type: string
+
     JobDetail:
       type: object
       required: [id, status, type, attempts]
@@ -2522,7 +2629,10 @@ components:
           type: string
           nullable: true
         result:
-          type: object
+          oneOf:
+            - $ref: "#/components/schemas/AutoLearnProgressResult"
+            - $ref: "#/components/schemas/SyncProgressResult"
+            - type: object
           nullable: true
 
     AdminJob:

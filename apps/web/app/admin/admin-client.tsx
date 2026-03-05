@@ -968,7 +968,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             목록 다시 불러오기
           </button>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -990,18 +990,18 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               ) : (
                 members.map((member) => (
                   <tr key={member.id}>
-                    <td>{member.email}</td>
-                    <td>{member.role}</td>
-                    <td>
+                    <td data-label="이메일">{member.email}</td>
+                    <td data-label="역할">{member.role}</td>
+                    <td data-label="상태">
                       <span className={`status-chip ${statusChipClassForMember(member.isActive)}`}>
                         {member.isActive ? "활성" : "비활성"}
                       </span>
                     </td>
-                    <td>{member.isTestUser ? "테스트 계정" : "CU12 계정"}</td>
-                    <td>{member.cu12Account?.cu12Id ?? "-"}</td>
-                    <td>{member.mailPreference?.email ?? "-"}</td>
-                    <td>{formatDateTime(member.createdAt)}</td>
-                    <td>
+                    <td data-label="계정 유형">{member.isTestUser ? "테스트 계정" : "CU12 계정"}</td>
+                    <td data-label="CU12 ID">{member.cu12Account?.cu12Id ?? "-"}</td>
+                    <td data-label="메일">{member.mailPreference?.email ?? "-"}</td>
+                    <td data-label="등록일">{formatDateTime(member.createdAt)}</td>
+                    <td data-label="액션">
                       <div className="action-row">
                         <button
                           type="button"
@@ -1110,7 +1110,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           </div>
         ) : null}
 
-        <div className="table-wrap top-gap">
+        <div className="table-wrap top-gap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -1132,18 +1132,18 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               ) : (
                 invites.map((invite) => (
                   <tr key={invite.id}>
-                    <td>{invite.cu12Id}</td>
-                    <td>{invite.role}</td>
-                    <td>
+                    <td data-label="CU12 ID">{invite.cu12Id}</td>
+                    <td data-label="역할">{invite.role}</td>
+                    <td data-label="상태">
                       <span className={`status-chip ${statusChipClassForInvite(invite.state)}`}>
                         {invite.state}
                       </span>
                     </td>
-                    <td>{formatDateTime(invite.createdAt)}</td>
-                    <td>{formatDateTime(invite.expiresAt)}</td>
-                    <td>{formatDateTime(invite.usedAt)}</td>
-                    <td>{invite.usedByEmail ?? "-"}</td>
-                    <td>
+                    <td data-label="생성일">{formatDateTime(invite.createdAt)}</td>
+                    <td data-label="만료일">{formatDateTime(invite.expiresAt)}</td>
+                    <td data-label="사용일">{formatDateTime(invite.usedAt)}</td>
+                    <td data-label="사용자">{invite.usedByEmail ?? "-"}</td>
+                    <td data-label="조작">
                       <button
                         type="button"
                         className="ghost-btn"
@@ -1252,7 +1252,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           </div>
         </form>
 
-        <div className="table-wrap">
+        <div className="table-wrap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -1271,12 +1271,12 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                 </tr>
               ) : logs.map((log) => (
                 <tr key={log.id}>
-                  <td>{formatDateTime(log.createdAt)}</td>
-                  <td>{log.category}</td>
-                  <td>{log.severity}</td>
-                  <td>{log.actor?.email ?? "-"}</td>
-                  <td>{log.target?.email ?? "-"}</td>
-                  <td>{log.message}</td>
+                  <td data-label="발생 시각">{formatDateTime(log.createdAt)}</td>
+                  <td data-label="구분">{log.category}</td>
+                  <td data-label="심각도">{log.severity}</td>
+                  <td data-label="행위자">{log.actor?.email ?? "-"}</td>
+                  <td data-label="대상자">{log.target?.email ?? "-"}</td>
+                  <td data-label="메시지">{log.message}</td>
                 </tr>
               ))}
             </tbody>

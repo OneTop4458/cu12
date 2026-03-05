@@ -117,6 +117,7 @@ interface Job {
   type: "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
   status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
   createdAt: string;
+  updatedAt: string;
   startedAt: string | null;
   finishedAt: string | null;
   lastError: string | null;
@@ -127,7 +128,9 @@ interface JobDispatch {
   jobId: string;
   deduplicated: boolean;
   dispatched?: boolean;
+  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED";
   dispatchError?: string;
+  dispatchErrorCode?: string | null;
   notice?: string;
 }
 
@@ -159,6 +162,7 @@ interface Account {
 interface AutoProgress {
   kind: "AUTOLEARN_PROGRESS";
   updatedAt?: string;
+  heartbeatAt?: string;
   progress: {
     phase: "PLANNING" | "RUNNING" | "DONE";
     mode: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
@@ -171,6 +175,7 @@ interface AutoProgress {
       weekNo: number;
       lessonNo: number;
       remainingSeconds: number;
+      elapsedSeconds?: number;
     };
   };
 }
@@ -531,6 +536,17 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : 0;
   const syncProgressStatus = trackingSyncJob ? trackingDetail?.status : activeSyncJob?.status ?? null;
   const autoProgressStatus = trackingAutoLearn ? trackingDetail?.status : activeAutoJob?.status ?? null;
+  const autoProgressUpdatedAtRaw = autoProgress?.heartbeatAt
+    ?? autoProgress?.updatedAt
+    ?? (trackingAutoLearn ? trackingDetail?.updatedAt : activeAutoJob?.updatedAt)
+    ?? null;
+  const autoProgressUpdatedAtMs = parseDateMs(autoProgressUpdatedAtRaw);
+  const autoProgressLagSeconds = autoProgressUpdatedAtMs === null
+    ? null
+    : Math.max(0, Math.floor((Date.now() - autoProgressUpdatedAtMs) / 1000));
+  const autoProgressHeartbeatStale = autoProgressStatus === "RUNNING"
+    && autoProgressLagSeconds !== null
+    && autoProgressLagSeconds > 90;
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
   const syncButtonLabel = useMemo(() => {
     switch (syncQueueState) {
@@ -1175,13 +1191,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   {" "}
                   · 남은 예상 {formatSeconds(autoProgress.progress.estimatedRemainingSeconds)}
                 </p>
+                {autoProgressUpdatedAtRaw ? (
+                  <p className="muted">
+                    최근 갱신: {toDateTime(autoProgressUpdatedAtRaw)}
+                    {autoProgressLagSeconds !== null ? ` (${formatSeconds(autoProgressLagSeconds)} 전)` : ""}
+                  </p>
+                ) : null}
+                {autoProgressHeartbeatStale ? (
+                  <p className="muted" style={{ color: "var(--warn)" }}>
+                    진행 신호가 지연 중입니다. 무진행 20분이면 자동으로 중단됩니다.
+                  </p>
+                ) : null}
                 <p className="muted">누적 재생 시간: {formatSeconds(autoProgress.progress.watchedSeconds)}</p>
                 {autoProgress.progress.current ? (
-                  <p className="muted">
-                    현재 재생: {autoProgress.progress.current.lectureSeq} 강좌 / {autoProgress.progress.current.weekNo}주차
-                    {" "}
-                    {autoProgress.progress.current.lessonNo}차시
-                  </p>
+                  <>
+                    <p className="muted">
+                      현재 재생: {autoProgress.progress.current.lectureSeq} 강좌 / {autoProgress.progress.current.weekNo}주차
+                      {" "}
+                      {autoProgress.progress.current.lessonNo}차시
+                    </p>
+                    <p className="muted">
+                      현재 차시 경과: {formatSeconds(autoProgress.progress.current.elapsedSeconds ?? 0)}
+                      {" "}
+                      · 현재 차시 남은 예상: {formatSeconds(autoProgress.progress.current.remainingSeconds)}
+                    </p>
+                  </>
                 ) : null}
               </>
             ) : null}
@@ -1203,16 +1237,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
       <section className="card">
         <h2>마감 임박 차시</h2>
-        <div className="table-wrap">
+        <div className="table-wrap mobile-card-table">
           <table>
             <thead><tr><th>강좌</th><th>주차/차시</th><th>학습인정기간</th><th>남은 시간</th></tr></thead>
             <tbody>
               {deadlines.length === 0 ? <tr><td colSpan={4}>임박 차시가 없습니다.</td></tr> : deadlines.map((item) => (
                 <tr key={`${item.lectureSeq}:${item.courseContentsSeq}`}>
-                  <td>{item.courseTitle}</td>
-                  <td>{item.weekNo}주차 {item.lessonNo}차시</td>
-                  <td>{toDateTime(item.availableFrom)} ~ {toDateTime(item.dueAt)}</td>
-                  <td>{formatDays(item.daysLeft)} / {formatSeconds(item.remainingSeconds)}</td>
+                  <td data-label="강좌">{item.courseTitle}</td>
+                  <td data-label="주차/차시">{item.weekNo}주차 {item.lessonNo}차시</td>
+                  <td data-label="학습인정기간">{toDateTime(item.availableFrom)} ~ {toDateTime(item.dueAt)}</td>
+                  <td data-label="남은 시간">{formatDays(item.daysLeft)} / {formatSeconds(item.remainingSeconds)}</td>
                 </tr>
               ))}
             </tbody>
