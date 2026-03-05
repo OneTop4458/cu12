@@ -263,13 +263,14 @@ async function sendSyncAlertMail(
       return;
     }
 
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", result.reason);
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Sync alert mail skipped",
-      meta: { to: pref.email, subject, reason: result.reason },
+      meta: { to: pref.email, subject, reason },
     });
   } catch (error) {
     await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
@@ -324,13 +325,14 @@ async function sendAutoLearnResultMail(
       return;
     }
 
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", result.reason);
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Autolearn result mail skipped",
-      meta: { to: pref.email, subject, reason: result.reason },
+      meta: { to: pref.email, subject, reason },
     });
   } catch (error) {
     await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
@@ -669,7 +671,7 @@ async function processMailDigest(userId: string) {
     : [];
   const titleBySeq = new Map(titleRows.map((row) => [row.lectureSeq, row.title]));
 
-  const subject = "[CU12] Weekly digest";
+  const subject = "[CU12] Daily digest";
   const lines: string[] = [
     "CU12 digest generated",
     "",
@@ -701,15 +703,16 @@ async function processMailDigest(userId: string) {
       return { type: "MAIL_DIGEST", userId, sent: true };
     }
 
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", result.reason);
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Digest mail skipped",
-      meta: { to: pref.email, subject, reason: result.reason },
+      meta: { to: pref.email, subject, reason },
     });
-    return { type: "MAIL_DIGEST", userId, sent: false, reason: result.reason };
+    return { type: "MAIL_DIGEST", userId, sent: false, reason };
   } catch (error) {
     await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
     await writeAuditLog({

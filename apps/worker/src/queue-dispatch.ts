@@ -21,6 +21,28 @@ interface DispatchSummary {
   generatedAt: string;
 }
 
+function getSeoulHour(now = new Date()) {
+  try {
+    const raw = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Seoul",
+      hour: "numeric",
+      hour12: false,
+    }).format(now);
+    const hour = Number(raw);
+    if (!Number.isFinite(hour)) return null;
+    return hour;
+  } catch {
+    return null;
+  }
+}
+
+function toDigestHour(value: unknown, fallback = 8) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(23, Math.max(0, Math.floor(value)));
+}
+
 async function resolveUsers(type: JobType, userId?: string) {
   if (userId) {
     return prisma.user.findMany({
@@ -30,17 +52,38 @@ async function resolveUsers(type: JobType, userId?: string) {
   }
 
   if (type === JobType.MAIL_DIGEST) {
-    return prisma.user.findMany({
+    const digestHour = getSeoulHour() ?? 8;
+    const users = await prisma.user.findMany({
       where: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+        cu12Account: {
+          select: {
+            emailDigestEnabled: true,
+          },
+        },
         mailSubs: {
-          some: {
+          select: {
             enabled: true,
             digestEnabled: true,
+            digestHour: true,
           },
         },
       },
-      select: { id: true },
     });
+
+    return users
+      .filter((user) => {
+        const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
+        const subscription = user.mailSubs[0];
+        const enabled = subscription ? subscription.enabled : true;
+        const digestEnabled = subscription ? subscription.digestEnabled : true;
+        const targetHour = toDigestHour(subscription?.digestHour, 8);
+        return accountDigestEnabled && enabled && digestEnabled && targetHour === digestHour;
+      })
+      .map((user) => ({ id: user.id }));
   }
 
   if (type === JobType.AUTOLEARN) {

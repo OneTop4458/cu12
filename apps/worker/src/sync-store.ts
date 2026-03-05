@@ -305,9 +305,21 @@ export async function getUserCu12Credentials(userId: string) {
 
 export async function getUserMailPreference(userId: string): Promise<MailPreference | null> {
   const [user, subscription] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        cu12Account: {
+          select: {
+            emailDigestEnabled: true,
+          },
+        },
+      },
+    }),
     prisma.mailSubscription.findUnique({ where: { userId } }),
   ]);
+
+  const accountDigestEnabled = user?.cu12Account?.emailDigestEnabled ?? true;
 
   if (!user?.email) {
     return null;
@@ -320,7 +332,7 @@ export async function getUserMailPreference(userId: string): Promise<MailPrefere
       alertOnNotice: true,
       alertOnDeadline: true,
       alertOnAutolearn: true,
-      digestEnabled: true,
+      digestEnabled: accountDigestEnabled,
       digestHour: 8,
     };
   }
@@ -331,7 +343,7 @@ export async function getUserMailPreference(userId: string): Promise<MailPrefere
     alertOnNotice: subscription.alertOnNotice,
     alertOnDeadline: subscription.alertOnDeadline,
     alertOnAutolearn: subscription.alertOnAutolearn,
-    digestEnabled: subscription.digestEnabled,
+    digestEnabled: subscription.digestEnabled && accountDigestEnabled,
     digestHour: subscription.digestHour,
   };
 }

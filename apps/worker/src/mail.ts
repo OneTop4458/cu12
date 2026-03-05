@@ -1,10 +1,42 @@
 ﻿import nodemailer from "nodemailer";
 import { getEnv } from "./env";
 
-export async function sendMail(to: string, subject: string, text: string) {
+type SendMailResult = {
+  sent: boolean;
+  reason: string | null;
+};
+
+function buildSendMailReason(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Unknown error";
+  }
+
+  const code = (error as { code?: string }).code;
+  const lowerMessage = error.message.toLowerCase();
+
+  if (code === "ESOCKET") {
+    return `SMTP socket error (${code})`;
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return `SMTP server host DNS lookup failed (${code})`;
+  }
+  if (code === "ECONNREFUSED" || code === "ECONNRESET") {
+    return `SMTP connection refused (${code})`;
+  }
+  if (code === "ETIMEDOUT" || lowerMessage.includes("timeout")) {
+    return "SMTP connection timed out";
+  }
+  if (code === "EAUTH" || lowerMessage.includes("authentication failed") || lowerMessage.includes("invalid login")) {
+    return "SMTP authentication failed";
+  }
+
+  return error.message;
+}
+
+export async function sendMail(to: string, subject: string, text: string): Promise<SendMailResult> {
   const env = getEnv();
   if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASS || !env.SMTP_FROM) {
-    return { sent: false as const, reason: "SMTP_NOT_CONFIGURED" as const };
+    return { sent: false, reason: "SMTP_NOT_CONFIGURED" };
   }
 
   const transporter = nodemailer.createTransport({
@@ -17,12 +49,16 @@ export async function sendMail(to: string, subject: string, text: string) {
     },
   });
 
-  await transporter.sendMail({
-    from: env.SMTP_FROM,
-    to,
-    subject,
-    text,
-  });
+  try {
+    await transporter.sendMail({
+      from: env.SMTP_FROM,
+      to,
+      subject,
+      text,
+    });
 
-  return { sent: true as const };
+    return { sent: true, reason: null };
+  } catch (error) {
+    return { sent: false, reason: buildSendMailReason(error) };
+  }
 }
