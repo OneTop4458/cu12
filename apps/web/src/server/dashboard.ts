@@ -157,7 +157,14 @@ export async function getCourses(userId: string) {
   const unreadNoticeCountByLectureSeq = new Map<number, number>(unreadNoticeCounts.map((row) => [row.lectureSeq, row._count._all]));
 
   return courses.map((course) => {
-    const taskList = grouped.get(course.lectureSeq) ?? [];
+    const isCourseCompleted = course.progressPercent >= 100;
+    const rawTaskList = grouped.get(course.lectureSeq) ?? [];
+    const taskList = isCourseCompleted
+      ? rawTaskList.map((task) => ({
+        ...task,
+        state: "COMPLETED" as const,
+      }))
+      : rawTaskList;
     const toDueTime = (task: typeof taskList[number]) => task.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const toWindowTime = (task: typeof taskList[number]) => {
       if (task.dueAt) return task.dueAt.getTime();
@@ -232,9 +239,13 @@ export async function getCourses(userId: string) {
       return startMs <= nowMs && nowMs <= dueMs;
     }) ?? null;
     const nextWindowPending = windowPendingTasks.find((task) => (task.dueAt ? task.dueAt.getTime() >= nowMs : true)) ?? windowPendingTasks[0] ?? null;
-    const currentWeekNo = nowWindowPending?.weekNo ?? nextWindowPending?.weekNo ?? pendingWithWindow[0]?.weekNo ?? taskList[0]?.weekNo ?? null;
+    const currentWeekNo = isCourseCompleted
+      ? null
+      : (nowWindowPending?.weekNo ?? nextWindowPending?.weekNo ?? pendingWithWindow[0]?.weekNo ?? taskList[0]?.weekNo ?? null);
     const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
-    const deadlineLabel = (nowWindowPending || (pending.length > 0 && !nextWindowPending))
+    const deadlineLabel = isCourseCompleted
+      ? "진행 완료"
+      : (nowWindowPending || (pending.length > 0 && !nextWindowPending))
       ? "이번 차시 마감"
       : "다음 차시 마감";
 
