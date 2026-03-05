@@ -617,29 +617,11 @@ function formatPendingByType(summary: CourseWeekSummary | null): string {
   return parts.join(" / ");
 }
 
-function formatWeekStatusLine(summary: CourseWeekSummary): string {
-  if (summary.pendingTaskCount === 0) {
-    return `${summary.weekNo}주차: 완료`;
-  }
-
-  const parts = [
-    `영상 ${summary.pendingTaskTypeCounts.VOD}개`,
-    `과제 ${summary.pendingTaskTypeCounts.ASSIGNMENT}개`,
-    `시험 ${summary.pendingTaskTypeCounts.QUIZ}개`,
-    `기타 ${summary.pendingTaskTypeCounts.ETC}개`,
-  ];
-  return `${summary.weekNo}주차: 미완료 ${summary.pendingTaskCount}개 (${parts.join(", ")})`;
-}
-
 function formatCourseWeekHealth(course: Course): string {
   if (course.weekSummaries.length === 0) return "주차 데이터 없음";
   const pendingWeeks = course.weekSummaries.filter((entry) => entry.pendingTaskCount > 0);
   const stableCount = course.weekSummaries.length - pendingWeeks.length;
   return `총 ${course.weekSummaries.length}주차 중 ${stableCount}주차 정상, ${pendingWeeks.length}주차 미완료`;
-}
-
-function getPendingWeeks(course: Course): CourseWeekSummary[] {
-  return course.weekSummaries.filter((summary) => summary.pendingTaskCount > 0);
 }
 
 function formatNextDeadline(task: Course["nextPendingTask"]): string {
@@ -774,6 +756,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const displayedDeadlines = deadlineFilter === "D7"
     ? deadlineD7Items
     : deadlineAllItems;
+  const currentWeekPendingStats = useMemo(
+    () =>
+      courses.reduce(
+        (acc, course) => {
+          if (course.currentWeekNo === null) return acc;
+          const currentWeekSummary = course.weekSummaries.find((entry) => entry.weekNo === course.currentWeekNo) ?? null;
+          const pendingCount = currentWeekSummary?.pendingTaskCount ?? 0;
+          if (pendingCount <= 0) return acc;
+
+          return {
+            total: acc.total + pendingCount,
+            courseCount: acc.courseCount + 1,
+          };
+        },
+        { total: 0, courseCount: 0 },
+      ),
+    [courses],
+  );
+  const showCurrentWeekPendingHint = deadlineFilter === "D7"
+    && displayedDeadlines.length === 0
+    && currentWeekPendingStats.total > 0;
   const trackingAutoLearn = trackingDetail?.type === "AUTOLEARN";
   const trackingSyncJob = trackingDetail?.type === "SYNC" || trackingDetail?.type === "NOTICE_SCAN";
   const syncProgress = trackingSyncJob
@@ -1736,6 +1739,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         {deadlineFilter === "ALL" && deadlineLoading ? (
           <p className="muted">전체 마감 차시를 불러오는 중...</p>
         ) : null}
+        {showCurrentWeekPendingHint ? (
+          <div className="top-gap">
+            <p className="muted">
+              {`현재주차 미완료 ${currentWeekPendingStats.total}개 (${currentWeekPendingStats.courseCount}개 강좌)가 있지만, D-7 기준 마감 임박 항목은 없습니다.`}
+            </p>
+            <div className="button-row">
+              <button type="button" className="ghost-btn" onClick={() => setDeadlineFilter("ALL")}>
+                {"전체 보기"}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="table-wrap mobile-card-table">
           <table>
             <thead><tr><th>강좌</th><th>주차/차시</th><th>학습인정기간</th><th>남은 시간</th></tr></thead>
@@ -1759,7 +1774,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           {courses.map((course) => {
             const currentWeekSummary = findCurrentWeekSummary(course);
             const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
-            const pendingWeeks = getPendingWeeks(course);
+            const sortedWeekSummaries = [...course.weekSummaries].sort((a, b) => a.weekNo - b.weekNo);
             const isExpanded = expandedCourseIds.has(course.lectureSeq);
             const isAutoLearningThisCourse = autoProgress?.progress.phase === "RUNNING"
               && autoProgress.progress.current?.lectureSeq === course.lectureSeq;
@@ -1826,17 +1841,37 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                       {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}
                     </p>
                     <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
-                    <div className="muted pending-week-detail">
-                      <span className="pending-week-title">미완료 주차 상세:</span>
-                      {pendingWeeks.length === 0 ? (
-                        <span className="pending-week-empty">미완료 주차 없음</span>
-                      ) : (
-                        <ul className="pending-week-list">
-                          {pendingWeeks.map((summary) => (
-                            <li key={`${course.lectureSeq}:${summary.weekNo}`}>{formatWeekStatusLine(summary)}</li>
-                          ))}
-                        </ul>
-                      )}
+                    <div className="table-wrap mobile-card-table course-week-table">
+                      <table>
+                        <thead><tr><th>주차</th><th>상태</th><th>전체/완료/미완료</th><th>미완료 유형</th><th>현재 주차</th></tr></thead>
+                        <tbody>
+                          {sortedWeekSummaries.length === 0 ? (
+                            <tr><td colSpan={5}>주차 데이터가 없습니다.</td></tr>
+                          ) : sortedWeekSummaries.map((summary) => {
+                            const isCurrentWeek = course.currentWeekNo !== null && summary.weekNo === course.currentWeekNo;
+                            const isWeekCompleted = summary.pendingTaskCount === 0;
+                            return (
+                              <tr key={`${course.lectureSeq}:${summary.weekNo}`}>
+                                <td data-label="주차">{summary.weekNo}주차</td>
+                                <td data-label="상태">
+                                  <span className={`status-chip ${isWeekCompleted ? "status-succeeded" : "status-pending"}`}>
+                                    {isWeekCompleted ? "완료" : `미완료 ${summary.pendingTaskCount}개`}
+                                  </span>
+                                </td>
+                                <td data-label="전체/완료/미완료">
+                                  {summary.totalTaskCount}/{summary.completedTaskCount}/{summary.pendingTaskCount}
+                                </td>
+                                <td data-label="미완료 유형">
+                                  {isWeekCompleted ? "-" : formatTaskCountsByType(summary.pendingTaskTypeCounts)}
+                                </td>
+                                <td data-label="현재 주차">
+                                  {isCurrentWeek ? <span className="status-chip status-running">현재</span> : "-"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 ) : null}
