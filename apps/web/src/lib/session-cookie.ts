@@ -12,22 +12,30 @@ function isSecureCookie(): boolean {
 }
 
 export function setSessionCookie(response: NextResponse, sessionToken: string) {
+  setSessionCookieWithMaxAge(response, sessionToken, SESSION_MAX_AGE_SECONDS);
+}
+
+export function setSessionCookieWithMaxAge(response: NextResponse, sessionToken: string, maxAgeSeconds: number) {
   response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
     httpOnly: true,
     secure: isSecureCookie(),
     sameSite: "lax",
     path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
+    maxAge: Math.max(60, Math.trunc(maxAgeSeconds)),
   });
 }
 
 export function setIdleSessionCookie(response: NextResponse, idleSessionToken: string) {
+  setIdleSessionCookieWithMaxAge(response, idleSessionToken, IDLE_SESSION_MAX_AGE_SECONDS);
+}
+
+export function setIdleSessionCookieWithMaxAge(response: NextResponse, idleSessionToken: string, maxAgeSeconds: number) {
   response.cookies.set(IDLE_SESSION_COOKIE_NAME, idleSessionToken, {
     httpOnly: true,
     secure: isSecureCookie(),
     sameSite: "lax",
     path: "/",
-    maxAge: IDLE_SESSION_MAX_AGE_SECONDS,
+    maxAge: Math.max(60, Math.trunc(maxAgeSeconds)),
   });
 }
 

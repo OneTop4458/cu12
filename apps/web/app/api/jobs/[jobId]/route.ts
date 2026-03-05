@@ -19,6 +19,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     status: job.status,
     type: job.type,
     attempts: job.attempts,
+    updatedAt: job.updatedAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
     error: job.lastError,

@@ -24,6 +24,19 @@ export interface SyncSnapshotResult {
   tasks: LearningTask[];
 }
 
+export interface SyncProgress {
+  phase: "COURSES" | "NOTICES" | "TASKS" | "NOTIFICATIONS" | "DONE";
+  totalCourses: number;
+  completedCourses: number;
+  noticeCount: number;
+  taskCount: number;
+  notificationCount: number;
+  current?: {
+    lectureSeq: number;
+    title: string;
+  };
+}
+
 export type AutoLearnMode = "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
 
 interface PlannedTask {
@@ -702,11 +715,20 @@ export async function collectCu12Snapshot(
   userId: string,
   creds: Cu12Credentials,
   onCancelCheck?: CancelCheck,
+  onProgress?: (progress: SyncProgress) => Promise<void> | void,
 ): Promise<SyncSnapshotResult> {
   const env = getEnv();
   const context = await browser.newContext(createRealisticBrowserContextOptions());
   const page = await context.newPage();
   const shouldCancel = onCancelCheck ?? (async () => false);
+  const reportProgress = async (progress: SyncProgress) => {
+    if (!onProgress) return;
+    try {
+      await onProgress(progress);
+    } catch {
+      // Ignore progress reporting failures.
+    }
+  };
   installDialogHandler(page);
 
   try {
@@ -722,11 +744,34 @@ export async function collectCu12Snapshot(
 
     const notices: CourseNotice[] = [];
     const tasks: LearningTask[] = [];
+    let completedCourses = 0;
+
+    await reportProgress({
+      phase: "COURSES",
+      totalCourses: courses.length,
+      completedCourses,
+      noticeCount: notices.length,
+      taskCount: tasks.length,
+      notificationCount: 0,
+    });
 
     for (const course of courses) {
       if (await shouldCancel()) {
         throw new Error("JOB_CANCELLED");
       }
+
+      await reportProgress({
+        phase: "NOTICES",
+        totalCourses: courses.length,
+        completedCourses,
+        noticeCount: notices.length,
+        taskCount: tasks.length,
+        notificationCount: 0,
+        current: {
+          lectureSeq: course.lectureSeq,
+          title: course.title,
+        },
+      });
 
       await page.goto(`${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
@@ -767,19 +812,64 @@ export async function collectCu12Snapshot(
         throw new Error("JOB_CANCELLED");
       }
 
+      await reportProgress({
+        phase: "TASKS",
+        totalCourses: courses.length,
+        completedCourses,
+        noticeCount: notices.length,
+        taskCount: tasks.length,
+        notificationCount: 0,
+        current: {
+          lectureSeq: course.lectureSeq,
+          title: course.title,
+        },
+      });
+
       await page.goto(`${env.CU12_BASE_URL}/el/class/todo_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
       });
       tasks.push(...parseTodoVodTasks(await page.content(), userId, course.lectureSeq));
+      completedCourses += 1;
+
+      await reportProgress({
+        phase: "COURSES",
+        totalCourses: courses.length,
+        completedCourses,
+        noticeCount: notices.length,
+        taskCount: tasks.length,
+        notificationCount: 0,
+        current: {
+          lectureSeq: course.lectureSeq,
+          title: course.title,
+        },
+      });
     }
 
     if (await shouldCancel()) {
       throw new Error("JOB_CANCELLED");
     }
 
+    await reportProgress({
+      phase: "NOTIFICATIONS",
+      totalCourses: courses.length,
+      completedCourses,
+      noticeCount: notices.length,
+      taskCount: tasks.length,
+      notificationCount: 0,
+    });
+
     await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
     const notificationHtml = await fetchNotificationHtml(page);
     const notifications = parseNotificationListHtml(notificationHtml, userId);
+
+    await reportProgress({
+      phase: "DONE",
+      totalCourses: courses.length,
+      completedCourses,
+      noticeCount: notices.length,
+      taskCount: tasks.length,
+      notificationCount: notifications.length,
+    });
 
     return { courses, notices, notifications, tasks };
   } finally {

@@ -1,7 +1,13 @@
 ﻿import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import { claimJob, failJob, finishJob, progressJob, sendHeartbeat } from "./internal-api";
-import { collectCu12Snapshot, runAutoLearning, type AutoLearnMode, type AutoLearnProgress } from "./cu12-automation";
+import {
+  collectCu12Snapshot,
+  runAutoLearning,
+  type AutoLearnMode,
+  type AutoLearnProgress,
+  type SyncProgress,
+} from "./cu12-automation";
 import { getEnv } from "./env";
 import {
   getUserCu12Credentials,
@@ -143,6 +149,18 @@ async function reportJobProgress(jobId: string, progress: AutoLearnProgress) {
   try {
     await progressJob(jobId, {
       kind: "AUTOLEARN_PROGRESS",
+      progress,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {
+    // progress update must not break the main worker flow
+  }
+}
+
+async function reportSyncJobProgress(jobId: string, progress: SyncProgress) {
+  try {
+    await progressJob(jobId, {
+      kind: "SYNC_PROGRESS",
       progress,
       updatedAt: new Date().toISOString(),
     });
@@ -332,7 +350,15 @@ async function processSync(jobId: string, userId: string, onCancelCheck?: Cancel
   const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
   const shouldCancel = onCancelCheck ?? (async () => false);
   try {
-    const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
+    const snapshot = await collectCu12Snapshot(
+      browser,
+      userId,
+      creds,
+      shouldCancel,
+      async (progress) => {
+        await reportSyncJobProgress(jobId, progress);
+      },
+    );
     const persisted = await persistSnapshot(userId, snapshot);
     await markAccountConnected(userId);
 

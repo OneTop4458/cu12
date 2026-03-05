@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
+  resolveSessionLifetimePolicy,
   verifyPassword,
   signIdleSessionToken,
   signLoginChallengeToken,
@@ -10,7 +11,7 @@ import {
 import { encryptSecret } from "@/lib/crypto";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { setIdleSessionCookie, setSessionCookie } from "@/lib/session-cookie";
+import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { writeAuditLog } from "@/server/audit-log";
 import { upsertCu12Account } from "@/server/cu12-account";
 import { verifyCu12Login } from "@/server/cu12-login";
@@ -19,12 +20,14 @@ const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
   cu12Password: z.string().min(4).max(120),
   campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
+  rememberSession: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const campus = body.campus ?? "SONGSIM";
+    const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
 
     const localCandidate = await prisma.user.findUnique({
       where: { email: body.cu12Id },
@@ -48,12 +51,20 @@ export async function POST(request: NextRequest) {
         return jsonError("This account password is invalid.", 401, "LOCAL_AUTH_FAILED");
       }
 
-      const sessionToken = await signSessionToken({
-        userId: localCandidate.id,
-        email: body.cu12Id,
-        role: localCandidate.role,
+      const sessionToken = await signSessionToken(
+        {
+          userId: localCandidate.id,
+          email: body.cu12Id,
+          role: localCandidate.role,
+        },
+        {
+          maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+        },
+      );
+      const idleSessionToken = await signIdleSessionToken(localCandidate.id, {
+        rememberSession: sessionPolicy.rememberSession,
+        maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
       });
-      const idleSessionToken = await signIdleSessionToken(localCandidate.id);
 
       const response = jsonOk({
         stage: "AUTHENTICATED" as const,
@@ -63,9 +74,14 @@ export async function POST(request: NextRequest) {
           role: localCandidate.role,
         },
         firstLogin: false,
+        session: {
+          rememberSession: sessionPolicy.rememberSession,
+          sessionMaxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+          idleMaxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+        },
       });
-      setSessionCookie(response, sessionToken);
-      setIdleSessionCookie(response, idleSessionToken);
+      setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
+      setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
       await writeAuditLog({
         category: "AUTH",
@@ -178,12 +194,20 @@ export async function POST(request: NextRequest) {
       return jsonError("Failed to resolve user.", 500, "INTERNAL_ERROR");
     }
 
-    const sessionToken = await signSessionToken({
-      userId: user.id,
-      email: body.cu12Id,
-      role: user.role,
+    const sessionToken = await signSessionToken(
+      {
+        userId: user.id,
+        email: body.cu12Id,
+        role: user.role,
+      },
+      {
+        maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+      },
+    );
+    const idleSessionToken = await signIdleSessionToken(user.id, {
+      rememberSession: sessionPolicy.rememberSession,
+      maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
     });
-    const idleSessionToken = await signIdleSessionToken(user.id);
 
     const response = jsonOk({
       stage: "AUTHENTICATED" as const,
@@ -193,9 +217,14 @@ export async function POST(request: NextRequest) {
         role: user.role,
       },
       firstLogin: false,
+      session: {
+        rememberSession: sessionPolicy.rememberSession,
+        sessionMaxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+        idleMaxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+      },
     });
-    setSessionCookie(response, sessionToken);
-    setIdleSessionCookie(response, idleSessionToken);
+    setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
+    setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
     await writeAuditLog({
       category: "AUTH",

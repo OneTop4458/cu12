@@ -132,6 +132,7 @@ interface JobDispatch {
 interface JobDetail {
   status: Job["status"];
   type: Job["type"];
+  updatedAt?: string | null;
   result?: unknown;
 }
 
@@ -155,11 +156,37 @@ interface Account {
 
 interface AutoProgress {
   kind: "AUTOLEARN_PROGRESS";
+  updatedAt?: string;
   progress: {
+    phase: "PLANNING" | "RUNNING" | "DONE";
+    mode: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
     totalTasks: number;
     completedTasks: number;
     watchedSeconds: number;
     estimatedRemainingSeconds: number;
+    current?: {
+      lectureSeq: number;
+      weekNo: number;
+      lessonNo: number;
+      remainingSeconds: number;
+    };
+  };
+}
+
+interface SyncProgress {
+  kind: "SYNC_PROGRESS";
+  updatedAt?: string;
+  progress: {
+    phase: "COURSES" | "NOTICES" | "TASKS" | "NOTIFICATIONS" | "DONE";
+    totalCourses: number;
+    completedCourses: number;
+    noticeCount: number;
+    taskCount: number;
+    notificationCount: number;
+    current?: {
+      lectureSeq: number;
+      title: string;
+    };
   };
 }
 
@@ -220,6 +247,38 @@ function parseAutoProgress(value: unknown): AutoProgress | null {
   const maybe = value as Partial<AutoProgress>;
   if (maybe.kind !== "AUTOLEARN_PROGRESS" || !maybe.progress) return null;
   return maybe as AutoProgress;
+}
+
+function parseSyncProgress(value: unknown): SyncProgress | null {
+  if (!value || typeof value !== "object") return null;
+  const maybe = value as Partial<SyncProgress>;
+  if (maybe.kind !== "SYNC_PROGRESS" || !maybe.progress) return null;
+  return maybe as SyncProgress;
+}
+
+function toRatio(value: number, total: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.max(0, Math.min(1, value / total));
+}
+
+function formatAutoModeLabel(mode: AutoProgress["progress"]["mode"]): string {
+  if (mode === "SINGLE_NEXT") return "선택 강좌 다음 차시";
+  if (mode === "SINGLE_ALL") return "선택 강좌 전체";
+  return "전체 강좌";
+}
+
+function formatAutoPhaseLabel(phase: AutoProgress["progress"]["phase"]): string {
+  if (phase === "PLANNING") return "대상 차시 계산 중";
+  if (phase === "RUNNING") return "자동 수강 실행 중";
+  return "자동 수강 완료";
+}
+
+function formatSyncPhaseLabel(phase: SyncProgress["progress"]["phase"]): string {
+  if (phase === "COURSES") return "강좌 목록 확인";
+  if (phase === "NOTICES") return "강좌 공지 수집";
+  if (phase === "TASKS") return "강좌 차시 수집";
+  if (phase === "NOTIFICATIONS") return "알림 수집";
+  return "동기화 완료";
 }
 
 function parseDateMs(value: string | null | undefined): number | null {
@@ -429,11 +488,33 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       ) ?? null,
     [sortedJobs],
   );
+  const activeAutoJob = useMemo(
+    () =>
+      sortedJobs.find(
+        (job) =>
+          job.type === "AUTOLEARN"
+          && (job.status === "PENDING" || job.status === "RUNNING"),
+      ) ?? null,
+    [sortedJobs],
+  );
   const canCancelActiveSync = Boolean(activeSyncJob);
   const unreadNotifications = notifications.filter((item) => item.isUnread);
   const trackingAutoLearn = trackingDetail?.type === "AUTOLEARN";
   const trackingSyncJob = trackingDetail?.type === "SYNC" || trackingDetail?.type === "NOTICE_SCAN";
-  const autoProgress = trackingAutoLearn ? parseAutoProgress(trackingDetail?.result) : null;
+  const syncProgress = trackingSyncJob
+    ? parseSyncProgress(trackingDetail?.result)
+    : parseSyncProgress(activeSyncJob?.result);
+  const autoProgress = trackingAutoLearn
+    ? parseAutoProgress(trackingDetail?.result)
+    : parseAutoProgress(activeAutoJob?.result);
+  const syncProgressRatio = syncProgress
+    ? toRatio(syncProgress.progress.completedCourses, Math.max(1, syncProgress.progress.totalCourses))
+    : 0;
+  const autoProgressRatio = autoProgress
+    ? toRatio(autoProgress.progress.completedTasks, Math.max(1, autoProgress.progress.totalTasks))
+    : 0;
+  const syncProgressStatus = trackingSyncJob ? trackingDetail?.status : activeSyncJob?.status ?? null;
+  const autoProgressStatus = trackingAutoLearn ? trackingDetail?.status : activeAutoJob?.status ?? null;
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
   const syncButtonLabel = useMemo(() => {
     switch (syncQueueState) {
@@ -544,6 +625,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshAll, hasActiveJobs, trackingJobId]);
+
+  useEffect(() => {
+    if (trackingJobId) return;
+    const isTrackable = (job: Job) => job.type === "SYNC" || job.type === "NOTICE_SCAN" || job.type === "AUTOLEARN";
+    const runningJob = sortedJobs.find((job) => isTrackable(job) && job.status === "RUNNING");
+    const pendingJob = sortedJobs.find((job) => isTrackable(job) && job.status === "PENDING");
+    const candidate = runningJob ?? pendingJob ?? null;
+    if (!candidate) return;
+    setTrackingJobId(candidate.id);
+  }, [sortedJobs, trackingJobId]);
 
   useEffect(() => {
     if (!summary || loading) return;
@@ -988,9 +1079,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </button>
           </div>
         ) : null}
-        {trackingDetail && trackingSyncJob ? (
+        {syncProgressStatus || syncProgress ? (
           <div className="form-stack top-gap">
-            <p className="muted">작업 상태: {trackingDetail.status}</p>
+            <p className="muted">
+              작업 상태: {syncProgressStatus ?? "-"}
+              {syncProgress ? ` / 단계: ${formatSyncPhaseLabel(syncProgress.progress.phase)}` : ""}
+            </p>
+            {syncProgress ? (
+              <>
+                <div className="progress-track">
+                  <div className="progress-value" style={{ width: `${Math.max(2, syncProgressRatio * 100)}%` }} />
+                </div>
+                <p className="muted">
+                  강좌 {syncProgress.progress.completedCourses}/{Math.max(1, syncProgress.progress.totalCourses)} 처리
+                  · 공지 {syncProgress.progress.noticeCount}건 · 차시 {syncProgress.progress.taskCount}건 · 알림 {syncProgress.progress.notificationCount}건
+                </p>
+                {syncProgress.progress.current ? (
+                  <p className="muted">
+                    현재 강좌: {syncProgress.progress.current.title} ({syncProgress.progress.current.lectureSeq})
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {trackingDetail?.updatedAt ? (
+              <p className="muted">최근 업데이트: {toDateTime(trackingDetail.updatedAt)}</p>
+            ) : null}
             {trackingCanCancel ? (
               <div className="button-row">
                 <button
@@ -1030,14 +1143,36 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </select>
           </label>
         </div>
-        {trackingDetail && trackingAutoLearn ? (
+        {autoProgressStatus || autoProgress ? (
           <div className="form-stack top-gap">
             <p className="muted">
-              작업 상태: {trackingDetail.status}
+              작업 상태: {autoProgressStatus ?? "-"}
               {autoProgress
-                ? ` (${autoProgress.progress.completedTasks}/${autoProgress.progress.totalTasks}, ${formatSeconds(autoProgress.progress.estimatedRemainingSeconds)} 남음)`
+                ? ` / ${formatAutoPhaseLabel(autoProgress.progress.phase)}`
                 : ""}
             </p>
+            {autoProgress ? (
+              <>
+                <div className="progress-track">
+                  <div className="progress-value" style={{ width: `${Math.max(2, autoProgressRatio * 100)}%` }} />
+                </div>
+                <p className="muted">
+                  모드: {formatAutoModeLabel(autoProgress.progress.mode)} · 처리
+                  {" "}
+                  {autoProgress.progress.completedTasks}/{Math.max(1, autoProgress.progress.totalTasks)}
+                  {" "}
+                  · 남은 예상 {formatSeconds(autoProgress.progress.estimatedRemainingSeconds)}
+                </p>
+                <p className="muted">누적 재생 시간: {formatSeconds(autoProgress.progress.watchedSeconds)}</p>
+                {autoProgress.progress.current ? (
+                  <p className="muted">
+                    현재 재생: {autoProgress.progress.current.lectureSeq} 강좌 / {autoProgress.progress.current.weekNo}주차
+                    {" "}
+                    {autoProgress.progress.current.lessonNo}차시
+                  </p>
+                ) : null}
+              </>
+            ) : null}
             {trackingCanCancel ? (
               <div className="button-row">
                 <button

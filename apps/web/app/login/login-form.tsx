@@ -15,6 +15,11 @@ interface AuthenticatedResponse {
     role: "ADMIN" | "USER";
   };
   firstLogin: boolean;
+  session?: {
+    rememberSession: boolean;
+    sessionMaxAgeSeconds: number;
+    idleMaxAgeSeconds: number;
+  };
 }
 
 interface InviteRequiredResponse {
@@ -31,12 +36,25 @@ const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
   { value: "SONGSIM", label: "성심교정" },
   { value: "SONGSIN", label: "성신교정" },
 ];
+const IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
+
+function applySessionPolicy(policy: AuthenticatedResponse["session"]) {
+  if (typeof window === "undefined") return;
+  if (!policy || !Number.isFinite(policy.idleMaxAgeSeconds) || policy.idleMaxAgeSeconds <= 0) return;
+  const timeoutMs = Math.max(1000, Math.trunc(policy.idleMaxAgeSeconds * 1000));
+  try {
+    window.localStorage.setItem(IDLE_TIMEOUT_STORAGE_KEY, String(timeoutMs));
+  } catch {
+    // Ignore storage errors.
+  }
+}
 
 export function LoginForm() {
   const router = useRouter();
   const [cu12Id, setCu12Id] = useState("");
   const [cu12Password, setCu12Password] = useState("");
   const [campus, setCampus] = useState<Campus>("SONGSIM");
+  const [rememberSession, setRememberSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,6 +85,7 @@ export function LoginForm() {
           cu12Id,
           cu12Password,
           campus,
+          rememberSession,
         }),
       });
 
@@ -93,6 +112,7 @@ export function LoginForm() {
         return;
       }
 
+      applySessionPolicy(payload.session);
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
@@ -119,6 +139,7 @@ export function LoginForm() {
         body: JSON.stringify({
           challengeToken,
           inviteCode: inviteCode.trim(),
+          rememberSession,
         }),
       });
 
@@ -141,6 +162,7 @@ export function LoginForm() {
       }
 
       const payload = (await response.json()) as AuthenticatedResponse;
+      applySessionPolicy(payload.session);
       setShowInviteModal(false);
       setChallengeToken(null);
       router.push("/dashboard" as Route);
@@ -189,6 +211,15 @@ export function LoginForm() {
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={rememberSession}
+            onChange={(event) => setRememberSession(event.target.checked)}
+          />
+          <span>로그인 상태 유지 (30일)</span>
         </label>
 
         {error ? <p className="error-text">{error}</p> : null}

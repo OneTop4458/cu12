@@ -95,6 +95,9 @@ paths:
                   maxLength: 120
                 campus:
                   $ref: "#/components/schemas/Campus"
+                rememberSession:
+                  type: boolean
+                  default: false
       responses:
         "200":
           description: Authenticated or invite required
@@ -130,6 +133,9 @@ paths:
                   type: string
                   minLength: 8
                   maxLength: 200
+                rememberSession:
+                  type: boolean
+                  default: false
       responses:
         "200":
           description: Authenticated after invite verification
@@ -176,12 +182,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [ok, expiresInSeconds]
+                required: [ok, expiresInSeconds, rememberSession]
                 properties:
                   ok:
                     type: boolean
                   expiresInSeconds:
                     type: integer
+                  rememberSession:
+                    type: boolean
         "401":
           description: Unauthorized
           content:
@@ -1719,9 +1727,20 @@ components:
         impersonating:
           type: boolean
 
+    SessionPolicy:
+      type: object
+      required: [rememberSession, sessionMaxAgeSeconds, idleMaxAgeSeconds]
+      properties:
+        rememberSession:
+          type: boolean
+        sessionMaxAgeSeconds:
+          type: integer
+        idleMaxAgeSeconds:
+          type: integer
+
     LoginAuthenticated:
       type: object
-      required: [stage, user, firstLogin]
+      required: [stage, user, firstLogin, session]
       properties:
         stage:
           type: string
@@ -1738,6 +1757,8 @@ components:
               $ref: "#/components/schemas/UserRole"
         firstLogin:
           type: boolean
+        session:
+          $ref: "#/components/schemas/SessionPolicy"
 
     LoginInviteRequired:
       type: object
@@ -2486,6 +2507,9 @@ components:
           enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
         attempts:
           type: integer
+        updatedAt:
+          type: string
+          format: date-time
         startedAt:
           type: string
           format: date-time

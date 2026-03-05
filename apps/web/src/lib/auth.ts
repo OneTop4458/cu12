@@ -6,7 +6,9 @@ export const SESSION_COOKIE_NAME = "cu12_session";
 export const IMPERSONATION_COOKIE_NAME = "cu12_impersonation";
 export const IDLE_SESSION_COOKIE_NAME = "cu12_idle";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+export const REMEMBER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export const IDLE_SESSION_MAX_AGE_SECONDS = 60 * 30;
+export const REMEMBER_IDLE_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
 const IMPERSONATION_PURPOSE = "ADMIN_IMPERSONATION";
 const IDLE_SESSION_PURPOSE = "IDLE_SESSION";
@@ -34,6 +36,22 @@ export interface ImpersonationPayload {
 export interface IdleSessionPayload {
   purpose: typeof IDLE_SESSION_PURPOSE;
   userId: string;
+  rememberSession: boolean;
+}
+
+export interface SessionLifetimePolicy {
+  rememberSession: boolean;
+  sessionMaxAgeSeconds: number;
+  idleSessionMaxAgeSeconds: number;
+}
+
+export function resolveSessionLifetimePolicy(rememberSession: boolean | null | undefined): SessionLifetimePolicy {
+  const remember = Boolean(rememberSession);
+  return {
+    rememberSession: remember,
+    sessionMaxAgeSeconds: remember ? REMEMBER_SESSION_MAX_AGE_SECONDS : SESSION_MAX_AGE_SECONDS,
+    idleSessionMaxAgeSeconds: remember ? REMEMBER_IDLE_SESSION_MAX_AGE_SECONDS : IDLE_SESSION_MAX_AGE_SECONDS,
+  };
 }
 
 function jwtSecret(): Uint8Array {
@@ -48,11 +66,15 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
-export async function signSessionToken(payload: SessionTokenPayload): Promise<string> {
+export async function signSessionToken(
+  payload: SessionTokenPayload,
+  options?: { maxAgeSeconds?: number },
+): Promise<string> {
+  const maxAgeSeconds = Math.max(60, Math.trunc(options?.maxAgeSeconds ?? SESSION_MAX_AGE_SECONDS));
   return new SignJWT(payload as unknown as JWTPayload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("12h")
+    .setExpirationTime(`${maxAgeSeconds}s`)
     .sign(jwtSecret());
 }
 
@@ -73,14 +95,23 @@ export async function verifySessionToken(token: string): Promise<SessionTokenPay
   }
 }
 
-export async function signIdleSessionToken(userId: string): Promise<string> {
+export async function signIdleSessionToken(
+  userId: string,
+  options?: {
+    rememberSession?: boolean;
+    maxAgeSeconds?: number;
+  },
+): Promise<string> {
+  const rememberSession = Boolean(options?.rememberSession);
+  const maxAgeSeconds = Math.max(60, Math.trunc(options?.maxAgeSeconds ?? IDLE_SESSION_MAX_AGE_SECONDS));
   return new SignJWT({
     purpose: IDLE_SESSION_PURPOSE,
     userId,
+    rememberSession,
   } satisfies IdleSessionPayload as unknown as JWTPayload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("30m")
+    .setExpirationTime(`${maxAgeSeconds}s`)
     .sign(jwtSecret());
 }
 
@@ -95,6 +126,7 @@ export async function verifyIdleSessionToken(token: string): Promise<IdleSession
     return {
       purpose: IDLE_SESSION_PURPOSE,
       userId: value.userId,
+      rememberSession: value.rememberSession === true,
     };
   } catch {
     return null;

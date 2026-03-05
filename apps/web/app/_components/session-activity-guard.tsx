@@ -36,17 +36,29 @@ function formatRemaining(ms: number): string {
   return `${String(minutes).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
 }
 
-const isTimeoutOverrideEnabled = process.env.NODE_ENV !== "production";
-
-function getIdleTimeoutMs(): number {
-  if (typeof window === "undefined") return IDLE_TIMEOUT_MS;
-  if (!isTimeoutOverrideEnabled) return IDLE_TIMEOUT_MS;
+function readStoredIdleTimeoutMs(): number | null {
+  if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(IDLE_TIMEOUT_OVERRIDE_KEY);
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return IDLE_TIMEOUT_MS;
+    return null;
   }
   return Math.max(1000, Math.trunc(parsed));
+}
+
+function writeStoredIdleTimeoutMs(timeoutMs: number): void {
+  if (typeof window === "undefined") return;
+  const safe = Math.max(1000, Math.trunc(timeoutMs));
+  try {
+    window.localStorage.setItem(IDLE_TIMEOUT_OVERRIDE_KEY, String(safe));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function getIdleTimeoutMs(): number {
+  const stored = readStoredIdleTimeoutMs();
+  return stored ?? IDLE_TIMEOUT_MS;
 }
 
 export function SessionActivityGuard() {
@@ -91,6 +103,13 @@ export function SessionActivityGuard() {
       });
       if (response.status === 401) {
         redirectToLogin("session-expired");
+        return;
+      }
+      if (!response.ok) return;
+
+      const payload = (await response.json()) as { expiresInSeconds?: unknown };
+      if (typeof payload.expiresInSeconds === "number" && Number.isFinite(payload.expiresInSeconds) && payload.expiresInSeconds > 0) {
+        writeStoredIdleTimeoutMs(payload.expiresInSeconds * 1000);
       }
     } catch {
       // Ignore transient network failures.
@@ -118,6 +137,7 @@ export function SessionActivityGuard() {
     const bootstrappedAt = Math.max(readStoredActivityAt(), Date.now());
     setActiveStateNow(bootstrappedAt);
     lastActivityHandledAtRef.current = bootstrappedAt;
+    void tryRefresh(Date.now());
 
     const onMouseMove = (event: MouseEvent) => {
       const { clientX, clientY } = event;
@@ -140,10 +160,23 @@ export function SessionActivityGuard() {
 
     const onStorage = (event: StorageEvent) => {
       if (loggingOutRef.current) return;
-      if (event.key !== LAST_ACTIVITY_KEY || !event.newValue) return;
-      const parsed = Number(event.newValue);
-      if (Number.isFinite(parsed) && parsed > lastActivityAtRef.current) {
-        setActiveStateNow(parsed);
+      if (event.key === LAST_ACTIVITY_KEY && event.newValue) {
+        const parsed = Number(event.newValue);
+        if (Number.isFinite(parsed) && parsed > lastActivityAtRef.current) {
+          setActiveStateNow(parsed);
+        }
+        return;
+      }
+
+      if (event.key === IDLE_TIMEOUT_OVERRIDE_KEY && event.newValue) {
+        const parsed = Number(event.newValue);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          const timeoutMs = Math.max(1000, Math.trunc(parsed));
+          const remaining = timeoutMs - (Date.now() - lastActivityAtRef.current);
+          const warningThresholdMs = Math.min(WARNING_THRESHOLD_MS, Math.max(5000, timeoutMs * 0.2));
+          setRemainingSeconds(Math.max(0, Math.ceil(remaining / 1000)));
+          setWarningMode(remaining <= warningThresholdMs);
+        }
       }
     };
 

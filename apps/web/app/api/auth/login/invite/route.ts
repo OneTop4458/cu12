@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
   hashPassword,
+  resolveSessionLifetimePolicy,
   signIdleSessionToken,
   signSessionToken,
   verifyLoginChallengeToken,
@@ -9,7 +10,7 @@ import {
 import { decryptSecret } from "@/lib/crypto";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { setIdleSessionCookie, setSessionCookie } from "@/lib/session-cookie";
+import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { generateToken, hashToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
 import { upsertCu12Account } from "@/server/cu12-account";
@@ -17,11 +18,13 @@ import { upsertCu12Account } from "@/server/cu12-account";
 const BodySchema = z.object({
   challengeToken: z.string().min(20),
   inviteCode: z.string().trim().min(8).max(200),
+  rememberSession: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
+    const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
 
     const challenge = await verifyLoginChallengeToken(body.challengeToken);
     if (!challenge) {
@@ -199,12 +202,20 @@ export async function POST(request: NextRequest) {
       campus: challenge.campus,
     });
 
-    const sessionToken = await signSessionToken({
-      userId: user.id,
-      email: challenge.cu12Id,
-      role: user.role,
+    const sessionToken = await signSessionToken(
+      {
+        userId: user.id,
+        email: challenge.cu12Id,
+        role: user.role,
+      },
+      {
+        maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+      },
+    );
+    const idleSessionToken = await signIdleSessionToken(user.id, {
+      rememberSession: sessionPolicy.rememberSession,
+      maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
     });
-    const idleSessionToken = await signIdleSessionToken(user.id);
 
     const response = jsonOk({
       stage: "AUTHENTICATED" as const,
@@ -214,9 +225,14 @@ export async function POST(request: NextRequest) {
         role: user.role,
       },
       firstLogin,
+      session: {
+        rememberSession: sessionPolicy.rememberSession,
+        sessionMaxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+        idleMaxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+      },
     });
-    setSessionCookie(response, sessionToken);
-    setIdleSessionCookie(response, idleSessionToken);
+    setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
+    setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
     await writeAuditLog({
       category: "AUTH",
