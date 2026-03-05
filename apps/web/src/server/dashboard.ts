@@ -19,6 +19,15 @@ interface CourseWeekSummary {
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
 
+function isTaskCompletedByProgress(task: { state: string; activityType: string; requiredSeconds: number; learnedSeconds: number }): boolean {
+  if (task.state === "COMPLETED") return true;
+  if (task.state === "FAILED") return false;
+  if (task.activityType === "VOD" && task.requiredSeconds > 0 && task.learnedSeconds >= task.requiredSeconds) {
+    return true;
+  }
+  return false;
+}
+
 function getNextScheduledSyncAt(now: Date): Date {
   const currentHour = now.getUTCHours();
   const hasMinuteProgress = now.getUTCMinutes() > 0 || now.getUTCSeconds() > 0 || now.getUTCMilliseconds() > 0;
@@ -61,33 +70,32 @@ function mapNoticeCountsByLecture(
 export async function getDashboardSummary(userId: string) {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+  const upcomingWindowTasks = await prisma.learningTask.findMany({
+    where: {
+      userId,
+      dueAt: {
+        gte: now,
+        lte: soon,
+      },
+    },
+    select: {
+      dueAt: true,
+      state: true,
+      activityType: true,
+      requiredSeconds: true,
+      learnedSeconds: true,
+    },
+    orderBy: { dueAt: "asc" },
+  });
+  const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, urgentTaskCount, nextDeadlineTask, lastSync] = await Promise.all([
+  const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, status: CourseStatus.ACTIVE },
       _avg: { progressPercent: true },
     }),
     prisma.courseNotice.count({ where: { userId, isRead: false } }),
-    prisma.learningTask.count({
-      where: {
-        userId,
-        state: "PENDING",
-        dueAt: {
-          gte: now,
-          lte: soon,
-        },
-      },
-    }),
-    prisma.learningTask.findFirst({
-      where: {
-        userId,
-        state: "PENDING",
-        dueAt: { gte: now },
-      },
-      orderBy: { dueAt: "asc" },
-      select: { dueAt: true },
-    }),
     prisma.jobQueue.findFirst({
       where: { userId, type: "SYNC", status: "SUCCEEDED" },
       orderBy: { finishedAt: "desc" },
@@ -96,13 +104,14 @@ export async function getDashboardSummary(userId: string) {
   ]);
 
   const nextAutoSyncAt = getNextScheduledSyncAt(now);
+  const nextDeadlineTask = upcomingPendingTasks[0] ?? null;
 
   return {
     activeCourseCount,
     avgProgress: progressAgg._avg.progressPercent ?? 0,
     unreadNoticeCount,
-    upcomingDeadlines: urgentTaskCount,
-    urgentTaskCount,
+    upcomingDeadlines: upcomingPendingTasks.length,
+    urgentTaskCount: upcomingPendingTasks.length,
     nextDeadlineAt: nextDeadlineTask?.dueAt ?? null,
     lastSyncAt: lastSync?.finishedAt ?? null,
     nextAutoSyncAt,
@@ -159,6 +168,7 @@ export async function getCourses(userId: string) {
   return courses.map((course) => {
     const rawTaskList = grouped.get(course.lectureSeq) ?? [];
     const taskList = rawTaskList;
+    const isTaskPending = (task: typeof taskList[number]) => !isTaskCompletedByProgress(task);
     const toDueTime = (task: typeof taskList[number]) => task.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const toWindowTime = (task: typeof taskList[number]) => {
       if (task.dueAt) return task.dueAt.getTime();
@@ -166,7 +176,7 @@ export async function getCourses(userId: string) {
       return Number.MAX_SAFE_INTEGER;
     };
     const pendingWithWindow = taskList
-      .filter((task) => task.state === "PENDING")
+      .filter(isTaskPending)
       .sort((a, b) => {
         const dueA = toWindowTime(a);
         const dueB = toWindowTime(b);
@@ -175,7 +185,7 @@ export async function getCourses(userId: string) {
       });
 
     const pending = taskList
-      .filter((task) => task.state === "PENDING")
+      .filter(isTaskPending)
       .sort((a, b) => {
         const dueA = toDueTime(a);
         const dueB = toDueTime(b);
@@ -183,7 +193,7 @@ export async function getCourses(userId: string) {
         return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
       });
 
-    const completed = taskList.filter((task) => task.state === "COMPLETED");
+    const completed = taskList.filter((task) => !isTaskPending(task));
     const totalTaskCount = taskList.length;
     const completedTaskCount = completed.length;
     const pendingTaskCount = pending.length;
@@ -212,7 +222,7 @@ export async function getCourses(userId: string) {
       existing.totalTaskCount += 1;
       existing.totalTaskTypeCounts[task.activityType] += 1;
 
-      if (task.state === "COMPLETED") {
+      if (isTaskCompletedByProgress(task)) {
         existing.completedTaskCount += 1;
       } else {
         existing.pendingTaskCount += 1;
@@ -329,10 +339,9 @@ export async function getCourses(userId: string) {
 
 export async function getUpcomingDeadlines(userId: string, limit = 30) {
   const now = new Date();
-  const tasks = await prisma.learningTask.findMany({
+  const tasksRaw = await prisma.learningTask.findMany({
     where: {
       userId,
-      state: "PENDING",
       dueAt: {
         gte: now,
       },
@@ -350,6 +359,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
       dueAt: true,
     },
   });
+  const tasks = tasksRaw.filter((task) => !isTaskCompletedByProgress(task));
 
   const seqs = Array.from(new Set(tasks.map((task) => task.lectureSeq)));
   const courses = seqs.length > 0
@@ -466,7 +476,7 @@ export async function getDashboardDiagnostics(
 
   const lectures = lectureSeqs.map((lectureSeq) => {
     const taskList = groupedTasks.get(lectureSeq) ?? [];
-    const pendingTasks = taskList.filter((task) => task.state === "PENDING");
+    const pendingTasks = taskList.filter((task) => !isTaskCompletedByProgress(task));
     const pendingWithWindow = pendingTasks.filter((task) => task.dueAt || task.availableFrom);
     const pendingWithoutWindow = pendingTasks.filter((task) => !task.dueAt && !task.availableFrom);
     const sortedWindow = [...pendingWithWindow].sort((a, b) => {
@@ -508,10 +518,16 @@ export async function getDashboardDiagnostics(
     };
   });
 
-  const pendingTaskCount = tasks.filter((task) => task.state === "PENDING").length;
-  const pendingWithDueAtCount = tasks.filter((task) => task.state === "PENDING" && Boolean(task.dueAt)).length;
-  const pendingWithWindowCount = tasks.filter((task) => task.state === "PENDING" && Boolean(task.dueAt || task.availableFrom)).length;
-  const pendingWithoutWindowCount = tasks.filter((task) => task.state === "PENDING" && !task.dueAt && !task.availableFrom).length;
+  const pendingTaskCount = tasks.filter((task) => !isTaskCompletedByProgress(task)).length;
+  const pendingWithDueAtCount = tasks.filter(
+    (task) => !isTaskCompletedByProgress(task) && Boolean(task.dueAt),
+  ).length;
+  const pendingWithWindowCount = tasks.filter(
+    (task) => !isTaskCompletedByProgress(task) && Boolean(task.dueAt || task.availableFrom),
+  ).length;
+  const pendingWithoutWindowCount = tasks.filter(
+    (task) => !isTaskCompletedByProgress(task) && !task.dueAt && !task.availableFrom,
+  ).length;
 
   return {
     generatedAt: now.toISOString(),
