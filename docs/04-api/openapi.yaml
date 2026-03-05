@@ -1197,6 +1197,28 @@ paths:
           description: Forbidden
         "400":
           description: Invalid request
+    delete:
+      tags: [Admin]
+      summary: Purge all worker heartbeats
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Worker heartbeats purged
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, clearedAt]
+                properties:
+                  deleted:
+                    type: integer
+                    minimum: 0
+                  clearedAt:
+                    type: string
+                    format: date-time
+        "403":
+          description: Forbidden
 
   /api/mail/preferences:
     get:
@@ -1579,6 +1601,30 @@ paths:
                         type: boolean
                       hasPrevPage:
                         type: boolean
+    delete:
+      tags: [Admin]
+      summary: Purge audit logs and keep one audit trail entry
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Audit logs purged
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, retained, retainedLogId]
+                properties:
+                  deleted:
+                    type: integer
+                    minimum: 0
+                  retained:
+                    type: integer
+                    minimum: 1
+                  retainedLogId:
+                    type: string
+        "403":
+          description: Forbidden
 
   /api/admin/members/{userId}/mail-test:
     post:

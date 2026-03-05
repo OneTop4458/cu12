@@ -1,6 +1,7 @@
 import { AuditCategory, AuditSeverity } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAdminActor } from "@/lib/http";
+import { prisma } from "@/lib/prisma";
 import { countAuditLogs, listAuditLogs } from "@/server/audit-log";
 
 function parseCategory(raw: string | null): AuditCategory | undefined {
@@ -81,6 +82,42 @@ export async function GET(request: NextRequest) {
       hasPrevPage: currentPage > 1,
     },
   });
+}
+
+export async function DELETE(request: NextRequest) {
+  const context = await requireAdminActor(request);
+  if (!context) return jsonError("Forbidden", 403);
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.auditLog.deleteMany({});
+      const retained = await tx.auditLog.create({
+        data: {
+          category: "ADMIN",
+          severity: "WARN",
+          actorUserId: context.actor.userId,
+          targetUserId: null,
+          message: "Admin purged audit logs",
+          meta: {
+            deleted: deleted.count,
+          },
+        },
+      });
+
+      return {
+        deleted: deleted.count,
+        retainedLogId: retained.id,
+      };
+    });
+
+    return jsonOk({
+      deleted: result.deleted,
+      retained: 1,
+      retainedLogId: result.retainedLogId,
+    });
+  } catch {
+    return jsonError("Failed to purge audit logs", 500);
+  }
 }
 
 

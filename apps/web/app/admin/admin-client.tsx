@@ -118,6 +118,12 @@ interface LogsPayload {
   pagination: LogPagination;
 }
 
+interface LogPurgeResponse {
+  deleted: number;
+  retained: number;
+  retainedLogId: string;
+}
+
 interface InviteCreateResponse {
   inviteId: string;
   token: string;
@@ -240,6 +246,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [mailTestUserId, setMailTestUserId] = useState<string | null>(null);
   const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
+  const [logPurgeBusy, setLogPurgeBusy] = useState(false);
   const [logPage, setLogPage] = useState(1);
   const [activeNotification, setActiveNotification] = useState<AdminNotification | null>(null);
   const [logFilters, setLogFilters] = useState<LogFilters>(INITIAL_LOG_FILTERS);
@@ -688,6 +695,22 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     setLogFilters(INITIAL_LOG_FILTERS);
     void refreshAll(1, false, INITIAL_LOG_FILTERS);
   }, [refreshAll]);
+
+  const purgeLogs = useCallback(() => {
+    if (logPurgeBusy || loading || !!blockingMessage) return;
+    if (!window.confirm("운영 로그를 전체 삭제할까요? 삭제 후 감사 로그 1건은 유지됩니다.")) return;
+
+    setLogPurgeBusy(true);
+    void withBlocking("운영 로그 전체 정리 중...", async () => {
+      const payload = await fetchJson<LogPurgeResponse>("/api/admin/logs", { method: "DELETE" });
+      setLogFilterDraft(INITIAL_LOG_FILTERS);
+      setLogFilters(INITIAL_LOG_FILTERS);
+      await refreshAll(1, true, INITIAL_LOG_FILTERS);
+      setMessage(`운영 로그 ${payload.deleted}건 삭제 완료 (감사 로그 ${payload.retained}건 유지).`);
+    }).finally(() => {
+      setLogPurgeBusy(false);
+    });
+  }, [blockingMessage, fetchJson, loading, logPurgeBusy, refreshAll, withBlocking]);
 
   const updateLogFilterDraft = useCallback((key: keyof LogFilters, value: string) => {
     setLogFilterDraft((prev) => ({
@@ -1147,7 +1170,17 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       </section>
 
       <section className="card">
-        <h2>운영 로그</h2>
+        <div className="table-toolbar">
+          <h2>운영 로그</h2>
+          <button
+            type="button"
+            className="btn-danger"
+            onClick={purgeLogs}
+            disabled={logPurgeBusy || loading || !!blockingMessage}
+          >
+            {logPurgeBusy ? "정리 중..." : "운영 로그 전체 정리"}
+          </button>
+        </div>
         <form className="form-grid top-gap" onSubmit={applyLogFilters}>
           <label className="field">
             <span>카테고리</span>

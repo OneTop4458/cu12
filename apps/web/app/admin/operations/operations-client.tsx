@@ -80,6 +80,11 @@ interface CleanupPayload {
   cutoff: string;
 }
 
+interface WorkerPurgePayload {
+  deleted: number;
+  clearedAt: string;
+}
+
 interface ApiErrorPayload {
   error?: string;
   errorCode?: string;
@@ -153,6 +158,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   const [message, setMessage] = useState<string | null>(null);
   const [jobBusyId, setJobBusyId] = useState<string | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [workerPurgeBusy, setWorkerPurgeBusy] = useState(false);
 
   const [jobPage, setJobPage] = useState(1);
   const [jobType, setJobType] = useState<"" | JobType>("");
@@ -404,6 +410,27 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
     }));
   }, []);
 
+  const purgeWorkers = useCallback(() => {
+    if (workerPurgeBusy || loadingWorkers) return;
+    if (!window.confirm("워커 heartbeat 데이터를 전체 삭제할까요?")) return;
+
+    setWorkerPurgeBusy(true);
+    setError(null);
+    void (async () => {
+      try {
+        const payload = await fetchJson<WorkerPurgePayload>("/api/admin/workers", {
+          method: "DELETE",
+        });
+        setMessage(`워커 heartbeat ${payload.deleted}건을 삭제했습니다.`);
+        await loadWorkers(staleMinutes);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "워커 정리에 실패했습니다.");
+      } finally {
+        setWorkerPurgeBusy(false);
+      }
+    })();
+  }, [fetchJson, loadWorkers, loadingWorkers, staleMinutes, workerPurgeBusy]);
+
   return (
     <main className="dashboard-main page-shell">
       <header className="topbar">
@@ -627,6 +654,14 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </label>
           <button className="ghost-btn" type="button" onClick={() => void loadWorkers(staleMinutes)} disabled={loadingWorkers}>
             갱신
+          </button>
+          <button
+            className="btn-danger"
+            type="button"
+            onClick={purgeWorkers}
+            disabled={workerPurgeBusy || loadingWorkers}
+          >
+            {workerPurgeBusy ? "정리 중..." : "워커 전체 정리"}
           </button>
         </div>
         <div className="table-wrap top-gap">

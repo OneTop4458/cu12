@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAdminActor } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/server/audit-log";
 
 function parseInteger(value: string | null, fallback: number, max: number) {
   const parsed = Number(value ?? `${fallback}`);
@@ -37,3 +38,29 @@ export async function GET(request: NextRequest) {
   });
 }
 
+export async function DELETE(request: NextRequest) {
+  const context = await requireAdminActor(request);
+  if (!context) return jsonError("Forbidden", 403);
+
+  try {
+    const result = await prisma.workerHeartbeat.deleteMany({});
+    const clearedAt = new Date().toISOString();
+
+    await writeAuditLog({
+      category: "WORKER",
+      severity: "WARN",
+      actorUserId: context.actor.userId,
+      message: "Admin purged worker heartbeats",
+      meta: {
+        deleted: result.count,
+      },
+    });
+
+    return jsonOk({
+      deleted: result.count,
+      clearedAt,
+    });
+  } catch {
+    return jsonError("Failed to purge workers", 500);
+  }
+}
