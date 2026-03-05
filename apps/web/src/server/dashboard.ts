@@ -226,6 +226,25 @@ export async function getCourses(userId: string) {
     const weekSummaries = Array.from(weekProgressByWeek.values())
       .sort((a, b) => a.weekNo - b.weekNo)
       .map((summary) => summary);
+    const pendingByWeek = weekSummaries.filter((summary) => summary.pendingTaskCount > 0);
+    const earliestPendingByWeek = pendingByWeek[0] ?? null;
+    const latestTask = taskList.length > 0
+      ? taskList
+        .slice()
+        .sort((a, b) => {
+          if (a.weekNo !== b.weekNo) return a.weekNo - b.weekNo;
+          return a.lessonNo - b.lessonNo;
+        })
+        [taskList.length - 1] ?? null
+      : null;
+    const earliestPendingTask = pending.length > 0
+      ? pending
+        .slice()
+        .sort((a, b) => {
+          if (a.weekNo !== b.weekNo) return a.weekNo - b.weekNo;
+          return a.lessonNo - b.lessonNo;
+        })[0] ?? null
+      : null;
 
     const windowPendingTasks = pendingWithWindow.filter((task) => task.dueAt || task.availableFrom);
     const nowWindowPending = windowPendingTasks.find((task) => {
@@ -253,15 +272,21 @@ export async function getCourses(userId: string) {
       return tasks[tasks.length - 1] ?? null;
     })();
     const currentWeekNo = isCourseCompleted
-      ? (weekSummaries.length > 0 ? weekSummaries[weekSummaries.length - 1].weekNo : (taskList[0]?.weekNo ?? null))
-      : (nowWindowPending?.weekNo ?? nextWindowPending?.weekNo ?? pendingWithWindow[0]?.weekNo ?? taskList[0]?.weekNo ?? null);
+      ? (weekSummaries.length > 0 ? weekSummaries[weekSummaries.length - 1].weekNo : (latestTask?.weekNo ?? null))
+      : (nowWindowPending?.weekNo
+        ?? nextWindowPending?.weekNo
+        ?? earliestPendingByWeek?.weekNo
+        ?? earliestPendingTask?.weekNo
+        ?? pendingWithWindow[0]?.weekNo
+        ?? latestTask?.weekNo
+        ?? null);
     const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
     const deadlineLabel = (nowWindowPending || (pending.length > 0 && !nextWindowPending))
       ? "이번 차시 마감"
       : "다음 차시 마감";
     const courseDeadlineTask = isCourseCompleted
-      ? (lastWindowTask ?? firstWindowTask)
-      : (nextWindowPending ?? firstWindowTask);
+      ? (lastWindowTask ?? firstWindowTask ?? earliestPendingTask)
+      : (nextWindowPending ?? firstWindowTask ?? earliestPendingTask);
 
     return {
       ...course,
