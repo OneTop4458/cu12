@@ -76,10 +76,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     const notice = deduplicated
-      ? "동일한 동기화 요청이 이미 대기/처리 중입니다."
+      ? "동일한 동기화 요청이 이미 대기 처리 중입니다."
       : dispatch.dispatched
         ? "동기화가 요청되고 워커 실행이 트리거되었습니다."
-        : `동기화가 요청되었으나 워커 트리거가 실패했습니다: ${dispatch.error ?? "unknown"}`;
+        : `동기화가 요청되었으나 워커 트리거에 실패했습니다: ${dispatch.error ?? "unknown"}`;
 
     return jsonOk({
       jobId: job.id,

@@ -195,11 +195,11 @@ async function sendSyncAlertMail(
 
   const lines: string[] = [];
   if (pref.alertOnNotice && summary.newNoticeCount > 0) {
-    lines.push(`- ?좉퇋 怨듭? ${summary.newNoticeCount}嫄댁씠 異붽??섏뿀?듬땲??`);
+    lines.push(`- 신규 공지 ${summary.newNoticeCount}건이 추가되었습니다.`);
   }
 
   if (pref.alertOnNotice && summary.newUnreadNotificationCount > 0) {
-    lines.push(`- ?쎌? ?딆? ???뚮┝ ${summary.newUnreadNotificationCount}嫄댁씠 ?덉뒿?덈떎.`);
+    lines.push(`- 읽지 않은 알림 ${summary.newUnreadNotificationCount}건이 있습니다.`);
   }
 
   if (pref.alertOnDeadline && summary.deadlineTasks.length > 0) {
@@ -226,12 +226,12 @@ async function sendSyncAlertMail(
       if (!inserted) continue;
 
       deadlineLines.push(
-        `  쨌 ${task.courseTitle} ${task.weekNo}二쇱감 ${task.lessonNo}李⑥떆 (D-${daysLeft}, ${dueAt.toLocaleString("ko-KR")})`,
+        `  - ${task.courseTitle} ${task.weekNo}주차 ${task.lessonNo}차시 (D-${daysLeft}, ${dueAt.toLocaleString("ko-KR")})`,
       );
     }
 
     if (deadlineLines.length > 0) {
-      lines.push("- 李⑥떆 留덇컧 ?꾨컯:");
+      lines.push("- 차시 마감 임박:");
       lines.push(...deadlineLines.slice(0, 10));
     }
   }
@@ -240,13 +240,13 @@ async function sendSyncAlertMail(
     return;
   }
 
-  const subject = "[CU12] 怨듭?/留덇컧 ?뚮┝";
+  const subject = "[CU12] 공지/마감 알림";
   const text = [
-    "?숆린??寃곌낵 ?뚮┝?낅땲??",
+    "동기화 결과 알림입니다.",
     "",
     ...lines,
     "",
-    "??쒕낫?쒖뿉???곸꽭 ?댁슜???뺤씤?섏꽭??",
+    "대시보드에서 상세 내용을 확인하세요.",
   ].join("\n");
 
   try {
@@ -298,14 +298,14 @@ async function sendAutoLearnResultMail(
     return;
   }
 
-  const subject = "[CU12] ?먮룞?섍컯 ?ㅽ뻾 寃곌낵";
+  const subject = "[CU12] 자동수강 실행 결과";
   const text = [
-    "?먮룞?섍컯 ?묒뾽???꾨즺?섏뿀?듬땲??",
+    "자동수강 작업이 완료되었습니다.",
     "",
-    `- ?ㅽ뻾 紐⑤뱶: ${payload.mode}`,
-    `- 泥섎━??李⑥떆: ${payload.watchedTaskCount}/${payload.plannedTaskCount}`,
-    `- ?ъ깮 ?쒓컙: ${formatDuration(payload.watchedSeconds)}`,
-    payload.truncated ? "- ?덈궡: ?덉쟾 ?쒗븳媛?AUTOLEARN_MAX_TASKS)?쇰줈 ?쇰? 李⑥떆???ㅼ쓬 ?ㅽ뻾?먯꽌 泥섎━?⑸땲??" : "",
+    `- 실행 모드: ${payload.mode}`,
+    `- 처리한 차시: ${payload.watchedTaskCount}/${payload.plannedTaskCount}`,
+    `- 재생 시간: ${formatDuration(payload.watchedSeconds)}`,
+    payload.truncated ? "- 안내: 회차 제한값(AUTOLEARN_MAX_TASKS)으로 일부 차시는 다음 실행에서 처리됩니다." : "",
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -680,10 +680,10 @@ async function processMailDigest(userId: string) {
   ];
 
   if (dueSoonTasks.length > 0) {
-    lines.push("", "留덇컧 ?꾨컯 李⑥떆");
+    lines.push("", "마감 임박 차시");
     for (const task of dueSoonTasks) {
-      const title = titleBySeq.get(task.lectureSeq) ?? `媛뺤쥖 ${task.lectureSeq}`;
-      lines.push(`- ${title} ${task.weekNo}二쇱감 ${task.lessonNo}李⑥떆 (${task.dueAt?.toLocaleString("ko-KR") ?? "-"})`);
+      const title = titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`;
+      lines.push(`- ${title} ${task.weekNo}주차 ${task.lessonNo}차시 (${task.dueAt?.toLocaleString("ko-KR") ?? "-"})`);
     }
   }
 
