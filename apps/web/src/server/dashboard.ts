@@ -361,7 +361,22 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
       dueAt: true,
     },
   });
-  const tasks = tasksRaw.filter((task) => !isTaskCompletedByProgress(task));
+  const tasks = tasksRaw
+    .map((task) => ({
+      ...task,
+      isCompleted: isTaskCompletedByProgress(task),
+    }))
+    .sort((a, b) => {
+      if (a.isCompleted !== b.isCompleted) {
+        return Number(a.isCompleted) - Number(b.isCompleted);
+      }
+      const dueA = a.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const dueB = b.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (dueA !== dueB) return dueA - dueB;
+      if (a.lectureSeq !== b.lectureSeq) return a.lectureSeq - b.lectureSeq;
+      if (a.weekNo !== b.weekNo) return a.weekNo - b.weekNo;
+      return a.lessonNo - b.lessonNo;
+    });
 
   const seqs = Array.from(new Set(tasks.map((task) => task.lectureSeq)));
   const courses = seqs.length > 0
@@ -380,7 +395,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
 
   return tasks.map((task) => ({
     ...task,
-      courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+    courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
     remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
     daysLeft: task.dueAt ? daysUntil(task.dueAt, now) : null,
   }));
