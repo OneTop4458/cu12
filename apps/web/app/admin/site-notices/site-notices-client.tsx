@@ -5,6 +5,7 @@ import { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
 
@@ -195,6 +196,15 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   useEffect(() => {
     void loadNotices();
   }, [loadNotices]);
+
+  useEffect(() => {
+    if (!message) return;
+    toast.success(message, {
+      duration: 2800,
+      closeButton: true,
+    });
+    setMessage(null);
+  }, [message]);
 
   const resetForm = useCallback(() => {
     setEditingNotice(null);
@@ -390,7 +400,6 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       </section>
 
       {error ? <p className="error-text">{error}</p> : null}
-      {message ? <p className="ok-text">{message}</p> : null}
 
       <section className="card">
         <div className="table-toolbar">

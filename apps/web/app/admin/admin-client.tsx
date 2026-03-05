@@ -5,6 +5,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
+import { toast } from "sonner";
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
@@ -366,6 +367,15 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   useEffect(() => {
     void refreshAll(1, false);
   }, [refreshAll]);
+
+  useEffect(() => {
+    if (!message) return;
+    toast.success(message, {
+      duration: 2800,
+      closeButton: true,
+    });
+    setMessage(null);
+  }, [message]);
 
   const runAfterMutation = useCallback((page: number) => {
     void refreshAll(page, true);
@@ -843,7 +853,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       </section>
 
       {error ? <p className="error-text">{error}</p> : null}
-      {message ? <p className="ok-text">{message}</p> : null}
 
       <section className="card">
         <div className="table-toolbar">

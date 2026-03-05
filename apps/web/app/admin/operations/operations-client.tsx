@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, RefreshCw, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
 
@@ -269,6 +270,15 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
     void refreshAll();
   }, [refreshAll]);
 
+  useEffect(() => {
+    if (!message) return;
+    toast.success(message, {
+      duration: 2800,
+      closeButton: true,
+    });
+    setMessage(null);
+  }, [message]);
+
   const applyFilters = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void loadJobs(1, false);
@@ -493,7 +503,6 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       </section>
 
       {error ? <p className="error-text">{error}</p> : null}
-      {message ? <p className="ok-text">{message}</p> : null}
 
       <section className="card">
         <div className="table-toolbar">

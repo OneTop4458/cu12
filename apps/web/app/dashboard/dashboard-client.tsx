@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { RotateCw } from "lucide-react";
+import { toast } from "sonner";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
 
@@ -215,6 +216,7 @@ interface SyncProgress {
 }
 
 type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
+type DeadlineFilter = "D7" | "ALL";
 
 const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
 const SITE_NOTICE_HOST_ID = "dashboard-site-notice-host";
@@ -289,6 +291,12 @@ function formatAutoModeLabel(mode: AutoProgress["progress"]["mode"]): string {
   if (mode === "SINGLE_NEXT") return "선택 강좌 다음 차시";
   if (mode === "SINGLE_ALL") return "선택 강좌 전체";
   return "전체 강좌";
+}
+
+function getAutoModeDescription(mode: AutoProgress["progress"]["mode"]): string {
+  if (mode === "SINGLE_NEXT") return "선택 강좌의 다음 미완료 VOD 1개를 자동 수강합니다.";
+  if (mode === "SINGLE_ALL") return "선택 강좌의 미완료 VOD를 처음부터 끝까지 자동 수강합니다.";
+  return "진행 중인 전체 강좌의 미완료 VOD를 순서대로 자동 수강합니다.";
 }
 
 function formatAutoPhaseLabel(phase: AutoProgress["progress"]["phase"]): string {
@@ -487,6 +495,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [allDeadlines, setAllDeadlines] = useState<Deadline[] | null>(null);
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
+  const [deadlineLoading, setDeadlineLoading] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
@@ -516,6 +527,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
+  const [expandedCourseIds, setExpandedCourseIds] = useState<Set<number>>(() => new Set());
 
   const dedupedSiteNotices = useMemo(() => {
     const seen = new Set<string>();
@@ -562,6 +574,26 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     [sortedJobs],
   );
   const canCancelActiveSync = Boolean(activeSyncJob);
+  const selectedAutoCourse = useMemo(
+    () => (lectureSeq ? courses.find((course) => course.lectureSeq === lectureSeq) ?? null : null),
+    [courses, lectureSeq],
+  );
+  const canExecuteAutoLearn = mode === "ALL_COURSES" || Boolean(selectedAutoCourse);
+  const autoConfirmTarget = mode === "ALL_COURSES"
+    ? "모든 진행 강좌"
+    : selectedAutoCourse
+      ? `${selectedAutoCourse.title} (${selectedAutoCourse.lectureSeq})`
+      : "강좌 선택 필요";
+  const deadlineD7Items = useMemo(
+    () => deadlines.filter((item) => item.daysLeft !== null && item.daysLeft >= 0 && item.daysLeft <= 7),
+    [deadlines],
+  );
+  const deadlineAllItems = deadlineFilter === "ALL"
+    ? allDeadlines ?? deadlines
+    : deadlines;
+  const displayedDeadlines = deadlineFilter === "D7"
+    ? deadlineD7Items
+    : deadlineAllItems;
   const trackingAutoLearn = trackingDetail?.type === "AUTOLEARN";
   const trackingSyncJob = trackingDetail?.type === "SYNC" || trackingDetail?.type === "NOTICE_SCAN";
   const syncProgress = trackingSyncJob
@@ -666,6 +698,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   useEffect(() => {
     void refreshAll(false);
   }, [refreshAll]);
+
+  useEffect(() => {
+    if (!message) return;
+    toast.success(message, {
+      duration: 2800,
+      closeButton: true,
+    });
+    setMessage(null);
+  }, [message]);
 
   useEffect(() => {
     const touch = () => {
@@ -896,6 +937,34 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     };
   }, [trackingJobId, fetchJson, refreshAll]);
 
+  useEffect(() => {
+    if (deadlineFilter !== "ALL" || allDeadlines || deadlineLoading) return;
+
+    let cancelled = false;
+    const load = async () => {
+      setDeadlineLoading(true);
+      try {
+        const payload = await fetchJson<{ deadlines: Deadline[] }>("/api/dashboard/deadlines?limit=100");
+        if (!cancelled) {
+          setAllDeadlines(payload.deadlines);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError((err as Error).message);
+        }
+      } finally {
+        if (!cancelled) {
+          setDeadlineLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [deadlineFilter, allDeadlines, deadlineLoading, fetchJson]);
+
   async function cancelSyncQueueJobs() {
     if (!syncQueueStaleJobIds.length || syncQueueCleanupSubmitting) return;
     setSyncQueueCleanupSubmitting(true);
@@ -1078,6 +1147,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setNotices((prev) => prev.map((item) => (item.id === noticeId ? { ...item, isRead: true } : item)));
   }
 
+  function toggleCourseExpanded(lectureSeqValue: number) {
+    setExpandedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lectureSeqValue)) {
+        next.delete(lectureSeqValue);
+      } else {
+        next.add(lectureSeqValue);
+      }
+      return next;
+    });
+  }
+
   async function saveMail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!mailDraft) return;
@@ -1164,10 +1245,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           </div>
         </div>
       </header>
-      {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
-
       {error ? <p className="error-text">{error}</p> : null}
-      {message ? <p className="ok-text">{message}</p> : null}
 
       <section className="grid-4">
         <article className="card"><h2>진행 강좌</h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
@@ -1345,11 +1423,36 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
       <section className="card">
         <h2>마감 임박 차시</h2>
+        <div className="deadline-filter-bar">
+          <div className="button-row">
+            <button
+              type="button"
+              className={`ghost-btn ${deadlineFilter === "D7" ? "is-active" : ""}`}
+              onClick={() => setDeadlineFilter("D7")}
+            >
+              D-7 이내
+            </button>
+            <button
+              type="button"
+              className={`ghost-btn ${deadlineFilter === "ALL" ? "is-active" : ""}`}
+              onClick={() => setDeadlineFilter("ALL")}
+            >
+              전체
+            </button>
+          </div>
+          <p className="muted">
+            표시 {displayedDeadlines.length}건
+            {deadlineFilter === "D7" ? ` / 전체 ${deadlineAllItems.length}건` : ""}
+          </p>
+        </div>
+        {deadlineFilter === "ALL" && deadlineLoading ? (
+          <p className="muted">전체 마감 차시를 불러오는 중...</p>
+        ) : null}
         <div className="table-wrap mobile-card-table">
           <table>
             <thead><tr><th>강좌</th><th>주차/차시</th><th>학습인정기간</th><th>남은 시간</th></tr></thead>
             <tbody>
-              {deadlines.length === 0 ? <tr><td colSpan={4}>임박 차시가 없습니다.</td></tr> : deadlines.map((item) => (
+              {displayedDeadlines.length === 0 ? <tr><td colSpan={4}>표시할 임박 차시가 없습니다.</td></tr> : displayedDeadlines.map((item) => (
                 <tr key={`${item.lectureSeq}:${item.courseContentsSeq}`}>
                   <td data-label="강좌">{item.courseTitle}</td>
                   <td data-label="주차/차시">{item.weekNo}주차 {item.lessonNo}차시</td>
@@ -1366,46 +1469,68 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <h2>강좌 현황</h2>
         <div className="course-grid">
           {courses.map((course) => {
-                const currentWeekSummary = findCurrentWeekSummary(course);
-                const weekSummaryLabel = formatCourseWeekProgress(course);
-                const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
-                const deadlineLabel = course.deadlineLabel === "이번 차시 마감" ? "이번 차시 마감" : "다음 차시 마감";
-                const weekHealthLabel = formatCourseWeekHealth(course);
-                const pendingWeeks = getPendingWeeks(course);
+            const currentWeekSummary = findCurrentWeekSummary(course);
+            const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
+            const pendingWeeks = getPendingWeeks(course);
+            const isExpanded = expandedCourseIds.has(course.lectureSeq);
+            const taskProgressRatio = toRatio(course.completedTaskCount, Math.max(1, course.totalTaskCount));
 
             return (
-              <article key={course.lectureSeq} className="course-card">
-                <div className="course-card-head">
-                  <h3 className="course-title">{course.title}</h3>
-                  <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
-                </div>
-                <div className="course-card-body">
-                  <p>진도율 <strong>{course.progressPercent}%</strong></p>
-                  <p className="muted">전체 과제: 총 {course.totalTaskCount}개 / 완료 {course.completedTaskCount}개 / 미완료 {course.pendingTaskCount}개</p>
-                  <p className="muted">{weekSummaryLabel}</p>
-                  <p className="muted">현재 기준 주차: {course.currentWeekNo ?? "-"}</p>
-                  <p className="muted">{weekHealthLabel}</p>
-                  <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>
-                  <p className="muted">현재주차 미완료 유형: {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}</p>
-                  <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
-                  <div className="muted pending-week-detail">
-                    <span className="pending-week-title">미완료 주차 상세:</span>
-                    {pendingWeeks.length === 0 ? (
-                      <span className="pending-week-empty">미완료 주차 없음</span>
-                    ) : (
-                      <ul className="pending-week-list">
-                        {pendingWeeks.map((summary) => (
-                          <li key={`${course.lectureSeq}:${summary.weekNo}`}>{formatWeekStatusLine(summary)}</li>
-                        ))}
-                      </ul>
-                    )}
+              <article key={course.lectureSeq} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>
+                <div className="course-overview">
+                  <div className="course-overview-main">
+                    <h3 className="course-title">{course.title}</h3>
+                    <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
+                    <div className="progress-track course-progress-track">
+                      <div className="progress-value" style={{ width: `${Math.max(2, taskProgressRatio * 100)}%` }} />
+                    </div>
+                    <p className="muted">
+                      진도율 <strong>{course.progressPercent}%</strong>
+                      {" · "}
+                      과제 {course.completedTaskCount}/{course.totalTaskCount}
+                    </p>
                   </div>
-                  <p className="muted">{deadlineLabel}: {formatNextDeadline(course.nextPendingTask)}</p>
+                  <div className="course-overview-meta">
+                    <p>
+                      <strong>{course.deadlineLabel}</strong>: {formatNextDeadline(course.nextPendingTask)}
+                    </p>
+                    <p className="muted">현재주차: {course.currentWeekNo ?? "-"}</p>
+                    <p className="muted">미확인 공지: {course.unreadNoticeCount}개 / 전체 {course.noticeCount}개</p>
+                  </div>
+                  <div className="course-overview-actions">
+                    <button className="ghost-btn" type="button" onClick={() => toggleCourseExpanded(course.lectureSeq)}>
+                      {isExpanded ? "상세 닫기" : "상세 보기"}
+                    </button>
+                    <button className="ghost-btn" type="button" onClick={() => void openNotices(course)}>
+                      공지 보기
+                    </button>
+                  </div>
                 </div>
-                <div className="course-card-footer">
-                  <p className="muted">공지: 총 {course.noticeCount}개 / 미확인 {course.unreadNoticeCount}개</p>
-                  <button className="ghost-btn" onClick={() => void openNotices(course)}>공지 보기</button>
-                </div>
+                {isExpanded ? (
+                  <div className="course-detail-grid">
+                    <p className="muted">{formatCourseWeekProgress(course)}</p>
+                    <p className="muted">{formatCourseWeekHealth(course)}</p>
+                    <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>
+                    <p className="muted">
+                      현재주차 미완료 유형:
+                      {" "}
+                      {formatTaskCountsByType(currentWeekSummary ? currentWeekSummary.pendingTaskTypeCounts : course.pendingTaskTypeCounts)}
+                    </p>
+                    <p className="muted">전체 유형 분포: {formatTaskCountsByType(course.taskTypeCounts)}</p>
+                    <div className="muted pending-week-detail">
+                      <span className="pending-week-title">미완료 주차 상세:</span>
+                      {pendingWeeks.length === 0 ? (
+                        <span className="pending-week-empty">미완료 주차 없음</span>
+                      ) : (
+                        <ul className="pending-week-list">
+                          {pendingWeeks.map((summary) => (
+                            <li key={`${course.lectureSeq}:${summary.weekNo}`}>{formatWeekStatusLine(summary)}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </article>
             );
           })}
@@ -1416,8 +1541,26 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <div className="modal-overlay">
           <section className="modal-card">
             <h2>{confirm === "SYNC" ? "동기화 실행" : "자동 수강 실행"}</h2>
+            {confirm === "AUTOLEARN" ? (
+              <div className="form-stack top-gap">
+                <p className="muted">아래 설정으로 자동 수강을 요청합니다.</p>
+                <div className="pill-note">
+                  <p><strong>모드</strong>: {formatAutoModeLabel(mode)}</p>
+                  <p><strong>대상</strong>: {autoConfirmTarget}</p>
+                  <p className="muted">{getAutoModeDescription(mode)}</p>
+                </div>
+                {!canExecuteAutoLearn ? (
+                  <p className="error-text">선택 강좌 모드에서는 대상 강좌를 먼저 선택해 주세요.</p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="button-row">
-              <button onClick={() => void runAction(confirm)}>실행</button>
+              <button
+                onClick={() => void runAction(confirm)}
+                disabled={confirm === "AUTOLEARN" && !canExecuteAutoLearn}
+              >
+                실행
+              </button>
               <button className="ghost-btn" onClick={() => setConfirm(null)}>취소</button>
             </div>
           </section>

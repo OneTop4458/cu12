@@ -1370,9 +1370,8 @@ textarea:focus {
   min-height: 100%;
 }
 
-.course-card-head {
-  display: grid;
-  gap: 6px;
+.course-card.is-expanded {
+  border-color: color-mix(in oklab, var(--primary) 32%, var(--border));
 }
 
 .course-title {
@@ -1384,29 +1383,73 @@ textarea:focus {
   -webkit-line-clamp: 2;
 }
 
-.course-card-body {
-  display: grid;
-  gap: 7px;
+.deadline-filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
-.course-card-body p,
-.course-card-footer p {
+.ghost-btn.is-active {
+  border-color: color-mix(in oklab, var(--primary) 42%, var(--border));
+  color: var(--primary);
+  background: color-mix(in oklab, var(--primary-soft) 64%, transparent);
+}
+
+.course-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr) auto;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.course-overview-main {
+  display: grid;
+  gap: 6px;
+}
+
+.course-progress-track {
+  height: 8px;
+}
+
+.course-overview-main p,
+.course-overview-meta p,
+.course-detail-grid p {
   margin: 0;
 }
 
-.course-card-footer {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.course-overview-meta {
+  display: grid;
+  gap: 5px;
+  align-content: center;
 }
 
-.course-card-footer .ghost-btn {
-  width: 110px;
-  align-self: flex-start;
-  max-width: 110px;
-  white-space: nowrap;
+.course-overview-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.course-overview-actions .ghost-btn {
+  width: 104px;
   text-align: center;
+}
+
+.course-detail-grid {
+  display: grid;
+  gap: 7px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+
+.course-detail-grid .pending-week-detail {
+  margin-top: 2px;
+}
+
+.course-card p {
+  margin: 0;
 }
 
 .pending-week-detail {
@@ -1557,6 +1600,16 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .course-overview {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .course-overview-actions {
+    justify-items: start;
+    grid-template-columns: repeat(2, minmax(0, auto));
+  }
+
   main {
     padding: 16px 14px 28px;
   }
@@ -1641,7 +1694,12 @@ code {
     gap: 8px;
   }
 
-  .course-card-footer .ghost-btn {
+  .course-overview-actions {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .course-overview-actions .ghost-btn {
     width: 100%;
   }
 
