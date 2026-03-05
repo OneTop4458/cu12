@@ -353,6 +353,8 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
       courseContentsSeq: true,
       weekNo: true,
       lessonNo: true,
+      state: true,
+      activityType: true,
       requiredSeconds: true,
       learnedSeconds: true,
       availableFrom: true,
