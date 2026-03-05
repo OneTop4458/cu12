@@ -671,6 +671,17 @@ async function extractNoticeBodyFromCurrentPage(page: Page): Promise<string> {
   });
 }
 
+async function installEvaluateCompatShim(page: Page) {
+  await page.addInitScript(() => {
+    const globalScope = globalThis as unknown as {
+      __name?: (target: unknown, key?: string) => unknown;
+    };
+    if (typeof globalScope.__name !== "function") {
+      globalScope.__name = (target) => target;
+    }
+  });
+}
+
 async function fetchNoticeBodiesFromDetailPages(
   page: Page,
   lectureSeq: number,
@@ -738,6 +749,7 @@ export async function collectCu12Snapshot(
     }
   };
   installDialogHandler(page);
+  await installEvaluateCompatShim(page);
   const startedAtMs = Date.now();
   const buildTiming = (completedCourses: number, totalCourses: number) => {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
@@ -1037,6 +1049,7 @@ export async function runAutoLearning(
   const context = await browser.newContext(createRealisticBrowserContextOptions());
   const page = await context.newPage();
   installDialogHandler(page);
+  await installEvaluateCompatShim(page);
   const shouldCancel = onCancelCheck ?? (async () => false);
 
   try {
