@@ -707,6 +707,65 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
 }
 
 export function parseTodoVodTasks(html: string, userId: string, lectureSeq: number): LearningTask[] {
+  const parseViewGoArgs = (source: string): { activityCode: string; courseContentsSeq: number; weekNo: number; lessonNo: number } | null => {
+    const match = source.match(/viewGo\(([\s\S]*?)\)/i);
+    if (!match?.[1]) {
+      return null;
+    }
+
+    const argsText = match[1];
+    const args: string[] = [];
+    let current = "";
+    let inQuote: string | null = null;
+    let escaped = false;
+
+    for (const char of argsText) {
+      if (escaped) {
+        current += char;
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        current += char;
+        continue;
+      }
+      if (char === "'" || char === "\"") {
+        if (inQuote === null) {
+          inQuote = char;
+        } else if (inQuote === char) {
+          inQuote = null;
+        }
+        continue;
+      }
+      if (char === "," && inQuote === null) {
+        args.push(current);
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    args.push(current);
+
+    if (args.length < 4) {
+      return null;
+    }
+
+    const normalizeActivityCode = (value: string): string =>
+      value
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .replace(/[^A-Z0-9]/gi, "")
+        .toUpperCase();
+
+    return {
+      activityCode: normalizeActivityCode(args[0] ?? ""),
+      courseContentsSeq: Number((args[1] ?? "").trim()),
+      weekNo: Number((args[2] ?? "").trim()),
+      lessonNo: Number((args[3] ?? "").trim()),
+    };
+  };
+
   const $ = load(html);
   const tasksBySeq = new Map<number, LearningTask>();
   const activityTypeByCode: Record<string, LearningTask["activityType"]> = {
@@ -769,9 +828,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     const onclick = item.attr("onclick") ?? "";
     const href = item.attr("href") ?? "";
     const argsRaw = `${onclick} ${href}`;
-    const viewGoMatch = argsRaw.match(
-      /viewGo\(\s*["']?([^",\s]+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)["']?/, 
-    );
+    const viewGoMatch = parseViewGoArgs(argsRaw);
 
     let activityCode = "";
     let courseContentsSeq = Number(
@@ -785,10 +842,10 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     let pathHint = "";
 
     if (viewGoMatch) {
-      activityCode = viewGoMatch[1]?.trim() ?? "";
-      courseContentsSeq = courseContentsSeq || Number(viewGoMatch[2]);
-      weekNo = Number(viewGoMatch[3]);
-      lessonNo = Number(viewGoMatch[4]);
+      activityCode = viewGoMatch.activityCode ?? "";
+      courseContentsSeq = courseContentsSeq || Number(viewGoMatch.courseContentsSeq);
+      weekNo = Number(viewGoMatch.weekNo);
+      lessonNo = Number(viewGoMatch.lessonNo);
     } else {
       const pageGoRaw =
         argsRaw.match(/pageGo\(\s*["']([^"']+)["']\s*\)/i)?.[1]
