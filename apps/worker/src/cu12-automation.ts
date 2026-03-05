@@ -971,9 +971,27 @@ async function watchVodTask(
   return waitSeconds;
 }
 
-async function getCourses(page: Page, envBaseUrl: string, userId: string): Promise<Array<{ lectureSeq: number; title: string }>> {
+async function getCourses(
+  page: Page,
+  envBaseUrl: string,
+  userId: string,
+): Promise<Array<{ lectureSeq: number; title: string }>> {
   await page.goto(`${envBaseUrl}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
-  const courses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
+  const rawCourses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
+  const now = Date.now();
+  const courses = rawCourses.filter((course) => {
+    if (course.progressPercent >= 100) return false;
+    if (course.remainDays !== null && course.remainDays <= 0) return false;
+
+    if (!course.periodEnd) return true;
+    const periodEndMs = Date.parse(course.periodEnd);
+    if (!Number.isFinite(periodEndMs)) return true;
+
+    const periodEndAt = new Date(periodEndMs);
+    periodEndAt.setHours(23, 59, 59, 999);
+    return periodEndAt.getTime() >= now;
+  });
+
   return courses.map((course) => ({
     lectureSeq: course.lectureSeq,
     title: course.title,

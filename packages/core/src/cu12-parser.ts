@@ -130,6 +130,82 @@ function parseDurationToSeconds(raw: string | null | undefined): number {
   return fallback;
 }
 
+function findLabeledDuration(rawText: string, labels: string[]): number | null {
+  const normalized = normalizeWhitespace(rawText);
+  if (!normalized) return null;
+
+  for (const label of labels) {
+    const escaped = escapeRegExp(label);
+    const directMatch = new RegExp(`${escaped}\\s*[:\\-]?\\s*([^|\\r\\n]+)`, "i").exec(normalized);
+    if (directMatch?.[1]) {
+      return parseDurationToSeconds(directMatch[1]);
+    }
+
+    const spacedMatch = new RegExp(`${escaped}[\\s\\S]{0,16}?([\\d:\\s시간분초hms]{3,})`, "i").exec(normalized);
+    if (spacedMatch?.[1]) {
+      return parseDurationToSeconds(spacedMatch[1]);
+    }
+  }
+
+  return null;
+}
+
+function parseDurationCandidates(rawText: string): number[] {
+  const normalized = normalizeWhitespace(rawText);
+  const matches = [
+    ...normalized.matchAll(/(?:^|[^\d])(\d{1,2}:\d{1,2}(?::\d{1,2})?)(?:[^\d]|$)/g),
+    ...normalized.matchAll(/(\d+)\s*(?:시간|시|분|초)/g),
+  ];
+  return matches
+    .map((match) => parseDurationToSeconds(match[1]))
+    .filter((value) => value > 0 && value <= 43200);
+}
+
+function parseWeekNumberFromText(rawText: string): number {
+  const normalized = normalizeWhitespace(rawText);
+  return Number(normalized.match(/(\d{1,2})\s*주차/i)?.[1] ?? 0);
+}
+
+function parseLessonNumberFromText(rawText: string): number {
+  const normalized = normalizeWhitespace(rawText);
+  return Number(normalized.match(/(\d{1,2})\s*차시/i)?.[1] ?? 0);
+}
+
+function parseQueryNumber(urlText: string, ...names: string[]): number {
+  const lower = normalizeWhitespace(urlText).toLowerCase();
+  for (const name of names) {
+    const escaped = escapeRegExp(name.toLowerCase());
+    const direct = lower.match(new RegExp(`${escaped}=([0-9]+)`))?.[1];
+    if (direct) return Number(direct);
+  }
+  return 0;
+}
+
+function mergeTaskRows(current: LearningTask, candidate: LearningTask): LearningTask {
+  if (current.state === "COMPLETED" && candidate.state !== "COMPLETED") {
+    return current;
+  }
+  if (candidate.state === "COMPLETED" && current.state !== "COMPLETED") {
+    return candidate;
+  }
+
+  if (candidate.courseContentsSeq !== current.courseContentsSeq) {
+    return current;
+  }
+
+  return {
+    ...current,
+    taskTitle: (current.taskTitle ?? "").length >= (candidate.taskTitle ?? "").length
+      ? (current.taskTitle ?? "")
+      : (candidate.taskTitle ?? ""),
+    activityType: candidate.activityType ?? current.activityType,
+    requiredSeconds: Math.max(current.requiredSeconds, candidate.requiredSeconds),
+    learnedSeconds: Math.max(current.learnedSeconds, candidate.learnedSeconds),
+    availableFrom: candidate.availableFrom ?? current.availableFrom,
+    dueAt: candidate.dueAt ?? current.dueAt,
+  };
+}
+
 function normalizeNoticeText(raw: string): string {
   return normalizeWhitespace(raw)
     .replace(/^공지\s*/g, "")
@@ -632,7 +708,7 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
 
 export function parseTodoVodTasks(html: string, userId: string, lectureSeq: number): LearningTask[] {
   const $ = load(html);
-  const tasks: LearningTask[] = [];
+  const tasksBySeq = new Map<number, LearningTask>();
   const activityTypeByCode: Record<string, LearningTask["activityType"]> = {
     C01: "VOD",
     C02: "ASSIGNMENT",
@@ -694,24 +770,29 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     const href = item.attr("href") ?? "";
     const argsRaw = `${onclick} ${href}`;
     const viewGoMatch = argsRaw.match(
-      /viewGo\(\s*['"]?([^\",\s]+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?/, 
+      /viewGo\(\s*["']?([^",\s]+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)["']?\s*,\s*["']?(\d+)["']?/, 
     );
 
     let activityCode = "";
-    let courseContentsSeq = 0;
+    let courseContentsSeq = Number(
+      item.attr("data-course-contents-seq")
+      ?? item.attr("data-course_contents_seq")
+      ?? item.attr("data-contents-seq")
+      ?? 0,
+    );
     let weekNo = 0;
     let lessonNo = 0;
     let pathHint = "";
 
     if (viewGoMatch) {
       activityCode = viewGoMatch[1]?.trim() ?? "";
-      courseContentsSeq = Number(viewGoMatch[2]);
+      courseContentsSeq = courseContentsSeq || Number(viewGoMatch[2]);
       weekNo = Number(viewGoMatch[3]);
       lessonNo = Number(viewGoMatch[4]);
     } else {
       const pageGoRaw =
-        argsRaw.match(/pageGo\(\s*['"]([^'"]+)['"]\s*\)/i)?.[1]
-        ?? href.match(/^javascript:\s*pageGo\(\s*['"]([^'"]+)['"]\s*\)/i)?.[1]
+        argsRaw.match(/pageGo\(\s*["']([^"']+)["']\s*\)/i)?.[1]
+        ?? href.match(/^javascript:\s*pageGo\(\s*["']([^"']+)["']\s*\)/i)?.[1]
         ?? "";
       if (pageGoRaw) {
         const normalizedPageGoUrl = pageGoRaw.replace(/&amp;/gi, "&").trim();
@@ -723,42 +804,37 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
               ? normalizedPageGoUrl
               : `https://placeholder.local${normalizedPageGoUrl.startsWith("/") ? "" : "/"}${normalizedPageGoUrl}`,
           );
-          courseContentsSeq = Number(parsed.searchParams.get("COURSE_CONTENTS_SEQ") ?? parsed.searchParams.get("contents_seq") ?? 0);
-          weekNo = Number(parsed.searchParams.get("WEEK_NO") ?? parsed.searchParams.get("week_no") ?? 0);
-          lessonNo = Number(parsed.searchParams.get("LESSNS_NO") ?? parsed.searchParams.get("lesson_no") ?? 0);
+          courseContentsSeq =
+            courseContentsSeq
+            || Number(parsed.searchParams.get("COURSE_CONTENTS_SEQ") ?? parsed.searchParams.get("contents_seq") ?? parsed.searchParams.get("content_seq") ?? 0);
+          weekNo = Number(parsed.searchParams.get("WEEK_NO") ?? parsed.searchParams.get("WEEK") ?? parsed.searchParams.get("week_no") ?? 0);
+          lessonNo = Number(
+            parsed.searchParams.get("LESSNS_NO")
+            ?? parsed.searchParams.get("LESSON_NO")
+            ?? parsed.searchParams.get("LESSONS_NO")
+            ?? parsed.searchParams.get("LESSON")
+            ?? 0,
+          );
           pathHint = parsed.pathname;
         } catch {
-          courseContentsSeq = Number(normalizedPageGoUrl.match(/[?&](?:COURSE_CONTENTS_SEQ|contents_seq)=(\d+)/i)?.[1] ?? 0);
-          weekNo = Number(normalizedPageGoUrl.match(/[?&](?:WEEK_NO|week_no)=(\d+)/i)?.[1] ?? 0);
-          lessonNo = Number(normalizedPageGoUrl.match(/[?&](?:LESSNS_NO|lesson_no)=(\d+)/i)?.[1] ?? 0);
+          courseContentsSeq = courseContentsSeq || Number(normalizedPageGoUrl.match(/[?&](?:COURSE_CONTENTS_SEQ|contents_seq|CONTENT_SEQ|content_seq)=(\d+)/i)?.[1] ?? 0);
+          weekNo = Number(normalizedPageGoUrl.match(/[?&](?:WEEK_NO|WEEK|week_no)=(\d+)/i)?.[1] ?? 0);
+          lessonNo = Number(normalizedPageGoUrl.match(/[?&](?:LESSNS_NO|LESSON_NO|LESSONS_NO|LESSON)=(\d+)/i)?.[1] ?? 0);
         }
       }
     }
 
-    if (!courseContentsSeq || !weekNo || !lessonNo) continue;
-
-    const activityType =
-      (activityCode ? activityTypeByCode[activityCode] : undefined)
-      ?? (/contents_vod|온라인강의|동영상|vod/i.test(`${pathHint} ${raw}`) ? "VOD" : undefined)
-      ?? (/contents_(?:quiz|test)|quiz|exam|기말시험|중간시험|시험|퀴즈/i.test(`${pathHint} ${raw}`) ? "QUIZ" : undefined)
-      ?? (/contents_(?:survey|assignment|report|discussion|debate|board)|과제|설문|토론|리포트/i.test(`${pathHint} ${raw}`) ? "ASSIGNMENT" : undefined)
-      ?? "ETC";
-
-    const requiredLabel = raw.match(/(?:필수시간|학습인정시간|인정시간|소요시간|수강시간|제출시간)\s*[:\-]?\s*([^|\r\n]+)/)?.[1];
-    const learnedLabel = raw.match(/(?:학습완료시간|수강완료시간|학습완료|완료시간|완료)\s*[:\-]?\s*([^|\r\n]+)/)?.[1];
-    const requiredSeconds = parseDurationToSeconds(requiredLabel ?? "");
-    const learnedSeconds = parseDurationToSeconds(learnedLabel ?? "");
-    const taskTitle = raw.slice(0, 200);
-
+    const rowText = normalizeWhitespace(item.closest("tr").text());
+    const tdText = normalizeWhitespace(item.closest("td").text());
     const candidateTexts = [
       raw,
       item.parent().text(),
       item.parent().siblings().text(),
-      item.closest("tr").text(),
+      rowText,
       item.closest("tr").prev().text(),
       item.closest("tr").next().text(),
       item.closest("li").text(),
-      item.closest("td").text(),
+      tdText,
       item.closest("div").text(),
       item.closest(".todo_item, .class_box, .contents_item, .class_contents, .lecture_cont").text(),
       item.closest(".study_design, .study_list, .contents_wrap, .week_cont, .week_box").text(),
@@ -766,9 +842,70 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       item.closest("tr").find("td").slice(1).text(),
       item.closest(".todo_list").text(),
       item.closest(".todo").text(),
+    ].map((value) => normalizeWhitespace(value)).filter((value) => value.length > 0);
+
+    const contextText = candidateTexts.join(" ");
+
+    if (!courseContentsSeq || !weekNo || !lessonNo) {
+      const contextUrl = `${argsRaw} ${item.attr("data-url") ?? ""} ${item.attr("href") ?? ""}`;
+      courseContentsSeq = courseContentsSeq || parseQueryNumber(contextUrl, "COURSE_CONTENTS_SEQ", "contents_seq", "COURSE_CONTENT_SEQ", "CONTENT_SEQ");
+      weekNo = weekNo || parseQueryNumber(contextUrl, "WEEK_NO", "WEEK", "WEEKSEQ", "WEEKNO", "week")
+        || parseWeekNumberFromText(contextText);
+      lessonNo = lessonNo || parseQueryNumber(contextUrl, "LESSNS_NO", "LESSON_NO", "LESSONS_NO", "LESSON")
+        || parseLessonNumberFromText(contextText);
+    }
+
+    if (!courseContentsSeq || !weekNo || !lessonNo) continue;
+
+    const activityType =
+      (activityCode ? activityTypeByCode[activityCode] : undefined)
+      ?? (/contents_vod|vod/i.test(`${pathHint} ${raw}`) ? "VOD" : undefined)
+      ?? (/contents_(?:quiz|test)|quiz|exam/i.test(`${pathHint} ${raw}`) ? "QUIZ" : undefined)
+      ?? (/contents_(?:survey|assignment|report|discussion|board)/i.test(`${pathHint} ${raw}`) ? "ASSIGNMENT" : undefined)
+      ?? "ETC";
+
+    const requiredLabels = [
+      "필수시간",
+      "학습인정시간",
+      "인정시간",
+      "소요시간",
+      "수강시간",
+      "필요시간",
+      "required",
+      "requiredtime",
+      "필수",
+      "총시간",
+    ];
+    const learnedLabels = [
+      "학습완료시간",
+      "수강완료시간",
+      "완료시간",
+      "학습진도시간",
+      "learned",
+      "completed",
+      "재생시간",
     ];
 
-    const hasCompleteKeyword = /(학습완료|수강완료|제출완료|완료시간|done)/i.test(raw);
+    const durationFromContext = [...candidateTexts].map((value) => {
+      const found = [
+        findLabeledDuration(value, requiredLabels),
+        findLabeledDuration(value, learnedLabels),
+      ];
+      return {
+        required: found[0],
+        learned: found[1],
+      };
+    });
+
+    const candidateDurations = [...new Set([...candidateTexts.flatMap((value) => parseDurationCandidates(value))])];
+    const requiredFromLabel = durationFromContext.map((item) => item.required).find((value) => value !== null);
+    const learnedFromLabel = durationFromContext.map((item) => item.learned).find((value) => value !== null);
+
+    const requiredSeconds = requiredFromLabel !== null ? (requiredFromLabel ?? 0) : (candidateDurations[0] ?? 0);
+    const learnedSeconds = learnedFromLabel !== null ? (learnedFromLabel ?? 0) : (candidateDurations.length > 1 ? candidateDurations[1] : (candidateDurations[0] ?? 0));
+    const taskTitle = raw.slice(0, 200);
+
+    const hasCompleteKeyword = /완료|수강완료|제출완료|학습완료|done/i.test(contextText);
     const window =
       candidateTexts
         .map((text) => parseTaskWindow(text))
@@ -776,7 +913,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       ?? weekWindowByWeekNo.get(weekNo)
       ?? null;
 
-    tasks.push({
+    const task: LearningTask = {
       userId,
       lectureSeq,
       courseContentsSeq,
@@ -786,11 +923,14 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       activityType,
       requiredSeconds,
       learnedSeconds,
-      state: hasCompleteKeyword || (learnedSeconds > 0 && requiredSeconds > 0 && learnedSeconds >= requiredSeconds) ? "COMPLETED" : "PENDING",
+      state: hasCompleteKeyword || (learnedSeconds >= requiredSeconds && requiredSeconds > 0) ? "COMPLETED" : "PENDING",
       availableFrom: window?.availableFrom ?? null,
       dueAt: window?.dueAt ?? null,
-    });
+    };
+
+    const existing = tasksBySeq.get(courseContentsSeq);
+    tasksBySeq.set(courseContentsSeq, existing ? mergeTaskRows(existing, task) : task);
   }
 
-  return tasks;
+  return Array.from(tasksBySeq.values());
 }
