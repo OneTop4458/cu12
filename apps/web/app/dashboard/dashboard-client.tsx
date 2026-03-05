@@ -618,7 +618,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     ? toRatio(syncProgress.progress.completedCourses, Math.max(1, syncProgress.progress.totalCourses))
     : 0;
   const autoProgressRatio = autoProgress
-    ? toRatio(autoProgress.progress.completedTasks, Math.max(1, autoProgress.progress.totalTasks))
+    ? (autoProgress.progress.watchedSeconds + autoProgress.progress.estimatedRemainingSeconds > 0
+      ? toRatio(
+        autoProgress.progress.watchedSeconds,
+        autoProgress.progress.watchedSeconds + Math.max(0, autoProgress.progress.estimatedRemainingSeconds),
+      )
+      : toRatio(autoProgress.progress.completedTasks, Math.max(1, autoProgress.progress.totalTasks)))
     : 0;
   const syncProgressStatus = trackingSyncJob ? trackingDetail?.status : activeSyncJob?.status ?? null;
   const autoProgressStatus = trackingAutoLearn ? trackingDetail?.status : activeAutoJob?.status ?? null;
@@ -1539,7 +1544,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
             const pendingWeeks = getPendingWeeks(course);
             const isExpanded = expandedCourseIds.has(course.lectureSeq);
-            const taskProgressRatio = toRatio(course.completedTaskCount, Math.max(1, course.totalTaskCount));
+            const isAutoLearningThisCourse = autoProgress?.progress.phase === "RUNNING"
+              && autoProgress.progress.current?.lectureSeq === course.lectureSeq;
+            const learnedSecondsForUi =
+              (isAutoLearningThisCourse && autoProgress?.progress.current?.elapsedSeconds)
+                ? Math.min(
+                  course.totalLearnedSeconds + autoProgress.progress.current.elapsedSeconds,
+                  course.totalRequiredSeconds,
+                )
+                : course.totalLearnedSeconds;
+            const taskProgressRatio = course.totalRequiredSeconds > 0
+              ? toRatio(learnedSecondsForUi, course.totalRequiredSeconds)
+              : toRatio(course.completedTaskCount, Math.max(1, course.totalTaskCount));
 
             return (
               <article key={course.lectureSeq} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>

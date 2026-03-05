@@ -996,7 +996,33 @@ async function planTasks(
         ? [lectureSeq]
         : [];
 
+  const parseDateMsOrNull = (value?: string | null): number | null => {
+    if (!value || typeof value !== "string") return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const isWithinLearningWindow = (task: LearningTask, nowMs: number): boolean => {
+    const availableFromMs = parseDateMsOrNull(task.availableFrom);
+    if (availableFromMs !== null && nowMs < availableFromMs) return false;
+
+    const dueAtMs = parseDateMsOrNull(task.dueAt);
+    if (dueAtMs !== null && nowMs > dueAtMs) return false;
+
+    return true;
+  };
+
+  const isAutoLearnableTask = (task: LearningTask, nowMs: number): boolean => {
+    if (task.state !== "PENDING") return false;
+    if (task.activityType !== "VOD") return false;
+    if (task.requiredSeconds <= 0) return false;
+    if (task.learnedSeconds >= task.requiredSeconds) return false;
+    return isWithinLearningWindow(task, nowMs);
+  };
+
   const planned: PlannedTask[] = [];
+  const courseGroups: Array<{ lectureSeq: number; courseTitle: string; tasks: LearningTask[] }> = [];
+  const nowMs = Date.now();
 
   for (const seq of lectureSeqs) {
     await page.goto(`${envBaseUrl}/el/class/todo_list_form.acl?LECTURE_SEQ=${seq}`, {
@@ -1004,7 +1030,7 @@ async function planTasks(
     });
 
     const pending = parseTodoVodTasks(await page.content(), userId, seq)
-      .filter((task) => task.state === "PENDING" && task.activityType === "VOD")
+      .filter((task) => isAutoLearnableTask(task, nowMs))
       .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
 
     if (mode === "SINGLE_NEXT") {
@@ -1020,14 +1046,33 @@ async function planTasks(
       continue;
     }
 
-    for (const task of pending) {
+    if (pending.length === 0) continue;
+
+    courseGroups.push({
+      lectureSeq: seq,
+      courseTitle: courseTitleBySeq.get(seq) ?? `Course ${seq}`,
+      tasks: pending,
+    });
+  }
+
+  let roundRobinIndex = 0;
+  while (true) {
+    let addedAtRound = false;
+    for (const group of courseGroups) {
+      const task = group.tasks[roundRobinIndex];
+      if (!task) continue;
+
       planned.push({
-        lectureSeq: seq,
-        courseTitle: courseTitleBySeq.get(seq) ?? `Course ${seq}`,
+        lectureSeq: group.lectureSeq,
+        courseTitle: group.courseTitle,
         task,
         remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
       });
+      addedAtRound = true;
     }
+
+    if (!addedAtRound) break;
+    roundRobinIndex += 1;
   }
 
   return planned;
