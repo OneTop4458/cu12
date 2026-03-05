@@ -506,6 +506,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [bootstrapSyncing, setBootstrapSyncing] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [syncQueueCleanupSubmitting, setSyncQueueCleanupSubmitting] = useState(false);
+  const [notificationClearing, setNotificationClearing] = useState(false);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -515,6 +516,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
+
+  const dedupedSiteNotices = useMemo(() => {
+    const seen = new Set<string>();
+    return siteNotices.filter((notice) => {
+      const key = [
+        notice.type,
+        notice.title.trim().toLowerCase(),
+        notice.message.trim().toLowerCase(),
+      ].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [siteNotices]);
 
   const sortedJobs = useMemo(
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -547,7 +562,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     [sortedJobs],
   );
   const canCancelActiveSync = Boolean(activeSyncJob);
-  const unreadNotifications = notifications.filter((item) => item.isUnread);
   const trackingAutoLearn = trackingDetail?.type === "AUTOLEARN";
   const trackingSyncJob = trackingDetail?.type === "SYNC" || trackingDetail?.type === "NOTICE_SCAN";
   const syncProgress = trackingSyncJob
@@ -716,14 +730,17 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }, [summary, loading, syncInProgress]);
 
-  const broadcastNotices = useMemo(() => siteNotices.filter((notice) => notice.type === "BROADCAST"), [siteNotices]);
+  const broadcastNotices = useMemo(
+    () => dedupedSiteNotices.filter((notice) => notice.type === "BROADCAST"),
+    [dedupedSiteNotices],
+  );
   const visibleBroadcastNotices = useMemo(
     () => broadcastNotices.filter((notice) => !dismissedBroadcastNoticeIds.has(notice.id)),
     [broadcastNotices, dismissedBroadcastNoticeIds],
   );
   const maintenanceNotice = useMemo(
-    () => siteNotices.find((notice) => notice.type === "MAINTENANCE" && notice.isActive),
-    [siteNotices],
+    () => dedupedSiteNotices.find((notice) => notice.type === "MAINTENANCE" && notice.isActive),
+    [dedupedSiteNotices],
   );
 
   const dismissBroadcastNotice = useCallback((noticeId: string) => {
@@ -1015,6 +1032,30 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setNotifications((prev) => prev.map((row) => (row.id === item.id ? { ...row, isUnread: false } : row)));
   }
 
+  async function clearVisibleNotifications(ids: string[]) {
+    if (ids.length === 0 || notificationClearing) return;
+    setNotificationClearing(true);
+
+    const uniqueIds = Array.from(new Set(ids));
+    const targetIds = new Set(uniqueIds);
+
+    try {
+      const payload = await fetchJson<{ deletedCount: number }>("/api/dashboard/notifications", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: uniqueIds }),
+      });
+
+      setNotifications((prev) => prev.filter((item) => !targetIds.has(item.id)));
+      setActiveNotification((prev) => (prev && targetIds.has(prev.id) ? null : prev));
+      setMessage(`알림 ${payload.deletedCount}건을 삭제했습니다.`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setNotificationClearing(false);
+    }
+  }
+
   async function openNotices(course: Course) {
     setNoticeModalOpen(true);
     setNoticeCourse(course);
@@ -1106,6 +1147,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   void markNotificationRead(item);
                 }
               }}
+              onClearVisible={(ids) => {
+                void clearVisibleNotifications(ids);
+              }}
+              clearing={notificationClearing}
             />
             <UserMenu
               email={context?.effective.email ?? initialUser.email}
@@ -1316,23 +1361,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           </table>
         </div>
       </section>
-
-      <section className="card">
-        <h2>미확인 알림</h2>
-        <div className="notification-list">
-            {unreadNotifications.length === 0 ? <p className="muted">새 알림이 없습니다.</p> : unreadNotifications.map((item) => (
-              <button
-                key={item.id}
-                className="notification-item is-unread"
-                onClick={() => void markNotificationRead(item)}
-              >
-                <span>{item.courseTitle || "시스템"}</span>
-                <span className="muted notification-item-message">{sanitizeNotificationMessage(item.message)}</span>
-                <span>{toDateTime(item.occurredAt ?? item.createdAt)}</span>
-              </button>
-            ))}
-          </div>
-        </section>
 
       <section className="card">
         <h2>강좌 현황</h2>

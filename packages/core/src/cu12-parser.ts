@@ -262,6 +262,29 @@ function detectNoticeListContext($: ReturnType<typeof load>, node: any): string 
   return normalizeWhitespace(`${node.text()} ${nearby.text()}`);
 }
 
+function stableHashText(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildFallbackNoticeKey(
+  lectureSeq: number,
+  title: string,
+  author: string | null,
+  postedAt: string | null,
+): string {
+  const keySource = [
+    String(lectureSeq),
+    normalizeNoticeText(title).toLowerCase(),
+    normalizeNoticeText(author ?? "").toLowerCase(),
+    postedAt ?? "",
+  ].join("|");
+  return `${lectureSeq}:meta:${stableHashText(keySource)}`;
+}
+
 export function parseNoticeListHtml(html: string, userId: string, lectureSeq: number): CourseNotice[] {
   const $ = load(html);
   const syncedAt = new Date().toISOString();
@@ -301,13 +324,7 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
     const title =
       normalizeNoticeText(
         node.find('.class_notice_title_sub, .class_notice_title, .notice_title, .title').first().text(),
-      ) || lineText.split(/\s{2,}|\n/)[0]?.trim() || lineText || `notice-${Math.random().toString(36).slice(2, 8)}`;
-
-    const noticeKey = noticeSeq
-      ? `${lectureSeq}:seq:${noticeSeq}`
-      : `${lectureSeq}:${normalizeNoticeText(title).slice(0, 80)}:${normalizeNoticeText(node.text()).slice(0, 20)}`;
-    if (seen.has(noticeKey)) continue;
-    seen.add(noticeKey);
+      ) || lineText.split(/\s{2,}|\n/)[0]?.trim() || lineText || "공지";
 
     const infoText = detectNoticeListContext($, node);
     const postedAtMatch = infoText.match(/(\d{4}\.\d{1,2}\.\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/);
@@ -315,6 +332,11 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
     const author = normalizeNoticeText(
       node.closest("li, tr, .board_item, .notice_item").find('.writer, .author, .regist, .reg, .notice-writer, .name').first().text(),
     ) || null;
+    const noticeKey = noticeSeq
+      ? `${lectureSeq}:seq:${noticeSeq}`
+      : buildFallbackNoticeKey(lectureSeq, title, author, postedAt);
+    if (seen.has(noticeKey)) continue;
+    seen.add(noticeKey);
 
     const isNew = node.find('.notice_new_icon, .new, .icon-new, img[alt*="new"], .badge-new').length > 0
       || node.parent().find('.notice_new_icon, .new').length > 0

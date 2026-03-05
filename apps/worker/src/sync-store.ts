@@ -45,6 +45,223 @@ async function runWithPrismaRetry<T>(op: () => Promise<T>): Promise<T> {
   }
 }
 
+function normalizeNoticeFingerprintText(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function extractNoticeSeqFromKey(noticeKey: string): string | null {
+  return noticeKey.match(/:seq:(\d+)/)?.[1] ?? null;
+}
+
+function toNoticeTimestamp(value: string | Date | null | undefined): number {
+  if (!value) return 0;
+  const parsed = value instanceof Date ? value : toDate(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return 0;
+  return parsed.getTime();
+}
+
+function toNoticeDateKey(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  const timestamp = toNoticeTimestamp(value);
+  if (timestamp <= 0) return "";
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function buildNoticeFingerprint(input: {
+  lectureSeq: number;
+  noticeKey: string;
+  title: string;
+  author: string | null;
+  postedAt: string | Date | null;
+  bodyText: string;
+}): string {
+  const noticeSeq = extractNoticeSeqFromKey(input.noticeKey);
+  if (noticeSeq) {
+    return `${input.lectureSeq}:seq:${noticeSeq}`;
+  }
+
+  const title = normalizeNoticeFingerprintText(input.title);
+  const author = normalizeNoticeFingerprintText(input.author);
+  const postedAt = toNoticeDateKey(input.postedAt);
+  if (postedAt) {
+    return `${input.lectureSeq}:meta:${title}|${author}|${postedAt}`;
+  }
+
+  const bodyHint = normalizeNoticeFingerprintText(input.bodyText).slice(0, 120);
+  return `${input.lectureSeq}:meta:${title}|${author}|${bodyHint}`;
+}
+
+function pickLongerBody(current: string, candidate: string): string {
+  return candidate.trim().length > current.trim().length ? candidate : current;
+}
+
+function isNoticePreferred(
+  candidate: {
+    noticeKey: string;
+    noticeSeq?: string;
+    bodyText: string;
+    postedAt: string | Date | null;
+    syncedAt: string | Date | null;
+    updatedAt?: Date | null;
+  },
+  current: {
+    noticeKey: string;
+    noticeSeq?: string;
+    bodyText: string;
+    postedAt: string | Date | null;
+    syncedAt: string | Date | null;
+    updatedAt?: Date | null;
+  },
+): boolean {
+  const candidateSeq = candidate.noticeSeq ?? extractNoticeSeqFromKey(candidate.noticeKey);
+  const currentSeq = current.noticeSeq ?? extractNoticeSeqFromKey(current.noticeKey);
+
+  if (Boolean(candidateSeq) !== Boolean(currentSeq)) {
+    return Boolean(candidateSeq);
+  }
+
+  const candidateBodyLen = candidate.bodyText.trim().length;
+  const currentBodyLen = current.bodyText.trim().length;
+  if (candidateBodyLen !== currentBodyLen) {
+    return candidateBodyLen > currentBodyLen;
+  }
+
+  const candidatePostedAt = toNoticeTimestamp(candidate.postedAt);
+  const currentPostedAt = toNoticeTimestamp(current.postedAt);
+  if (candidatePostedAt !== currentPostedAt) {
+    return candidatePostedAt > currentPostedAt;
+  }
+
+  const candidateSyncedAt = toNoticeTimestamp(candidate.syncedAt);
+  const currentSyncedAt = toNoticeTimestamp(current.syncedAt);
+  if (candidateSyncedAt !== currentSyncedAt) {
+    return candidateSyncedAt > currentSyncedAt;
+  }
+
+  const candidateUpdatedAt = candidate.updatedAt?.getTime() ?? 0;
+  const currentUpdatedAt = current.updatedAt?.getTime() ?? 0;
+  return candidateUpdatedAt > currentUpdatedAt;
+}
+
+function dedupeIncomingNotices(notices: CourseNotice[]): CourseNotice[] {
+  const byFingerprint = new Map<string, CourseNotice>();
+
+  for (const notice of notices) {
+    const fingerprint = buildNoticeFingerprint({
+      lectureSeq: notice.lectureSeq,
+      noticeKey: notice.noticeKey,
+      title: notice.title,
+      author: notice.author,
+      postedAt: notice.postedAt,
+      bodyText: notice.bodyText,
+    });
+    const existing = byFingerprint.get(fingerprint);
+    if (!existing) {
+      byFingerprint.set(fingerprint, notice);
+      continue;
+    }
+
+    const preferred = isNoticePreferred(notice, existing) ? notice : existing;
+    const merged: CourseNotice = {
+      ...preferred,
+      noticeSeq: preferred.noticeSeq ?? existing.noticeSeq ?? notice.noticeSeq,
+      bodyText: pickLongerBody(existing.bodyText, notice.bodyText),
+      isNew: existing.isNew || notice.isNew,
+      syncedAt: toNoticeTimestamp(existing.syncedAt) >= toNoticeTimestamp(notice.syncedAt)
+        ? existing.syncedAt
+        : notice.syncedAt,
+    };
+    byFingerprint.set(fingerprint, merged);
+  }
+
+  return [...byFingerprint.values()];
+}
+
+async function cleanupDuplicateCourseNotices(userId: string, lectureSeqs: number[]): Promise<void> {
+  const targets = Array.from(new Set(lectureSeqs.filter((lectureSeq) => Number.isFinite(lectureSeq) && lectureSeq > 0)));
+  if (targets.length === 0) return;
+
+  const rows = await prisma.courseNotice.findMany({
+    where: { userId, lectureSeq: { in: targets } },
+    select: {
+      id: true,
+      lectureSeq: true,
+      noticeKey: true,
+      title: true,
+      author: true,
+      postedAt: true,
+      bodyText: true,
+      isRead: true,
+      isNew: true,
+      syncedAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const grouped = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = buildNoticeFingerprint({
+      lectureSeq: row.lectureSeq,
+      noticeKey: row.noticeKey,
+      title: row.title,
+      author: row.author,
+      postedAt: row.postedAt,
+      bodyText: row.bodyText,
+    });
+    const list = grouped.get(key) ?? [];
+    list.push(row);
+    grouped.set(key, list);
+  }
+
+  for (const duplicates of grouped.values()) {
+    if (duplicates.length <= 1) continue;
+
+    let keeper = duplicates[0];
+    for (const row of duplicates.slice(1)) {
+      if (isNoticePreferred(row, keeper)) {
+        keeper = row;
+      }
+    }
+
+    const mergedBody = duplicates.reduce((best, row) => pickLongerBody(best, row.bodyText), keeper.bodyText);
+    const mergedIsRead = duplicates.every((row) => row.isRead);
+    const mergedIsNew = duplicates.some((row) => row.isNew);
+    const mergedSyncedAtMs = Math.max(...duplicates.map((row) => row.syncedAt.getTime()));
+    const mergedSyncedAt = new Date(mergedSyncedAtMs);
+
+    await runWithPrismaRetry(() =>
+      prisma.courseNotice.update({
+        where: { id: keeper.id },
+        data: {
+          bodyText: mergedBody,
+          isRead: mergedIsRead,
+          isNew: mergedIsNew,
+          syncedAt: mergedSyncedAt,
+        },
+      }),
+    );
+
+    const duplicateIds = duplicates.filter((row) => row.id !== keeper.id).map((row) => row.id);
+    if (duplicateIds.length > 0) {
+      await runWithPrismaRetry(() =>
+        prisma.courseNotice.deleteMany({
+          where: {
+            userId,
+            id: { in: duplicateIds },
+          },
+        }),
+      );
+    }
+  }
+}
+
 export interface PersistSnapshotResult {
   newNoticeCount: number;
   newNotificationCount: number;
@@ -144,7 +361,8 @@ export async function persistSnapshot(
     tasks: LearningTask[];
   },
 ): Promise<PersistSnapshotResult> {
-  const noticeKeys = Array.from(new Set(data.notices.map((notice) => notice.noticeKey)));
+  const notices = dedupeIncomingNotices(data.notices);
+  const noticeKeys = Array.from(new Set(notices.map((notice) => notice.noticeKey)));
   const notifications = data.notifications.filter((event) => event.notifierSeq.trim().length > 0);
   const notifierSeqs = Array.from(new Set(notifications.map((event) => event.notifierSeq)));
 
@@ -207,7 +425,7 @@ export async function persistSnapshot(
     );
   }
 
-  for (const notice of data.notices) {
+  for (const notice of notices) {
     const isNewRecord = !existingNoticeSet.has(notice.noticeKey);
     const normalizedBodyText = notice.bodyText?.trim();
 
@@ -247,6 +465,8 @@ export async function persistSnapshot(
       newNoticeCount += 1;
     }
   }
+
+  await cleanupDuplicateCourseNotices(userId, data.courses.map((course) => course.lectureSeq));
 
   for (const event of notifications) {
     const isNewRecord = !existingNotificationSet.has(event.notifierSeq);

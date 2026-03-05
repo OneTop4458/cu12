@@ -4,9 +4,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 const LAST_ACTIVITY_KEY = "cu12:last-activity-at";
-const IDLE_TIMEOUT_OVERRIDE_KEY = "cu12:session-idle-timeout-ms";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-const MAX_IDLE_TIMEOUT_MS = IDLE_TIMEOUT_MS;
+const MAX_FUTURE_ACTIVITY_SKEW_MS = 60 * 1000;
 const REFRESH_MIN_INTERVAL_MS = 2 * 60 * 1000;
 const COUNTDOWN_TICK_MS = 1000;
 const WARNING_THRESHOLD_MS = 5 * 60 * 1000;
@@ -24,6 +23,8 @@ function readStoredActivityAt(): number {
     if (!raw) return Date.now();
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) return Date.now();
+    const now = Date.now();
+    if (parsed > now + MAX_FUTURE_ACTIVITY_SKEW_MS) return now;
     return parsed;
   } catch {
     return Date.now();
@@ -46,29 +47,8 @@ function formatRemaining(ms: number): string {
   return `${String(minutes).padStart(2, "0")} : ${String(seconds).padStart(2, "0")}`;
 }
 
-function readStoredIdleTimeoutMs(): number | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(IDLE_TIMEOUT_OVERRIDE_KEY);
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return Math.min(MAX_IDLE_TIMEOUT_MS, Math.max(1000, Math.trunc(parsed)));
-}
-
-function writeStoredIdleTimeoutMs(timeoutMs: number): void {
-  if (typeof window === "undefined") return;
-  const safe = Math.min(MAX_IDLE_TIMEOUT_MS, Math.max(1000, Math.trunc(timeoutMs)));
-  try {
-    window.localStorage.setItem(IDLE_TIMEOUT_OVERRIDE_KEY, String(safe));
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
 function getIdleTimeoutMs(): number {
-  const stored = readStoredIdleTimeoutMs();
-  return stored ?? IDLE_TIMEOUT_MS;
+  return IDLE_TIMEOUT_MS;
 }
 
 export function SessionActivityGuard() {
@@ -116,11 +96,6 @@ export function SessionActivityGuard() {
         return;
       }
       if (!response.ok) return;
-
-      const payload = (await response.json()) as { expiresInSeconds?: unknown };
-      if (typeof payload.expiresInSeconds === "number" && Number.isFinite(payload.expiresInSeconds) && payload.expiresInSeconds > 0) {
-        writeStoredIdleTimeoutMs(payload.expiresInSeconds * 1000);
-      }
     } catch {
       // Ignore transient network failures.
     }
@@ -172,20 +147,12 @@ export function SessionActivityGuard() {
       if (loggingOutRef.current) return;
       if (event.key === LAST_ACTIVITY_KEY && event.newValue) {
         const parsed = Number(event.newValue);
-        if (Number.isFinite(parsed) && parsed > lastActivityAtRef.current) {
-          setActiveStateNow(parsed);
-        }
-        return;
-      }
-
-      if (event.key === IDLE_TIMEOUT_OVERRIDE_KEY && event.newValue) {
-        const parsed = Number(event.newValue);
         if (Number.isFinite(parsed) && parsed > 0) {
-          const timeoutMs = Math.max(1000, Math.trunc(parsed));
-          const remaining = timeoutMs - (Date.now() - lastActivityAtRef.current);
-          const warningThresholdMs = Math.min(WARNING_THRESHOLD_MS, Math.max(5000, timeoutMs * 0.2));
-          setRemainingSeconds(Math.max(0, Math.ceil(remaining / 1000)));
-          setWarningMode(remaining <= warningThresholdMs);
+          const now = Date.now();
+          const safe = parsed > now + MAX_FUTURE_ACTIVITY_SKEW_MS ? now : parsed;
+          if (safe > lastActivityAtRef.current) {
+            setActiveStateNow(safe);
+          }
         }
       }
     };

@@ -16,12 +16,24 @@ type NotificationCenterProps = {
   notifications: DashboardNotification[];
   onOpen: (item: DashboardNotification) => void;
   onMarkRead: (item: DashboardNotification) => void;
+  onClearVisible?: (ids: string[]) => void;
+  clearing?: boolean;
 };
 
-export function NotificationCenter({ notifications, onOpen, onMarkRead }: NotificationCenterProps) {
+export function NotificationCenter({
+  notifications,
+  onOpen,
+  onMarkRead,
+  onClearVisible,
+  clearing = false,
+}: NotificationCenterProps) {
   const unreadCount = notifications.filter((item) => item.isUnread).length;
   const latest = [...notifications]
-    .sort((a, b) => new Date(b.occurredAt ?? b.createdAt).getTime() - new Date(a.occurredAt ?? a.createdAt).getTime())
+    .sort((a, b) => {
+      const unreadDelta = Number(b.isUnread) - Number(a.isUnread);
+      if (unreadDelta !== 0) return unreadDelta;
+      return new Date(b.occurredAt ?? b.createdAt).getTime() - new Date(a.occurredAt ?? a.createdAt).getTime();
+    })
     .slice(0, 8);
 
   function formatDate(value: string | null) {
@@ -56,8 +68,17 @@ export function NotificationCenter({ notifications, onOpen, onMarkRead }: Notifi
           avoidCollisions
         >
           <div className="notification-panel-head">
-            <span>알림</span>
-            <span>읽지 않음 {unreadCount}건</span>
+            <span className="notification-panel-head-copy">알림 · 읽지 않음 {unreadCount}건</span>
+            {onClearVisible && latest.length > 0 ? (
+              <button
+                type="button"
+                className="notification-clear-btn"
+                onClick={() => onClearVisible(latest.map((item) => item.id))}
+                disabled={clearing}
+              >
+                {clearing ? "삭제 중..." : "현재 목록 삭제"}
+              </button>
+            ) : null}
           </div>
           <div className="notification-panel-list">
             {latest.length === 0 ? (

@@ -723,6 +723,36 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/DashboardNotification"
+    delete:
+      tags: [Dashboard]
+      summary: Delete selected notifications for effective user
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Deleted notification count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deletedCount]
+                properties:
+                  deletedCount:
+                    type: integer
 
   /api/dashboard/notifications/{notificationId}/read:
     patch:

@@ -36,14 +36,15 @@ const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
   { value: "SONGSIM", label: "성심교정" },
   { value: "SONGSIN", label: "성신교정" },
 ];
-const IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
+const LAST_ACTIVITY_STORAGE_KEY = "cu12:last-activity-at";
+const LEGACY_IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
 
 function applySessionPolicy(policy: AuthenticatedResponse["session"]) {
   if (typeof window === "undefined") return;
-  if (!policy || !Number.isFinite(policy.idleMaxAgeSeconds) || policy.idleMaxAgeSeconds <= 0) return;
-  const timeoutMs = Math.max(1000, Math.trunc(policy.idleMaxAgeSeconds * 1000));
+  if (!policy) return;
   try {
-    window.localStorage.setItem(IDLE_TIMEOUT_STORAGE_KEY, String(timeoutMs));
+    window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
+    window.localStorage.removeItem(LEGACY_IDLE_TIMEOUT_STORAGE_KEY);
   } catch {
     // Ignore storage errors.
   }
