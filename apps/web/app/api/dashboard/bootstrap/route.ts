@@ -14,13 +14,25 @@ function parseLimit(value: string | null, fallback: number, max: number): number
 
 async function resolveMailPreference(userId: string) {
   const [user, subscription] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        cu12Account: {
+          select: {
+            emailDigestEnabled: true,
+          },
+        },
+      },
+    }),
     prisma.mailSubscription.findUnique({ where: { userId } }),
   ]);
 
   if (!user) {
     return null;
   }
+
+  const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
 
   if (!subscription) {
     return {
@@ -29,7 +41,7 @@ async function resolveMailPreference(userId: string) {
       alertOnNotice: true,
       alertOnDeadline: true,
       alertOnAutolearn: true,
-      digestEnabled: true,
+      digestEnabled: accountDigestEnabled,
       digestHour: 8,
       updatedAt: null,
     };
@@ -41,7 +53,7 @@ async function resolveMailPreference(userId: string) {
     alertOnNotice: subscription.alertOnNotice,
     alertOnDeadline: subscription.alertOnDeadline,
     alertOnAutolearn: subscription.alertOnAutolearn,
-    digestEnabled: subscription.digestEnabled,
+    digestEnabled: subscription.digestEnabled && accountDigestEnabled,
     digestHour: subscription.digestHour,
     updatedAt: subscription.updatedAt,
   };

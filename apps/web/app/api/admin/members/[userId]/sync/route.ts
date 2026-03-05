@@ -2,8 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
 import { enqueueJob } from "@/server/queue";
+import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 import { writeAuditLog } from "@/server/audit-log";
 
 interface Params {
@@ -59,7 +59,21 @@ export async function POST(request: NextRequest, { params }: Params) {
       runAfter,
     });
 
-    const dispatch = await dispatchWorkerRun("sync", user.id);
+    const { dispatch } = await dispatchManualJob(user.id, "sync", {
+      deduplicated,
+      status: job.status,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+    });
+
+    const notice = deduplicated
+      ? dispatch.state === "SKIPPED_DUPLICATE"
+        ? "동기화 작업이 이미 진행 중입니다. 현재 작업 완료 후 다시 요청해 주세요."
+        : "동기화 요청이 중복이었지만 오래된 요청은 새로 요청하도록 처리했습니다."
+      : dispatch.dispatched
+        ? "동기화 실행을 요청했습니다."
+        : "동기화 요청은 저장되었지만 실행 트리거 전송이 실패했습니다. 잠시 후 다시 시도해 주세요.";
+
     await writeAuditLog({
       category: "JOB",
       severity: "INFO",
@@ -72,21 +86,19 @@ export async function POST(request: NextRequest, { params }: Params) {
         userId,
         cu12Id: user.cu12Account.cu12Id,
         dispatched: dispatch.dispatched,
+        dispatchState: dispatch.state,
+        dispatchErrorCode: dispatch.errorCode,
       },
     });
-
-    const notice = deduplicated
-      ? "동일한 동기화 요청이 이미 대기 처리 중입니다."
-      : dispatch.dispatched
-        ? "동기화가 요청되고 워커 실행이 트리거되었습니다."
-        : `동기화가 요청되었으나 워커 트리거에 실패했습니다: ${dispatch.error ?? "unknown"}`;
 
     return jsonOk({
       jobId: job.id,
       status: job.status,
       deduplicated,
       dispatched: dispatch.dispatched,
+      dispatchState: dispatch.state,
       dispatchError: dispatch.error ?? null,
+      dispatchErrorCode: dispatch.errorCode,
       notice,
     });
   } catch (error) {

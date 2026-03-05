@@ -15,13 +15,25 @@ const PatchSchema = z.object({
 
 async function resolvePreference(userId: string) {
   const [user, subscription] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        cu12Account: {
+          select: {
+            emailDigestEnabled: true,
+          },
+        },
+      },
+    }),
     prisma.mailSubscription.findUnique({ where: { userId } }),
   ]);
 
   if (!user) {
     return null;
   }
+
+  const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
 
   if (!subscription) {
     return {
@@ -30,7 +42,7 @@ async function resolvePreference(userId: string) {
       alertOnNotice: true,
       alertOnDeadline: true,
       alertOnAutolearn: true,
-      digestEnabled: true,
+      digestEnabled: accountDigestEnabled,
       digestHour: 8,
       updatedAt: null,
     };
@@ -42,7 +54,7 @@ async function resolvePreference(userId: string) {
     alertOnNotice: subscription.alertOnNotice,
     alertOnDeadline: subscription.alertOnDeadline,
     alertOnAutolearn: subscription.alertOnAutolearn,
-    digestEnabled: subscription.digestEnabled,
+    digestEnabled: subscription.digestEnabled && accountDigestEnabled,
     digestHour: subscription.digestHour,
     updatedAt: subscription.updatedAt,
   };
@@ -69,12 +81,21 @@ export async function PATCH(request: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { id: context.effective.userId },
-      select: { email: true },
+      select: {
+        email: true,
+        cu12Account: {
+          select: {
+            emailDigestEnabled: true,
+          },
+        },
+      },
     });
 
     if (!user) {
       return jsonError("User not found", 404);
     }
+
+    const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
 
     const saved = await prisma.mailSubscription.upsert({
       where: { userId: context.effective.userId },
@@ -94,7 +115,7 @@ export async function PATCH(request: NextRequest) {
         alertOnNotice: body.alertOnNotice ?? true,
         alertOnDeadline: body.alertOnDeadline ?? true,
         alertOnAutolearn: body.alertOnAutolearn ?? true,
-        digestEnabled: body.digestEnabled ?? true,
+        digestEnabled: body.digestEnabled ?? accountDigestEnabled,
         digestHour: body.digestHour ?? 8,
       },
     });

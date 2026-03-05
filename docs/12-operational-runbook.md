@@ -6,7 +6,7 @@
 2. Check count of `FAILED` jobs and retry trend.
 3. Check accounts marked `NEEDS_REAUTH`.
 4. Review error spikes in deployment/workflow logs.
-5. Review last run of `Reconcile Health Check` and ensure it passes (no orphaned `RUNNING` jobs, no ghost active runs).
+5. Review last run of `Reconcile Health Check` (scheduled every 30 minutes) and ensure it passes (no orphaned `RUNNING` jobs, no ghost active runs).
 
 ## Manual Sync Procedure
 

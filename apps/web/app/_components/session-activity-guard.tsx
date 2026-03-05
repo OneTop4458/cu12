@@ -78,7 +78,7 @@ function getIdleTimeoutMs(): number {
 
 export function SessionActivityGuard() {
   const pathname = usePathname();
-  const active = isProtectedPath(pathname);
+  const shouldTrack = isProtectedPath(pathname);
   const lastActivityAtRef = useRef<number>(Date.now());
   const lastRefreshAtRef = useRef<number>(0);
   const lastActivityHandledAtRef = useRef<number>(0);
@@ -86,7 +86,8 @@ export function SessionActivityGuard() {
   const loggingOutRef = useRef<boolean>(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => Math.ceil(getIdleTimeoutMs() / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
-  const [sessionExpiredReason, setSessionExpiredReason] = useState<SessionExpiredReason | null>(null);
+  const [sessionExpiredReason, setSessionExpiredReason] = useState<SessionExpiredReason | null>(() => readSessionExpiredState());
+  const shouldRender = shouldTrack || Boolean(sessionExpiredReason);
 
   const setActiveStateNow = (timestamp: number) => {
     lastActivityAtRef.current = timestamp;
@@ -160,7 +161,7 @@ export function SessionActivityGuard() {
   };
 
   useEffect(() => {
-    if (!active) return;
+    if (!shouldTrack) return;
 
     const persistedExpiredReason = readSessionExpiredState();
     if (persistedExpiredReason) {
@@ -247,9 +248,9 @@ export function SessionActivityGuard() {
       window.removeEventListener("storage", onStorage);
       window.clearInterval(intervalId);
     };
-  }, [active]);
+  }, [shouldTrack]);
 
-  if (!active) return null;
+  if (!shouldRender) return null;
 
   const warningRatio = Math.min(1, remainingSeconds / (Math.max(1, getIdleTimeoutMs() / 1000)));
   const timeoutMessage =
