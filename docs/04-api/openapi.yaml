@@ -1118,7 +1118,7 @@ paths:
                 olderThanDays:
                   type: integer
                   minimum: 1
-                  maximum: 365
+                  maximum: 3650
                   default: 30
                 statuses:
                   type: array
@@ -1126,8 +1126,18 @@ paths:
                   maxItems: 5
                   items:
                     type: string
-                    enum: [SUCCEEDED, FAILED, CANCELED]
+                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
                 userId:
+                  type: string
+                  format: uuid
+                scope:
+                  type: string
+                  enum: [safe, full]
+                  default: safe
+                dryRun:
+                  type: boolean
+                  default: false
+                confirmCode:
                   type: string
       responses:
         "200":
@@ -1138,13 +1148,27 @@ paths:
                 type: object
                 required:
                   - deleted
+                  - deletedByStatus
                   - olderThanDays
                   - statusFilter
+                  - scope
+                  - dryRun
                   - cutoff
                 properties:
                   deleted:
                     type: integer
                     minimum: 0
+                  deletedByStatus:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                      minimum: 0
+                    example:
+                      PENDING: 0
+                      RUNNING: 0
+                      SUCCEEDED: 3
+                      FAILED: 1
+                      CANCELED: 0
                   olderThanDays:
                     type: integer
                     minimum: 1
@@ -1152,7 +1176,12 @@ paths:
                     type: array
                     items:
                       type: string
-                      enum: [SUCCEEDED, FAILED, CANCELED]
+                      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                  scope:
+                    type: string
+                    enum: [safe, full]
+                  dryRun:
+                    type: boolean
                   cutoff:
                     type: string
                     format: date-time

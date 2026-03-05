@@ -123,7 +123,7 @@ export function SessionActivityGuard() {
     } catch {
       // Ignore logout endpoint failures.
     } finally {
-      navigateToLogin(reason);
+      writeSessionExpiredState(reason);
     }
   };
 
@@ -172,7 +172,6 @@ export function SessionActivityGuard() {
       setRemainingSeconds(0);
       setWarningMode(false);
       loggingOutRef.current = true;
-      navigateToLogin(persistedExpiredReason);
       return;
     }
 

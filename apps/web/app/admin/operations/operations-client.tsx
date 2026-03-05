@@ -11,8 +11,8 @@ import { UserMenu } from "../../../components/layout/user-menu";
 type RoleType = "ADMIN" | "USER";
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 type JobType = "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
-
 type CleanupStatus = "SUCCEEDED" | "FAILED" | "CANCELED";
+type CleanupScope = "safe" | "full";
 
 interface AdminOperationsClientProps {
   initialUser: {
@@ -76,8 +76,11 @@ interface WorkersPayload {
 
 interface CleanupPayload {
   deleted: number;
+  deletedByStatus: Record<JobStatus, number>;
   olderThanDays: number;
-  statusFilter: CleanupStatus[];
+  statusFilter: JobStatus[];
+  scope: CleanupScope;
+  dryRun: boolean;
   cutoff: string;
 }
 
@@ -91,13 +94,58 @@ interface ApiErrorPayload {
   errorCode?: string;
 }
 
+interface ReconcileRun {
+  id: number;
+  status: string;
+  conclusion: string | null;
+  htmlUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ReconcileJob {
+  id: string;
+  userId: string;
+  type: JobType;
+  status: JobStatus;
+  workerId: string | null;
+  runId: number | null;
+  startedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface JobReconcilePayload {
+  checkedAt: string;
+  canReconcileWithGitHub: boolean;
+  summary: {
+    runningJobsCount: number;
+    orphanedRunningJobsCount: number;
+    activeRunsCount: number;
+    ghostRunsCount: number;
+    nonparseableWorkerIdCount: number;
+  };
+  runningJobs: ReconcileJob[];
+  orphanedRunningJobs: ReconcileJob[];
+  activeRuns: ReconcileRun[];
+  ghostRuns: ReconcileRun[];
+  error?: string;
+}
+
 const JOB_STATUS_OPTIONS: Array<JobStatus | ""> = ["", "PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
 const JOB_TYPE_OPTIONS: Array<JobType | ""> = ["", "SYNC", "AUTOLEARN", "NOTICE_SCAN", "MAIL_DIGEST"];
-const CLEANUP_STATUSES: CleanupStatus[] = ["SUCCEEDED", "FAILED", "CANCELED"];
+const CLEANUP_SCOPE_OPTIONS: CleanupScope[] = ["safe", "full"];
+const CLEANUP_STATUSES_SAFE: CleanupStatus[] = ["SUCCEEDED", "FAILED", "CANCELED"];
+const CLEANUP_STATUSES_FULL: JobStatus[] = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
+const CLEANUP_SCOPE_LABELS: Record<CleanupScope, string> = {
+  safe: "완료/실패/취소만",
+  full: "PENDING/RUNNING 포함 전체",
+};
+const CLEANUP_CONFIRM_CODE = "RESET_ALL_JOBS";
 
 const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   PENDING: "대기",
-  RUNNING: "실행 중",
+  RUNNING: "실행중",
   SUCCEEDED: "성공",
   FAILED: "실패",
   CANCELED: "취소",
@@ -118,7 +166,7 @@ function parseError(payload: unknown): string {
       return maybeError.trim();
     }
   }
-  return "알 수 없는 오류가 발생했습니다.";
+  return "요청 처리 중 오류가 발생했습니다.";
 }
 
 function formatDateTime(value: string | null): string {
@@ -159,7 +207,10 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   const [message, setMessage] = useState<string | null>(null);
   const [jobBusyId, setJobBusyId] = useState<string | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
   const [workerPurgeBusy, setWorkerPurgeBusy] = useState(false);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<JobReconcilePayload | null>(null);
 
   const [jobPage, setJobPage] = useState(1);
   const [jobType, setJobType] = useState<"" | JobType>("");
@@ -167,11 +218,20 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   const [jobUserId, setJobUserId] = useState("");
   const [staleMinutes, setStaleMinutes] = useState(10);
   const [cleanupOlderDays, setCleanupOlderDays] = useState(30);
+  const [cleanupScope, setCleanupScope] = useState<CleanupScope>("safe");
   const [cleanupStatuses, setCleanupStatuses] = useState<Record<CleanupStatus, boolean>>({
     SUCCEEDED: true,
     FAILED: true,
     CANCELED: true,
   });
+  const [fullCleanupStatuses, setFullCleanupStatuses] = useState<Record<JobStatus, boolean>>({
+    PENDING: false,
+    RUNNING: false,
+    SUCCEEDED: true,
+    FAILED: true,
+    CANCELED: true,
+  });
+  const [cleanupConfirmCode, setCleanupConfirmCode] = useState("");
 
   const parseJson = useCallback(async <T,>(response: Response): Promise<T> => {
     const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
@@ -182,7 +242,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
     if (response.status === 401) {
-      router.push("/login");
+      router.push("/login?reason=session-expired");
       throw new Error("Unauthorized");
     }
     return parseJson<T>(response);
@@ -196,7 +256,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       setWorkers(Array.isArray(payload.workers) ? payload.workers : []);
       setWorkerSummary(payload.summary ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "워커 목록 조회 중 오류가 발생했습니다.");
+      setError(err instanceof Error ? err.message : "워커 조회 중 오류가 발생했습니다.");
       setWorkers([]);
       setWorkerSummary(null);
     } finally {
@@ -231,7 +291,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       setPagination(payload.pagination ?? null);
       setJobPage(payload.pagination?.page ?? safePage);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "작업 목록 조회 중 오류가 발생했습니다.");
+      setError(err instanceof Error ? err.message : "작업 조회 중 오류가 발생했습니다.");
       setJobs([]);
       setPagination(null);
     } finally {
@@ -260,11 +320,27 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
     }
   }, [fetchJson]);
 
+  const loadReconcile = useCallback(async () => {
+    setReconcileBusy(true);
+    try {
+      const payload = await fetchJson<JobReconcilePayload>("/api/admin/jobs/reconcile");
+      setReconcileResult(payload);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "작업 큐 상태 점검 중 오류가 발생했습니다.");
+      setReconcileResult(null);
+    } finally {
+      setReconcileBusy(false);
+    }
+  }, [fetchJson]);
   const refreshAll = useCallback(() => {
-    void loadJobs(jobPage, false);
-    void loadWorkers(staleMinutes);
-    void loadJobCounts();
-  }, [jobPage, loadJobs, loadWorkers, loadJobCounts, staleMinutes]);
+    void Promise.all([
+      loadJobs(jobPage, false),
+      loadWorkers(staleMinutes),
+      loadJobCounts(),
+      loadReconcile(),
+    ]);
+  }, [jobPage, loadJobs, loadWorkers, loadJobCounts, loadReconcile, staleMinutes]);
 
   useEffect(() => {
     void refreshAll();
@@ -310,80 +386,71 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
     return last.getTime() >= cutoff.getTime();
   }, [workerSummary]);
 
+  const workerRefreshMinutes = useMemo(() => {
+    const stale = workerSummary?.staleMinutes ?? staleMinutes;
+    return stale > 0 ? stale : staleMinutes;
+  }, [staleMinutes, workerSummary]);
+
   const workerCountsText = useMemo(() => {
-    if (!workerSummary) return "로딩 중..";
-    return `총 ${workerSummary.total} / 활성 ${workerSummary.active} / 비활성 ${workerSummary.stale}`;
+    if (!workerSummary) return "로딩 중...";
+    return `전체 ${workerSummary.total} / 활성 ${workerSummary.active} / 비활성 ${workerSummary.stale}`;
   }, [workerSummary]);
 
   const jobSummaryText = useMemo(() => {
-    return `대기 ${jobCounts.PENDING} / 실행 중 ${jobCounts.RUNNING} / 실패 ${jobCounts.FAILED} / 취소 ${jobCounts.CANCELED} / 성공 ${jobCounts.SUCCEEDED}`;
+    return `대기 ${jobCounts.PENDING} / 실행중 ${jobCounts.RUNNING} / 실패 ${jobCounts.FAILED} / 취소 ${jobCounts.CANCELED} / 성공 ${jobCounts.SUCCEEDED}`;
   }, [jobCounts]);
 
   const canCancelJob = useCallback((status: JobStatus) => status === "PENDING" || status === "RUNNING", []);
 
   const canRetryJob = useCallback((status: JobStatus) => status === "FAILED" || status === "CANCELED", []);
 
-  const cancelJob = useCallback((job: AdminJob) => {
-    if (!canCancelJob(job.status) || jobBusyId) return;
-    setJobBusyId(job.id);
-    void (async () => {
-      setError(null);
-      try {
-        await fetchJson(`/api/admin/jobs/${job.id}/cancel`, { method: "POST" });
-        setMessage(`${job.id} 작업 취소 요청이 완료되었습니다.`);
-        await loadJobs(jobPage, true);
-        await loadJobCounts();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "작업 취소 요청이 실패했습니다.");
-      } finally {
-        setJobBusyId(null);
-      }
-    })();
-  }, [canCancelJob, fetchJson, jobBusyId, jobPage, loadJobs, loadJobCounts]);
+  const cleanupPayloadStatuses = useMemo(() => {
+    if (cleanupScope === "full") {
+      return CLEANUP_STATUSES_FULL.filter((status) => fullCleanupStatuses[status]);
+    }
+    return CLEANUP_STATUSES_SAFE.filter((status) => cleanupStatuses[status]);
+  }, [cleanupScope, cleanupStatuses, fullCleanupStatuses]);
 
-  const retryJob = useCallback((job: AdminJob) => {
-    if (!canRetryJob(job.status) || jobBusyId) return;
-    setJobBusyId(job.id);
+  const purgeWorkers = useCallback(() => {
+    if (workerPurgeBusy || loadingWorkers) return;
+    if (!window.confirm("워커 heartbeat 전체를 삭제할까요?")) return;
+
+    setWorkerPurgeBusy(true);
+    setError(null);
     void (async () => {
-      setError(null);
       try {
-        await fetchJson(`/api/admin/jobs/${job.id}/retry`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ force: false }),
+        const payload = await fetchJson<WorkerPurgePayload>("/api/admin/workers", {
+          method: "DELETE",
         });
-        setMessage(`${job.id} 작업 재시도 요청이 완료되었습니다.`);
-        await loadJobs(jobPage, true);
-        await loadJobCounts();
+        setMessage(`워커 heartbeat ${payload.deleted}건 삭제`);
+        await loadWorkers(staleMinutes);
+        await loadReconcile();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "작업 재시도 요청이 실패했습니다.");
+        setError(err instanceof Error ? err.message : "워커 삭제에 실패했습니다.");
       } finally {
-        setJobBusyId(null);
+        setWorkerPurgeBusy(false);
       }
     })();
-  }, [canRetryJob, fetchJson, jobBusyId, jobPage, loadJobs, loadJobCounts]);
+  }, [fetchJson, loadReconcile, loadWorkers, loadingWorkers, staleMinutes, workerPurgeBusy]);
 
-  const workerRefreshMinutes = useMemo(() => {
-    const stale = workerSummary?.staleMinutes ?? staleMinutes;
-    return stale > 0 ? stale : staleMinutes;
-  }, [staleMinutes, workerSummary]);
-
-  const cleanupPayloadText = useMemo(() => {
-    const selected = CLEANUP_STATUSES.filter((status) => cleanupStatuses[status]);
-    if (selected.length === 0) return [];
-    return selected;
-  }, [cleanupStatuses]);
+  const runReconcile = useCallback(() => {
+    void loadReconcile();
+  }, [loadReconcile]);
 
   const runCleanup = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
 
-      if (cleanupPayloadText.length === 0) {
+      if (cleanupScope === "full" && cleanupConfirmCode.trim() !== CLEANUP_CONFIRM_CODE) {
+        setError(`전체 정리 실행에는 확인 코드가 필요합니다. (${CLEANUP_CONFIRM_CODE})`);
+        return;
+      }
+      if (cleanupPayloadStatuses.length === 0) {
         setError("최소 1개 이상의 상태를 선택해 주세요.");
         return;
       }
       if (cleanupOlderDays < 1) {
-        setError("보관 기간은 1 이상으로 입력해야 합니다.");
+        setError("정리 기준일은 1일 이상이어야 합니다.");
         return;
       }
 
@@ -396,50 +463,113 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               olderThanDays: cleanupOlderDays,
-              statuses: cleanupPayloadText,
+              statuses: cleanupPayloadStatuses,
+              scope: cleanupScope,
+              confirmCode: cleanupScope === "full" ? cleanupConfirmCode.trim() : undefined,
             }),
           });
           const selected = payload.statusFilter.join(", ");
-          setMessage(`작업 ${payload.deleted}개가 정리되었습니다. (상태: ${selected})`);
-          await loadJobCounts();
-          await loadJobs(jobPage, true);
+          setMessage(`작업 정리 완료: ${payload.deleted}건 삭제 (${payload.scope.toUpperCase()}: ${selected})`);
+          await Promise.all([loadJobCounts(), loadJobs(jobPage, true), loadReconcile()]);
         } catch (err) {
-          setError(err instanceof Error ? err.message : "작업 정리가 실패했습니다.");
+          setError(err instanceof Error ? err.message : "작업 정리에 실패했습니다.");
         } finally {
           setCleanupBusy(false);
         }
       })();
     },
-    [cleanupOlderDays, cleanupPayloadText, fetchJson, jobPage, loadJobCounts, loadJobs],
+    [cleanupOlderDays, cleanupPayloadStatuses, cleanupScope, cleanupConfirmCode, fetchJson, jobPage, loadJobCounts, loadJobs, loadReconcile],
   );
 
-  const toggleCleanupStatus = useCallback((status: CleanupStatus, checked: boolean) => {
-    setCleanupStatuses((previous) => ({
+  const runFullReset = useCallback(() => {
+    if (resetBusy) return;
+    if (!window.confirm(`DB와 워커 하트를 모두 삭제합니다.\n진행 중 작업도 함께 삭제되며 되돌릴 수 없습니다.\n계속하시겠습니까?`)) {
+      return;
+    }
+    setResetBusy(true);
+    setError(null);
+    void (async () => {
+      try {
+        const [jobsPayload, workersPayload] = await Promise.all([
+          fetchJson<CleanupPayload>("/api/admin/jobs/cleanup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              olderThanDays: 3650,
+              scope: "full",
+              statuses: CLEANUP_STATUSES_FULL,
+              confirmCode: CLEANUP_CONFIRM_CODE,
+            }),
+          }),
+          fetchJson<WorkerPurgePayload>("/api/admin/workers", {
+            method: "DELETE",
+          }),
+        ]);
+        setMessage(`초기화 완료: 작업 ${jobsPayload.deleted}건, 워커 ${workersPayload.deleted}건 삭제`);
+        await refreshAll();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "전체 초기화에 실패했습니다.");
+      } finally {
+        setResetBusy(false);
+      }
+    })();
+  }, [fetchJson, refreshAll, resetBusy]);
+  const cancelJob = useCallback((job: AdminJob) => {
+    if (!canCancelJob(job.status) || jobBusyId) return;
+    setJobBusyId(job.id);
+    void (async () => {
+      setError(null);
+      try {
+        await fetchJson(`/api/admin/jobs/${job.id}/cancel`, { method: "POST" });
+        setMessage(`작업 ${job.id} 취소를 요청했습니다.`);
+        await loadJobs(jobPage, true);
+        await loadJobCounts();
+        await loadReconcile();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "작업 취소에 실패했습니다.");
+      } finally {
+        setJobBusyId(null);
+      }
+    })();
+  }, [canCancelJob, fetchJson, jobBusyId, jobPage, loadJobs, loadJobCounts, loadReconcile]);
+
+  const retryJob = useCallback((job: AdminJob) => {
+    if (!canRetryJob(job.status) || jobBusyId) return;
+    setJobBusyId(job.id);
+    void (async () => {
+      setError(null);
+      try {
+        await fetchJson(`/api/admin/jobs/${job.id}/retry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force: false }),
+        });
+        setMessage(`작업 ${job.id} 재실행을 요청했습니다.`);
+        await loadJobs(jobPage, true);
+        await loadJobCounts();
+        await loadReconcile();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "작업 재실행에 실패했습니다.");
+      } finally {
+        setJobBusyId(null);
+      }
+    })();
+  }, [canRetryJob, fetchJson, jobBusyId, jobPage, loadJobs, loadJobCounts, loadReconcile]);
+
+  const toggleCleanupStatus = useCallback((scope: CleanupScope, status: JobStatus, checked: boolean) => {
+    if (scope === "safe") {
+      setCleanupStatuses((previous) => ({
+        ...previous,
+        [status]: checked,
+      }));
+      return;
+    }
+
+    setFullCleanupStatuses((previous) => ({
       ...previous,
       [status]: checked,
     }));
   }, []);
-
-  const purgeWorkers = useCallback(() => {
-    if (workerPurgeBusy || loadingWorkers) return;
-    if (!window.confirm("워커 heartbeat 데이터를 전체 삭제할까요?")) return;
-
-    setWorkerPurgeBusy(true);
-    setError(null);
-    void (async () => {
-      try {
-        const payload = await fetchJson<WorkerPurgePayload>("/api/admin/workers", {
-          method: "DELETE",
-        });
-        setMessage(`워커 heartbeat ${payload.deleted}건을 삭제했습니다.`);
-        await loadWorkers(staleMinutes);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "워커 정리에 실패했습니다.");
-      } finally {
-        setWorkerPurgeBusy(false);
-      }
-    })();
-  }, [fetchJson, loadWorkers, loadingWorkers, staleMinutes, workerPurgeBusy]);
 
   return (
     <main className="dashboard-main page-shell">
@@ -447,12 +577,12 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
         <div className="topbar-main">
           <div className="topbar-brand">
             <div>
-              <p className="brand-kicker">관리자 작업</p>
-              <h1>운영 | 작업/워커 운영</h1>
+              <p className="brand-kicker">시스템 운영</p>
+              <h1>운영자 | 작업/워커 관리</h1>
             </div>
           </div>
           <div className="topbar-actions">
-            <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary}>
+            <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary || reconcileBusy}>
               <RefreshCw size={16} />
             </button>
             <ThemeToggle />
@@ -461,7 +591,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             </Link>
             <button type="button" className="ghost-btn" onClick={() => router.push("/admin")}>
               <ChevronLeft size={16} />
-              관리자 홈
+              운영자 홈
             </button>
             <UserMenu
               email={initialUser.email}
@@ -481,24 +611,24 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
       </header>
       <section className="admin-stats">
         <article className="admin-stat card">
-          <h2>총 작업</h2>
+          <h2>전체 작업</h2>
           <p className="metric">{pagination?.total ?? 0}</p>
-          <p className="muted">페이지 기준 처리된 작업 수</p>
+          <p className="muted">페이지 기준 필터된 작업 개수</p>
         </article>
         <article className="admin-stat card">
-          <h2>실행 작업</h2>
+          <h2>진행중 작업</h2>
           <p className="metric">{loadingSummary ? "..." : `${jobCounts.PENDING + jobCounts.RUNNING}`}</p>
-          <p className="muted">{loadingSummary ? "집계 중..." : jobSummaryText}</p>
+          <p className="muted">{loadingSummary ? "로딩 중..." : jobSummaryText}</p>
         </article>
         <article className="admin-stat card">
-          <h2>워커 상태</h2>
+          <h2>워커</h2>
           <p className="metric">{workerSummary?.active ?? 0}</p>
-          <p className="muted">{`총 ${workerSummary?.total ?? 0}, 비활성 ${workerSummary?.stale ?? 0} (기준 ${workerRefreshMinutes}분)`}</p>
+          <p className="muted">{`전체 ${workerSummary?.total ?? 0}, 비활성 ${workerSummary?.stale ?? 0} (기준 ${workerRefreshMinutes}분)`}</p>
         </article>
         <article className="admin-stat card">
-          <h2>마지막 갱신</h2>
+          <h2>마지막 점검</h2>
           <p className="metric">{workerSummary ? formatDateTime(workerSummary.capturedAt) : "-"}</p>
-          <p className="muted">{workerSummary ? "워커 상태 업데이트 시간" : "워커 상태 없음"}</p>
+          <p className="muted">{workerSummary ? "워커 하트비트 수집 시각" : "수집 이력 없음"}</p>
         </article>
       </section>
 
@@ -511,7 +641,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
         </div>
         <form className="form-grid top-gap" onSubmit={applyFilters}>
           <label className="field">
-            <span>작업 유형</span>
+            <span>작업 타입</span>
             <select value={jobType} onChange={(event) => setJobType(event.target.value as "" | JobType)}>
               {JOB_TYPE_OPTIONS.map((type) => (
                 <option key={type || "all"} value={type}>
@@ -531,12 +661,12 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             </select>
           </label>
           <label className="field">
-            <span>요청 사용자 ID</span>
+            <span>사용자 ID</span>
             <input value={jobUserId} onChange={(event) => setJobUserId(event.target.value)} placeholder="UUID 입력" />
           </label>
           <div className="align-end">
             <button className="btn-success" type="submit" disabled={loadingJobs}>
-              {loadingJobs ? "조회 중.." : "조회"}
+              {loadingJobs ? "조회 중..." : "조회"}
             </button>
           </div>
         </form>
@@ -545,20 +675,20 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             <thead>
               <tr>
                 <th>작업 ID</th>
-                <th>요청 사용자</th>
-                <th>유형</th>
+                <th>사용자</th>
+                <th>타입</th>
                 <th>상태</th>
-                <th>시도</th>
+                <th>재시도</th>
                 <th>워커</th>
                 <th>실행 예정</th>
-                <th>최근 오류</th>
-                <th>조치</th>
+                <th>최종 에러</th>
+                <th>동작</th>
               </tr>
             </thead>
             <tbody>
               {loadingJobs ? (
                 <tr>
-                  <td colSpan={9}>로딩 중..</td>
+                  <td colSpan={9}>로딩 중...</td>
                 </tr>
               ) : jobs.length === 0 ? (
                 <tr>
@@ -592,10 +722,10 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
                           {jobBusyId === job.id ? (
                             <>
                               <RotateCw size={14} />
-                              처리 중..
+                              처리 중...
                             </>
                           ) : (
-                            "재시도"
+                            "재실행"
                           )}
                         </button>
                         <button
@@ -604,7 +734,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
                           disabled={jobBusyId === job.id || !canCancelJob(job.status)}
                           onClick={() => void cancelJob(job)}
                         >
-                          {jobBusyId === job.id ? "처리 중.." : "취소"}
+                          {jobBusyId === job.id ? "처리 중..." : "취소"}
                         </button>
                       </div>
                     </td>
@@ -652,7 +782,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
         <div className="table-toolbar">
           <h2>워커 목록</h2>
           <label className="field">
-            <span>비활성 기준(분)</span>
+            <span>기준 분(min)</span>
             <input
               type="number"
               min={1}
@@ -670,7 +800,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             onClick={purgeWorkers}
             disabled={workerPurgeBusy || loadingWorkers}
           >
-            {workerPurgeBusy ? "정리 중..." : "워커 전체 정리"}
+            {workerPurgeBusy ? "삭제 중..." : "워커 heartbeat 전체 삭제"}
           </button>
         </div>
         <div className="table-wrap top-gap mobile-card-table">
@@ -685,7 +815,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             <tbody>
               {loadingWorkers ? (
                 <tr>
-                  <td colSpan={3}>로딩 중..</td>
+                  <td colSpan={3}>로딩 중...</td>
                 </tr>
               ) : workers.length === 0 ? (
                 <tr>
@@ -700,7 +830,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
                       <td data-label="Last Heartbeat">{formatDateTime(worker.lastSeenAt)}</td>
                       <td data-label="Status">
                         <span className={`status-chip ${active ? "status-active" : "status-failed"}`}>
-                          {active ? "활성" : "비활성"}
+                          {active ? "정상" : "비정상"}
                         </span>
                       </td>
                     </tr>
@@ -714,43 +844,164 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>완료/실패/취소 작업 정리</h2>
-          <span className="muted text-small">완료·실패·취소 작업만 기간 기준으로 정리됩니다.</span>
+          <h2>RUNNING vs GitHub Action 불일치 점검</h2>
+          <button className="btn-success" type="button" onClick={() => void runReconcile()} disabled={reconcileBusy}>
+            {reconcileBusy ? "점검 중..." : "불일치 점검"}
+          </button>
+        </div>
+        {reconcileResult ? (
+          <div className="top-gap">
+            <p className="muted">점검 시각: {formatDateTime(reconcileResult.checkedAt)}</p>
+            {reconcileResult.canReconcileWithGitHub ? (
+              <div className="status-grid top-gap">
+                <article className="card admin-stat">
+                  <p className="muted">DB RUNNING</p>
+                  <p className="metric">{reconcileResult.summary.runningJobsCount}</p>
+                </article>
+                <article className="card admin-stat">
+                  <p className="muted">미일치 실행중 (DB에만 존재)</p>
+                  <p className="metric">{reconcileResult.summary.orphanedRunningJobsCount}</p>
+                </article>
+                <article className="card admin-stat">
+                  <p className="muted">GitHub Active Runs</p>
+                  <p className="metric">{reconcileResult.summary.activeRunsCount}</p>
+                </article>
+                <article className="card admin-stat">
+                  <p className="muted">미일치 실행중 (GitHub만 존재)</p>
+                  <p className="metric">{reconcileResult.summary.ghostRunsCount}</p>
+                </article>
+              </div>
+            ) : (
+              <p className="error-text">
+                GitHub 조회 설정이 없어 정합성 점검을 완료할 수 없습니다. ({reconcileResult.error ?? "확인 불가"})
+              </p>
+            )}
+            {reconcileResult.summary.nonparseableWorkerIdCount > 0 ? (
+              <p className="muted text-small">workerId 파싱 불가: {reconcileResult.summary.nonparseableWorkerIdCount}건</p>
+            ) : null}
+            {(reconcileResult.orphanedRunningJobs.length > 0 || reconcileResult.ghostRuns.length > 0) ? (
+              <div className="top-gap">
+                <h3 className="muted">예시 상세</h3>
+                {reconcileResult.orphanedRunningJobs.length > 0 ? (
+                  <details>
+                    <summary className="muted">DB에만 남은 RUNNING 작업 {reconcileResult.orphanedRunningJobs.length}건</summary>
+                    <ul>
+                      {reconcileResult.orphanedRunningJobs.slice(0, 20).map((job) => (
+                        <li key={job.id}>
+                          {job.id} / {job.userId} / {job.type}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+                {reconcileResult.ghostRuns.length > 0 ? (
+                  <details>
+                    <summary className="muted">GitHub에만 있는 실행 {reconcileResult.ghostRuns.length}건</summary>
+                    <ul>
+                      {reconcileResult.ghostRuns.slice(0, 20).map((run) => (
+                        <li key={run.id}>
+                          <a href={run.htmlUrl} target="_blank" rel="noreferrer">
+                            run #{run.id}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className="muted">점검 결과가 없습니다. 점검 버튼을 눌러주세요.</p>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="table-toolbar">
+          <h2>작업 정리</h2>
+          <span className="muted text-small">기본은 성공/실패/취소 상태만 정리합니다.</span>
         </div>
         <form className="form-grid top-gap" onSubmit={runCleanup}>
           <label className="field">
-            <span>보관 기간(일)</span>
+            <span>오래된 기준일(일)</span>
             <input
               type="number"
               min={1}
-              max={365}
+              max={3650}
               value={cleanupOlderDays}
               onChange={(event) => setCleanupOlderDays(Math.max(1, Number(event.target.value) || 1))}
             />
           </label>
           <label className="field">
-            <span>상태</span>
+            <span>정리 범위</span>
             <div className="action-row">
-              {CLEANUP_STATUSES.map((status) => (
-                <label className="check-field" key={status}>
+              {CLEANUP_SCOPE_OPTIONS.map((scope) => (
+                <label className="check-field" key={scope}>
                   <input
-                    type="checkbox"
-                    checked={cleanupStatuses[status]}
-                    onChange={(event) => {
-                      toggleCleanupStatus(status, event.currentTarget.checked);
+                    type="radio"
+                    value={scope}
+                    checked={cleanupScope === scope}
+                    onChange={() => {
+                      setCleanupScope(scope);
+                      if (scope === "safe") {
+                        setCleanupConfirmCode("");
+                      }
                     }}
                   />
-                  <span>{JOB_STATUS_LABELS[status]}</span>
+                  <span>{CLEANUP_SCOPE_LABELS[scope]}</span>
                 </label>
               ))}
             </div>
           </label>
+          <label className="field">
+            <span>상태 선택</span>
+            <div className="action-row">
+              {(cleanupScope === "safe" ? CLEANUP_STATUSES_SAFE : CLEANUP_STATUSES_FULL).map((status) => (
+                <label className="check-field" key={status}>
+                  <input
+                    type="checkbox"
+                    checked={
+                      cleanupScope === "safe"
+                        ? cleanupStatuses[status as CleanupStatus]
+                        : fullCleanupStatuses[status]
+                    }
+                    onChange={(event) => {
+                      toggleCleanupStatus(cleanupScope, status, event.currentTarget.checked);
+                    }}
+                  />
+                  <span>{JOB_STATUS_LABELS[status as JobStatus]}</span>
+                </label>
+              ))}
+            </div>
+          </label>
+          {cleanupScope === "full" ? (
+            <label className="field">
+              <span>확인 코드</span>
+              <input
+                type="text"
+                value={cleanupConfirmCode}
+                onChange={(event) => setCleanupConfirmCode(event.target.value)}
+                placeholder={CLEANUP_CONFIRM_CODE}
+                autoComplete="off"
+              />
+              <small className="muted">PENDING/RUNNING이 포함된 정리 실행 시 반드시 필요합니다.</small>
+            </label>
+          ) : null}
           <div className="align-end">
             <button className="btn-success" type="submit" disabled={cleanupBusy}>
-              {cleanupBusy ? "정리 중.." : "선택 작업 정리"}
+              {cleanupBusy ? "정리 중..." : "선택 정리 실행"}
             </button>
           </div>
         </form>
+
+        <div className="top-gap">
+          <button className="btn-danger" type="button" onClick={runFullReset} disabled={resetBusy}>
+            {resetBusy ? "초기화 중..." : "워커/작업 큐 전체 초기화"}
+          </button>
+          <p className="muted" style={{ marginTop: 8 }}>
+            전체 초기화는 작업 큐 + 워커 heartbeat를 모두 삭제합니다. 작업 정합성 점검에서 사용되지 않는 잔여 항목 정리에 활용하세요.
+          </p>
+        </div>
       </section>
     </main>
   );
