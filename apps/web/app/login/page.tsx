@@ -14,11 +14,8 @@ export default async function LoginPage({
 }) {
   const reasonRaw = searchParams?.reason;
   const reason = Array.isArray(reasonRaw) ? reasonRaw[0] : reasonRaw;
-  const timeoutMessage = reason === "session-timeout"
-    ? "자동 로그아웃: 30분 이상 활동이 없어 세션이 만료되어 다시 로그인해야 합니다."
-    : reason === "session-expired"
-      ? "세션이 만료되어 자동으로 로그아웃되었습니다. 다시 로그인해 주세요."
-      : null;
+  const sessionExpiredReason =
+    reason === "session-timeout" || reason === "session-expired" ? reason : undefined;
 
   const cookieStore = await cookies();
   const session = await verifyActiveSession(
@@ -64,7 +61,6 @@ export default async function LoginPage({
 
         <section className="card auth-card brand-login">
           <div className="brand-ribbon" />
-          {timeoutMessage ? <p className="session-timeout-banner">{timeoutMessage}</p> : null}
           <p className="brand-kicker">Catholic University CU12 Automation</p>
           <h1>로그인</h1>
           <p className="muted">아이디와 비밀번호를 입력해 로그인하세요.</p>
@@ -91,12 +87,12 @@ export default async function LoginPage({
                   </li>
                 ))}
               </ul>
-              <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
-                전체 공지 보기
-              </Link>
-            </section>
+            <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
+              전체 공지 보기
+            </Link>
+          </section>
           ) : null}
-          <LoginForm />
+          <LoginForm sessionExpiredReason={sessionExpiredReason} />
         </section>
       </section>
     </main>

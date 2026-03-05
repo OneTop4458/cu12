@@ -79,6 +79,7 @@ function getIdleTimeoutMs(): number {
 export function SessionActivityGuard() {
   const pathname = usePathname();
   const shouldTrack = isProtectedPath(pathname);
+  const isLoginPage = pathname === "/login";
   const lastActivityAtRef = useRef<number>(Date.now());
   const lastRefreshAtRef = useRef<number>(0);
   const lastActivityHandledAtRef = useRef<number>(0);
@@ -87,7 +88,7 @@ export function SessionActivityGuard() {
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => Math.ceil(getIdleTimeoutMs() / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
   const [sessionExpiredReason, setSessionExpiredReason] = useState<SessionExpiredReason | null>(() => readSessionExpiredState());
-  const shouldRender = shouldTrack || Boolean(sessionExpiredReason);
+  const shouldRender = shouldTrack && !isLoginPage;
 
   const setActiveStateNow = (timestamp: number) => {
     lastActivityAtRef.current = timestamp;
@@ -121,6 +122,8 @@ export function SessionActivityGuard() {
       });
     } catch {
       // Ignore logout endpoint failures.
+    } finally {
+      navigateToLogin(reason);
     }
   };
 
@@ -169,6 +172,7 @@ export function SessionActivityGuard() {
       setRemainingSeconds(0);
       setWarningMode(false);
       loggingOutRef.current = true;
+      navigateToLogin(persistedExpiredReason);
       return;
     }
 

@@ -5,6 +5,8 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
+type SessionExpiredReason = "session-timeout" | "session-expired";
+
 type Campus = "SONGSIM" | "SONGSIN";
 
 interface AuthenticatedResponse {
@@ -52,7 +54,7 @@ function applySessionPolicy(policy: AuthenticatedResponse["session"]) {
   }
 }
 
-export function LoginForm() {
+export function LoginForm({ sessionExpiredReason: initialSessionExpiredReason }: { sessionExpiredReason?: SessionExpiredReason }) {
   const router = useRouter();
   const [cu12Id, setCu12Id] = useState("");
   const [cu12Password, setCu12Password] = useState("");
@@ -60,6 +62,16 @@ export function LoginForm() {
   const [rememberSession, setRememberSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpiredReason] = useState<SessionExpiredReason | null>(() => {
+    if (initialSessionExpiredReason) return initialSessionExpiredReason;
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(SESSION_EXPIRED_STATE_KEY);
+      return raw === "session-timeout" || raw === "session-expired" ? raw : null;
+    } catch {
+      return null;
+    }
+  });
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
@@ -179,6 +191,15 @@ export function LoginForm() {
 
   return (
     <div className="login-form-shell">
+      {sessionExpiredReason ? (
+        <div className="session-timeout-banner">
+          {sessionExpiredReason === "session-timeout" ? (
+            <p>자동 로그아웃: 30분 이상 활동이 없어 세션이 만료되어 다시 로그인해야 합니다.</p>
+          ) : (
+            <p>세션이 만료되어 자동으로 로그아웃되었습니다. 다시 로그인해 주세요.</p>
+          )}
+        </div>
+      ) : null}
       <form onSubmit={onSubmit} className="form-stack">
         <label className="field">
           <span>CU12 ID</span>
