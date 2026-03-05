@@ -18,7 +18,25 @@ interface CourseWeekSummary {
 }
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
-const AUTO_SYNC_INTERVAL_MS = AUTO_SYNC_INTERVAL_HOURS * 60 * 60 * 1000;
+
+function getNextScheduledSyncAt(now: Date): Date {
+  const currentHour = now.getUTCHours();
+  const hasMinuteProgress = now.getUTCMinutes() > 0 || now.getUTCSeconds() > 0 || now.getUTCMilliseconds() > 0;
+  let nextHour = currentHour + (hasMinuteProgress ? 1 : 0);
+  if (nextHour % AUTO_SYNC_INTERVAL_HOURS !== 0) {
+    nextHour += AUTO_SYNC_INTERVAL_HOURS - (nextHour % AUTO_SYNC_INTERVAL_HOURS);
+  }
+
+  return new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    nextHour,
+    0,
+    0,
+    0,
+  ));
+}
 
 function daysUntil(target: Date, now: Date): number {
   const diff = target.getTime() - now.getTime();
@@ -44,7 +62,7 @@ export async function getDashboardSummary(userId: string) {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, urgentTaskCount, nextDeadlineTask, lastSync, latestSyncJob] = await Promise.all([
+  const [activeCourseCount, progressAgg, unreadNoticeCount, urgentTaskCount, nextDeadlineTask, lastSync] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, status: CourseStatus.ACTIVE },
@@ -75,16 +93,9 @@ export async function getDashboardSummary(userId: string) {
       orderBy: { finishedAt: "desc" },
       select: { finishedAt: true },
     }),
-    prisma.jobQueue.findFirst({
-      where: { userId, type: "SYNC" },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true },
-    }),
   ]);
 
-  const nextAutoSyncAt = latestSyncJob
-    ? new Date(latestSyncJob.createdAt.getTime() + AUTO_SYNC_INTERVAL_MS)
-    : null;
+  const nextAutoSyncAt = getNextScheduledSyncAt(now);
 
   return {
     activeCourseCount,
