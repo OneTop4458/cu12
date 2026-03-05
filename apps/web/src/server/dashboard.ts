@@ -456,11 +456,100 @@ export async function getDashboardDiagnostics(
   };
 }
 
+type CourseNoticeRow = Awaited<ReturnType<typeof prisma.courseNotice.findMany>>[number];
+
+function normalizeNoticeDedupeText(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function extractNoticeSeqFromNoticeKey(noticeKey: string): string | null {
+  return noticeKey.match(/:seq:(\d+)/)?.[1] ?? null;
+}
+
+function areNoticeRowsEquivalent(a: CourseNoticeRow, b: CourseNoticeRow): boolean {
+  const seqA = extractNoticeSeqFromNoticeKey(a.noticeKey);
+  const seqB = extractNoticeSeqFromNoticeKey(b.noticeKey);
+  if (seqA && seqB) {
+    return seqA === seqB;
+  }
+
+  const titleA = normalizeNoticeDedupeText(a.title);
+  const titleB = normalizeNoticeDedupeText(b.title);
+  if (!titleA || !titleB || titleA !== titleB) {
+    return false;
+  }
+
+  const postedA = a.postedAt?.toISOString().slice(0, 10) ?? "";
+  const postedB = b.postedAt?.toISOString().slice(0, 10) ?? "";
+  if (postedA && postedB && postedA !== postedB) {
+    return false;
+  }
+
+  const authorA = normalizeNoticeDedupeText(a.author);
+  const authorB = normalizeNoticeDedupeText(b.author);
+  if (authorA && authorB && authorA !== authorB) {
+    const bodyA = normalizeNoticeDedupeText(a.bodyText).slice(0, 200);
+    const bodyB = normalizeNoticeDedupeText(b.bodyText).slice(0, 200);
+    return bodyA.length > 0 && bodyA === bodyB;
+  }
+
+  return true;
+}
+
+function mergeNoticeRows(current: CourseNoticeRow, candidate: CourseNoticeRow): CourseNoticeRow {
+  const currentSeq = extractNoticeSeqFromNoticeKey(current.noticeKey);
+  const candidateSeq = extractNoticeSeqFromNoticeKey(candidate.noticeKey);
+  const currentBodyLength = current.bodyText.trim().length;
+  const candidateBodyLength = candidate.bodyText.trim().length;
+
+  const preferCandidate =
+    (!currentSeq && Boolean(candidateSeq))
+    || candidateBodyLength > currentBodyLength
+    || (!current.postedAt && Boolean(candidate.postedAt))
+    || (!current.author && Boolean(candidate.author));
+
+  const preferred = preferCandidate ? candidate : current;
+  const secondary = preferCandidate ? current : candidate;
+
+  return {
+    ...preferred,
+    author: preferred.author ?? secondary.author,
+    postedAt: preferred.postedAt ?? secondary.postedAt,
+    bodyText: preferred.bodyText.trim().length >= secondary.bodyText.trim().length
+      ? preferred.bodyText
+      : secondary.bodyText,
+    isRead: preferred.isRead && secondary.isRead,
+    isNew: preferred.isNew || secondary.isNew,
+    syncedAt: preferred.syncedAt.getTime() >= secondary.syncedAt.getTime() ? preferred.syncedAt : secondary.syncedAt,
+    updatedAt: preferred.updatedAt.getTime() >= secondary.updatedAt.getTime() ? preferred.updatedAt : secondary.updatedAt,
+  };
+}
+
+function dedupeNoticeRows(rows: CourseNoticeRow[]): CourseNoticeRow[] {
+  const deduped: CourseNoticeRow[] = [];
+
+  for (const row of rows) {
+    const duplicateIndex = deduped.findIndex((existing) => areNoticeRowsEquivalent(existing, row));
+    if (duplicateIndex < 0) {
+      deduped.push(row);
+      continue;
+    }
+    deduped[duplicateIndex] = mergeNoticeRows(deduped[duplicateIndex], row);
+  }
+
+  return deduped;
+}
+
 export async function getNotices(userId: string, lectureSeq: number) {
-  return prisma.courseNotice.findMany({
+  const rows = await prisma.courseNotice.findMany({
     where: { userId, lectureSeq },
     orderBy: [{ isRead: "asc" }, { postedAt: "desc" }],
   });
+  return dedupeNoticeRows(rows);
 }
 
 export async function getNotifications(

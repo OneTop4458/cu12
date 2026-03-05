@@ -137,6 +137,65 @@ function normalizeNoticeText(raw: string): string {
     .trim();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripLeadingNoticeLabels(value: string): string {
+  let current = normalizeWhitespace(value)
+    .replace(/^[\s\-\[\]():：]+/g, "")
+    .trim();
+
+  if (!current) return "";
+
+  const labelPattern = /^(?:(?:\uACF5\uC9C0\uC0AC\uD56D?)|(?:\uACF5\uC9C0)|(?:\uC0AC\uD56D\uC81C\uBAA9)|(?:\uC0AC\uD56D)|(?:\uC81C\uBAA9)|notice|title)\s*[:：-]?\s*/i;
+  while (labelPattern.test(current)) {
+    current = current.replace(labelPattern, "").trim();
+  }
+
+  return current;
+}
+
+function normalizeNoticeTitle(raw: string): string {
+  return stripLeadingNoticeLabels(normalizeNoticeText(raw));
+}
+
+function normalizeNoticeComparable(value: string | null | undefined): string {
+  return normalizeNoticeText(value ?? "").toLowerCase();
+}
+
+function isMeaningfulNoticeTitle(title: string): boolean {
+  const normalized = normalizeNoticeComparable(title);
+  if (!normalized) return false;
+  return !new Set(["\uACF5\uC9C0", "\uC0AC\uD56D", "notice", "title"]).has(normalized);
+}
+
+function extractLabeledNoticeValue(infoText: string, labels: string[]): string | null {
+  if (!infoText) return null;
+  const escapedLabels = labels.map((label) => escapeRegExp(label));
+  const stopLabels = [
+    "\uC0AC\uD56D\uC81C\uBAA9",
+    "\uC81C\uBAA9",
+    "\uB4F1\uB85D\uC77C",
+    "\uC791\uC131\uC77C",
+    "\uC791\uC131\uC790",
+    "\uB4F1\uB85D\uC790",
+    "\uC870\uD68C\uC218",
+    "\uACF5\uC9C0\uB0B4\uC6A9",
+    "\uB0B4\uC6A9",
+  ].map((label) => escapeRegExp(label));
+
+  const pattern = new RegExp(
+    `(?:${escapedLabels.join("|")})\\s*[:：-]?\\s*([\\s\\S]+?)(?=(?:${stopLabels.join("|")})\\s*[:：-]?|$)`,
+    "i",
+  );
+  const match = infoText.match(pattern);
+  if (!match?.[1]) return null;
+
+  const value = normalizeNoticeText(match[1]);
+  return value.length > 0 ? value : null;
+}
+
 function parseNoticeSeqFromNode(node: any): string | null {
   const id = node.attr("id")?.trim();
   const idMatch = id?.match(/notice_tit_(\d+)/)?.[1];
@@ -167,39 +226,50 @@ function parseNoticeBodyCandidates(
   source: any,
   noticeSeq: string | null,
 ): string {
-  const bodySelectors = [
-    `#notice_${noticeSeq}`,
-    `#notice_txt_${noticeSeq}`,
-    `#notice-content-${noticeSeq}`,
-    `#notice-content_${noticeSeq}`,
-    `#notice_body_${noticeSeq}`,
-    `#noticeArea_${noticeSeq}`,
-    `#board_${noticeSeq}`,
-    `.notice_${noticeSeq}`,
-    `.notice-content-${noticeSeq}`,
-    `.notice-content_${noticeSeq}`,
-    `.notice-body-${noticeSeq}`,
-    `.notice_body_${noticeSeq}`,
-    `.class_notice_content_${noticeSeq}`,
-    `.class_notice_body_${noticeSeq}`,
-    `.editor_content_${noticeSeq}`,
-  ].filter((selector): selector is string => Boolean(selector));
+  const bodySelectors = noticeSeq
+    ? [
+      `#notice_${noticeSeq}`,
+      `#notice_txt_${noticeSeq}`,
+      `#notice-content-${noticeSeq}`,
+      `#notice-content_${noticeSeq}`,
+      `#notice_body_${noticeSeq}`,
+      `#noticeArea_${noticeSeq}`,
+      `#board_${noticeSeq}`,
+      `.notice_${noticeSeq}`,
+      `.notice-content-${noticeSeq}`,
+      `.notice-content_${noticeSeq}`,
+      `.notice-body-${noticeSeq}`,
+      `.notice_body_${noticeSeq}`,
+      `.class_notice_content_${noticeSeq}`,
+      `.class_notice_body_${noticeSeq}`,
+      `.editor_content_${noticeSeq}`,
+    ]
+    : [];
 
   const nearby = source.closest("li, tr, dd, dl, article, div, .accordion_item, .notice_item, .board_item, .notice_list").first();
   const candidates = [
-    source.parent().find("textarea, .view_cont, .notice_cont, .cont, .txt, .contents").first(),
-    source.next(),
-    source.parent().next(),
-    nearby,
-    nearby.find(".class_notice_body, .class_notice_content, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice").first(),
-    nearby.find(".notice_view, .notice-detail, .notice_content, .notice-body, .notice_body, .bbs_contents").first(),
+    source.find("textarea, .class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt, .contents, .bbs_notice, .bbs_contents, .notice_content, .notice_body").first(),
+    source.parent().find("textarea, .class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_cont, .cont, .txt, .contents, .bbs_notice, .bbs_contents, .notice_content, .notice_body").first(),
+    nearby.find(".class_notice_body, .class_notice_content, .editor_content, .view_cont, .notice_cont, .cont, .txt, .bbs_notice, .bbs_contents, .notice_content, .notice_body").first(),
+    nearby.find(".notice_view, .notice-detail, .notice_content, .notice-body, .notice_body, .bbs_contents, .bbs_view").first(),
+    nearby.find("textarea[name*='notice'], textarea[id*='notice'], textarea").first(),
     nearby.find(".notice_txt").first(),
-    $(".notice-content, .notice_content, .editor_content").first(),
     ...bodySelectors.map((selector) => $(selector)),
   ];
 
+  const cleanupBodyText = (value: string): string => {
+    const normalized = normalizeNoticeText(value);
+    if (!normalized) return "";
+
+    const labeledBody = normalized.match(/(?:\uACF5\uC9C0\uB0B4\uC6A9|\uB0B4\uC6A9)\s*[:：-]?\s*([\s\S]+)/i)?.[1];
+    const extracted = normalizeNoticeText(labeledBody ?? normalized);
+    const metaHeavy = /(?:\uB4F1\uB85D\uC77C|\uC791\uC131\uC77C)/.test(extracted) && /(?:\uC791\uC131\uC790|\uB4F1\uB85D\uC790|\uC870\uD68C\uC218)/.test(extracted);
+    if (metaHeavy && extracted.length < 220) return "";
+    return extracted;
+  };
+
   const candidateText = candidates
-    .map((item) => normalizeNoticeText(item?.text() ?? ""))
+    .map((item) => cleanupBodyText(item?.text() ?? ""))
     .find((value) => value.length > 0);
 
   return candidateText ?? "";
@@ -285,33 +355,111 @@ function buildFallbackNoticeKey(
   return `${lectureSeq}:meta:${stableHashText(keySource)}`;
 }
 
+function buildNoticeKey(
+  lectureSeq: number,
+  noticeSeq: string | null | undefined,
+  title: string,
+  author: string | null,
+  postedAt: string | null,
+): string {
+  return noticeSeq
+    ? `${lectureSeq}:seq:${noticeSeq}`
+    : buildFallbackNoticeKey(lectureSeq, title, author, postedAt);
+}
+
+function areNoticesEquivalent(a: CourseNotice, b: CourseNotice): boolean {
+  const seqA = a.noticeSeq?.trim() ?? "";
+  const seqB = b.noticeSeq?.trim() ?? "";
+  if (seqA && seqB) {
+    return seqA === seqB;
+  }
+
+  const titleA = normalizeNoticeComparable(a.title);
+  const titleB = normalizeNoticeComparable(b.title);
+  if (!titleA || !titleB || titleA !== titleB) {
+    return false;
+  }
+
+  const dateA = a.postedAt ?? "";
+  const dateB = b.postedAt ?? "";
+  if (dateA && dateB && dateA !== dateB) {
+    return false;
+  }
+
+  const authorA = normalizeNoticeComparable(a.author);
+  const authorB = normalizeNoticeComparable(b.author);
+  if (authorA && authorB && authorA !== authorB) {
+    const bodyA = normalizeNoticeComparable(a.bodyText).slice(0, 200);
+    const bodyB = normalizeNoticeComparable(b.bodyText).slice(0, 200);
+    return bodyA.length > 0 && bodyA === bodyB;
+  }
+
+  return true;
+}
+
+function mergeParsedNotice(current: CourseNotice, candidate: CourseNotice): CourseNotice {
+  const currentSeq = current.noticeSeq?.trim() ?? "";
+  const candidateSeq = candidate.noticeSeq?.trim() ?? "";
+  const currentBodyLength = current.bodyText.trim().length;
+  const candidateBodyLength = candidate.bodyText.trim().length;
+
+  const preferCandidate =
+    (!currentSeq && Boolean(candidateSeq))
+    || candidateBodyLength > currentBodyLength
+    || (!current.postedAt && Boolean(candidate.postedAt))
+    || (!current.author && Boolean(candidate.author))
+    || (!isMeaningfulNoticeTitle(current.title) && isMeaningfulNoticeTitle(candidate.title));
+
+  const preferred = preferCandidate ? candidate : current;
+  const secondary = preferCandidate ? current : candidate;
+  const noticeSeq = preferred.noticeSeq ?? secondary.noticeSeq;
+  const title = normalizeNoticeTitle(preferred.title) || normalizeNoticeTitle(secondary.title) || "공지";
+  const author = preferred.author || secondary.author || null;
+  const postedAt = preferred.postedAt || secondary.postedAt || null;
+  const bodyText = preferred.bodyText.trim().length >= secondary.bodyText.trim().length
+    ? preferred.bodyText
+    : secondary.bodyText;
+
+  return {
+    ...preferred,
+    noticeSeq,
+    noticeKey: buildNoticeKey(preferred.lectureSeq, noticeSeq, title, author, postedAt),
+    title,
+    author,
+    postedAt,
+    bodyText,
+    isNew: preferred.isNew || secondary.isNew,
+  };
+}
+
 export function parseNoticeListHtml(html: string, userId: string, lectureSeq: number): CourseNotice[] {
   const $ = load(html);
   const syncedAt = new Date().toISOString();
-  const notices: CourseNotice[] = [];
-  const seen = new Set<string>();
+  const candidates: CourseNotice[] = [];
 
   const rawCandidates = $(
     [
       'button[id^="notice_tit_"]',
       "button.notice_title",
       "a.notice_title",
-      "a[class*='notice']",
+      ".class_notice_title",
+      "[id^='notice_tit_']",
       "a[href*='A_SEQ=']",
       "a[href*='NOTICE_SEQ=']",
       "a[href*='notice_seq=']",
       "a[href*='artl_seq=']",
-      "a[href*='notice_list_form.acl']",
+      "a[href*='noticeView.acl']",
+      "a[href*='notice_list_form.acl?LECTURE_SEQ=']",
       ".notice_title",
-      ".class_notice_title",
       "[onclick*='noticeShow']",
       "[onclick*='noticeView']",
       "[onclick*='notice_open']",
       "[onclick*='notiOpen']",
       "[data-notice-seq]",
       "[data-notice_seq]",
+      "[data-artl-seq]",
+      "[data-seq]",
       "[data-notice-id]",
-      "[id^='notice_tit_']",
     ].join(", "),
   );
 
@@ -320,23 +468,31 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
     const lineText = normalizeNoticeText(node.text());
     if (!lineText) continue;
 
-    const noticeSeq = parseNoticeSeqFromNode(node);
-    const title =
-      normalizeNoticeText(
-        node.find('.class_notice_title_sub, .class_notice_title, .notice_title, .title').first().text(),
-      ) || lineText.split(/\s{2,}|\n/)[0]?.trim() || lineText || "공지";
-
     const infoText = detectNoticeListContext($, node);
+    const noticeSeq = parseNoticeSeqFromNode(node);
+    const titleFromLabel = extractLabeledNoticeValue(infoText, [
+      "사항제목",
+      "제목",
+      "title",
+    ]);
+    const title = normalizeNoticeTitle(
+      titleFromLabel
+      || normalizeNoticeText(
+        node.find('.class_notice_title_sub, .class_notice_title, .notice_title, .title').first().text(),
+      )
+      || lineText.split(/\s{2,}|\n/)[0]?.trim()
+      || lineText,
+    );
+    if (!title || (!isMeaningfulNoticeTitle(title) && !noticeSeq)) continue;
+
+    const postedAtLabel = extractLabeledNoticeValue(infoText, ["등록일", "작성일"]);
     const postedAtMatch = infoText.match(/(\d{4}\.\d{1,2}\.\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/);
-    const postedAt = toIsoDate(postedAtMatch?.[1] ?? null);
-    const author = normalizeNoticeText(
+    const postedAt = toIsoDate(postedAtLabel ?? postedAtMatch?.[1] ?? null);
+    const authorFromLabel = extractLabeledNoticeValue(infoText, ["작성자", "등록자"]);
+    const authorFromNode = normalizeNoticeText(
       node.closest("li, tr, .board_item, .notice_item").find('.writer, .author, .regist, .reg, .notice-writer, .name').first().text(),
-    ) || null;
-    const noticeKey = noticeSeq
-      ? `${lectureSeq}:seq:${noticeSeq}`
-      : buildFallbackNoticeKey(lectureSeq, title, author, postedAt);
-    if (seen.has(noticeKey)) continue;
-    seen.add(noticeKey);
+    );
+    const author = normalizeNoticeText(authorFromLabel ?? authorFromNode) || null;
 
     const isNew = node.find('.notice_new_icon, .new, .icon-new, img[alt*="new"], .badge-new').length > 0
       || node.parent().find('.notice_new_icon, .new').length > 0
@@ -347,10 +503,10 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
       || parseNoticeBodyCandidates($, node.closest('li, tr, .notice_item, .board_item').first(), noticeSeq),
     );
 
-    notices.push({
+    candidates.push({
       userId,
       lectureSeq,
-      noticeKey,
+      noticeKey: buildNoticeKey(lectureSeq, noticeSeq, title, author, postedAt),
       noticeSeq: noticeSeq ?? undefined,
       title,
       author,
@@ -361,7 +517,17 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
     });
   }
 
-  return notices;
+  const deduped: CourseNotice[] = [];
+  for (const candidate of candidates) {
+    const duplicateIndex = deduped.findIndex((existing) => areNoticesEquivalent(existing, candidate));
+    if (duplicateIndex < 0) {
+      deduped.push(candidate);
+      continue;
+    }
+    deduped[duplicateIndex] = mergeParsedNotice(deduped[duplicateIndex], candidate);
+  }
+
+  return deduped;
 }
 
 export function parseNotificationListHtml(html: string, userId: string): NotificationEvent[] {

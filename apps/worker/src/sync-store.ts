@@ -82,19 +82,25 @@ function buildNoticeFingerprint(input: {
   postedAt: string | Date | null;
   bodyText: string;
 }): string {
+  const title = normalizeNoticeFingerprintText(input.title);
+  const author = normalizeNoticeFingerprintText(input.author);
+  const postedAt = toNoticeDateKey(input.postedAt);
+  if (title && postedAt) {
+    return `${input.lectureSeq}:meta:${title}|${postedAt}`;
+  }
+
+  const bodyHint = normalizeNoticeFingerprintText(input.bodyText).slice(0, 120);
+  if (title && author) {
+    return `${input.lectureSeq}:meta:${title}|${author}`;
+  }
+  if (title && bodyHint) {
+    return `${input.lectureSeq}:meta:${title}|${bodyHint}`;
+  }
+
   const noticeSeq = extractNoticeSeqFromKey(input.noticeKey);
   if (noticeSeq) {
     return `${input.lectureSeq}:seq:${noticeSeq}`;
   }
-
-  const title = normalizeNoticeFingerprintText(input.title);
-  const author = normalizeNoticeFingerprintText(input.author);
-  const postedAt = toNoticeDateKey(input.postedAt);
-  if (postedAt) {
-    return `${input.lectureSeq}:meta:${title}|${author}|${postedAt}`;
-  }
-
-  const bodyHint = normalizeNoticeFingerprintText(input.bodyText).slice(0, 120);
   return `${input.lectureSeq}:meta:${title}|${author}|${bodyHint}`;
 }
 

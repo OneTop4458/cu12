@@ -809,13 +809,12 @@ export async function collectCu12Snapshot(
       });
       const noticeList = parseNoticeListHtml(await page.content(), userId, course.lectureSeq);
       const noticeBodies = await fetchNoticeBodies(page, course.lectureSeq);
-      const fallbackBodies = noticeBodies.map((item) => item.bodyText);
       const bodiesByNoticeSeq = new Map(noticeBodies.map((item) => [item.noticeSeq, item.bodyText]));
-      let resolvedNotices = noticeList.map((notice, index) => {
-        const bodyText = notice.noticeSeq ? (bodiesByNoticeSeq.get(notice.noticeSeq) ?? fallbackBodies[index]) : fallbackBodies[index];
+      let resolvedNotices = noticeList.map((notice) => {
+        const bodyText = notice.noticeSeq ? bodiesByNoticeSeq.get(notice.noticeSeq) : undefined;
         return {
           ...notice,
-          bodyText: bodyText || notice.bodyText,
+          bodyText: bodyText?.trim() ? bodyText : notice.bodyText,
         };
       });
 

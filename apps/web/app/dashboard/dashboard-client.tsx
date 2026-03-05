@@ -823,15 +823,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     if (!maintenanceNotice && visibleBroadcastNotices.length === 0) return null;
     const host = document.getElementById(SITE_NOTICE_HOST_ID);
     if (!host) return null;
+    const maintenanceExpanded = isNoticeExpanded(MAINTENANCE_NOTICE_ID);
 
     return createPortal(
       <div className="session-notice-stack">
         {maintenanceNotice ? (
           <section
-            className={getNoticeExpandedClass(MAINTENANCE_NOTICE_ID, "topbar-notice topbar-notice-warning session-notice-card")}
+            className={getNoticeExpandedClass(MAINTENANCE_NOTICE_ID, "topbar-notice topbar-notice-warning session-notice-card maintenance-notice-card")}
             role="button"
             tabIndex={0}
-            aria-expanded={isNoticeExpanded(MAINTENANCE_NOTICE_ID)}
+            aria-expanded={maintenanceExpanded}
             onClick={() => toggleNoticeExpanded(MAINTENANCE_NOTICE_ID)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -843,8 +844,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           >
             <p className="topbar-notice-title">시스템 점검 공지</p>
             <p className="topbar-notice-summary">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
-            <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
-            <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
+            {maintenanceExpanded ? (
+              <>
+                <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
+                <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
+              </>
+            ) : null}
           </section>
         ) : null}
         {visibleBroadcastNotices.length > 0 ? (
