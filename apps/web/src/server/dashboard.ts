@@ -239,8 +239,26 @@ export async function getCourses(userId: string) {
       return startMs <= nowMs && nowMs <= dueMs;
     }) ?? null;
     const nextWindowPending = windowPendingTasks.find((task) => (task.dueAt ? task.dueAt.getTime() >= nowMs : true)) ?? windowPendingTasks[0] ?? null;
+    const firstWindowTask = windowPendingTasks[0]
+      ?? taskList
+        .slice()
+        .sort((a, b) => {
+          const aWindow = toWindowTime(a);
+          const bWindow = toWindowTime(b);
+          if (aWindow !== bWindow) return aWindow - bWindow;
+          return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
+        })[0] ?? null;
+    const lastWindowTask = (() => {
+      const tasks = windowPendingTasks.slice().sort((a, b) => {
+        const aWindow = toWindowTime(a);
+        const bWindow = toWindowTime(b);
+        if (aWindow !== bWindow) return aWindow - bWindow;
+        return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
+      });
+      return tasks[tasks.length - 1] ?? null;
+    })();
     const currentWeekNo = isCourseCompleted
-      ? null
+      ? (weekSummaries.length > 0 ? weekSummaries[weekSummaries.length - 1].weekNo : (taskList[0]?.weekNo ?? null))
       : (nowWindowPending?.weekNo ?? nextWindowPending?.weekNo ?? pendingWithWindow[0]?.weekNo ?? taskList[0]?.weekNo ?? null);
     const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
     const deadlineLabel = isCourseCompleted
@@ -248,6 +266,9 @@ export async function getCourses(userId: string) {
       : (nowWindowPending || (pending.length > 0 && !nextWindowPending))
       ? "이번 차시 마감"
       : "다음 차시 마감";
+    const courseDeadlineTask = isCourseCompleted
+      ? (lastWindowTask ?? firstWindowTask)
+      : nextWindowPending;
 
     return {
       ...course,
@@ -272,7 +293,17 @@ export async function getCourses(userId: string) {
           availableFrom: nextWindowPending.availableFrom,
           dueAt: nextWindowPending.dueAt,
         }
-        : null,
+        : courseDeadlineTask
+          ? {
+            weekNo: courseDeadlineTask.weekNo,
+            lessonNo: courseDeadlineTask.lessonNo,
+            activityType: courseDeadlineTask.activityType,
+            requiredSeconds: courseDeadlineTask.requiredSeconds,
+            learnedSeconds: courseDeadlineTask.learnedSeconds,
+            availableFrom: courseDeadlineTask.availableFrom,
+            dueAt: courseDeadlineTask.dueAt,
+          }
+          : null,
       deadlineLabel,
     };
   });

@@ -339,6 +339,20 @@ function parseDateMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function getDeadlineLabelColor(course: Course): string | undefined {
+  const deadlineMs = parseDateMs(course.nextPendingTask?.dueAt ?? course.nextPendingTask?.availableFrom ?? null);
+  if (deadlineMs === null) return undefined;
+
+  const remainingDays = Math.ceil((deadlineMs - Date.now()) / (1000 * 60 * 60 * 24));
+  const isDeadlineUrgent = remainingDays >= 0 && remainingDays <= 3;
+
+  if (course.progressPercent >= 100) {
+    return isDeadlineUrgent ? "var(--danger)" : "var(--success)";
+  }
+
+  return isDeadlineUrgent ? "var(--danger)" : undefined;
+}
+
 function analyzeSyncQueueState(jobs: Job[], nowMs: number, summary?: DashboardSyncQueue): {
   state: SyncQueueState;
   staleJobIds: string[];
@@ -1587,9 +1601,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   course.totalRequiredSeconds,
                 )
                 : course.totalLearnedSeconds;
-            const taskProgressRatio = course.totalRequiredSeconds > 0
+            const progressPercentRatio = toRatio(course.progressPercent, 100);
+            const learnedProgressRatio = course.totalRequiredSeconds > 0
               ? toRatio(learnedSecondsForUi, course.totalRequiredSeconds)
               : toRatio(course.completedTaskCount, Math.max(1, course.totalTaskCount));
+            const taskProgressRatio = Math.max(progressPercentRatio, learnedProgressRatio);
+            const deadlineLabelColor = getDeadlineLabelColor(course);
 
             return (
               <article key={course.lectureSeq} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>
@@ -1608,7 +1625,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   </div>
                   <div className="course-overview-meta">
                     <p>
-                      <strong>{course.deadlineLabel}</strong>: {formatNextDeadline(course.nextPendingTask)}
+                      <strong style={deadlineLabelColor ? { color: deadlineLabelColor } : undefined}>
+                        {course.deadlineLabel}
+                      </strong>: {formatNextDeadline(course.nextPendingTask)}
                     </p>
                     <p className="muted">현재주차: {course.currentWeekNo ?? "-"}</p>
                     <p className="muted">미확인 공지: {course.unreadNoticeCount}개 / 전체 {course.noticeCount}개</p>
