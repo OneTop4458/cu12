@@ -37,6 +37,7 @@ const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
   { value: "SONGSIN", label: "성신교정" },
 ];
 const LAST_ACTIVITY_STORAGE_KEY = "cu12:last-activity-at";
+const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
 const LEGACY_IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
 
 function applySessionPolicy(policy: AuthenticatedResponse["session"]) {
@@ -44,6 +45,7 @@ function applySessionPolicy(policy: AuthenticatedResponse["session"]) {
   if (!policy) return;
   try {
     window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
+    window.localStorage.removeItem(SESSION_EXPIRED_STATE_KEY);
     window.localStorage.removeItem(LEGACY_IDLE_TIMEOUT_STORAGE_KEY);
   } catch {
     // Ignore storage errors.

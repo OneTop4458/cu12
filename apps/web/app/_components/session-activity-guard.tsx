@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 const LAST_ACTIVITY_KEY = "cu12:last-activity-at";
+const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_FUTURE_ACTIVITY_SKEW_MS = 60 * 1000;
 const REFRESH_MIN_INTERVAL_MS = 2 * 60 * 1000;
@@ -11,6 +12,7 @@ const COUNTDOWN_TICK_MS = 1000;
 const WARNING_THRESHOLD_MS = 5 * 60 * 1000;
 const ACTIVITY_APPLY_GAP_MS = 20 * 1000;
 const MOUSE_MOVE_THRESHOLD_PX = 36;
+type SessionExpiredReason = "session-timeout" | "session-expired";
 
 function isProtectedPath(pathname: string): boolean {
   return pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
@@ -28,6 +30,29 @@ function readStoredActivityAt(): number {
     return parsed;
   } catch {
     return Date.now();
+  }
+}
+
+function readSessionExpiredState(): SessionExpiredReason | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_EXPIRED_STATE_KEY);
+    return raw === "session-timeout" || raw === "session-expired" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionExpiredState(reason: SessionExpiredReason | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!reason) {
+      window.localStorage.removeItem(SESSION_EXPIRED_STATE_KEY);
+      return;
+    }
+    window.localStorage.setItem(SESSION_EXPIRED_STATE_KEY, reason);
+  } catch {
+    // Ignore storage errors.
   }
 }
 
@@ -61,6 +86,7 @@ export function SessionActivityGuard() {
   const loggingOutRef = useRef<boolean>(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => Math.ceil(getIdleTimeoutMs() / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
+  const [sessionExpiredReason, setSessionExpiredReason] = useState<SessionExpiredReason | null>(null);
 
   const setActiveStateNow = (timestamp: number) => {
     lastActivityAtRef.current = timestamp;
@@ -73,12 +99,28 @@ export function SessionActivityGuard() {
     }
   };
 
-  const redirectToLogin = (reason: "session-timeout" | "session-expired") => {
-    if (loggingOutRef.current) return;
-    loggingOutRef.current = true;
+  const navigateToLogin = (reason: SessionExpiredReason) => {
     const url = new URL("/login", window.location.origin);
     url.searchParams.set("reason", reason);
     window.location.assign(`${url.pathname}${url.search}`);
+  };
+
+  const markSessionExpired = async (reason: SessionExpiredReason) => {
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
+    setSessionExpiredReason(reason);
+    setRemainingSeconds(0);
+    setWarningMode(false);
+    writeSessionExpiredState(reason);
+
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        keepalive: true,
+      });
+    } catch {
+      // Ignore logout endpoint failures.
+    }
   };
 
   const tryRefresh = async (now: number) => {
@@ -92,7 +134,7 @@ export function SessionActivityGuard() {
         credentials: "same-origin",
       });
       if (response.status === 401) {
-        redirectToLogin("session-expired");
+        void markSessionExpired("session-expired");
         return;
       }
       if (!response.ok) return;
@@ -110,6 +152,7 @@ export function SessionActivityGuard() {
   };
 
   const extendSession = async () => {
+    if (sessionExpiredReason) return;
     if (loggingOutRef.current) return;
     const now = Date.now();
     await tryRefresh(now);
@@ -118,6 +161,15 @@ export function SessionActivityGuard() {
 
   useEffect(() => {
     if (!active) return;
+
+    const persistedExpiredReason = readSessionExpiredState();
+    if (persistedExpiredReason) {
+      setSessionExpiredReason(persistedExpiredReason);
+      setRemainingSeconds(0);
+      setWarningMode(false);
+      loggingOutRef.current = true;
+      return;
+    }
 
     const bootstrappedAt = Math.max(readStoredActivityAt(), Date.now());
     setActiveStateNow(bootstrappedAt);
@@ -167,16 +219,7 @@ export function SessionActivityGuard() {
 
       if (remaining > 0) return;
 
-      try {
-        await fetch("/api/auth/logout", {
-          method: "POST",
-          keepalive: true,
-        });
-      } catch {
-        // Logout endpoint failure should still redirect to login.
-      } finally {
-        redirectToLogin("session-timeout");
-      }
+      await markSessionExpired("session-timeout");
     };
 
     const onKeydown = (event: KeyboardEvent) => {
@@ -209,6 +252,44 @@ export function SessionActivityGuard() {
   if (!active) return null;
 
   const warningRatio = Math.min(1, remainingSeconds / (Math.max(1, getIdleTimeoutMs() / 1000)));
+  const timeoutMessage =
+    sessionExpiredReason === "session-timeout"
+      ? "자동 로그아웃: 30분 이상 활동이 없어 세션이 만료되어 로그아웃되었습니다."
+      : "세션이 만료되어 로그아웃되었습니다. 다시 로그인해 주세요.";
+
+  if (sessionExpiredReason) {
+    return (
+      <div className="modal-overlay">
+        <section className="modal-card" role="dialog" aria-modal="true" aria-label="세션 만료 안내">
+          <h2>세션 만료</h2>
+          <p className="muted">{timeoutMessage}</p>
+          <p className="session-warning-sub">
+            화면을 새로고침하거나 아래 버튼으로 로그인 화면으로 이동해 다시 로그인해 주세요.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => {
+                window.location.reload();
+              }}
+            >
+              새로고침
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                navigateToLogin(sessionExpiredReason);
+              }}
+            >
+              로그인 페이지로 이동
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div

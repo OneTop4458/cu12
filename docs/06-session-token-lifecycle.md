@@ -7,6 +7,10 @@
 3. TTL: 12 hours.
 4. Invalid/expired token returns 401 for protected APIs.
 
+## Timeout UI
+
+1. When idle timeout is reached, the client shows a timeout modal and persists the timeout state until the user refreshes or explicitly moves to login.
+
 ## Idle Session (`cu12_idle`)
 
 1. Issued together with `cu12_session` after login.
