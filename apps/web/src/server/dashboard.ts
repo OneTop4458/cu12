@@ -291,12 +291,18 @@ export async function getCourses(userId: string) {
         ?? latestTask?.weekNo
         ?? null);
     const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
-    const deadlineLabel = (nowWindowPending || (pending.length > 0 && !nextWindowPending))
-      ? "이번 차시 마감"
-      : "다음 차시 마감";
     const courseDeadlineTask = isCourseCompleted
       ? (lastWindowTask ?? firstWindowTask ?? earliestPendingTask)
       : (nextWindowPending ?? firstWindowTask ?? earliestPendingTask);
+    const deadlineReferenceTask = nextWindowPending ?? courseDeadlineTask;
+    const isCurrentWeekDeadline = Boolean(
+      deadlineReferenceTask
+      && currentWeekNo !== null
+      && deadlineReferenceTask.weekNo === currentWeekNo,
+    );
+    const deadlineLabel = (nowWindowPending || isCurrentWeekDeadline || (pending.length > 0 && !nextWindowPending))
+      ? "이번 차시 마감"
+      : "다음 차시 마감";
 
     return {
       ...course,
