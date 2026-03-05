@@ -1,4 +1,4 @@
-﻿import { JobStatus, JobType, Prisma } from "@prisma/client";
+import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import { claimJob, failJob, finishJob, progressJob, sendHeartbeat } from "./internal-api";
 import {

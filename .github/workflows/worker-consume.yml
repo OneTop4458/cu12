@@ -1,4 +1,4 @@
-﻿name: Worker Consume
+name: Worker Consume
 
 on:
   workflow_call:

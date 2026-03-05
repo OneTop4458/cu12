@@ -63,6 +63,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       deduplicated,
       status: job.status,
       createdAt: job.createdAt,
+      runAfter: job.runAfter,
       startedAt: job.startedAt,
     });
 

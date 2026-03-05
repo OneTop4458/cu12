@@ -15,6 +15,7 @@ export interface ManualDispatchDecision {
 export interface ManualDispatchInput {
   status: JobStatus;
   createdAt: Date;
+  runAfter: Date | null;
   startedAt: Date | null;
 }
 
@@ -29,7 +30,8 @@ export interface ManualDispatchResult {
 
 export function decideManualDispatch(input: ManualDispatchInput, now = new Date()): ManualDispatchDecision {
   if (input.status === JobStatus.PENDING) {
-    const ageMs = now.getTime() - input.createdAt.getTime();
+    const anchor = input.runAfter ?? input.createdAt;
+    const ageMs = now.getTime() - anchor.getTime();
     if (ageMs >= MANUAL_PENDING_REDISPATCH_MS) {
       return { shouldDispatch: true, reason: "pending_stale" };
     }
@@ -55,6 +57,7 @@ export async function dispatchManualJob(
     ? decideManualDispatch({
       status: input.status,
       createdAt: input.createdAt,
+      runAfter: input.runAfter,
       startedAt: input.startedAt,
     })
     : { shouldDispatch: true, reason: "new_request" as const };

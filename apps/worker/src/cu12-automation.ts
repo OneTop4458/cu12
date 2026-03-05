@@ -1,4 +1,4 @@
-﻿import {
+import {
   parseMyCourseHtml,
   parseNoticeListHtml,
   parseNotificationListHtml,

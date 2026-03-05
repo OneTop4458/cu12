@@ -1,4 +1,4 @@
-﻿import { JobType } from "@prisma/client";
+import { JobType } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";

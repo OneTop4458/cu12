@@ -1,4 +1,4 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       deduplicated,
       status: job.status,
       createdAt: job.createdAt,
+      runAfter: job.runAfter,
       startedAt: job.startedAt,
     });
     const notice = deduplicated

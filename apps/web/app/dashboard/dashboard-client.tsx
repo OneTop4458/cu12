@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
