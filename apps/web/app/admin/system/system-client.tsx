@@ -197,7 +197,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar topbar-fixed">
+      <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
             <img src="/brand/catholic/crest-mark.png" alt="Catholic University crest" loading="lazy" />
@@ -243,7 +243,6 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           </div>
         </div>
       </header>
-      <div className="topbar-spacer" aria-hidden="true" />
 
       {loading ? <p className="muted">시스템 상태를 불러오는 중입니다...</p> : null}
       {error ? <p className="error-text">{error}</p> : null}

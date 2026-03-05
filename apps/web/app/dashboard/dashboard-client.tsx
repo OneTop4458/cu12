@@ -419,6 +419,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const hasActiveJobs = useMemo(() => jobs.some((job) => !TERMINAL.has(job.status)), [jobs]);
   const syncInProgress = syncQueueState !== "IDLE";
   const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "RUNNING"));
+  const activeSyncJob = useMemo(
+    () =>
+      sortedJobs.find(
+        (job) =>
+          (job.type === "SYNC" || job.type === "NOTICE_SCAN")
+          && (job.status === "PENDING" || job.status === "RUNNING"),
+      ) ?? null,
+    [sortedJobs],
+  );
+  const canCancelActiveSync = Boolean(activeSyncJob);
   const unreadNotifications = notifications.filter((item) => item.isUnread);
   const autoProgress = parseAutoProgress(trackingDetail?.result);
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
@@ -792,6 +802,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
+  async function cancelActiveSyncJob() {
+    if (!activeSyncJob || cancelSubmitting) return;
+
+    setCancelSubmitting(true);
+    setBlockingMessage("동기화 작업 취소를 요청 중입니다...");
+    try {
+      const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${activeSyncJob.id}/cancel`, {
+        method: "POST",
+      });
+      setMessage(payload.updated ? "동기화 작업이 취소 처리되었습니다." : `현재 상태: ${payload.status}`);
+      if (trackingJobId === activeSyncJob.id) {
+        setTrackingJobId(null);
+        setTrackingDetail(null);
+      }
+      await refreshAll(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCancelSubmitting(false);
+      if (!bootstrapSyncing) {
+        setBlockingMessage(null);
+      }
+    }
+  }
+
   async function markNotificationRead(item: Notification) {
     setActiveNotification(item);
     if (!item.isUnread) return;
@@ -852,7 +887,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       {siteNoticePortal}
-      <header className="topbar topbar-fixed">
+      <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
             <img
@@ -904,7 +939,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           </div>
         </div>
       </header>
-      <div className="topbar-spacer" aria-hidden="true" />
       {refreshing ? <p className="muted">자동 갱신 중...</p> : null}
 
       {error ? <p className="error-text">{error}</p> : null}
@@ -925,6 +959,19 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </div>
         {syncInProgress ? (
           <p className="sync-status-note muted">동기화 상태: {syncQueueStatusMessage}</p>
+        ) : null}
+        {syncInProgress && canCancelActiveSync ? (
+          <div className="button-row top-gap">
+            <button
+              type="button"
+              className="ghost-btn"
+              style={{ borderColor: "rgb(180 35 24 / 45%)", color: "var(--danger)" }}
+              onClick={() => void cancelActiveSyncJob()}
+              disabled={cancelSubmitting}
+            >
+              {cancelSubmitting ? "취소 요청 중..." : "동기화 작업 취소"}
+            </button>
+          </div>
         ) : null}
         {(syncQueueState === "PENDING_STALE" || syncQueueState === "RUNNING_STALE" || syncQueueState === "PENDING") &&
         syncQueueStaleJobIds.length > 0 ? (

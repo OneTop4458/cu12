@@ -737,7 +737,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar topbar-fixed">
+      <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
             <img
@@ -791,7 +791,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           </div>
         </div>
       </header>
-      <div className="topbar-spacer" aria-hidden="true" />
       <section className="card admin-hero">
         <div>
           <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 관리자</p>

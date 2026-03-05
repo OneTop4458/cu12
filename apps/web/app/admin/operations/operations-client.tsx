@@ -406,7 +406,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar topbar-fixed">
+      <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
             <div>
@@ -443,8 +443,6 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </div>
         </div>
       </header>
-      <div className="topbar-spacer" aria-hidden="true" />
-
       <section className="admin-stats">
         <article className="admin-stat card">
           <h2>총 작업</h2>

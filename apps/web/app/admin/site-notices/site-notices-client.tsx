@@ -321,7 +321,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
 
   return (
     <>
-      <header className="topbar topbar-fixed">
+      <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
             <div>
@@ -361,8 +361,6 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           </div>
         </div>
       </header>
-      <div className="topbar-spacer" aria-hidden="true" />
-
       <section className="admin-stats">
         <article className="admin-stat card">
           <h2>전체 공지</h2>
