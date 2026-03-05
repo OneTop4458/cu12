@@ -25,6 +25,25 @@ export function jsonError(message: string, status = 400, errorCode?: string): Ne
   );
 }
 
+export function getRequestIp(request: NextRequest): string | null {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const first = forwardedFor.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+
+  const cloudflareIp = request.headers.get("cf-connecting-ip")?.trim();
+  if (cloudflareIp) return cloudflareIp;
+
+  const flyIp = request.headers.get("fly-client-ip")?.trim();
+  if (flyIp) return flyIp;
+
+  return null;
+}
+
 export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>): Promise<T> {
   const body = await request.json();
   return schema.parse(body);

@@ -9,7 +9,7 @@ import {
   signSessionToken,
 } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
-import { jsonError, jsonOk, parseBody } from "@/lib/http";
+import { getRequestIp, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { writeAuditLog } from "@/server/audit-log";
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
     const body = await parseBody(request, BodySchema);
     const campus = body.campus ?? "SONGSIM";
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
+    const loginIp = getRequestIp(request);
 
     const localCandidate = await prisma.user.findUnique({
       where: { email: body.cu12Id },
@@ -50,6 +51,14 @@ export async function POST(request: NextRequest) {
       if (!ok) {
         return jsonError("This account password is invalid.", 401, "LOCAL_AUTH_FAILED");
       }
+
+      await prisma.user.update({
+        where: { id: localCandidate.id },
+        data: {
+          lastLoginAt: new Date(),
+          lastLoginIp: loginIp,
+        },
+      });
 
       const sessionToken = await signSessionToken(
         {
@@ -92,6 +101,7 @@ export async function POST(request: NextRequest) {
         meta: {
           cu12Id: body.cu12Id,
           campus,
+          loginIp,
         },
       });
       return response;
@@ -226,6 +236,14 @@ export async function POST(request: NextRequest) {
     setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
     setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        lastLoginIp: loginIp,
+      },
+    });
+
     await writeAuditLog({
       category: "AUTH",
       severity: "INFO",
@@ -235,6 +253,7 @@ export async function POST(request: NextRequest) {
       meta: {
         cu12Id: body.cu12Id,
         campus,
+        loginIp,
       },
     });
 

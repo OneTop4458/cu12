@@ -17,6 +17,9 @@ interface CourseWeekSummary {
   pendingTaskTypeCounts: ActivityTypeCounts;
 }
 
+const AUTO_SYNC_INTERVAL_HOURS = 2;
+const AUTO_SYNC_INTERVAL_MS = AUTO_SYNC_INTERVAL_HOURS * 60 * 60 * 1000;
+
 function daysUntil(target: Date, now: Date): number {
   const diff = target.getTime() - now.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
@@ -41,7 +44,7 @@ export async function getDashboardSummary(userId: string) {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, urgentTaskCount, nextDeadlineTask, lastSync] = await Promise.all([
+  const [activeCourseCount, progressAgg, unreadNoticeCount, urgentTaskCount, nextDeadlineTask, lastSync, latestSyncJob] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, status: CourseStatus.ACTIVE },
@@ -72,7 +75,16 @@ export async function getDashboardSummary(userId: string) {
       orderBy: { finishedAt: "desc" },
       select: { finishedAt: true },
     }),
+    prisma.jobQueue.findFirst({
+      where: { userId, type: "SYNC" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
   ]);
+
+  const nextAutoSyncAt = latestSyncJob
+    ? new Date(latestSyncJob.createdAt.getTime() + AUTO_SYNC_INTERVAL_MS)
+    : null;
 
   return {
     activeCourseCount,
@@ -82,6 +94,8 @@ export async function getDashboardSummary(userId: string) {
     urgentTaskCount,
     nextDeadlineAt: nextDeadlineTask?.dueAt ?? null,
     lastSyncAt: lastSync?.finishedAt ?? null,
+    nextAutoSyncAt,
+    autoSyncIntervalHours: AUTO_SYNC_INTERVAL_HOURS,
     initialSyncRequired: !lastSync,
   };
 }
@@ -556,13 +570,26 @@ export async function getNotifications(
   userId: string,
   options?: {
     unreadOnly?: boolean;
+    includeArchived?: boolean;
+    historyOnly?: boolean;
     limit?: number;
   },
 ) {
+  const historyOnly = options?.historyOnly ?? false;
+
   return prisma.notificationEvent.findMany({
     where: {
       userId,
+      ...(!historyOnly && !(options?.includeArchived ?? false) ? { isArchived: false } : {}),
       ...(options?.unreadOnly ? { isUnread: true } : {}),
+      ...(historyOnly
+        ? {
+          OR: [
+            { isUnread: false },
+            { isArchived: true },
+          ],
+        }
+        : {}),
     },
     orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
     take: options?.limit ?? 200,

@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
     getDashboardSummary(userId),
     getCourses(userId),
     getUpcomingDeadlines(userId, deadlinesLimit),
-    getNotifications(userId, { limit: notificationsLimit }),
+    getNotifications(userId, { unreadOnly: true, limit: notificationsLimit }),
     listJobsForUser(userId, jobsLimit),
     listSiteNotices(undefined, false),
     prisma.cu12Account.findUnique({
@@ -71,6 +71,12 @@ export async function GET(request: NextRequest) {
         campus: true,
         accountStatus: true,
         statusReason: true,
+        user: {
+          select: {
+            lastLoginAt: true,
+            lastLoginIp: true,
+          },
+        },
       },
     }),
     resolveMailPreference(userId),
@@ -95,7 +101,16 @@ export async function GET(request: NextRequest) {
       jobs,
       siteNotices,
       maintenanceNotice,
-      account,
+      account: account
+        ? {
+          cu12Id: account.cu12Id,
+          campus: account.campus,
+          accountStatus: account.accountStatus,
+          statusReason: account.statusReason,
+          lastLoginAt: account.user.lastLoginAt,
+          lastLoginIp: account.user.lastLoginIp,
+        }
+        : null,
       preference,
     },
     {

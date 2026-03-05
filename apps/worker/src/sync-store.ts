@@ -382,13 +382,26 @@ export async function persistSnapshot(
     notifierSeqs.length > 0
       ? prisma.notificationEvent.findMany({
         where: { userId, notifierSeq: { in: notifierSeqs } },
-        select: { notifierSeq: true },
+        select: {
+          notifierSeq: true,
+          isUnread: true,
+          isArchived: true,
+        },
       })
       : Promise.resolve([]),
   ]);
 
   const existingNoticeSet = new Set(existingNoticeRows.map((row) => row.noticeKey));
   const existingNotificationSet = new Set(existingNotificationRows.map((row) => row.notifierSeq));
+  const existingNotificationBySeq = new Map(
+    existingNotificationRows.map((row) => [
+      row.notifierSeq,
+      {
+        isUnread: row.isUnread,
+        isArchived: row.isArchived,
+      },
+    ]),
+  );
 
   let newNoticeCount = 0;
   let newNotificationCount = 0;
@@ -476,6 +489,9 @@ export async function persistSnapshot(
 
   for (const event of notifications) {
     const isNewRecord = !existingNotificationSet.has(event.notifierSeq);
+    const existing = existingNotificationBySeq.get(event.notifierSeq);
+    const nextIsUnread = existing ? existing.isUnread && event.isUnread : event.isUnread;
+    const nextIsArchived = existing?.isArchived ?? false;
 
     await runWithPrismaRetry(() =>
       prisma.notificationEvent.upsert({
@@ -491,7 +507,8 @@ export async function persistSnapshot(
           message: event.message,
           occurredAt: toDate(event.occurredAt),
           isCanceled: event.isCanceled,
-          isUnread: event.isUnread,
+          isUnread: nextIsUnread,
+          isArchived: nextIsArchived,
           syncedAt: new Date(event.syncedAt),
         },
         create: {
@@ -503,6 +520,7 @@ export async function persistSnapshot(
           occurredAt: toDate(event.occurredAt),
           isCanceled: event.isCanceled,
           isUnread: event.isUnread,
+          isArchived: false,
           syncedAt: new Date(event.syncedAt),
         },
       }),
@@ -516,6 +534,10 @@ export async function persistSnapshot(
     }
 
     existingNotificationSet.add(event.notifierSeq);
+    existingNotificationBySeq.set(event.notifierSeq, {
+      isUnread: nextIsUnread,
+      isArchived: nextIsArchived,
+    });
   }
 
   for (const task of data.tasks) {

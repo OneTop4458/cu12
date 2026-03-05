@@ -10,10 +10,15 @@ interface DashboardNotification {
   occurredAt: string | null;
   createdAt: string;
   isUnread: boolean;
+  isArchived?: boolean;
 }
 
 type NotificationCenterProps = {
   notifications: DashboardNotification[];
+  historyNotifications: DashboardNotification[];
+  showHistory: boolean;
+  historyLoading?: boolean;
+  onToggleHistory: () => void;
   onOpen: (item: DashboardNotification) => void;
   onMarkRead: (item: DashboardNotification) => void;
   onClearVisible?: (ids: string[]) => void;
@@ -22,19 +27,24 @@ type NotificationCenterProps = {
 
 export function NotificationCenter({
   notifications,
+  historyNotifications,
+  showHistory,
+  historyLoading = false,
+  onToggleHistory,
   onOpen,
   onMarkRead,
   onClearVisible,
   clearing = false,
 }: NotificationCenterProps) {
   const unreadCount = notifications.filter((item) => item.isUnread).length;
-  const latest = [...notifications]
+  const source = showHistory ? historyNotifications : notifications;
+  const latest = [...source]
     .sort((a, b) => {
       const unreadDelta = Number(b.isUnread) - Number(a.isUnread);
       if (unreadDelta !== 0) return unreadDelta;
       return new Date(b.occurredAt ?? b.createdAt).getTime() - new Date(a.occurredAt ?? a.createdAt).getTime();
     })
-    .slice(0, 8);
+    .slice(0, showHistory ? 20 : 8);
 
   function formatDate(value: string | null) {
     if (!value) return "-";
@@ -68,26 +78,39 @@ export function NotificationCenter({
           avoidCollisions
         >
           <div className="notification-panel-head">
-            <span className="notification-panel-head-copy">알림 · 읽지 않음 {unreadCount}건</span>
-            {onClearVisible && latest.length > 0 ? (
+            <span className="notification-panel-head-copy">
+              {showHistory ? `예전 알림 ${latest.length}건` : `알림 · 읽지 않음 ${unreadCount}건`}
+            </span>
+            <div className="notification-panel-actions">
               <button
                 type="button"
-                className="notification-clear-btn"
-                onClick={() => onClearVisible(latest.map((item) => item.id))}
-                disabled={clearing}
+                className="notification-secondary-btn"
+                onClick={onToggleHistory}
+                disabled={historyLoading}
               >
-                {clearing ? "삭제 중..." : "현재 목록 삭제"}
+                {showHistory ? "최신 알림 보기" : "예전 알림 보기"}
               </button>
-            ) : null}
+              {!showHistory && onClearVisible && latest.length > 0 ? (
+                <button
+                  type="button"
+                  className="notification-clear-btn"
+                  onClick={() => onClearVisible(latest.map((item) => item.id))}
+                  disabled={clearing}
+                >
+                  {clearing ? "삭제 중..." : "현재 목록 삭제"}
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="notification-panel-list">
+            {historyLoading ? <p className="notification-empty">예전 알림을 불러오는 중...</p> : null}
             {latest.length === 0 ? (
-              <p className="notification-empty">알림이 없습니다.</p>
+              <p className="notification-empty">{showHistory ? "예전 알림이 없습니다." : "알림이 없습니다."}</p>
             ) : (
               latest.map((item) => (
                 <button
                   key={item.id}
-                  className={`notification-list-item ${item.isUnread ? "unread" : ""}`}
+                  className={`notification-list-item ${item.isUnread ? "unread" : ""} ${item.isArchived ? "archived" : ""}`}
                   onClick={() => {
                     onOpen(item);
                     if (item.isUnread) onMarkRead(item);

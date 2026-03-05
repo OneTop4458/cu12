@@ -8,7 +8,7 @@ import {
   verifyLoginChallengeToken,
 } from "@/lib/auth";
 import { decryptSecret } from "@/lib/crypto";
-import { jsonError, jsonOk, parseBody } from "@/lib/http";
+import { getRequestIp, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { generateToken, hashToken } from "@/lib/token";
@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
+    const loginIp = getRequestIp(request);
 
     const challenge = await verifyLoginChallengeToken(body.challengeToken);
     if (!challenge) {
@@ -202,6 +203,14 @@ export async function POST(request: NextRequest) {
       campus: challenge.campus,
     });
 
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        lastLoginIp: loginIp,
+      },
+    });
+
     const sessionToken = await signSessionToken(
       {
         userId: user.id,
@@ -243,6 +252,7 @@ export async function POST(request: NextRequest) {
       meta: {
         cu12Id: challenge.cu12Id,
         role: user.role,
+        loginIp,
       },
     });
 

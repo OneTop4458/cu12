@@ -805,6 +805,9 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <ThemeToggle />
             <NotificationCenter
               notifications={recentLogNotifications}
+              historyNotifications={[]}
+              showHistory={false}
+              onToggleHistory={() => {}}
               onOpen={(item) => setActiveNotification(item)}
               onMarkRead={() => {}}
             />

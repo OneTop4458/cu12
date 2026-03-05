@@ -83,6 +83,8 @@ model User {
   isActive       Boolean            @default(true)
   isTestUser     Boolean            @default(false)
   role           UserRole           @default(USER)
+  lastLoginAt    DateTime?
+  lastLoginIp    String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   cu12Account    Cu12Account?
@@ -238,6 +240,7 @@ model NotificationEvent {
   occurredAt  DateTime?
   isCanceled  Boolean  @default(false)
   isUnread    Boolean  @default(true)
+  isArchived  Boolean  @default(false)
   syncedAt    DateTime
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

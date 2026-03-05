@@ -705,6 +705,16 @@ paths:
             type: string
             enum: ["1"]
         - in: query
+          name: includeArchived
+          schema:
+            type: string
+            enum: ["1"]
+        - in: query
+          name: historyOnly
+          schema:
+            type: string
+            enum: ["1"]
+        - in: query
           name: limit
           schema:
             type: integer
@@ -725,7 +735,7 @@ paths:
                       $ref: "#/components/schemas/DashboardNotification"
     delete:
       tags: [Dashboard]
-      summary: Delete selected notifications for effective user
+      summary: Archive selected notifications for effective user
       security:
         - cookieAuth: []
       requestBody:
@@ -1914,6 +1924,8 @@ components:
           upcomingDeadlines,
           nextDeadlineAt,
           lastSyncAt,
+          nextAutoSyncAt,
+          autoSyncIntervalHours,
           initialSyncRequired,
         ]
       properties:
@@ -1935,6 +1947,13 @@ components:
           type: string
           format: date-time
           nullable: true
+        nextAutoSyncAt:
+          type: string
+          format: date-time
+          nullable: true
+        autoSyncIntervalHours:
+          type: integer
+          minimum: 1
         initialSyncRequired:
           type: boolean
 
@@ -2129,7 +2148,7 @@ components:
 
     DashboardNotification:
       type: object
-      required: [id, courseTitle, category, message, occurredAt, createdAt, isUnread, isCanceled]
+      required: [id, courseTitle, category, message, occurredAt, createdAt, isUnread, isCanceled, isArchived]
       properties:
         id:
           type: string
@@ -2149,6 +2168,8 @@ components:
         isUnread:
           type: boolean
         isCanceled:
+          type: boolean
+        isArchived:
           type: boolean
 
     DashboardJob:
@@ -2216,7 +2237,7 @@ components:
         account:
           type: object
           nullable: true
-          required: [cu12Id, campus, accountStatus, statusReason]
+          required: [cu12Id, campus, accountStatus, statusReason, lastLoginAt, lastLoginIp]
           properties:
             cu12Id:
               type: string
@@ -2226,6 +2247,13 @@ components:
               type: string
               enum: [CONNECTED, NEEDS_REAUTH, ERROR]
             statusReason:
+              type: string
+              nullable: true
+            lastLoginAt:
+              type: string
+              format: date-time
+              nullable: true
+            lastLoginIp:
               type: string
               nullable: true
         preference:

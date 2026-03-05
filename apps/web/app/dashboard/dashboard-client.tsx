@@ -31,6 +31,8 @@ interface Summary {
   urgentTaskCount: number;
   nextDeadlineAt: string | null;
   lastSyncAt: string | null;
+  nextAutoSyncAt: string | null;
+  autoSyncIntervalHours: number;
   initialSyncRequired: boolean;
 }
 
@@ -98,6 +100,7 @@ interface Notification {
   occurredAt: string | null;
   createdAt: string;
   isUnread: boolean;
+  isArchived?: boolean;
 }
 
 interface SiteNotice {
@@ -171,6 +174,8 @@ interface Account {
   campus: "SONGSIM" | "SONGSIN";
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
+  lastLoginAt: string | null;
+  lastLoginIp: string | null;
 }
 
 interface AutoProgress {
@@ -249,6 +254,10 @@ interface DashboardBootstrap {
 
 function toDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("ko-KR") : "-";
+}
+
+function toDateTimeWithFallback(value: string | null, fallback: string): string {
+  return value ? toDateTime(value) : fallback;
 }
 
 function formatSeconds(value: number): string {
@@ -499,6 +508,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
   const [deadlineLoading, setDeadlineLoading] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
+  const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
+  const [notificationHistoryLoading, setNotificationHistoryLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
@@ -659,6 +671,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     return payload;
   }, [router]);
 
+  const loadNotificationHistory = useCallback(async () => {
+    setNotificationHistoryLoading(true);
+    try {
+      const payload = await fetchJson<{ notifications: Notification[] }>(
+        "/api/dashboard/notifications?historyOnly=1&includeArchived=1&limit=80",
+      );
+      setNotificationHistory(payload.notifications);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setNotificationHistoryLoading(false);
+    }
+  }, [fetchJson]);
+
+  const toggleNotificationHistory = useCallback(() => {
+    setNotificationHistoryOpen((prev) => {
+      if (!prev) {
+        void loadNotificationHistory();
+      }
+      return !prev;
+    });
+  }, [loadNotificationHistory]);
+
   const refreshAll = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else {
@@ -676,6 +711,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setCourses(payload.courses);
       setDeadlines(payload.deadlines);
       setNotifications(payload.notifications);
+      if (notificationHistoryOpen) {
+        void loadNotificationHistory();
+      }
       setJobs(payload.jobs);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
@@ -693,7 +731,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setRefreshing(false);
       if (!bootstrapSyncing) setBlockingMessage(null);
     }
-  }, [fetchJson, lectureSeq, bootstrapSyncing]);
+  }, [fetchJson, lectureSeq, bootstrapSyncing, notificationHistoryOpen, loadNotificationHistory]);
 
   useEffect(() => {
     void refreshAll(false);
@@ -1102,8 +1140,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   async function markNotificationRead(item: Notification) {
     setActiveNotification(item);
     if (!item.isUnread) return;
-    await fetchJson(`/api/dashboard/notifications/${item.id}/read`, { method: "PATCH" });
-    setNotifications((prev) => prev.map((row) => (row.id === item.id ? { ...row, isUnread: false } : row)));
+    try {
+      await fetchJson(`/api/dashboard/notifications/${item.id}/read`, { method: "PATCH" });
+      setNotifications((prev) => prev.filter((row) => row.id !== item.id));
+      if (notificationHistoryOpen) {
+        void loadNotificationHistory();
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   async function clearVisibleNotifications(ids: string[]) {
@@ -1122,7 +1167,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
       setNotifications((prev) => prev.filter((item) => !targetIds.has(item.id)));
       setActiveNotification((prev) => (prev && targetIds.has(prev.id) ? null : prev));
-      setMessage(`알림 ${payload.deletedCount}건을 삭제했습니다.`);
+      if (notificationHistoryOpen) {
+        void loadNotificationHistory();
+      }
+      setMessage(`알림 ${payload.deletedCount}건을 예전 알림으로 이동했습니다.`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1227,6 +1275,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </Link>
             <NotificationCenter
               notifications={notifications}
+              historyNotifications={notificationHistory}
+              showHistory={notificationHistoryOpen}
+              historyLoading={notificationHistoryLoading}
+              onToggleHistory={toggleNotificationHistory}
               onOpen={setActiveNotification}
               onMarkRead={(item) => {
                 if (item.isUnread) {
@@ -1252,18 +1304,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </header>
       {error ? <p className="error-text">{error}</p> : null}
 
-      <section className="grid-4">
+      <section className="grid-kpi">
         <article className="card"><h2>진행 강좌</h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
         <article className="card"><h2>평균 진도율</h2><p className="metric">{Math.round(summary?.avgProgress ?? 0)}%</p></article>
         <article className="card"><h2>미확인 공지</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
         <article className="card"><h2>임박 차시</h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
+        <article className="card">
+          <h2>최근 동기화</h2>
+          <p className="metric-sub">{toDateTimeWithFallback(summary?.lastSyncAt ?? null, "아직 동기화 이력 없음")}</p>
+          <p className="muted text-small">다음 자동 동기화: {toDateTimeWithFallback(summary?.nextAutoSyncAt ?? null, "예정 계산 대기")}</p>
+        </article>
       </section>
 
       <section className="card">
         <h2>학습 데이터 동기화</h2>
-        <p className="muted">
-          최신 강의/공지/마감 정보를 CU12에서 가져옵니다. 자동 수강 정확도를 위해 자동 수강 전에 동기화를 권장합니다.
-        </p>
+        <div className="sync-overview top-gap">
+          <p><strong>마지막 동기화</strong>: {toDateTimeWithFallback(summary?.lastSyncAt ?? null, "아직 동기화 이력 없음")}</p>
+          <p><strong>다음 자동 동기화</strong>: {toDateTimeWithFallback(summary?.nextAutoSyncAt ?? null, "예정 계산 대기")}</p>
+          <p className="muted">
+            현재는 {summary?.autoSyncIntervalHours ?? 2}시간마다 자동 동기화됩니다. 최신 데이터를 원하면 아래에서 수동 동기화를 실행하세요.
+          </p>
+        </div>
         <div className="button-row">
           <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
         </div>
@@ -1583,7 +1644,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
-                  <tr><th>다음 마감</th><td>{toDateTime(summary?.nextDeadlineAt ?? null)}</td></tr>
+                  <tr><th>다음 자동 동기화</th><td>{toDateTime(summary?.nextAutoSyncAt ?? null)}</td></tr>
+                  <tr><th>마지막 접속일</th><td>{toDateTime(account?.lastLoginAt ?? null)}</td></tr>
+                  <tr><th>마지막 접속 IP</th><td>{account?.lastLoginIp ?? "-"}</td></tr>
                 </tbody>
               </table>
             </div>

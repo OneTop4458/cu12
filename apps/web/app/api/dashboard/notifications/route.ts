@@ -14,10 +14,17 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const unreadOnly = url.searchParams.get("unreadOnly") === "1";
+  const includeArchived = url.searchParams.get("includeArchived") === "1";
+  const historyOnly = url.searchParams.get("historyOnly") === "1";
   const limitRaw = Number(url.searchParams.get("limit") ?? 50);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
 
-  const notifications = await getNotifications(context.effective.userId, { unreadOnly, limit });
+  const notifications = await getNotifications(context.effective.userId, {
+    unreadOnly,
+    includeArchived,
+    historyOnly,
+    limit,
+  });
   return jsonOk({ notifications });
 }
 
@@ -29,10 +36,15 @@ export async function DELETE(request: NextRequest) {
     const payload = await parseBody(request, DeleteNotificationsSchema);
     const ids = Array.from(new Set(payload.ids));
 
-    const result = await prisma.notificationEvent.deleteMany({
+    const result = await prisma.notificationEvent.updateMany({
       where: {
         userId: context.effective.userId,
         id: { in: ids },
+      },
+      data: {
+        isUnread: false,
+        isArchived: true,
+        updatedAt: new Date(),
       },
     });
 
