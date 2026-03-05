@@ -124,6 +124,7 @@ export function SessionActivityGuard() {
       // Ignore logout endpoint failures.
     } finally {
       writeSessionExpiredState(reason);
+      navigateToLogin(reason);
     }
   };
 
@@ -168,9 +169,7 @@ export function SessionActivityGuard() {
 
     const persistedExpiredReason = readSessionExpiredState();
     if (persistedExpiredReason) {
-      setSessionExpiredReason(persistedExpiredReason);
-      setRemainingSeconds(0);
-      setWarningMode(false);
+      navigateToLogin(persistedExpiredReason);
       loggingOutRef.current = true;
       return;
     }
