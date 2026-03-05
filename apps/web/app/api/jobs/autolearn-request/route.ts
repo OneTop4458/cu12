@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+﻿import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
@@ -44,11 +44,11 @@ export async function POST(request: NextRequest) {
     });
     const notice = deduplicated
       ? dispatch.state === "SKIPPED_DUPLICATE"
-        ? "자동수강 요청이 중복되어 처리되지 않았습니다. 기존 요청 완료 후 반영됩니다."
-        : "?대? ?ㅽ뻾 以묒씤 ?먮룞?섍컯 ?묒뾽???덉뼱 湲곗〈 ?묒뾽 ?곹깭瑜??쒖떆?⑸땲??"
+        ? "자동 수강이 이미 진행 중입니다. 현재 작업 완료 후 다시 요청해 주세요."
+        : "자동 수강 요청이 중복이었지만 오래된 요청은 새로 시작하도록 처리했습니다."
       : dispatch.dispatched
-        ? "?먮룞?섍컯 ?붿껌???묒닔?섏뿀?듬땲?? 吏꾪뻾瑜좎? ?붾㈃?먯꽌 ?ㅼ떆媛꾩쑝濡??뺤씤?????덉뒿?덈떎."
-        : "?붿껌? ??λ릺?덉?留??뚯빱 利됱떆 ?ㅽ뻾 ?몄텧???ㅽ뙣?덉뒿?덈떎. ?좎떆 ???먮룞 泥섎━?⑸땲??";
+        ? "자동 수강 실행을 시작했습니다."
+        : "자동 수강 요청은 저장되었지만 실행 트리거 전송이 실패했습니다. 잠시 후 다시 시도해 주세요.";
 
     await writeAuditLog({
       category: "JOB",

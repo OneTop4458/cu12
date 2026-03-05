@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+﻿import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
 import { enqueueJob } from "@/server/queue";
@@ -24,11 +24,11 @@ export async function POST(request: NextRequest) {
   });
   const notice = deduplicated
     ? dispatch.state === "SKIPPED_DUPLICATE"
-      ? "동기화 요청이 중복되어 처리되지 않았습니다. 기존 요청 완료 후 반영됩니다."
-      : "?대? ?ㅽ뻾 以묒씤 ?숆린???묒뾽???덉뼱 湲곗〈 ?묒뾽 ?곹깭瑜??쒖떆?⑸땲??"
+      ? "동기화 작업이 이미 진행 중입니다. 현재 작업 완료 후 다시 요청해 주세요."
+      : "동기화 요청이 중복이었지만 오래된 작업은 새로 요청하도록 처리했습니다."
     : dispatch.dispatched
-      ? "?숆린???붿껌???묒닔?섏뿀?듬땲??"
-      : "?붿껌? ??λ릺?덉?留??뚯빱 利됱떆 ?ㅽ뻾 ?몄텧???ㅽ뙣?덉뒿?덈떎. ?좎떆 ???먮룞 泥섎━?⑸땲??";
+      ? "동기화 실행을 요청했습니다."
+      : "동기화 요청은 저장되었지만 실행 트리거 전송이 실패했습니다. 잠시 후 다시 시도해 주세요.";
 
   await writeAuditLog({
     category: "JOB",
