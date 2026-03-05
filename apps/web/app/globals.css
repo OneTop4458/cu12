@@ -1511,6 +1511,22 @@ textarea:focus {
   margin-top: 2px;
 }
 
+.course-week-table {
+  margin-top: 4px;
+}
+
+.course-week-table table {
+  min-width: 640px;
+}
+
+.course-week-table td {
+  vertical-align: middle;
+}
+
+.course-week-table .status-chip {
+  white-space: nowrap;
+}
+
 .course-card p {
   margin: 0;
 }
