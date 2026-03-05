@@ -154,7 +154,7 @@ function parseDurationCandidates(rawText: string): number[] {
   const normalized = normalizeWhitespace(rawText);
   const matches = [
     ...normalized.matchAll(/(?:^|[^\d])(\d{1,2}:\d{1,2}(?::\d{1,2})?)(?:[^\d]|$)/g),
-    ...normalized.matchAll(/(\d+)\s*(?:시간|시|분|초)/g),
+    ...normalized.matchAll(/(\d+\s*(?:시간|시|분|초)(?:\s*\d+\s*(?:시간|시|분|초)){0,2})/g),
   ];
   return matches
     .map((match) => parseDurationToSeconds(match[1]))
@@ -902,6 +902,16 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     ].map((value) => normalizeWhitespace(value)).filter((value) => value.length > 0);
 
     const contextText = candidateTexts.join(" ");
+    const localTexts = [
+      raw,
+      item.attr("aria-label") ?? "",
+      item.attr("title") ?? "",
+      rowText,
+      tdText,
+      item.closest("li").text(),
+      item.find(".status, .state, .badge, .done, .complete, .progress_txt, .learn_state").text(),
+    ].map((value) => normalizeWhitespace(value)).filter((value) => value.length > 0);
+    const localContextText = localTexts.join(" ");
 
     if (!courseContentsSeq || !weekNo || !lessonNo) {
       const contextUrl = `${argsRaw} ${item.attr("data-url") ?? ""} ${item.attr("href") ?? ""}`;
@@ -943,7 +953,8 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       "재생시간",
     ];
 
-    const durationFromContext = [...candidateTexts].map((value) => {
+    const durationSourceTexts = localTexts.length > 0 ? localTexts : candidateTexts;
+    const durationFromContext = [...durationSourceTexts].map((value) => {
       const found = [
         findLabeledDuration(value, requiredLabels),
         findLabeledDuration(value, learnedLabels),
@@ -954,15 +965,19 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       };
     });
 
-    const candidateDurations = [...new Set([...candidateTexts.flatMap((value) => parseDurationCandidates(value))])];
+    const candidateDurations = [...new Set([...durationSourceTexts.flatMap((value) => parseDurationCandidates(value))])];
     const requiredFromLabel = durationFromContext.map((item) => item.required).find((value) => value !== null);
     const learnedFromLabel = durationFromContext.map((item) => item.learned).find((value) => value !== null);
 
-    const requiredSeconds = requiredFromLabel !== null ? (requiredFromLabel ?? 0) : (candidateDurations[0] ?? 0);
-    const learnedSeconds = learnedFromLabel !== null ? (learnedFromLabel ?? 0) : (candidateDurations.length > 1 ? candidateDurations[1] : (candidateDurations[0] ?? 0));
+    const requiredSeconds = requiredFromLabel !== null
+      ? (requiredFromLabel ?? 0)
+      : (candidateDurations.length > 0 ? Math.max(...candidateDurations) : 0);
+    const learnedSeconds = learnedFromLabel !== null
+      ? (learnedFromLabel ?? 0)
+      : (candidateDurations.length > 1 ? Math.min(...candidateDurations) : 0);
     const taskTitle = raw.slice(0, 200);
 
-    const hasCompleteKeyword = /완료|수강완료|제출완료|학습완료|done/i.test(contextText);
+    const hasCompleteKeyword = /(?:활동이\s*완료됨|수강완료|제출완료|학습완료|완료됨|\bdone\b|\bcompleted\b)/i.test(localContextText);
     const window =
       candidateTexts
         .map((text) => parseTaskWindow(text))
