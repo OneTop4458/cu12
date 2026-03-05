@@ -12,12 +12,14 @@
 1. User triggers `POST /api/jobs/sync-now`.
 2. Confirm response includes `jobId` and `dispatchState`.
 3. Track progression in `/api/jobs/{jobId}`.
+4. SYNC jobs are high priority in worker claim order and can run even if AUTOLEARN is already running for the same user.
 
 ## Manual Auto-learning Procedure
 
 1. User triggers `POST /api/jobs/autolearn-request`.
 2. Confirm queue entry and dispatch status (`dispatchState`).
 3. Validate worker logs and learning run records.
+4. AUTOLEARN is limited to one concurrent job per user; additional AUTOLEARN jobs for the same user are delayed by the queue.
 
 ## New Environment Bootstrap
 

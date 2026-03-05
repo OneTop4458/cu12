@@ -34,6 +34,33 @@ export interface EnqueueJobResult {
 const STALE_WORKER_TIMEOUT_MS = 3 * 60 * 1000;
 
 const STALE_JOB_REQUEUE_DELAY_MS = 60_000;
+const AUTOLEARN_CONFLICT_DELAY_MS = 60_000;
+const CLAIM_SCAN_LIMIT = 200;
+
+function rankJobTypes(inputTypes: JobType[]): JobType[] {
+  const uniqueTypes = Array.from(new Set(inputTypes));
+  const priority: JobType[] = [
+    JobType.SYNC,
+    JobType.NOTICE_SCAN,
+    JobType.AUTOLEARN,
+    JobType.MAIL_DIGEST,
+  ];
+
+  const ordered: JobType[] = [];
+  for (const type of priority) {
+    if (uniqueTypes.includes(type)) {
+      ordered.push(type);
+    }
+  }
+
+  for (const type of uniqueTypes) {
+    if (!ordered.includes(type)) {
+      ordered.push(type);
+    }
+  }
+
+  return ordered;
+}
 
 async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
   const heartbeatCutoff = new Date(now.getTime() - STALE_WORKER_TIMEOUT_MS);
@@ -115,58 +142,84 @@ export async function getJobForUser(jobId: string, userId: string) {
 
 export async function claimNextJob(workerId: string, types: JobType[]) {
   await reclaimStaleRunningJobs();
+  if (types.length === 0) return null;
 
-  const candidate = await prisma.jobQueue.findFirst({
+  const requestTypes = rankJobTypes(types);
+  const now = new Date();
+
+  const candidates = await prisma.jobQueue.findMany({
     where: {
-      type: { in: types },
+      type: { in: requestTypes },
       status: JobStatus.PENDING,
-      runAfter: { lte: new Date() },
+      runAfter: { lte: now },
     },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: { createdAt: "asc" },
+    take: CLAIM_SCAN_LIMIT,
   });
 
-  if (!candidate) return null;
-
-  const claimed = await prisma.jobQueue.updateMany({
-    where: {
-      id: candidate.id,
-      status: JobStatus.PENDING,
-    },
-    data: {
-      status: JobStatus.RUNNING,
-      startedAt: new Date(),
-      attempts: { increment: 1 },
-      workerId,
-      lastError: null,
-    },
-  });
-
-  if (claimed.count === 0) {
+  if (candidates.length === 0) {
     return null;
   }
 
-  const runningBySameUser = await prisma.jobQueue.count({
-    where: {
-      userId: candidate.userId,
-      status: JobStatus.RUNNING,
-      id: { not: candidate.id },
-    },
+  const requestTypeRank = new Map<JobType, number>();
+  requestTypes.forEach((type, index) => {
+    requestTypeRank.set(type, index);
   });
 
-  if (runningBySameUser > 0) {
-    await prisma.jobQueue.update({
-      where: { id: candidate.id },
-      data: {
+  const sortedCandidates = candidates.slice().sort((left, right) => {
+    const leftRank = requestTypeRank.get(left.type) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = requestTypeRank.get(right.type) ?? Number.MAX_SAFE_INTEGER;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return left.createdAt.getTime() - right.createdAt.getTime();
+  });
+
+  for (const candidate of sortedCandidates) {
+    const claimed = await prisma.jobQueue.updateMany({
+      where: {
+        id: candidate.id,
         status: JobStatus.PENDING,
-        startedAt: null,
-        workerId: null,
-        runAfter: new Date(Date.now() + 60_000),
+      },
+      data: {
+        status: JobStatus.RUNNING,
+        startedAt: new Date(),
+        attempts: { increment: 1 },
+        workerId,
+        lastError: null,
       },
     });
-    return null;
+
+    if (claimed.count === 0) {
+      continue;
+    }
+
+    if (candidate.type === JobType.AUTOLEARN) {
+      const runningAutoLearnByUser = await prisma.jobQueue.count({
+        where: {
+          userId: candidate.userId,
+          type: JobType.AUTOLEARN,
+          status: JobStatus.RUNNING,
+          id: { not: candidate.id },
+        },
+      });
+
+      if (runningAutoLearnByUser > 0) {
+        await prisma.jobQueue.update({
+          where: { id: candidate.id },
+          data: {
+            status: JobStatus.PENDING,
+            startedAt: null,
+            workerId: null,
+            runAfter: new Date(Date.now() + AUTOLEARN_CONFLICT_DELAY_MS),
+          },
+        });
+        continue;
+      }
+    }
+
+    return prisma.jobQueue.findUnique({ where: { id: candidate.id } });
   }
 
-  return prisma.jobQueue.findUnique({ where: { id: candidate.id } });
+  return null;
 }
 
 export async function markJobSucceeded(jobId: string, result?: unknown) {

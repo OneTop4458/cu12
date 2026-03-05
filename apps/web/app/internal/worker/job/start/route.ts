@@ -7,7 +7,7 @@ import { claimNextJob, touchHeartbeat } from "@/server/queue";
 
 const BodySchema = z.object({
   workerId: z.string().min(2).max(120),
-  types: z.array(z.nativeEnum(JobType)).default([JobType.SYNC, JobType.AUTOLEARN]),
+  types: z.array(z.nativeEnum(JobType)).default([JobType.SYNC, JobType.NOTICE_SCAN, JobType.AUTOLEARN]),
 });
 
 export async function POST(request: NextRequest) {

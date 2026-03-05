@@ -35,10 +35,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: cu12-worker-consume-${{ inputs.trigger || github.event.inputs.trigger || 'sync' }}
-  cancel-in-progress: false
-
 jobs:
   consume:
     runs-on: ubuntu-latest
