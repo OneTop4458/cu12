@@ -391,6 +391,8 @@ async function processSync(
           + ` notices=${progress.noticeCount}`
           + ` tasks=${progress.taskCount}`
           + ` notifications=${progress.notificationCount}`
+          + ` elapsed=${Math.max(0, progress.elapsedSeconds ?? 0)}s`
+          + ` eta=${progress.estimatedRemainingSeconds == null ? "calc" : `${Math.max(0, progress.estimatedRemainingSeconds)}s`}`
           + ` current=${currentTitle}(${currentSeq})`,
         );
       },

@@ -31,6 +31,8 @@ export interface SyncProgress {
   noticeCount: number;
   taskCount: number;
   notificationCount: number;
+  elapsedSeconds?: number;
+  estimatedRemainingSeconds?: number | null;
   current?: {
     lectureSeq: number;
     title: string;
@@ -736,6 +738,15 @@ export async function collectCu12Snapshot(
     }
   };
   installDialogHandler(page);
+  const startedAtMs = Date.now();
+  const buildTiming = (completedCourses: number, totalCourses: number) => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+    const remainingCourses = Math.max(0, totalCourses - completedCourses);
+    const estimatedRemainingSeconds = completedCourses > 0
+      ? Math.max(0, Math.ceil((elapsedSeconds / completedCourses) * remainingCourses))
+      : null;
+    return { elapsedSeconds, estimatedRemainingSeconds };
+  };
 
   try {
     await ensureLogin(page, creds);
@@ -759,6 +770,7 @@ export async function collectCu12Snapshot(
       noticeCount: notices.length,
       taskCount: tasks.length,
       notificationCount: 0,
+      ...buildTiming(completedCourses, courses.length),
     });
 
     for (const course of courses) {
@@ -773,6 +785,7 @@ export async function collectCu12Snapshot(
         noticeCount: notices.length,
         taskCount: tasks.length,
         notificationCount: 0,
+        ...buildTiming(completedCourses, courses.length),
         current: {
           lectureSeq: course.lectureSeq,
           title: course.title,
@@ -825,6 +838,7 @@ export async function collectCu12Snapshot(
         noticeCount: notices.length,
         taskCount: tasks.length,
         notificationCount: 0,
+        ...buildTiming(completedCourses, courses.length),
         current: {
           lectureSeq: course.lectureSeq,
           title: course.title,
@@ -844,6 +858,7 @@ export async function collectCu12Snapshot(
         noticeCount: notices.length,
         taskCount: tasks.length,
         notificationCount: 0,
+        ...buildTiming(completedCourses, courses.length),
         current: {
           lectureSeq: course.lectureSeq,
           title: course.title,
@@ -862,6 +877,7 @@ export async function collectCu12Snapshot(
       noticeCount: notices.length,
       taskCount: tasks.length,
       notificationCount: 0,
+      ...buildTiming(completedCourses, courses.length),
     });
 
     await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
@@ -875,6 +891,7 @@ export async function collectCu12Snapshot(
       noticeCount: notices.length,
       taskCount: tasks.length,
       notificationCount: notifications.length,
+      ...buildTiming(courses.length, courses.length),
     });
 
     return { courses, notices, notifications, tasks };

@@ -211,7 +211,7 @@ export function parseMyCourseHtml(html: string, userId: string, status: CourseSt
   const seen = new Set<number>();
   const items: CourseState[] = [];
 
-  $('a[href^="javascript:enterClass(")').each((_, el) => {
+  $('a[href^="javascript:enterClass("]').each((_, el) => {
     const link = $(el);
     const href = link.attr("href") ?? "";
     const lectureSeqMatch = href.match(/enterClass\((\d+)\)/);

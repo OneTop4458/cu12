@@ -205,6 +205,8 @@ interface SyncProgress {
     noticeCount: number;
     taskCount: number;
     notificationCount: number;
+    elapsedSeconds?: number;
+    estimatedRemainingSeconds?: number | null;
     current?: {
       lectureSeq: number;
       title: string;
@@ -1183,6 +1185,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <p className="muted">
                   강좌 {syncProgress.progress.completedCourses}/{Math.max(1, syncProgress.progress.totalCourses)} 처리
                   · 공지 {syncProgress.progress.noticeCount}건 · 차시 {syncProgress.progress.taskCount}건 · 알림 {syncProgress.progress.notificationCount}건
+                </p>
+                <p className="muted">
+                  경과 {formatSeconds(syncProgress.progress.elapsedSeconds ?? 0)}
+                  {" "}
+                  · 남은 예상{" "}
+                  {syncProgress.progress.estimatedRemainingSeconds === null || syncProgress.progress.estimatedRemainingSeconds === undefined
+                    ? "계산 중"
+                    : formatSeconds(syncProgress.progress.estimatedRemainingSeconds)}
                 </p>
                 {syncProgress.progress.current ? (
                   <p className="muted">
