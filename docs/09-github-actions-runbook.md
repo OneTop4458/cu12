@@ -17,6 +17,7 @@
 - Uses `npm ci --prefer-offline --no-audit` and Playwright cache for faster startup.
 - Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
 - Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
+- Manual action dispatch treats SYNC as priority: if a job is duplicate and still running/pending within stale windows, dispatch can be skipped (`SKIPPED_DUPLICATE`) to avoid storming GitHub API; stale duplicates are force-redispatched.
 
 4. `sync-schedule.yml`
 - Dispatches periodic `SYNC` jobs every 2 hours.
@@ -103,3 +104,4 @@
 2. Confirm API response `dispatchState` is `DISPATCHED` (not `NOT_CONFIGURED` / `FAILED`).
 3. Review failed logs with `gh run view <run_id> --log-failed`.
 4. Confirm `WEB_INTERNAL_BASE_URL` points to production URL.
+5. If job state and Actions are mismatched, call `GET /api/admin/jobs/reconcile` to identify orphaned `RUNNING` jobs or ghost runs.

@@ -1161,6 +1161,22 @@ paths:
         "403":
           description: Forbidden
 
+  /api/admin/jobs/reconcile:
+    get:
+      tags: [Admin]
+      summary: Reconcile dashboard RUNNING jobs with active GitHub Action runs
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Reconciliation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminJobReconcileResponse"
+        "500":
+          description: Reconciliation failed
+
   /api/admin/workers:
     get:
       tags: [Admin]
@@ -2476,7 +2492,7 @@ components:
           type: boolean
         dispatchState:
           type: string
-          enum: [DISPATCHED, NOT_CONFIGURED, FAILED]
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE]
         dispatchError:
           type: string
           nullable: true
@@ -2794,6 +2810,107 @@ components:
         workerId:
           type: string
         lastSeenAt:
+          type: string
+          format: date-time
+
+    AdminJobReconcileResponse:
+      type: object
+      required:
+        [checkedAt, canReconcileWithGitHub, summary, runningJobs, orphanedRunningJobs, activeRuns, ghostRuns]
+      properties:
+        checkedAt:
+          type: string
+          format: date-time
+        canReconcileWithGitHub:
+          type: boolean
+        summary:
+          $ref: "#/components/schemas/AdminJobReconcileSummary"
+        runningJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobReconcileDbItem"
+        orphanedRunningJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobReconcileDbItem"
+        activeRuns:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobReconcileGhRun"
+        ghostRuns:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobReconcileGhRun"
+        error:
+          type: string
+          nullable: true
+
+    AdminJobReconcileSummary:
+      type: object
+      required: [runningJobsCount, orphanedRunningJobsCount, activeRunsCount, ghostRunsCount]
+      properties:
+        runningJobsCount:
+          type: integer
+        orphanedRunningJobsCount:
+          type: integer
+        activeRunsCount:
+          type: integer
+        ghostRunsCount:
+          type: integer
+        nonparseableWorkerIdCount:
+          type: integer
+          default: 0
+
+    AdminJobReconcileDbItem:
+      type: object
+      required:
+        [id, userId, type, status, startedAt, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        type:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        workerId:
+          type: string
+          nullable: true
+        runId:
+          type: integer
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminJobReconcileGhRun:
+      type: object
+      required: [id, status, createdAt, updatedAt, htmlUrl]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        conclusion:
+          type: string
+          nullable: true
+        htmlUrl:
+          type: string
+          format: uri
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time
 

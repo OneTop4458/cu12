@@ -132,7 +132,7 @@ interface JobDispatch {
   jobId: string;
   deduplicated: boolean;
   dispatched?: boolean;
-  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED";
+  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE";
   dispatchError?: string;
   dispatchErrorCode?: string | null;
   notice?: string;

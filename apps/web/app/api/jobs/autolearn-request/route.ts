@@ -2,8 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
-import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
 import { enqueueJob } from "@/server/queue";
+import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 
 const BodySchema = z.object({
   mode: z.enum(["SINGLE_NEXT", "SINGLE_ALL", "ALL_COURSES"]).default("ALL_COURSES"),
@@ -36,12 +36,19 @@ export async function POST(request: NextRequest) {
       idempotencyKey: `autolearn:${userId}:${body.mode}:${lecturePart}`,
     });
 
-    const dispatch = await dispatchWorkerRun("autolearn", userId);
+    const { dispatch } = await dispatchManualJob(userId, "autolearn", {
+      deduplicated,
+      status: job.status,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+    });
     const notice = deduplicated
-      ? "이미 실행 중인 자동수강 작업이 있어 기존 작업 상태를 표시합니다."
+      ? dispatch.state === "SKIPPED_DUPLICATE"
+        ? "자동수강 요청이 중복되어 처리되지 않았습니다. 기존 요청 완료 후 반영됩니다."
+        : "?대? ?ㅽ뻾 以묒씤 ?먮룞?섍컯 ?묒뾽???덉뼱 湲곗〈 ?묒뾽 ?곹깭瑜??쒖떆?⑸땲??"
       : dispatch.dispatched
-        ? "자동수강 요청이 접수되었습니다. 진행률은 화면에서 실시간으로 확인할 수 있습니다."
-        : "요청은 저장되었지만 워커 즉시 실행 호출에 실패했습니다. 잠시 후 자동 처리됩니다.";
+        ? "?먮룞?섍컯 ?붿껌???묒닔?섏뿀?듬땲?? 吏꾪뻾瑜좎? ?붾㈃?먯꽌 ?ㅼ떆媛꾩쑝濡??뺤씤?????덉뒿?덈떎."
+        : "?붿껌? ??λ릺?덉?留??뚯빱 利됱떆 ?ㅽ뻾 ?몄텧???ㅽ뙣?덉뒿?덈떎. ?좎떆 ???먮룞 泥섎━?⑸땲??";
 
     await writeAuditLog({
       category: "JOB",

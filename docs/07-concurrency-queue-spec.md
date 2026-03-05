@@ -19,6 +19,10 @@
 - Priority order (when a worker receives multiple types): `SYNC` and `NOTICE_SCAN` first, then `AUTOLEARN`, then `MAIL_DIGEST`.
 - `SYNC` and `NOTICE_SCAN` jobs are not blocked by any other job type for the same user.
 - `AUTOLEARN` is restricted to one concurrent job per user. If another AUTOLEARN job is already `RUNNING` for that user, the job is delayed with a short retry backoff.
+- Manual SYNC/AUTOLEARN API requests use idempotency keys but are always evaluated against a re-dispatch policy:
+  - If the same request is duplicated while a related job is still `RUNNING` or `PENDING` for a short window, no new Actions dispatch is sent.
+  - `PENDING` stale for 5 minutes or `RUNNING` stale for 10 minutes triggers a forced re-dispatch of the same trigger (to recover worker stalls).
+  - This keeps queue pressure controlled while still allowing recovery from stuck jobs.
 
 ## Claim Strategy
 
@@ -39,6 +43,11 @@
 
 - Queue creation includes `idempotencyKey`.
 - Prevents duplicate enqueue when repeated button clicks or retries occur.
+- In manual user actions, idempotency is supplemented by stale-window checks before dispatch:
+  - `SYNC` and `AUTOLEARN` requests call Actions dispatch only when either:
+    - request is a new unique job, or
+    - duplicate request maps to a stale `PENDING` (`>=5m`) or stale `RUNNING` (`>=10m`) row.
+
 
 ## Capacity Guidance
 

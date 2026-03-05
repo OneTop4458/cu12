@@ -1,7 +1,7 @@
 import { getEnv } from "@/lib/env";
 
 export type WorkerDispatchType = "sync" | "autolearn";
-export type WorkerDispatchState = "DISPATCHED" | "NOT_CONFIGURED" | "FAILED";
+export type WorkerDispatchState = "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE";
 export type WorkerRunCancelState = "REQUESTED" | "NOT_CONFIGURED" | "NOT_APPLICABLE" | "FAILED";
 
 export interface WorkerDispatchResult {
