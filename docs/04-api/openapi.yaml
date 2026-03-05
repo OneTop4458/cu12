@@ -1177,6 +1177,25 @@ paths:
         "500":
           description: Reconciliation failed
 
+  /internal/admin/jobs/reconcile:
+    get:
+      tags: [Admin]
+      summary: Reconcile dashboard RUNNING jobs with active GitHub Action runs (internal)
+      description: Internal endpoint for automated health checks running without browser session cookies.
+      security:
+        - workerToken: []
+      responses:
+        "200":
+          description: Reconciliation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminJobReconcileResponse"
+        "403":
+          description: Forbidden
+        "500":
+          description: Reconciliation failed
+
   /api/admin/workers:
     get:
       tags: [Admin]
@@ -1726,6 +1745,10 @@ components:
       type: apiKey
       in: cookie
       name: cu12_session
+    workerToken:
+      type: apiKey
+      in: header
+      name: x-worker-token
 
   schemas:
     UserRole:
@@ -2190,7 +2213,7 @@ components:
 
     DashboardJob:
       type: object
-      required: [id, type, status, createdAt]
+      required: [id, type, status, createdAt, runAfter]
       properties:
         id:
           type: string
@@ -2201,6 +2224,9 @@ components:
           type: string
           enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
         createdAt:
+          type: string
+          format: date-time
+        runAfter:
           type: string
           format: date-time
         startedAt:
@@ -2220,7 +2246,7 @@ components:
 
     DashboardBootstrapResponse:
       type: object
-      required: [context, summary, courses, deadlines, notifications, jobs, siteNotices, maintenanceNotice, account, preference]
+      required: [context, summary, courses, deadlines, notifications, jobs, syncQueue, siteNotices, maintenanceNotice, account, preference]
       properties:
         context:
           $ref: "#/components/schemas/SessionContext"
@@ -2242,6 +2268,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DashboardJob"
+        syncQueue:
+          $ref: "#/components/schemas/DashboardSyncQueue"
         siteNotices:
           type: array
           items:
@@ -2274,6 +2302,30 @@ components:
               nullable: true
         preference:
           $ref: "#/components/schemas/MailPreference"
+
+    DashboardSyncQueue:
+      type: object
+      required: [state, staleJobIds, runningCount, runningStaleCount, pendingCount, pendingStaleCount]
+      properties:
+        state:
+          type: string
+          enum: [IDLE, RUNNING, RUNNING_STALE, PENDING, PENDING_STALE]
+        staleJobIds:
+          type: array
+          items:
+            type: string
+        runningCount:
+          type: integer
+          minimum: 0
+        runningStaleCount:
+          type: integer
+          minimum: 0
+        pendingCount:
+          type: integer
+          minimum: 0
+        pendingStaleCount:
+          type: integer
+          minimum: 0
 
     DashboardDiagnosticsTaskCandidate:
       type: object

@@ -22,10 +22,42 @@ export interface WorkerRunCancelResult {
 
 export function parseGitHubRunIdFromWorkerId(workerId: string | null | undefined): number | null {
   if (!workerId) return null;
-  const match = workerId.match(/^gha-(\d+)-\d+$/);
-  if (!match?.[1]) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  const raw = workerId.trim();
+  if (!raw) return null;
+
+  const directNumber = raw.match(/^(\d+)$/);
+  if (directNumber?.[1]) {
+    const parsed = Number(directNumber[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  if (/^gha/i.test(raw)) {
+    const ghaMatch = raw.match(/^gha[-_](\d+)(?:[-_][^/\\-_\s]+)?$/i);
+    if (ghaMatch?.[1]) {
+      const parsed = Number(ghaMatch[1]);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+
+    const legacyMatch = raw.match(/^gha-(\d+)-\d+$/i);
+    if (legacyMatch?.[1]) {
+      const parsed = Number(legacyMatch[1]);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+  }
+
+  const actionRunMatch = raw.match(/actions\/runs\/(\d+)/i);
+  if (actionRunMatch?.[1]) {
+    const parsed = Number(actionRunMatch[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  const runPrefixMatch = raw.match(/^run[_-]?(?:id)?[_-]?(\d+)$/i);
+  if (runPrefixMatch?.[1]) {
+    const parsed = Number(runPrefixMatch[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  return null;
 }
 
 export async function dispatchWorkerRun(type: WorkerDispatchType, userId?: string): Promise<WorkerDispatchResult> {

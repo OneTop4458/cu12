@@ -30,6 +30,7 @@
 6. `reconcile-health-check.yml`
 - Calls `/internal/admin/jobs/reconcile` every 30 minutes using `WORKER_SHARED_TOKEN`.
 - Fails the workflow when active job/run divergence is detected (`orphanedRunningJobsCount > 0` or `ghostRunsCount > 0`).
+- Fails also when reconciliation could not be performed with GitHub API (`canReconcileWithGitHub = false`).
 
 7. `db-retention-cleanup.yml`
 - Deletes old rows by retention policy:
@@ -108,4 +109,4 @@
 2. Confirm API response `dispatchState` is `DISPATCHED` (not `NOT_CONFIGURED` / `FAILED`).
 3. Review failed logs with `gh run view <run_id> --log-failed`.
 4. Confirm `WEB_INTERNAL_BASE_URL` points to production URL.
-5. If job state and Actions are mismatched, call `GET /api/admin/jobs/reconcile` to identify orphaned `RUNNING` jobs or ghost runs.
+5. If job state and Actions are mismatched, call `GET /internal/admin/jobs/reconcile` (or `/api/admin/jobs/reconcile` in admin UI) to identify orphaned `RUNNING` jobs or ghost runs.

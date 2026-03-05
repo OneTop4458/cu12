@@ -1,6 +1,7 @@
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { QueuePayload } from "@cu12/core";
+import { MANUAL_PENDING_REDISPATCH_MS, MANUAL_RUNNING_REDISPATCH_MS } from "@/server/manual-dispatch-policy";
 
 export interface EnqueueJobInput {
   userId: string;
@@ -29,6 +30,17 @@ export interface EnqueueJobResult {
     updatedAt: Date;
   };
   deduplicated: boolean;
+}
+
+export type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
+
+export interface SyncQueueSummary {
+  state: SyncQueueState;
+  staleJobIds: string[];
+  runningCount: number;
+  runningStaleCount: number;
+  pendingCount: number;
+  pendingStaleCount: number;
 }
 
 const STALE_WORKER_TIMEOUT_MS = 3 * 60 * 1000;
@@ -220,6 +232,114 @@ export async function claimNextJob(workerId: string, types: JobType[]) {
   }
 
   return null;
+}
+
+export async function getSyncQueueSummaryForUser(userId: string, now = new Date()): Promise<SyncQueueSummary> {
+  const rows = await prisma.jobQueue.findMany({
+    where: {
+      userId,
+      type: { in: [JobType.SYNC, JobType.NOTICE_SCAN] },
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+    },
+    select: {
+      id: true,
+      status: true,
+      runAfter: true,
+      createdAt: true,
+      startedAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  let runningCount = 0;
+  let runningFresh = false;
+  let runningStaleCount = 0;
+  let pendingCount = 0;
+  let pendingFresh = false;
+  let pendingStaleCount = 0;
+  const staleJobIds: string[] = [];
+
+  for (const row of rows) {
+    if (row.status === JobStatus.RUNNING) {
+      const isRunningStale = !row.startedAt
+        || now.getTime() - row.startedAt.getTime() >= MANUAL_RUNNING_REDISPATCH_MS;
+
+      if (isRunningStale) {
+        runningStaleCount += 1;
+        staleJobIds.push(row.id);
+      } else {
+        runningFresh = true;
+      }
+
+      runningCount += 1;
+      continue;
+    }
+
+    const pendingAnchor = row.runAfter ?? row.createdAt;
+    const isPendingStale = now.getTime() - pendingAnchor.getTime() >= MANUAL_PENDING_REDISPATCH_MS;
+
+    if (isPendingStale) {
+      pendingStaleCount += 1;
+      staleJobIds.push(row.id);
+    } else {
+      pendingFresh = true;
+    }
+
+    pendingCount += 1;
+  }
+
+  if (runningFresh) {
+    return {
+      state: "RUNNING",
+      staleJobIds: [],
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  if (pendingFresh) {
+    return {
+      state: runningStaleCount > 0 ? "RUNNING_STALE" : "PENDING",
+      staleJobIds,
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  if (runningStaleCount > 0) {
+    return {
+      state: "RUNNING_STALE",
+      staleJobIds,
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  if (pendingStaleCount > 0) {
+    return {
+      state: "PENDING_STALE",
+      staleJobIds,
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  return {
+    state: "IDLE",
+    staleJobIds: [],
+    runningCount,
+    runningStaleCount,
+    pendingCount,
+    pendingStaleCount,
+  };
 }
 
 export async function markJobSucceeded(jobId: string, result?: unknown) {

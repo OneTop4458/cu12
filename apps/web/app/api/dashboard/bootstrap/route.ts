@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { getCourses, getDashboardSummary, getNotifications, getUpcomingDeadlines } from "@/server/dashboard";
-import { listJobsForUser } from "@/server/queue";
+import { getSyncQueueSummaryForUser, listJobsForUser } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
 import { SiteNoticeType } from "@prisma/client";
 
@@ -57,12 +57,13 @@ export async function GET(request: NextRequest) {
   const jobsLimit = parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
   const userId = context.effective.userId;
 
-  const [summary, courses, deadlines, notifications, jobs, siteNotices, account, preference] = await Promise.all([
+  const [summary, courses, deadlines, notifications, jobs, syncQueue, siteNotices, account, preference] = await Promise.all([
     getDashboardSummary(userId),
     getCourses(userId),
     getUpcomingDeadlines(userId, deadlinesLimit),
     getNotifications(userId, { unreadOnly: true, limit: notificationsLimit }),
     listJobsForUser(userId, jobsLimit),
+    getSyncQueueSummaryForUser(userId),
     listSiteNotices(undefined, false),
     prisma.cu12Account.findUnique({
       where: { userId },
@@ -99,6 +100,7 @@ export async function GET(request: NextRequest) {
       deadlines,
       notifications,
       jobs,
+      syncQueue,
       siteNotices,
       maintenanceNotice,
       account: account

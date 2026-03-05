@@ -13,8 +13,8 @@
 1. User triggers `POST /api/jobs/sync-now`.
 2. Confirm response includes `jobId` and `dispatchState`.
 3. If `dispatchState` is `SKIPPED_DUPLICATE`, check after 5~10 minutes depending on request state and then retry if needed.
-3. Track progression in `/api/jobs/{jobId}`.
-4. SYNC jobs are high priority in worker claim order and can run even if AUTOLEARN is already running for the same user.
+4. Track progression in `/api/jobs/{jobId}`.
+5. SYNC jobs are high priority in worker claim order and can run even if AUTOLEARN is already running for the same user.
 
 ## Manual Auto-learning Procedure
 
@@ -49,4 +49,4 @@
 - Validate secrets and internal URL alignment.
 - Review runner quota and runtime constraints.
 - If queue stays `PENDING`, inspect dispatch responses first (`NOT_CONFIGURED` or `FAILED`).
-- If Actions and job status diverge, run `GET /api/admin/jobs/reconcile` and compare with `/api/admin/jobs` before manual cancellation.
+- If Actions and job status diverge, run `GET /internal/admin/jobs/reconcile` and compare with `/api/admin/jobs` before manual cancellation.

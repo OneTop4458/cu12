@@ -121,11 +121,21 @@ interface Job {
   type: "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
   status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
   createdAt: string;
+  runAfter: string;
   updatedAt: string;
   startedAt: string | null;
   finishedAt: string | null;
   lastError: string | null;
   result?: unknown;
+}
+
+interface DashboardSyncQueue {
+  state: SyncQueueState;
+  staleJobIds: string[];
+  runningCount: number;
+  runningStaleCount: number;
+  pendingCount: number;
+  pendingStaleCount: number;
 }
 
 interface JobDispatch {
@@ -246,6 +256,7 @@ interface DashboardBootstrap {
   deadlines: Deadline[];
   notifications: Notification[];
   jobs: Job[];
+  syncQueue?: DashboardSyncQueue;
   siteNotices: SiteNotice[];
   maintenanceNotice: SiteNotice | null;
   account: Account | null;
@@ -328,11 +339,19 @@ function parseDateMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
+function analyzeSyncQueueState(jobs: Job[], nowMs: number, summary?: DashboardSyncQueue): {
   state: SyncQueueState;
   staleJobIds: string[];
   statusMessage: string;
 } {
+  if (summary) {
+    return {
+      state: summary.state,
+      staleJobIds: summary.staleJobIds,
+      statusMessage: getStatusMessageFromSyncState(summary.state),
+    };
+  }
+
   let hasRunningFresh = false;
   let hasPendingFresh = false;
   let hasStaleRunning = false;
@@ -344,7 +363,7 @@ function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
 
     if (job.status === "RUNNING") {
       const startedAtMs = parseDateMs(job.startedAt);
-      const isStale = startedAtMs === null || nowMs - startedAtMs > SYNC_RUNNING_STALE_MS;
+      const isStale = startedAtMs === null || nowMs - startedAtMs >= SYNC_RUNNING_STALE_MS;
       if (isStale) staleJobIds.push(job.id);
       else hasRunningFresh = true;
       if (isStale) hasStaleRunning = true;
@@ -352,8 +371,10 @@ function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
     }
 
     if (job.status === "PENDING") {
+      const runAfterMs = parseDateMs(job.runAfter);
       const createdAtMs = parseDateMs(job.createdAt);
-      const isStale = createdAtMs === null || nowMs - createdAtMs > SYNC_PENDING_STALE_MS;
+      const anchorMs = runAfterMs === null ? createdAtMs : runAfterMs;
+      const isStale = anchorMs === null || nowMs - anchorMs >= SYNC_PENDING_STALE_MS;
       if (isStale) staleJobIds.push(job.id);
       if (isStale) hasStalePending = true;
       else hasPendingFresh = true;
@@ -397,6 +418,14 @@ function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
     staleJobIds: [],
     statusMessage: "",
   };
+}
+
+function getStatusMessageFromSyncState(state: SyncQueueState): string {
+  if (state === "RUNNING_STALE") return "동기화 작업이 장시간 진행되거나 멈춘 상태입니다.";
+  if (state === "RUNNING") return "동기화 작업이 진행 중입니다.";
+  if (state === "PENDING_STALE") return "동기화 요청이 오래되어 처리되지 않았을 수 있습니다.";
+  if (state === "PENDING") return "동기화 요청이 접수되었습니다. 워커 시작을 대기 중입니다.";
+  return "";
 }
 
 function formatTaskCountsByType(counts: ActivityTypeCounts): string {
@@ -527,6 +556,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
   const [bootstrapSyncing, setBootstrapSyncing] = useState(false);
+  const [syncQueueSummary, setSyncQueueSummary] = useState<DashboardSyncQueue | null>(null);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [syncQueueCleanupSubmitting, setSyncQueueCleanupSubmitting] = useState(false);
   const [notificationClearing, setNotificationClearing] = useState(false);
@@ -559,7 +589,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [jobs],
   );
-  const syncQueueAnalysis = useMemo(() => analyzeSyncQueueState(jobs, Date.now()), [jobs]);
+  const syncQueueAnalysis = useMemo(
+    () => analyzeSyncQueueState(jobs, Date.now(), syncQueueSummary ?? undefined),
+    [jobs, syncQueueSummary],
+  );
   const syncQueueState = syncQueueAnalysis.state;
   const syncQueueStaleJobIds = syncQueueAnalysis.staleJobIds;
   const syncQueueStatusMessage = syncQueueAnalysis.statusMessage;
@@ -720,6 +753,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         void loadNotificationHistory();
       }
       setJobs(payload.jobs);
+      setSyncQueueSummary(payload.syncQueue ?? null);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
       setMailDraft(payload.preference);
