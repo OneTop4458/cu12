@@ -248,6 +248,7 @@ const POLL_TRACKING_PENDING_MS = 4500;
 const POLL_TRACKING_HIDDEN_MS = 12000;
 const SYNC_PENDING_STALE_MS = 5 * 60 * 1000;
 const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
+const COURSE_DEADLINE_URGENT_DAYS = 7;
 
 interface DashboardBootstrap {
   context: SessionContext;
@@ -339,18 +340,16 @@ function parseDateMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getDeadlineLabelColor(course: Course): string | undefined {
-  const deadlineMs = parseDateMs(course.nextPendingTask?.dueAt ?? course.nextPendingTask?.availableFrom ?? null);
-  if (deadlineMs === null) return undefined;
+function isCourseDeadlineUrgent(course: Course): boolean {
+  const deadlineMs = parseDateMs(course.nextPendingTask?.dueAt);
+  if (deadlineMs === null) return false;
 
   const remainingDays = Math.ceil((deadlineMs - Date.now()) / (1000 * 60 * 60 * 24));
-  const isDeadlineUrgent = remainingDays >= 0 && remainingDays <= 3;
+  return remainingDays >= 0 && remainingDays <= COURSE_DEADLINE_URGENT_DAYS;
+}
 
-  if (course.progressPercent >= 100) {
-    return isDeadlineUrgent ? "var(--danger)" : "var(--success)";
-  }
-
-  return isDeadlineUrgent ? "var(--danger)" : undefined;
+function isCourseCompleted(course: Course): boolean {
+  return course.totalTaskCount > 0 && course.pendingTaskCount === 0;
 }
 
 function analyzeSyncQueueState(jobs: Job[], nowMs: number, summary?: DashboardSyncQueue): {
@@ -1606,7 +1605,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               ? toRatio(learnedSecondsForUi, course.totalRequiredSeconds)
               : toRatio(course.completedTaskCount, Math.max(1, course.totalTaskCount));
             const taskProgressRatio = Math.max(progressPercentRatio, learnedProgressRatio);
-            const deadlineLabelColor = getDeadlineLabelColor(course);
+            const isCompleted = isCourseCompleted(course);
+            const isDueSoon = isCourseDeadlineUrgent(course);
 
             return (
               <article key={course.lectureSeq} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>
@@ -1625,9 +1625,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   </div>
                   <div className="course-overview-meta">
                     <p>
-                      <strong style={deadlineLabelColor ? { color: deadlineLabelColor } : undefined}>
-                        {course.deadlineLabel}
-                      </strong>: {formatNextDeadline(course.nextPendingTask)}
+                      <strong>{course.deadlineLabel}</strong>: {formatNextDeadline(course.nextPendingTask)}
+                      {isCompleted ? (
+                        <span className="status-chip status-succeeded" style={{ marginLeft: "8px" }}>완료</span>
+                      ) : null}
+                      {isDueSoon ? (
+                        <span className="status-chip status-failed" style={{ marginLeft: "8px" }}>마감 임박</span>
+                      ) : null}
                     </p>
                     <p className="muted">현재주차: {course.currentWeekNo ?? "-"}</p>
                     <p className="muted">미확인 공지: {course.unreadNoticeCount}개 / 전체 {course.noticeCount}개</p>
