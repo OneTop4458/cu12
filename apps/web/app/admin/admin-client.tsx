@@ -748,11 +748,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <div>
               <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
               <h1>운영 관리센터</h1>
-              <p className="muted">
-                {context.impersonating
-                  ? `대리접속: ${context.actor.email} → ${context.effective.email}`
-                  : `현재 운영자: ${context.effective.email}`}
-              </p>
             </div>
           </div>
           <div className="topbar-actions">

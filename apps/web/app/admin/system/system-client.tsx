@@ -204,7 +204,6 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
             <div>
               <p className="brand-kicker">가톨릭대학교 공유대학 운영</p>
               <h1>시스템 상태</h1>
-              <p className="muted">운영자: {initialUser.email}</p>
             </div>
           </div>
           <div className="topbar-actions">

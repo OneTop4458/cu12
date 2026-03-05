@@ -13,7 +13,7 @@ interface Params {
 const UpsertNoticeSchema = z.object({
   type: z.nativeEnum(SiteNoticeType).optional(),
   title: z.string().trim().min(1).max(120).optional(),
-  message: z.string().trim().min(1).max(3000).optional(),
+  message: z.string().trim().max(3000).optional(),
   isActive: z.boolean().optional(),
   priority: z.number().int().min(-999).max(999).optional(),
   visibleFrom: z.string().datetime().nullable().optional(),

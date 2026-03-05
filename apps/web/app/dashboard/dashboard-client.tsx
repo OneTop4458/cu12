@@ -131,6 +131,7 @@ interface JobDispatch {
 
 interface JobDetail {
   status: Job["status"];
+  type: Job["type"];
   result?: unknown;
 }
 
@@ -430,7 +431,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   );
   const canCancelActiveSync = Boolean(activeSyncJob);
   const unreadNotifications = notifications.filter((item) => item.isUnread);
-  const autoProgress = parseAutoProgress(trackingDetail?.result);
+  const trackingAutoLearn = trackingDetail?.type === "AUTOLEARN";
+  const trackingSyncJob = trackingDetail?.type === "SYNC" || trackingDetail?.type === "NOTICE_SCAN";
+  const autoProgress = trackingAutoLearn ? parseAutoProgress(trackingDetail?.result) : null;
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
   const syncButtonLabel = useMemo(() => {
     switch (syncQueueState) {
@@ -622,9 +625,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <p className="topbar-notice-title">시스템 점검 공지</p>
             <p className="topbar-notice-summary">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
             <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
-            <p className="muted">
-              우선순위 {maintenanceNotice.priority} · {maintenanceNotice.updatedAt ? new Date(maintenanceNotice.updatedAt).toLocaleString("ko-KR") : "-"}
-            </p>
             <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
           </section>
         ) : null}
@@ -756,6 +756,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   async function runAction(action: "SYNC" | "AUTOLEARN", silent = false) {
     setActionSubmitting(true);
     setConfirm(null);
+    setTrackingDetail(null);
     if (!silent) setBlockingMessage(action === "SYNC" ? "동기화 요청 처리 중..." : "자동 수강 요청 처리 중...");
     try {
       if (action === "AUTOLEARN" && mode !== "ALL_COURSES" && !lectureSeq) throw new Error("강좌를 선택해 주세요.");
@@ -898,7 +899,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <div>
               <p className="brand-kicker">CU12 자동화 · 학습 운영 대시보드</p>
               <h1>나의 학습 홈</h1>
-              <p className="muted">{context?.effective.email ?? initialUser.email}</p>
             </div>
           </div>
           <div className="topbar-actions">
@@ -931,7 +931,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               email={context?.effective.email ?? initialUser.email}
               role={initialUser.role}
               impersonating={context?.impersonating ?? false}
-              onDashboard={() => {}}
+              onDashboard={undefined}
               onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
               onOpenSettings={() => setSettingsOpen(true)}
               onLogout={logout}
@@ -952,10 +952,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </section>
 
       <section className="card">
-        <h2>자동 수강</h2>
+        <h2>학습 데이터 동기화</h2>
+        <p className="muted">
+          최신 강의/공지/마감 정보를 CU12에서 가져옵니다. 자동 수강 정확도를 위해 자동 수강 전에 동기화를 권장합니다.
+        </p>
         <div className="button-row">
           <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
-          <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
         </div>
         {syncInProgress ? (
           <p className="sync-status-note muted">동기화 상태: {syncQueueStatusMessage}</p>
@@ -986,6 +988,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </button>
           </div>
         ) : null}
+        {trackingDetail && trackingSyncJob ? (
+          <div className="form-stack top-gap">
+            <p className="muted">작업 상태: {trackingDetail.status}</p>
+            {trackingCanCancel ? (
+              <div className="button-row">
+                <button
+                  className="ghost-btn"
+                  style={{ borderColor: "rgb(180 35 24 / 45%)", color: "var(--danger)" }}
+                  onClick={() => void cancelTrackingJob()}
+                  disabled={cancelSubmitting}
+                >
+                  {cancelSubmitting ? "작업 중단 요청 중..." : "작업 즉시 중단"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card">
+        <h2>자동 수강</h2>
+        <p className="muted">동기화된 최신 정보를 기준으로 자동 수강을 실행합니다.</p>
+        <div className="button-row">
+          <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
+        </div>
         <div className="form-grid top-gap">
           <label className="field">
             <span>모드</span>
@@ -1003,7 +1030,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </select>
           </label>
         </div>
-        {trackingDetail ? (
+        {trackingDetail && trackingAutoLearn ? (
           <div className="form-stack top-gap">
             <p className="muted">
               작업 상태: {trackingDetail.status}

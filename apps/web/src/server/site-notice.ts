@@ -124,10 +124,11 @@ export interface SiteNoticeWritePayload {
 }
 
 export async function createSiteNotice(authorUserId: string, payload: SiteNoticeWritePayload) {
+  const normalizedMessage = typeof payload.message === "string" ? payload.message.trim() : "";
   const data: Prisma.SiteNoticeCreateInput = {
     type: payload.type,
     title: payload.title.trim(),
-    message: payload.message.trim(),
+    message: normalizedMessage,
     isActive: payload.isActive,
     priority: payload.priority,
     visibleFrom: payload.visibleFrom ? new Date(payload.visibleFrom) : null,
@@ -143,8 +144,8 @@ export async function createSiteNotice(authorUserId: string, payload: SiteNotice
 export async function updateSiteNotice(noticeId: string, payload: Partial<SiteNoticeWritePayload>) {
   const data: Prisma.SiteNoticeUpdateInput = {};
   if (payload.type !== undefined) data.type = payload.type;
-  if (payload.title !== undefined) data.title = payload.title;
-  if (payload.message !== undefined) data.message = payload.message;
+  if (payload.title !== undefined) data.title = payload.title.trim();
+  if (payload.message !== undefined) data.message = payload.message.trim();
   if (payload.isActive !== undefined) data.isActive = payload.isActive;
   if (payload.priority !== undefined) data.priority = payload.priority;
 

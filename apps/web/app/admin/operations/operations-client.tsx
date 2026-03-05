@@ -412,7 +412,6 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
             <div>
               <p className="brand-kicker">관리자 작업</p>
               <h1>운영 | 작업/워커 운영</h1>
-              <p className="muted">관리자: {initialUser.email}</p>
             </div>
           </div>
           <div className="topbar-actions">

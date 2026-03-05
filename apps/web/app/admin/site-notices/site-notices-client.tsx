@@ -158,7 +158,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const [busyNoticeId, setBusyNoticeId] = useState<string | null>(null);
 
   const now = useMemo(() => new Date(), []);
-  const hasNoticeDraft = useMemo(() => Boolean(formTitle.trim() || formMessage.trim()), [formTitle, formMessage]);
+  const hasNoticeDraft = useMemo(() => Boolean(formTitle.trim()), [formTitle]);
   const totalCount = notices.length;
   const activeCount = notices.filter((notice) => notice.isActive).length;
   const inactiveCount = notices.length - activeCount;
@@ -222,8 +222,8 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const onSubmitNotice = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitting) return;
-    if (!formTitle.trim() || !formMessage.trim()) {
-      setError("제목과 내용을 입력해 주세요.");
+    if (!formTitle.trim()) {
+      setError("제목을 입력해 주세요.");
       return;
     }
     setSubmitting(true);
@@ -327,7 +327,6 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             <div>
               <p className="brand-kicker">운영자 공지 페이지 설정</p>
               <h1>전체 공지 / 점검 관리</h1>
-              <p className="muted">관리자: {initialUser.email}</p>
             </div>
           </div>
           <div className="topbar-actions">
@@ -462,7 +461,6 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               value={formMessage}
               onChange={(event) => setFormMessage(event.target.value)}
               rows={8}
-              required
               maxLength={3000}
               placeholder="공지 내용을 입력하세요"
             />

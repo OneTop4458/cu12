@@ -809,7 +809,6 @@ paths:
               required:
                 - type
                 - title
-                - message
                 - isActive
                 - priority
               properties:
@@ -821,7 +820,6 @@ paths:
                   maxLength: 120
                 message:
                   type: string
-                  minLength: 1
                   maxLength: 3000
                 isActive:
                   type: boolean
@@ -882,7 +880,6 @@ paths:
                   maxLength: 120
                 message:
                   type: string
-                  minLength: 1
                   maxLength: 3000
                 isActive:
                   type: boolean

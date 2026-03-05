@@ -8,7 +8,7 @@ import { writeAuditLog } from "@/server/audit-log";
 const CreateSiteNoticeSchema = z.object({
   type: z.nativeEnum(SiteNoticeType),
   title: z.string().trim().min(1).max(120),
-  message: z.string().trim().min(1).max(3000),
+  message: z.string().trim().max(3000).optional(),
   isActive: z.boolean().default(true),
   priority: z.number().int().min(-999).max(999).default(0),
   visibleFrom: z.string().datetime().nullable().optional(),
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     const created = await createSiteNotice(context.actor.userId, {
       type: body.type,
       title: body.title.trim(),
-      message: body.message.trim(),
+      message: body.message?.trim() ?? "",
       isActive,
       priority,
       visibleFrom: visibleFrom ? visibleFrom.toISOString() : null,
