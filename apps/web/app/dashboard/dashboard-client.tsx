@@ -78,6 +78,7 @@ interface Deadline {
   weekNo: number;
   lessonNo: number;
   courseTitle: string;
+  isCompleted: boolean;
   availableFrom: string | null;
   dueAt: string | null;
   remainingSeconds: number;
@@ -1753,11 +1754,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
         <div className="table-wrap mobile-card-table">
           <table>
-            <thead><tr><th>강좌</th><th>주차/차시</th><th>학습인정기간</th><th>남은 시간</th></tr></thead>
+            <thead><tr><th>강좌</th><th>상태</th><th>주차/차시</th><th>학습인정기간</th><th>남은 시간</th></tr></thead>
             <tbody>
-              {displayedDeadlines.length === 0 ? <tr><td colSpan={4}>표시할 임박 차시가 없습니다.</td></tr> : displayedDeadlines.map((item) => (
+              {displayedDeadlines.length === 0 ? <tr><td colSpan={5}>표시할 임박 차시가 없습니다.</td></tr> : displayedDeadlines.map((item) => (
                 <tr key={`${item.lectureSeq}:${item.courseContentsSeq}`}>
                   <td data-label="강좌">{item.courseTitle}</td>
+                  <td data-label="상태">
+                    <span className={`status-chip ${item.isCompleted ? "status-succeeded" : "status-pending"}`}>
+                      {item.isCompleted ? "완료" : "미완료"}
+                    </span>
+                  </td>
                   <td data-label="주차/차시">{item.weekNo}주차 {item.lessonNo}차시</td>
                   <td data-label="학습인정기간">{toDateTime(item.availableFrom)} ~ {toDateTime(item.dueAt)}</td>
                   <td data-label="남은 시간">{formatDays(item.daysLeft)} / {formatSeconds(item.remainingSeconds)}</td>
@@ -1805,7 +1811,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     <p className="muted">
                       진도율 <strong>{course.progressPercent}%</strong>
                       {" · "}
-                      과제 {course.completedTaskCount}/{course.totalTaskCount}
+                      전체 {course.completedTaskCount}/{course.totalTaskCount}
                     </p>
                   </div>
                   <div className="course-overview-meta">
