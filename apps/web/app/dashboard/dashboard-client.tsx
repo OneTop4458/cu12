@@ -1196,9 +1196,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           setError((err as Error).message);
         }
       } finally {
-        if (!cancelled) {
-          setDeadlineLoading(false);
-        }
+        setDeadlineLoading(false);
       }
     };
 
@@ -1508,7 +1506,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <article className="card"><h2>진행 강좌</h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
         <article className="card"><h2>평균 진도율</h2><p className="metric">{Math.round(summary?.avgProgress ?? 0)}%</p></article>
         <article className="card"><h2>미확인 공지</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
-        <article className="card"><h2>임박 차시</h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
+        <article className="card"><h2>미완료 임박 차시</h2><p className="metric">{summary?.urgentTaskCount ?? 0}</p></article>
         <article className="card">
           <h2>최근 동기화</h2>
           <p className="metric-sub">{toDateTimeWithFallback(summary?.lastSyncAt ?? null, "아직 동기화 이력 없음")}</p>
