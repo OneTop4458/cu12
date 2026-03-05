@@ -208,7 +208,47 @@ interface AutoProgress {
       courseTitle?: string;
       taskTitle?: string;
     };
+    noOpReason?: AutoLearnNoOpReason | null;
+    plannedTaskCount?: number;
+    planned?: AutoLearnPlannedTask[];
+    truncated?: boolean;
   };
+}
+
+type AutoLearnNoOpReason =
+  | "NO_ACTIVE_COURSES"
+  | "LECTURE_NOT_FOUND"
+  | "NO_PENDING_TASKS"
+  | "NO_PENDING_VOD_TASKS"
+  | "NO_AVAILABLE_VOD_TASKS"
+  | "NO_TASKS_AFTER_FILTER";
+
+interface AutoLearnPlannedTask {
+  lectureSeq: number;
+  courseContentsSeq: number;
+  courseTitle: string;
+  weekNo: number;
+  lessonNo: number;
+  taskTitle: string;
+  state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  activityType: "VOD" | "QUIZ" | "ASSIGNMENT" | "ETC";
+  requiredSeconds: number;
+  learnedSeconds: number;
+  availableFrom: string | null;
+  dueAt: string | null;
+  remainingSeconds: number;
+}
+
+interface AutoLearnResult {
+  mode: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
+  watchedTaskCount: number;
+  watchedSeconds: number;
+  lectureSeqs: number[];
+  plannedTaskCount: number;
+  truncated: boolean;
+  estimatedTotalSeconds: number;
+  noOpReason?: AutoLearnNoOpReason | null;
+  planned?: AutoLearnPlannedTask[];
 }
 
 interface SyncProgress {
@@ -296,6 +336,78 @@ function parseAutoProgress(value: unknown): AutoProgress | null {
   return maybe as AutoProgress;
 }
 
+function parseAutoLearnNoOpReason(value: unknown): AutoLearnNoOpReason | null {
+  if (value !== "NO_ACTIVE_COURSES"
+    && value !== "LECTURE_NOT_FOUND"
+    && value !== "NO_PENDING_TASKS"
+    && value !== "NO_PENDING_VOD_TASKS"
+    && value !== "NO_AVAILABLE_VOD_TASKS"
+    && value !== "NO_TASKS_AFTER_FILTER") {
+    return null;
+  }
+  return value;
+}
+
+function parseAutoLearnPlannedTask(value: unknown): AutoLearnPlannedTask | null {
+  if (!value || typeof value !== "object") return null;
+  const maybe = value as Partial<AutoLearnPlannedTask>;
+  if (typeof maybe.lectureSeq !== "number" || typeof maybe.courseContentsSeq !== "number") return null;
+  if (typeof maybe.courseTitle !== "string" || typeof maybe.weekNo !== "number") return null;
+  if (typeof maybe.lessonNo !== "number" || typeof maybe.taskTitle !== "string") return null;
+  if (typeof maybe.requiredSeconds !== "number" || typeof maybe.learnedSeconds !== "number") return null;
+  if (typeof maybe.remainingSeconds !== "number") return null;
+  if (maybe.activityType !== "VOD" && maybe.activityType !== "QUIZ" && maybe.activityType !== "ASSIGNMENT" && maybe.activityType !== "ETC") return null;
+  if (maybe.state !== "PENDING" && maybe.state !== "RUNNING" && maybe.state !== "COMPLETED" && maybe.state !== "FAILED") return null;
+
+  return {
+    lectureSeq: maybe.lectureSeq,
+    courseContentsSeq: maybe.courseContentsSeq,
+    courseTitle: maybe.courseTitle,
+    weekNo: maybe.weekNo,
+    lessonNo: maybe.lessonNo,
+    taskTitle: maybe.taskTitle,
+    state: maybe.state,
+    activityType: maybe.activityType,
+    requiredSeconds: maybe.requiredSeconds,
+    learnedSeconds: maybe.learnedSeconds,
+    availableFrom: typeof maybe.availableFrom === "string" ? maybe.availableFrom : null,
+    dueAt: typeof maybe.dueAt === "string" ? maybe.dueAt : null,
+    remainingSeconds: maybe.remainingSeconds,
+  };
+}
+
+function parseAutoResult(value: unknown): AutoLearnResult | null {
+  if (!value || typeof value !== "object") return null;
+  const maybe = value as Partial<AutoLearnResult>;
+  if (
+    maybe.mode !== "SINGLE_NEXT"
+    && maybe.mode !== "SINGLE_ALL"
+    && maybe.mode !== "ALL_COURSES"
+    || typeof maybe.watchedTaskCount !== "number"
+    || typeof maybe.watchedSeconds !== "number"
+    || typeof maybe.plannedTaskCount !== "number"
+    || typeof maybe.truncated !== "boolean"
+    || typeof maybe.estimatedTotalSeconds !== "number"
+    || !Array.isArray(maybe.lectureSeqs)
+  ) {
+    return null;
+  }
+
+  return {
+    mode: maybe.mode,
+    watchedTaskCount: maybe.watchedTaskCount,
+    watchedSeconds: maybe.watchedSeconds,
+    lectureSeqs: maybe.lectureSeqs.filter((item): item is number => typeof item === "number"),
+    plannedTaskCount: maybe.plannedTaskCount,
+    truncated: maybe.truncated,
+    estimatedTotalSeconds: maybe.estimatedTotalSeconds,
+    noOpReason: parseAutoLearnNoOpReason(maybe.noOpReason),
+    planned: Array.isArray(maybe.planned)
+      ? maybe.planned.map(parseAutoLearnPlannedTask).filter((item): item is AutoLearnPlannedTask => item !== null)
+      : [],
+  };
+}
+
 function parseSyncProgress(value: unknown): SyncProgress | null {
   if (!value || typeof value !== "object") return null;
   const maybe = value as Partial<SyncProgress>;
@@ -318,6 +430,16 @@ function getAutoModeDescription(mode: AutoProgress["progress"]["mode"]): string 
   if (mode === "SINGLE_NEXT") return "선택 강좌의 다음 미완료 VOD 1개를 자동 수강합니다.";
   if (mode === "SINGLE_ALL") return "선택 강좌의 미완료 VOD를 처음부터 끝까지 자동 수강합니다.";
   return "진행 중인 전체 강좌의 미완료 VOD를 순서대로 자동 수강합니다.";
+}
+
+function formatAutoNoOpReason(reason: AutoLearnNoOpReason | null | undefined): string {
+  if (!reason) return "현재 자동 수강 가능한 차시가 없습니다.";
+  if (reason === "NO_ACTIVE_COURSES") return "진행 중인 과목이 없습니다.";
+  if (reason === "LECTURE_NOT_FOUND") return "요청한 강좌가 진행 대상이 아니거나 비활성 상태입니다.";
+  if (reason === "NO_PENDING_TASKS") return "현재 진행 대상 차시가 없습니다.";
+  if (reason === "NO_PENDING_VOD_TASKS") return "남은 차시가 VOD가 아닌 항목이거나 VOD 수강 대상이 없습니다.";
+  if (reason === "NO_AVAILABLE_VOD_TASKS") return "학습 가능 기간에 있는 VOD 미완료 차시가 없습니다.";
+  return "자동 수강 대상이 없습니다.";
 }
 
 function formatAutoPhaseLabel(phase: AutoProgress["progress"]["phase"]): string {
@@ -660,6 +782,21 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const autoProgress = trackingAutoLearn
     ? parseAutoProgress(trackingDetail?.result)
     : parseAutoProgress(activeAutoJob?.result);
+  const autoResult = trackingAutoLearn
+    ? parseAutoResult(trackingDetail?.result)
+    : parseAutoResult(activeAutoJob?.result);
+  const autoPlannedRows = (autoProgress?.progress.planned && autoProgress.progress.planned.length > 0)
+    ? autoProgress.progress.planned
+    : (autoResult?.planned ?? []);
+  const autoPlannedCount = autoProgress?.progress.plannedTaskCount
+    ?? autoResult?.plannedTaskCount
+    ?? autoPlannedRows.length;
+  const autoNoOpReason = autoProgress?.progress.noOpReason
+    ?? autoResult?.noOpReason
+    ?? null;
+  const autoTruncated = autoProgress?.progress.truncated
+    ?? autoResult?.truncated
+    ?? false;
   const syncProgressRatio = syncProgress
     ? toRatio(syncProgress.progress.completedCourses, Math.max(1, syncProgress.progress.totalCourses))
     : 0;
@@ -670,7 +807,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         autoProgress.progress.watchedSeconds + Math.max(0, autoProgress.progress.estimatedRemainingSeconds),
       )
       : toRatio(autoProgress.progress.completedTasks, Math.max(1, autoProgress.progress.totalTasks)))
+    : autoResult
+      ? toRatio(autoResult.watchedTaskCount, Math.max(1, autoResult.plannedTaskCount))
     : 0;
+  const autoEstimatedRemainingSeconds = autoProgress?.progress.estimatedRemainingSeconds
+    ?? (autoResult ? Math.max(0, autoResult.estimatedTotalSeconds - autoResult.watchedSeconds) : 0);
   const syncProgressStatus = trackingSyncJob ? trackingDetail?.status : activeSyncJob?.status ?? null;
   const autoProgressStatus = trackingAutoLearn ? trackingDetail?.status : activeAutoJob?.status ?? null;
   const autoProgressUpdatedAtRaw = autoProgress?.heartbeatAt
@@ -684,6 +825,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const autoProgressHeartbeatStale = autoProgressStatus === "RUNNING"
     && autoProgressLagSeconds !== null
     && autoProgressLagSeconds > 90;
+  const autoModeForDisplay = autoProgress?.progress.mode ?? autoResult?.mode ?? null;
+  const autoCompletedCount = autoProgress?.progress.completedTasks ?? autoResult?.watchedTaskCount ?? 0;
+  const autoWatchedSeconds = autoProgress?.progress.watchedSeconds ?? autoResult?.watchedSeconds ?? 0;
   const autoCurrentTitle = autoProgress?.progress.current
     ? autoProgress.progress.current.taskTitle?.trim()
       || autoProgress.progress.current.courseTitle?.trim()
@@ -1472,25 +1616,23 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </select>
           </label>
         </div>
-        {autoProgressStatus || autoProgress ? (
+        {autoProgressStatus || autoProgress || autoResult ? (
           <div className="form-stack top-gap">
             <p className="muted">
               작업 상태: {autoProgressStatus ?? "-"}
-              {autoProgress
-                ? ` / ${formatAutoPhaseLabel(autoProgress.progress.phase)}`
-                : ""}
+              {autoProgress ? ` / ${formatAutoPhaseLabel(autoProgress.progress.phase)}` : autoResult ? " / 자동 수강 완료" : ""}
             </p>
-            {autoProgress ? (
+            {autoProgress || autoResult ? (
               <>
                 <div className="progress-track">
                   <div className="progress-value" style={{ width: `${Math.max(2, autoProgressRatio * 100)}%` }} />
                 </div>
                 <p className="muted">
-                  모드: {formatAutoModeLabel(autoProgress.progress.mode)} · 처리
+                  모드: {autoModeForDisplay ? formatAutoModeLabel(autoModeForDisplay) : "-"} · 처리
                   {" "}
-                  {autoProgress.progress.completedTasks}/{Math.max(1, autoProgress.progress.totalTasks)}
+                  {autoCompletedCount}/{Math.max(1, autoPlannedCount)}
                   {" "}
-                  · 남은 예상 {formatSeconds(autoProgress.progress.estimatedRemainingSeconds)}
+                  · 남은 예상 {formatSeconds(autoEstimatedRemainingSeconds)}
                 </p>
                 {autoProgressUpdatedAtRaw ? (
                   <p className="muted">
@@ -1503,8 +1645,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     진행 신호가 지연 중입니다. 무진행 20분이면 자동으로 중단됩니다.
                   </p>
                 ) : null}
-                <p className="muted">누적 재생 시간: {formatSeconds(autoProgress.progress.watchedSeconds)}</p>
-                {autoProgress.progress.current ? (
+                <p className="muted">누적 재생 시간: {formatSeconds(autoWatchedSeconds)}</p>
+                {autoPlannedCount === 0 ? (
+                  <p className="muted" style={{ color: "var(--warn)" }}>
+                    {formatAutoNoOpReason(autoNoOpReason)}
+                  </p>
+                ) : null}
+                {autoProgress?.progress.current ? (
                   <>
                     <p className="muted">
                       현재 재생: {autoCurrentTitle} / {autoProgress.progress.current.weekNo}주차
@@ -1521,6 +1668,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     </p>
                   </>
                 ) : null}
+                {autoTruncated ? (
+                  <p className="muted" style={{ color: "var(--warn)" }}>
+                    일부 차시는 최대 처리 회차 제한으로 다음 실행에서 이어집니다.
+                  </p>
+                ) : null}
+                <div className="table-wrap mobile-card-table">
+                  <table>
+                    <thead><tr><th>강좌</th><th>주차/차시</th><th>차시명</th><th>남은 시간</th><th>학습인정기간</th></tr></thead>
+                    <tbody>
+                      {autoPlannedRows.length === 0 ? (
+                        <tr><td colSpan={5}>표시할 자동 수강 대상이 없습니다.</td></tr>
+                      ) : autoPlannedRows.map((row) => (
+                        <tr key={`${row.lectureSeq}:${row.courseContentsSeq}`}>
+                          <td data-label="강좌">{row.courseTitle}</td>
+                          <td data-label="주차/차시">{row.weekNo}주차 {row.lessonNo}차시</td>
+                          <td data-label="차시명">{row.taskTitle}</td>
+                          <td data-label="남은 시간">{formatSeconds(row.remainingSeconds)}</td>
+                          <td data-label="학습인정기간">{toDateTime(row.availableFrom)} ~ {toDateTime(row.dueAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             ) : null}
             {trackingCanCancel ? (

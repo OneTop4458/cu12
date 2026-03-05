@@ -2682,6 +2682,70 @@ components:
           type: string
           format: date-time
 
+    AutoLearnNoOpReason:
+      type: string
+      enum:
+        [
+          NO_ACTIVE_COURSES,
+          LECTURE_NOT_FOUND,
+          NO_PENDING_TASKS,
+          NO_PENDING_VOD_TASKS,
+          NO_AVAILABLE_VOD_TASKS,
+          NO_TASKS_AFTER_FILTER,
+        ]
+
+    AutoLearnPlannedTask:
+      type: object
+      required:
+        [
+          lectureSeq,
+          courseContentsSeq,
+          courseTitle,
+          weekNo,
+          lessonNo,
+          taskTitle,
+          state,
+          activityType,
+          requiredSeconds,
+          learnedSeconds,
+          availableFrom,
+          dueAt,
+          remainingSeconds,
+        ]
+      properties:
+        lectureSeq:
+          type: integer
+        courseContentsSeq:
+          type: integer
+        courseTitle:
+          type: string
+        weekNo:
+          type: integer
+        lessonNo:
+          type: integer
+        taskTitle:
+          type: string
+        state:
+          type: string
+          enum: [PENDING, RUNNING, COMPLETED, FAILED]
+        activityType:
+          type: string
+          enum: [VOD, QUIZ, ASSIGNMENT, ETC]
+        requiredSeconds:
+          type: integer
+        learnedSeconds:
+          type: integer
+        availableFrom:
+          type: string
+          format: date-time
+          nullable: true
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+        remainingSeconds:
+          type: integer
+
     AutoLearnProgressResult:
       type: object
       required: [kind, progress]
@@ -2741,6 +2805,61 @@ components:
                 taskTitle:
                   type: string
                   nullable: true
+            noOpReason:
+              allOf:
+                - $ref: "#/components/schemas/AutoLearnNoOpReason"
+              nullable: true
+            plannedTaskCount:
+              type: integer
+            planned:
+              type: array
+              items:
+                $ref: "#/components/schemas/AutoLearnPlannedTask"
+            truncated:
+              type: boolean
+
+    AutoLearnResult:
+      type: object
+      required:
+        [
+          type,
+          mode,
+          watchedTaskCount,
+          watchedSeconds,
+          lectureSeqs,
+          plannedTaskCount,
+          truncated,
+          estimatedTotalSeconds,
+        ]
+      properties:
+        type:
+          type: string
+          enum: [AUTOLEARN]
+        mode:
+          type: string
+          enum: [SINGLE_NEXT, SINGLE_ALL, ALL_COURSES]
+        watchedTaskCount:
+          type: integer
+        watchedSeconds:
+          type: integer
+        lectureSeqs:
+          type: array
+          items:
+            type: integer
+        plannedTaskCount:
+          type: integer
+        truncated:
+          type: boolean
+        estimatedTotalSeconds:
+          type: integer
+        noOpReason:
+          allOf:
+            - $ref: "#/components/schemas/AutoLearnNoOpReason"
+          nullable: true
+        planned:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutoLearnPlannedTask"
 
     SyncProgressResult:
       type: object
@@ -2811,6 +2930,7 @@ components:
         result:
           oneOf:
             - $ref: "#/components/schemas/AutoLearnProgressResult"
+            - $ref: "#/components/schemas/AutoLearnResult"
             - $ref: "#/components/schemas/SyncProgressResult"
             - type: object
           nullable: true

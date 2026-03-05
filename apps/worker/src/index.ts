@@ -292,6 +292,7 @@ async function sendAutoLearnResultMail(
     watchedSeconds: number;
     plannedTaskCount: number;
     truncated: boolean;
+    noOpReason?: string | null;
   },
 ) {
   const pref = await getUserMailPreference(userId);
@@ -306,6 +307,7 @@ async function sendAutoLearnResultMail(
     `- 실행 모드: ${payload.mode}`,
     `- 처리한 차시: ${payload.watchedTaskCount}/${payload.plannedTaskCount}`,
     `- 재생 시간: ${formatDuration(payload.watchedSeconds)}`,
+    payload.noOpReason ? `- 완료 사유: ${payload.noOpReason}` : "",
     payload.truncated ? "- 안내: 회차 제한값(AUTOLEARN_MAX_TASKS)으로 일부 차시는 다음 실행에서 처리됩니다." : "",
   ]
     .filter((line) => line.length > 0)
@@ -562,6 +564,7 @@ async function processAutolearn(
       watchedSeconds: autoResult.watchedSeconds,
       plannedTaskCount: autoResult.plannedTaskCount,
       truncated: autoResult.truncated,
+      noOpReason: autoResult.noOpReason,
     });
 
     await writeAuditLog({
@@ -573,6 +576,7 @@ async function processAutolearn(
         jobId,
         mode: autoResult.mode,
         watchedTaskCount: autoResult.watchedTaskCount,
+        noOpReason: autoResult.noOpReason,
         plannedTaskCount: autoResult.plannedTaskCount,
       },
     });
@@ -583,6 +587,8 @@ async function processAutolearn(
       watchedTaskCount: autoResult.watchedTaskCount,
       watchedSeconds: autoResult.watchedSeconds,
       plannedTaskCount: autoResult.plannedTaskCount,
+      noOpReason: autoResult.noOpReason,
+      planned: autoResult.planned,
       truncated: autoResult.truncated,
       estimatedTotalSeconds: autoResult.estimatedTotalSeconds,
       lectureSeqs: autoResult.lectureSeqs,

@@ -48,6 +48,30 @@ interface PlannedTask {
   remainingSeconds: number;
 }
 
+export type AutoLearnNoOpReason =
+  | "NO_ACTIVE_COURSES"
+  | "LECTURE_NOT_FOUND"
+  | "NO_PENDING_TASKS"
+  | "NO_PENDING_VOD_TASKS"
+  | "NO_AVAILABLE_VOD_TASKS"
+  | "NO_TASKS_AFTER_FILTER";
+
+export interface AutoLearnPlannedTask {
+  lectureSeq: number;
+  courseContentsSeq: number;
+  courseTitle: string;
+  weekNo: number;
+  lessonNo: number;
+  taskTitle: string;
+  state: LearningTask["state"];
+  activityType: LearningTask["activityType"];
+  requiredSeconds: number;
+  learnedSeconds: number;
+  availableFrom: string | null;
+  dueAt: string | null;
+  remainingSeconds: number;
+}
+
 export interface AutoLearnProgress {
   phase: "PLANNING" | "RUNNING" | "DONE";
   mode: AutoLearnMode;
@@ -55,6 +79,10 @@ export interface AutoLearnProgress {
   completedTasks: number;
   watchedSeconds: number;
   estimatedRemainingSeconds: number;
+  noOpReason?: AutoLearnNoOpReason | null;
+  plannedTaskCount?: number;
+  planned?: AutoLearnPlannedTask[];
+  truncated?: boolean;
   heartbeatAt?: string;
   current?: {
     lectureSeq: number;
@@ -74,7 +102,14 @@ export interface AutoLearnResult {
   lectureSeqs: number[];
   plannedTaskCount: number;
   truncated: boolean;
+  noOpReason?: AutoLearnNoOpReason | null;
+  planned?: AutoLearnPlannedTask[];
   estimatedTotalSeconds: number;
+}
+
+interface PlanResult {
+  planned: PlannedTask[];
+  noOpReason: AutoLearnNoOpReason | null;
 }
 
 type CancelCheck = () => Promise<boolean>;
@@ -998,21 +1033,49 @@ async function getCourses(
   }));
 }
 
+function toAutoLearnPlannedTask(row: PlannedTask): AutoLearnPlannedTask {
+  return {
+    lectureSeq: row.lectureSeq,
+    courseContentsSeq: row.task.courseContentsSeq,
+    courseTitle: row.courseTitle,
+    weekNo: row.task.weekNo,
+    lessonNo: row.task.lessonNo,
+    taskTitle: row.task.taskTitle ?? `차시 ${row.task.weekNo}-${row.task.lessonNo}`,
+    state: row.task.state,
+    activityType: row.task.activityType,
+    requiredSeconds: row.task.requiredSeconds,
+    learnedSeconds: row.task.learnedSeconds,
+    availableFrom: row.task.availableFrom ?? null,
+    dueAt: row.task.dueAt ?? null,
+    remainingSeconds: row.remainingSeconds,
+  };
+}
+
 async function planTasks(
   page: Page,
   envBaseUrl: string,
   userId: string,
   mode: AutoLearnMode,
   lectureSeq?: number,
-): Promise<PlannedTask[]> {
+): Promise<PlanResult> {
   const courses = await getCourses(page, envBaseUrl, userId);
   const courseTitleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
+  if (mode === "ALL_COURSES" && courses.length === 0) {
+    return { planned: [], noOpReason: "NO_ACTIVE_COURSES" };
+  }
+
   const lectureSeqs =
     mode === "ALL_COURSES"
       ? courses.map((course) => course.lectureSeq)
       : lectureSeq
         ? [lectureSeq]
         : [];
+  if (mode !== "ALL_COURSES" && lectureSeqs.length === 0) {
+    return { planned: [], noOpReason: "LECTURE_NOT_FOUND" };
+  }
+  if (mode !== "ALL_COURSES" && lectureSeq && !courseTitleBySeq.has(lectureSeq)) {
+    return { planned: [], noOpReason: "LECTURE_NOT_FOUND" };
+  }
 
   const parseDateMsOrNull = (value?: string | null): number | null => {
     if (!value || typeof value !== "string") return null;
@@ -1041,15 +1104,28 @@ async function planTasks(
   const planned: PlannedTask[] = [];
   const courseGroups: Array<{ lectureSeq: number; courseTitle: string; tasks: LearningTask[] }> = [];
   const nowMs = Date.now();
+  let pendingTaskCount = 0;
+  let pendingVodTaskCount = 0;
+  let inWindowTaskCount = 0;
 
   for (const seq of lectureSeqs) {
     await page.goto(`${envBaseUrl}/el/class/todo_list_form.acl?LECTURE_SEQ=${seq}`, {
       waitUntil: "domcontentloaded",
     });
 
-    const pending = parseTodoVodTasks(await page.content(), userId, seq)
+    const tasks = parseTodoVodTasks(await page.content(), userId, seq);
+    for (const task of tasks) {
+      if (task.state !== "PENDING") continue;
+      pendingTaskCount += 1;
+      if (task.activityType === "VOD") {
+        pendingVodTaskCount += 1;
+      }
+    }
+
+    const pending = tasks
       .filter((task) => isAutoLearnableTask(task, nowMs))
       .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
+    inWindowTaskCount += pending.length;
 
     if (mode === "SINGLE_NEXT") {
       const next = pending[0];
@@ -1093,7 +1169,20 @@ async function planTasks(
     roundRobinIndex += 1;
   }
 
-  return planned;
+  let noOpReason: AutoLearnNoOpReason | null = null;
+  if (planned.length === 0) {
+    if (pendingTaskCount === 0) {
+      noOpReason = "NO_PENDING_TASKS";
+    } else if (pendingVodTaskCount === 0) {
+      noOpReason = "NO_PENDING_VOD_TASKS";
+    } else if (inWindowTaskCount === 0) {
+      noOpReason = "NO_AVAILABLE_VOD_TASKS";
+    } else {
+      noOpReason = "NO_TASKS_AFTER_FILTER";
+    }
+  }
+
+  return { planned, noOpReason };
 }
 
 export async function runAutoLearning(
@@ -1119,9 +1208,10 @@ export async function runAutoLearning(
 
     const mode = options.mode;
     const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
-    const plannedAll = await planTasks(page, env.CU12_BASE_URL, userId, mode, options.lectureSeq);
+    const { planned: plannedAll, noOpReason } = await planTasks(page, env.CU12_BASE_URL, userId, mode, options.lectureSeq);
     const truncated = plannedAll.length > env.AUTOLEARN_MAX_TASKS;
     const planned = plannedAll.slice(0, env.AUTOLEARN_MAX_TASKS);
+    const plannedPreview = planned.map(toAutoLearnPlannedTask);
 
     const estimatedTotalSeconds = planned.reduce((acc, row) => acc + Math.ceil(row.remainingSeconds * env.AUTOLEARN_TIME_FACTOR), 0);
 
@@ -1133,6 +1223,10 @@ export async function runAutoLearning(
         completedTasks: 0,
         watchedSeconds: 0,
         estimatedRemainingSeconds: estimatedTotalSeconds,
+        noOpReason,
+        plannedTaskCount: planned.length,
+        planned: plannedPreview,
+        truncated,
         heartbeatAt: new Date().toISOString(),
       });
     }
@@ -1155,6 +1249,10 @@ export async function runAutoLearning(
           completedTasks: watchedTaskCount,
           watchedSeconds,
           estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - consumed),
+          noOpReason,
+          plannedTaskCount: planned.length,
+          planned: plannedPreview,
+          truncated,
           heartbeatAt: new Date().toISOString(),
           current: {
             lectureSeq: row.lectureSeq,
@@ -1188,6 +1286,10 @@ export async function runAutoLearning(
             completedTasks: watchedTaskCount,
             watchedSeconds: consumed,
             estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - consumed),
+            noOpReason,
+            plannedTaskCount: planned.length,
+            planned: plannedPreview,
+            truncated,
             heartbeatAt: new Date().toISOString(),
             current: {
               lectureSeq: row.lectureSeq,
@@ -1215,6 +1317,10 @@ export async function runAutoLearning(
         completedTasks: watchedTaskCount,
         watchedSeconds,
         estimatedRemainingSeconds: 0,
+        noOpReason,
+        plannedTaskCount: planned.length,
+        planned: plannedPreview,
+        truncated,
         heartbeatAt: new Date().toISOString(),
       });
     }
@@ -1226,6 +1332,8 @@ export async function runAutoLearning(
       lectureSeqs: Array.from(new Set(planned.map((row) => row.lectureSeq))),
       plannedTaskCount: planned.length,
       truncated,
+      noOpReason,
+      planned: plannedPreview,
       estimatedTotalSeconds,
     };
   } finally {
