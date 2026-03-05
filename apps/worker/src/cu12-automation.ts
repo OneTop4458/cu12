@@ -41,6 +41,7 @@ export type AutoLearnMode = "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
 
 interface PlannedTask {
   lectureSeq: number;
+  courseTitle: string;
   task: LearningTask;
   remainingSeconds: number;
 }
@@ -59,6 +60,8 @@ export interface AutoLearnProgress {
     lessonNo: number;
     remainingSeconds: number;
     elapsedSeconds?: number;
+    courseTitle?: string;
+    taskTitle?: string;
   };
 }
 
@@ -940,10 +943,13 @@ async function watchVodTask(
   return waitSeconds;
 }
 
-async function getLectureSeqs(page: Page, envBaseUrl: string, userId: string): Promise<number[]> {
+async function getCourses(page: Page, envBaseUrl: string, userId: string): Promise<Array<{ lectureSeq: number; title: string }>> {
   await page.goto(`${envBaseUrl}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
   const courses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
-  return courses.map((course) => course.lectureSeq);
+  return courses.map((course) => ({
+    lectureSeq: course.lectureSeq,
+    title: course.title,
+  }));
 }
 
 async function planTasks(
@@ -953,9 +959,11 @@ async function planTasks(
   mode: AutoLearnMode,
   lectureSeq?: number,
 ): Promise<PlannedTask[]> {
+  const courses = await getCourses(page, envBaseUrl, userId);
+  const courseTitleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
   const lectureSeqs =
     mode === "ALL_COURSES"
-      ? await getLectureSeqs(page, envBaseUrl, userId)
+      ? courses.map((course) => course.lectureSeq)
       : lectureSeq
         ? [lectureSeq]
         : [];
@@ -976,6 +984,7 @@ async function planTasks(
       if (next) {
         planned.push({
           lectureSeq: seq,
+          courseTitle: courseTitleBySeq.get(seq) ?? `Course ${seq}`,
           task: next,
           remainingSeconds: Math.max(0, next.requiredSeconds - next.learnedSeconds),
         });
@@ -986,6 +995,7 @@ async function planTasks(
     for (const task of pending) {
       planned.push({
         lectureSeq: seq,
+        courseTitle: courseTitleBySeq.get(seq) ?? `Course ${seq}`,
         task,
         remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
       });
@@ -1060,6 +1070,8 @@ export async function runAutoLearning(
             lessonNo: row.task.lessonNo,
             remainingSeconds: plannedWaitSeconds,
             elapsedSeconds: 0,
+            courseTitle: row.courseTitle,
+            taskTitle: row.task.taskTitle,
           },
         });
       }
@@ -1091,6 +1103,8 @@ export async function runAutoLearning(
               lessonNo: row.task.lessonNo,
               remainingSeconds,
               elapsedSeconds,
+              courseTitle: row.courseTitle,
+              taskTitle: row.task.taskTitle,
             },
           });
         },

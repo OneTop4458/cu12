@@ -560,6 +560,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     const learnedLabel = raw.match(/(?:학습완료시간|수강완료시간|학습완료|완료시간|완료)\s*[:\-]?\s*([^|\r\n]+)/)?.[1];
     const requiredSeconds = parseDurationToSeconds(requiredLabel ?? "");
     const learnedSeconds = parseDurationToSeconds(learnedLabel ?? "");
+    const taskTitle = raw.slice(0, 200);
 
     const candidateTexts = [
       raw,
@@ -593,6 +594,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
       courseContentsSeq,
       weekNo,
       lessonNo,
+      taskTitle,
       activityType,
       requiredSeconds,
       learnedSeconds,

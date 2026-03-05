@@ -154,8 +154,9 @@ async function reportJobProgress(jobId: string, progress: AutoLearnProgress) {
       updatedAt: new Date().toISOString(),
       heartbeatAt: progress.heartbeatAt ?? null,
     });
-  } catch {
+  } catch (error) {
     // progress update must not break the main worker flow
+    console.warn(`[AUTOLEARN] progress sync failed job=${jobId}: ${errMessage(error)}`);
   }
 }
 
@@ -166,8 +167,9 @@ async function reportSyncJobProgress(jobId: string, progress: SyncProgress) {
       progress,
       updatedAt: new Date().toISOString(),
     });
-  } catch {
+  } catch (error) {
     // progress update must not break the main worker flow
+    console.warn(`[SYNC] progress sync failed job=${jobId}: ${errMessage(error)}`);
   }
 }
 
@@ -342,7 +344,14 @@ async function sendAutoLearnResultMail(
   }
 }
 
-async function processSync(jobId: string, userId: string, onCancelCheck?: CancelCheck) {
+async function processSync(
+  jobId: string,
+  userId: string,
+  jobType: "SYNC" | "NOTICE_SCAN",
+  onCancelCheck?: CancelCheck,
+) {
+  const resultType: "SYNC" | "NOTICE_SCAN" = jobType === "NOTICE_SCAN" ? "NOTICE_SCAN" : "SYNC";
+  const logPrefix = `[${resultType}]`;
   const creds = await getUserCu12Credentials(userId);
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
@@ -351,6 +360,9 @@ async function processSync(jobId: string, userId: string, onCancelCheck?: Cancel
   const env = getEnv();
   const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
   const shouldCancel = onCancelCheck ?? (async () => false);
+  const startedAtMs = Date.now();
+  let lastProgressLogKey = "";
+  console.log(`${logPrefix} started job=${jobId} user=${userId}`);
   try {
     const snapshot = await collectCu12Snapshot(
       browser,
@@ -359,6 +371,28 @@ async function processSync(jobId: string, userId: string, onCancelCheck?: Cancel
       shouldCancel,
       async (progress) => {
         await reportSyncJobProgress(jobId, progress);
+        const currentTitle = progress.current?.title ?? "-";
+        const currentSeq = progress.current?.lectureSeq ?? 0;
+        const key = [
+          progress.phase,
+          progress.completedCourses,
+          progress.totalCourses,
+          progress.noticeCount,
+          progress.taskCount,
+          progress.notificationCount,
+          currentSeq,
+        ].join(":");
+        if (key === lastProgressLogKey) return;
+        lastProgressLogKey = key;
+        console.log(
+          `${logPrefix} progress job=${jobId}`
+          + ` phase=${progress.phase}`
+          + ` courses=${progress.completedCourses}/${Math.max(1, progress.totalCourses)}`
+          + ` notices=${progress.noticeCount}`
+          + ` tasks=${progress.taskCount}`
+          + ` notifications=${progress.notificationCount}`
+          + ` current=${currentTitle}(${currentSeq})`,
+        );
       },
     );
     const persisted = await persistSnapshot(userId, snapshot);
@@ -371,25 +405,36 @@ async function processSync(jobId: string, userId: string, onCancelCheck?: Cancel
       newUnreadNotificationCount: persisted.newUnreadNotificationCount,
       deadlineTasks: persisted.deadlineTasks.map((task) => ({
         ...task,
-        courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `媛뺤쥖 ${task.lectureSeq}`,
+        courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `Course ${task.lectureSeq}`,
       })),
     });
+
+    console.log(
+      `${logPrefix} completed job=${jobId}`
+      + ` courses=${snapshot.courses.length}`
+      + ` notices=${snapshot.notices.length}`
+      + ` tasks=${snapshot.tasks.length}`
+      + ` notifications=${snapshot.notifications.length}`
+      + ` elapsed=${Math.max(1, Math.floor((Date.now() - startedAtMs) / 1000))}s`,
+    );
 
     await writeAuditLog({
       category: "WORKER",
       severity: "INFO",
       targetUserId: userId,
-      message: "SYNC job completed",
+      message: `${resultType} job completed`,
       meta: {
         jobId,
+        type: resultType,
         courseCount: snapshot.courses.length,
         noticeCount: snapshot.notices.length,
         taskCount: snapshot.tasks.length,
+        notificationCount: snapshot.notifications.length,
       },
     });
 
     return {
-      type: "SYNC",
+      type: resultType,
       courses: snapshot.courses.length,
       notices: snapshot.notices.length,
       notifications: snapshot.notifications.length,
@@ -406,25 +451,29 @@ async function processSync(jobId: string, userId: string, onCancelCheck?: Cancel
     }
     const isCancelled = message === JOB_CANCEL_ERROR;
     if (isCancelled) {
+      console.log(`${logPrefix} cancelled job=${jobId}`);
       await writeAuditLog({
         category: "WORKER",
         severity: "INFO",
         targetUserId: userId,
-        message: "SYNC job cancelled",
+        message: `${resultType} job cancelled`,
         meta: {
           jobId,
+          type: resultType,
         },
       });
       throw error;
     }
 
+    console.error(`${logPrefix} failed job=${jobId}: ${message}`);
     await writeAuditLog({
       category: "WORKER",
       severity: "ERROR",
       targetUserId: userId,
-      message: "SYNC job failed",
+      message: `${resultType} job failed`,
       meta: {
         jobId,
+        type: resultType,
         error: message,
       },
     });
@@ -471,11 +520,14 @@ async function processAutolearn(
         lastHeartbeatAtMs = Date.parse(nowIso) || Date.now();
         if (progress.phase === "RUNNING" && progress.current) {
           const elapsed = progress.current.elapsedSeconds ?? 0;
+          const courseTitle = progress.current.courseTitle ?? `Course ${progress.current.lectureSeq}`;
+          const taskTitle = progress.current.taskTitle ?? "-";
           console.log(
             `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
             + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
             + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
-            + ` watched=${progress.watchedSeconds}s`,
+            + ` watched=${progress.watchedSeconds}s`
+            + ` course="${courseTitle}" task="${taskTitle}"`,
           );
         }
         await reportJobProgress(jobId, progress);
@@ -707,7 +759,7 @@ async function main() {
             const status = await getJobStatus(job.id);
             return status === null || status === JobStatus.CANCELED;
           };
-          result = await processSync(job.id, job.payload.userId, shouldCancel);
+          result = await processSync(job.id, job.payload.userId, job.type, shouldCancel);
         } else if (job.type === JobType.AUTOLEARN) {
           const shouldCancel = async () => {
             const status = await getJobStatus(job.id);
@@ -739,7 +791,7 @@ async function main() {
           const terminalStatus = await getJobStatus(job.id);
           if (message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR || terminalStatus === JobStatus.CANCELED) {
             if (once) {
-              onceNoJobDeadline = Date.now() + onceGraceMs;
+              break;
             }
             continue;
           }

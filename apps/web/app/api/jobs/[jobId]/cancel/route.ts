@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
+import { cancelGitHubRunByWorkerId } from "@/server/github-actions-dispatch";
 import { cancelJob, getJobForUser } from "@/server/queue";
 
 interface Params {
@@ -18,7 +19,15 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   try {
-    const job = await cancelJob(jobId);
+    const cancelResult = await cancelJob(jobId);
+    const runCancel = cancelResult.updated
+      ? await cancelGitHubRunByWorkerId(existing.workerId)
+      : {
+        state: "NOT_APPLICABLE" as const,
+        runId: null,
+        errorCode: null,
+      };
+
     await writeAuditLog({
       category: "JOB",
       severity: "INFO",
@@ -27,13 +36,16 @@ export async function POST(request: NextRequest, { params }: Params) {
       message: "Job cancelled",
       meta: {
         jobId,
-        status: job.status,
+        status: cancelResult.job.status,
+        updated: cancelResult.updated,
+        runCancel,
       },
     });
 
     return jsonOk({
-      status: job.status,
-      updated: true,
+      status: cancelResult.job.status,
+      updated: cancelResult.updated,
+      runCancel,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to cancel job";

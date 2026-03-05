@@ -134,6 +134,19 @@ interface JobDispatch {
   notice?: string;
 }
 
+interface RunCancelResult {
+  state: "REQUESTED" | "NOT_CONFIGURED" | "NOT_APPLICABLE" | "FAILED";
+  runId: number | null;
+  errorCode: string | null;
+  error?: string;
+}
+
+interface JobCancelResponse {
+  status: Job["status"];
+  updated: boolean;
+  runCancel?: RunCancelResult;
+}
+
 interface JobDetail {
   status: Job["status"];
   type: Job["type"];
@@ -176,6 +189,8 @@ interface AutoProgress {
       lessonNo: number;
       remainingSeconds: number;
       elapsedSeconds?: number;
+      courseTitle?: string;
+      taskTitle?: string;
     };
   };
 }
@@ -382,6 +397,17 @@ function getSyncQueueGuidance(state: SyncQueueState): string | null {
   }
 }
 
+function formatRunCancelStatus(result: RunCancelResult | undefined): string {
+  if (!result) return "";
+  if (result.state === "REQUESTED") {
+    return result.runId ? ` GitHub Action(run ${result.runId}) 취소를 요청했습니다.` : " GitHub Action 취소를 요청했습니다.";
+  }
+  if (result.state === "FAILED") {
+    return " GitHub Action 취소 요청은 실패했습니다.";
+  }
+  return "";
+}
+
 function findCurrentWeekSummary(course: Course): CourseWeekSummary | null {
   if (course.currentWeekNo === null) return null;
   return course.weekSummaries.find((entry) => entry.weekNo === course.currentWeekNo) ?? null;
@@ -547,6 +573,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const autoProgressHeartbeatStale = autoProgressStatus === "RUNNING"
     && autoProgressLagSeconds !== null
     && autoProgressLagSeconds > 90;
+  const autoCurrentTitle = autoProgress?.progress.current
+    ? autoProgress.progress.current.taskTitle?.trim()
+      || autoProgress.progress.current.courseTitle?.trim()
+      || `강좌 ${autoProgress.progress.current.lectureSeq}`
+    : null;
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
   const syncButtonLabel = useMemo(() => {
     switch (syncQueueState) {
@@ -565,7 +596,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [syncQueueState]);
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
-    const res = await fetch(url, init);
+    const requestInit: RequestInit = { ...(init ?? {}) };
+    const method = (requestInit.method ?? "GET").toUpperCase();
+    if (method === "GET" || method === "HEAD") {
+      requestInit.cache = "no-store";
+    }
+    const res = await fetch(url, requestInit);
     if (res.status === 401) {
       router.push("/login" as Route);
       throw new Error("Unauthorized");
@@ -894,6 +930,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           },
       );
       setTrackingJobId(payload.jobId);
+      try {
+        const detail = await fetchJson<JobDetail>(`/api/jobs/${payload.jobId}`);
+        setTrackingDetail(detail);
+      } catch {
+        // Ignore hydration failure. Polling will continue.
+      }
       const baseMessage = payload.notice ?? (payload.deduplicated ? "이미 진행 중인 작업이 있습니다." : "요청을 접수했습니다.");
       if (action === "SYNC" && payload.dispatched === false) {
         setMessage(`${baseMessage} 즉시 워커 실행 신호가 지연되어 큐 대기 후 자동 처리될 수 있습니다.`);
@@ -916,10 +958,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setCancelSubmitting(true);
     setBlockingMessage("작업 취소를 요청 중입니다...");
     try {
-      const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${trackingJobId}/cancel`, {
+      const payload = await fetchJson<JobCancelResponse>(`/api/jobs/${trackingJobId}/cancel`, {
         method: "POST",
       });
-      setMessage(payload.updated ? "작업이 취소 처리되었습니다." : `현재 상태: ${payload.status}`);
+      if (payload.updated) {
+        setMessage(`작업이 취소 처리되었습니다.${formatRunCancelStatus(payload.runCancel)}`);
+      } else {
+        setMessage(`현재 상태: ${payload.status}`);
+      }
       await refreshAll(true);
     } catch (err) {
       setError((err as Error).message);
@@ -937,10 +983,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setCancelSubmitting(true);
     setBlockingMessage("동기화 작업 취소를 요청 중입니다...");
     try {
-      const payload = await fetchJson<{ status: Job["status"]; updated: boolean }>(`/api/jobs/${activeSyncJob.id}/cancel`, {
+      const payload = await fetchJson<JobCancelResponse>(`/api/jobs/${activeSyncJob.id}/cancel`, {
         method: "POST",
       });
-      setMessage(payload.updated ? "동기화 작업이 취소 처리되었습니다." : `현재 상태: ${payload.status}`);
+      if (payload.updated) {
+        setMessage(`동기화 작업이 취소 처리되었습니다.${formatRunCancelStatus(payload.runCancel)}`);
+      } else {
+        setMessage(`현재 상태: ${payload.status}`);
+      }
       if (trackingJobId === activeSyncJob.id) {
         setTrackingJobId(null);
         setTrackingDetail(null);
@@ -1206,9 +1256,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 {autoProgress.progress.current ? (
                   <>
                     <p className="muted">
-                      현재 재생: {autoProgress.progress.current.lectureSeq} 강좌 / {autoProgress.progress.current.weekNo}주차
+                      현재 재생: {autoCurrentTitle} / {autoProgress.progress.current.weekNo}주차
                       {" "}
                       {autoProgress.progress.current.lessonNo}차시
+                    </p>
+                    <p className="muted">
+                      강좌 식별값: {autoProgress.progress.current.lectureSeq}
                     </p>
                     <p className="muted">
                       현재 차시 경과: {formatSeconds(autoProgress.progress.current.elapsedSeconds ?? 0)}

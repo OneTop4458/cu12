@@ -512,16 +512,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - updated
-                  - status
-                properties:
-                  updated:
-                    type: boolean
-                  status:
-                    type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                $ref: "#/components/schemas/JobCancelResponse"
         "404":
           description: Job not found
         "401":
@@ -1014,22 +1005,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - updated
-                  - status
-                  - jobId
-                  - userId
-                properties:
-                  updated:
-                    type: boolean
-                  status:
-                    type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
-                  jobId:
-                    type: string
-                  userId:
-                    type: string
+                $ref: "#/components/schemas/AdminJobCancelResponse"
         "404":
           description: Job not found
         "403":
@@ -2452,6 +2428,49 @@ components:
         notice:
           type: string
 
+    WorkerRunCancelResult:
+      type: object
+      required: [state, runId, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [REQUESTED, NOT_CONFIGURED, NOT_APPLICABLE, FAILED]
+        runId:
+          type: integer
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        statusCode:
+          type: integer
+          nullable: true
+
+    JobCancelResponse:
+      type: object
+      required: [updated, status, runCancel]
+      properties:
+        updated:
+          type: boolean
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        runCancel:
+          $ref: "#/components/schemas/WorkerRunCancelResult"
+
+    AdminJobCancelResponse:
+      allOf:
+        - $ref: "#/components/schemas/JobCancelResponse"
+        - type: object
+          required: [jobId, userId]
+          properties:
+            jobId:
+              type: string
+            userId:
+              type: string
+
     JobItem:
       type: object
       required:
@@ -2560,6 +2579,12 @@ components:
                   type: integer
                 elapsedSeconds:
                   type: integer
+                  nullable: true
+                courseTitle:
+                  type: string
+                  nullable: true
+                taskTitle:
+                  type: string
                   nullable: true
 
     SyncProgressResult:

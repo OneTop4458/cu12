@@ -260,7 +260,17 @@ export async function markJobFailed(jobId: string, errorMessage: string) {
   return updated;
 }
 
-export async function cancelJob(jobId: string) {
+export async function cancelJob(jobId: string): Promise<{
+  job: {
+    id: string;
+    userId: string;
+    type: JobType;
+    status: JobStatus;
+    workerId: string | null;
+    updatedAt: Date;
+  };
+  updated: boolean;
+}> {
   const updated = await prisma.jobQueue.updateMany({
     where: {
       id: jobId,
@@ -276,14 +286,35 @@ export async function cancelJob(jobId: string) {
   });
 
   if (updated.count === 0) {
-    const existing = await prisma.jobQueue.findUnique({ where: { id: jobId } });
+    const existing = await prisma.jobQueue.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        status: true,
+        workerId: true,
+        updatedAt: true,
+      },
+    });
     if (!existing) {
       throw new Error("Job not found");
     }
-    return existing;
+    return { job: existing, updated: false };
   }
 
-  return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+  const job = await prisma.jobQueue.findUniqueOrThrow({
+    where: { id: jobId },
+    select: {
+      id: true,
+      userId: true,
+      type: true,
+      status: true,
+      workerId: true,
+      updatedAt: true,
+    },
+  });
+  return { job, updated: true };
 }
 
 export async function retryJob(jobId: string, options: { allowCompleted?: boolean } = {}) {

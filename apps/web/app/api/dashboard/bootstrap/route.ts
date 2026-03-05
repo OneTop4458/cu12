@@ -81,20 +81,27 @@ export async function GET(request: NextRequest) {
   }
   const maintenanceNotice = siteNotices.find((notice) => notice.type === SiteNoticeType.MAINTENANCE) ?? null;
 
-  return jsonOk({
-    context: {
-      actor: context.actor,
-      effective: context.effective,
-      impersonating: context.impersonating,
+  return jsonOk(
+    {
+      context: {
+        actor: context.actor,
+        effective: context.effective,
+        impersonating: context.impersonating,
+      },
+      summary,
+      courses,
+      deadlines,
+      notifications,
+      jobs,
+      siteNotices,
+      maintenanceNotice,
+      account,
+      preference,
     },
-    summary,
-    courses,
-    deadlines,
-    notifications,
-    jobs,
-    siteNotices,
-    maintenanceNotice,
-    account,
-    preference,
-  });
+    {
+      headers: {
+        "cache-control": "no-store",
+      },
+    },
+  );
 }
