@@ -126,6 +126,8 @@ interface Job {
 interface JobDispatch {
   jobId: string;
   deduplicated: boolean;
+  dispatched?: boolean;
+  dispatchError?: string;
   notice?: string;
 }
 
@@ -331,7 +333,7 @@ function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
     return {
       state: hasStaleRunning ? "RUNNING_STALE" : "PENDING",
       staleJobIds,
-      statusMessage: "동기화 요청이 처리 대기 중입니다.",
+      statusMessage: "동기화 요청이 접수되었습니다. 워커 시작을 대기 중입니다.",
     };
   }
 
@@ -360,6 +362,19 @@ function analyzeSyncQueueState(jobs: Job[], nowMs: number): {
 
 function formatTaskCountsByType(counts: ActivityTypeCounts): string {
   return `영상 ${counts.VOD}개 / 과제 ${counts.ASSIGNMENT}개 / 시험 ${counts.QUIZ}개 / 기타 ${counts.ETC}개`;
+}
+
+function getSyncQueueGuidance(state: SyncQueueState): string | null {
+  switch (state) {
+    case "PENDING":
+      return "대기(PENDING)는 정상 상태입니다. 보통 수십 초~수 분 내에 자동 시작됩니다.";
+    case "PENDING_STALE":
+      return "대기 시간이 길어졌습니다. 워커 지연 시 '오래된 동기화 요청 정리'로 정리 후 다시 요청하세요.";
+    case "RUNNING_STALE":
+      return "실행 시간이 길어졌습니다. 필요하면 취소 후 다시 요청하세요.";
+    default:
+      return null;
+  }
 }
 
 function findCurrentWeekSummary(course: Course): CourseWeekSummary | null {
@@ -476,6 +491,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const syncQueueState = syncQueueAnalysis.state;
   const syncQueueStaleJobIds = syncQueueAnalysis.staleJobIds;
   const syncQueueStatusMessage = syncQueueAnalysis.statusMessage;
+  const syncQueueGuidance = useMemo(() => getSyncQueueGuidance(syncQueueState), [syncQueueState]);
   const hasActiveJobs = useMemo(() => jobs.some((job) => !TERMINAL.has(job.status)), [jobs]);
   const syncInProgress = syncQueueState !== "IDLE";
   const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "RUNNING"));
@@ -862,7 +878,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           },
       );
       setTrackingJobId(payload.jobId);
-      setMessage(payload.notice ?? (payload.deduplicated ? "이미 진행 중인 작업이 있습니다." : "요청을 접수했습니다."));
+      const baseMessage = payload.notice ?? (payload.deduplicated ? "이미 진행 중인 작업이 있습니다." : "요청을 접수했습니다.");
+      if (action === "SYNC" && payload.dispatched === false) {
+        setMessage(`${baseMessage} 즉시 워커 실행 신호가 지연되어 큐 대기 후 자동 처리될 수 있습니다.`);
+      } else {
+        setMessage(baseMessage);
+      }
       await refreshAll(true);
     } catch (err) {
       setError((err as Error).message);
@@ -1051,7 +1072,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
         </div>
         {syncInProgress ? (
-          <p className="sync-status-note muted">동기화 상태: {syncQueueStatusMessage}</p>
+          <>
+            <p className="sync-status-note muted">동기화 상태: {syncQueueStatusMessage}</p>
+            {syncQueueGuidance ? <p className="muted">{syncQueueGuidance}</p> : null}
+          </>
         ) : null}
         {syncInProgress && canCancelActiveSync ? (
           <div className="button-row top-gap">
@@ -1103,18 +1127,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             ) : null}
             {trackingDetail?.updatedAt ? (
               <p className="muted">최근 업데이트: {toDateTime(trackingDetail.updatedAt)}</p>
-            ) : null}
-            {trackingCanCancel ? (
-              <div className="button-row">
-                <button
-                  className="ghost-btn"
-                  style={{ borderColor: "rgb(180 35 24 / 45%)", color: "var(--danger)" }}
-                  onClick={() => void cancelTrackingJob()}
-                  disabled={cancelSubmitting}
-                >
-                  {cancelSubmitting ? "작업 중단 요청 중..." : "작업 즉시 중단"}
-                </button>
-              </div>
             ) : null}
           </div>
         ) : null}
