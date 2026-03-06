@@ -9,8 +9,9 @@
 - Supports admin impersonation (admin actor + effective user context).
 
 2. **Worker (`apps/worker`)**
-- Node.js + Playwright runtime.
-- Logs in to CU12, fetches snapshots, executes auto-learning steps.
+- Node.js hybrid runtime (HTTP session client + Playwright).
+- Runs `SYNC`/`NOTICE_SCAN` through browserless HTTP calls.
+- Uses Playwright only for auto-learning playback and its post-run refresh snapshot.
 - Reports heartbeat and job state transitions.
 - Pulls notice detail bodies through CU12 notice detail endpoint to avoid empty-body notices.
 - Evaluates per-task deadline alerts (D-7/3/1/0) with dedupe keys.
@@ -51,5 +52,5 @@
 ## Why This Model
 
 - Works without dedicated long-running personal server.
-- Keeps user-facing app lightweight while offloading browser automation.
+- Keeps user-facing app lightweight while offloading automation to worker jobs.
 - Supports low-scale, high-duration workloads (video watch time) safely.

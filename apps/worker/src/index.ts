@@ -8,6 +8,7 @@ import {
   type AutoLearnProgress,
   type SyncProgress,
 } from "./cu12-automation";
+import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import {
   getUserCu12Credentials,
@@ -361,15 +362,12 @@ async function processSync(
     throw new Error("CU12 account is not configured for this user");
   }
 
-  const env = getEnv();
-  const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
   const shouldCancel = onCancelCheck ?? (async () => false);
   const startedAtMs = Date.now();
   let lastProgressLogKey = "";
   console.log(`${logPrefix} started job=${jobId} user=${userId}`);
   try {
-    const snapshot = await collectCu12Snapshot(
-      browser,
+    const snapshot = await collectCu12SnapshotViaHttp(
       userId,
       creds,
       shouldCancel,
@@ -484,8 +482,6 @@ async function processSync(
       },
     });
     throw error;
-  } finally {
-    await browser.close();
   }
 }
 

@@ -81,10 +81,11 @@ jobs:
 
           echo "job_types=$JOB_TYPES" >> "$GITHUB_OUTPUT"
 
-          if [ "$JOB_TYPES" = "MAIL_DIGEST" ]; then
-            echo "needs_playwright=false" >> "$GITHUB_OUTPUT"
-          else
+          NORMALIZED_JOB_TYPES=$(echo "$JOB_TYPES" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+          if [[ ",$NORMALIZED_JOB_TYPES," == *",AUTOLEARN,"* ]]; then
             echo "needs_playwright=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_playwright=false" >> "$GITHUB_OUTPUT"
           fi
 
       - run: npm ci --prefer-offline --no-audit
