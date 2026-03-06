@@ -12,15 +12,20 @@
 ## Session and Auth
 
 - [ ] Session cookie is `httpOnly` and `secure` in production.
-- [ ] Login flow distinguishes `CU12_AUTH_FAILED` vs `UNAPPROVED_ID`.
+- [ ] Login and invite verification responses are normalized to avoid account/invite enumeration.
 - [ ] Login and invite verification endpoints enforce rate limiting / lockout.
 - [ ] One-time invite requirement is enforced for first login.
+- [ ] Invite code consumption is atomic (single-use is race-safe).
 - [ ] Admin APIs check role before read/write.
+- [ ] Authenticated state-changing APIs enforce same-origin CSRF validation (`Origin`/`Referer`).
 
 ## Transport and Platform
 
 - [ ] HTTPS is enforced on production domain.
 - [ ] Internal worker APIs require `x-worker-token`.
+- [ ] Internal worker job update APIs validate job ownership (`workerId` binding).
+- [ ] Proxy-derived client IP headers are trusted only when explicitly enabled.
+- [ ] Baseline security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS in prod) are applied.
 - [ ] Error payloads avoid leaking sensitive internals.
 
 ## Logging and Audit

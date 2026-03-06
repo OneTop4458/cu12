@@ -110,13 +110,7 @@ paths:
                   - $ref: "#/components/schemas/LoginInviteRequired"
                   - $ref: "#/components/schemas/LoginConsentRequired"
         "401":
-          description: CU12 credential verification failed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Account disabled
+          description: Authentication failed (credentials/account state)
           content:
             application/json:
               schema:
@@ -166,13 +160,7 @@ paths:
                   - $ref: "#/components/schemas/LoginAuthenticated"
                   - $ref: "#/components/schemas/LoginConsentRequired"
         "401":
-          description: Challenge token invalid/expired
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Invite invalid/expired or CU12 ID not approved
+          description: Challenge token invalid/expired or invite verification failed
           content:
             application/json:
               schema:

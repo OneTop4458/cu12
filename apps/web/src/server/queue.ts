@@ -353,11 +353,12 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
   };
 }
 
-export async function markJobSucceeded(jobId: string, result?: unknown) {
+export async function markJobSucceeded(jobId: string, workerId: string, result?: unknown) {
   const updatedCount = await prisma.jobQueue.updateMany({
     where: {
       id: jobId,
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+      status: JobStatus.RUNNING,
+      workerId,
     },
     data: {
       status: JobStatus.SUCCEEDED,
@@ -366,28 +367,42 @@ export async function markJobSucceeded(jobId: string, result?: unknown) {
     },
   });
 
-  if (updatedCount.count === 0) {
+  if (updatedCount.count > 0) {
     return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
   }
 
-  return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-}
-
-export async function updateJobProgress(jobId: string, result: unknown) {
   const current = await prisma.jobQueue.findUnique({
     where: { id: jobId },
-    select: { status: true },
+    select: { status: true, workerId: true },
+  });
+  if (!current) {
+    throw new Error("Job not found");
+  }
+  if (current.workerId !== workerId) {
+    throw new Error("Job ownership mismatch");
+  }
+  if (current.status !== JobStatus.RUNNING) {
+    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+  }
+
+  throw new Error("Failed to mark job as succeeded");
+}
+
+export async function updateJobProgress(jobId: string, workerId: string, result: unknown) {
+  const current = await prisma.jobQueue.findUnique({
+    where: { id: jobId },
+    select: { status: true, workerId: true },
   });
 
   if (!current) {
     throw new Error("Job not found");
   }
 
-  if (
-    current.status === JobStatus.SUCCEEDED
-    || current.status === JobStatus.FAILED
-    || current.status === JobStatus.CANCELED
-  ) {
+  if (current.workerId !== workerId) {
+    throw new Error("Job ownership mismatch");
+  }
+
+  if (current.status !== JobStatus.RUNNING) {
     return null;
   }
 
@@ -400,14 +415,18 @@ export async function updateJobProgress(jobId: string, result: unknown) {
   });
 }
 
-export async function markJobFailed(jobId: string, errorMessage: string) {
+export async function markJobFailed(jobId: string, workerId: string, errorMessage: string) {
   const current = await prisma.jobQueue.findUnique({
     where: { id: jobId },
-    select: { status: true, userId: true, type: true, payload: true, attempts: true, idempotencyKey: true },
+    select: { status: true, workerId: true, userId: true, type: true, payload: true, attempts: true, idempotencyKey: true },
   });
 
   if (!current) {
     throw new Error("Job not found");
+  }
+
+  if (current.workerId !== workerId) {
+    throw new Error("Job ownership mismatch");
   }
 
   if (
@@ -418,14 +437,23 @@ export async function markJobFailed(jobId: string, errorMessage: string) {
     return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
   }
 
-  const updated = await prisma.jobQueue.update({
-    where: { id: jobId },
+  const failed = await prisma.jobQueue.updateMany({
+    where: {
+      id: jobId,
+      status: JobStatus.RUNNING,
+      workerId,
+    },
     data: {
       status: JobStatus.FAILED,
       finishedAt: new Date(),
       lastError: errorMessage,
     },
   });
+  if (failed.count === 0) {
+    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+  }
+
+  const updated = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
 
   if (updated.attempts < 4) {
     const delayMinutes = [1, 5, 15, 60][Math.max(0, updated.attempts - 1)] ?? 60;

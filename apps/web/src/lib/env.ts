@@ -6,6 +6,7 @@ const EnvSchema = z.object({
   AUTH_JWT_SECRET: z.string().min(32),
   APP_MASTER_KEY: z.string().min(32),
   WORKER_SHARED_TOKEN: z.string().min(32),
+  TRUST_PROXY_HEADERS: z.coerce.boolean().default(false),
   CU12_BASE_URL: z.string().url().default("https://www.cu12.ac.kr"),
   GITHUB_OWNER: z.string().optional(),
   GITHUB_REPO: z.string().optional(),

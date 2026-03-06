@@ -6,6 +6,7 @@ import { updateJobProgress } from "@/server/queue";
 
 const BodySchema = z.object({
   jobId: z.string().min(10),
+  workerId: z.string().min(2).max(120),
   result: z.unknown(),
 });
 
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    await updateJobProgress(body.jobId, body.result);
+    await updateJobProgress(body.jobId, body.workerId, body.result);
     return jsonOk({ updated: true });
   } catch (error) {
     if (error instanceof z.ZodError) {

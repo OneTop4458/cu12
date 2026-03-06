@@ -90,14 +90,14 @@ export async function claimJob(workerId: string, types: JobType[]): Promise<Clai
   return response.job;
 }
 
-export async function finishJob(jobId: string, result: unknown) {
-  await post("/internal/worker/job/finish", { jobId, result });
+export async function finishJob(jobId: string, workerId: string, result: unknown) {
+  await post("/internal/worker/job/finish", { jobId, workerId, result });
 }
 
-export async function failJob(jobId: string, error: string) {
-  await post("/internal/worker/job/fail", { jobId, error });
+export async function failJob(jobId: string, workerId: string, error: string) {
+  await post("/internal/worker/job/fail", { jobId, workerId, error });
 }
 
-export async function progressJob(jobId: string, result: unknown) {
-  await post("/internal/worker/job/progress", { jobId, result });
+export async function progressJob(jobId: string, workerId: string, result: unknown) {
+  await post("/internal/worker/job/progress", { jobId, workerId, result });
 }

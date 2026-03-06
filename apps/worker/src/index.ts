@@ -147,9 +147,9 @@ function parseJobTypes(raw: string | undefined): JobType[] {
   return [...unique];
 }
 
-async function reportJobProgress(jobId: string, progress: AutoLearnProgress) {
+async function reportJobProgress(jobId: string, workerId: string, progress: AutoLearnProgress) {
   try {
-    await progressJob(jobId, {
+    await progressJob(jobId, workerId, {
       kind: "AUTOLEARN_PROGRESS",
       progress,
       updatedAt: new Date().toISOString(),
@@ -161,9 +161,9 @@ async function reportJobProgress(jobId: string, progress: AutoLearnProgress) {
   }
 }
 
-async function reportSyncJobProgress(jobId: string, progress: SyncProgress) {
+async function reportSyncJobProgress(jobId: string, workerId: string, progress: SyncProgress) {
   try {
-    await progressJob(jobId, {
+    await progressJob(jobId, workerId, {
       kind: "SYNC_PROGRESS",
       progress,
       updatedAt: new Date().toISOString(),
@@ -351,6 +351,7 @@ async function sendAutoLearnResultMail(
 
 async function processSync(
   jobId: string,
+  workerId: string,
   userId: string,
   jobType: "SYNC" | "NOTICE_SCAN",
   onCancelCheck?: CancelCheck,
@@ -372,7 +373,7 @@ async function processSync(
       creds,
       shouldCancel,
       async (progress) => {
-        await reportSyncJobProgress(jobId, progress);
+        await reportSyncJobProgress(jobId, workerId, progress);
         const currentTitle = progress.current?.title ?? "-";
         const currentSeq = progress.current?.lectureSeq ?? 0;
         const key = [
@@ -487,6 +488,7 @@ async function processSync(
 
 async function processAutolearn(
   jobId: string,
+  workerId: string,
   userId: string,
   mode: AutoLearnMode,
   lectureSeq?: number,
@@ -532,7 +534,7 @@ async function processAutolearn(
             + ` course="${courseTitle}" task="${taskTitle}"`,
           );
         }
-        await reportJobProgress(jobId, progress);
+        await reportJobProgress(jobId, workerId, progress);
       },
       async () => {
         if (stallDetected) return true;
@@ -766,7 +768,7 @@ async function main() {
             const status = await getJobStatus(job.id);
             return status === null || status === JobStatus.CANCELED;
           };
-          result = await processSync(job.id, job.payload.userId, job.type, shouldCancel);
+          result = await processSync(job.id, workerId, job.payload.userId, job.type, shouldCancel);
         } else if (job.type === JobType.AUTOLEARN) {
           const shouldCancel = async () => {
             const status = await getJobStatus(job.id);
@@ -775,6 +777,7 @@ async function main() {
           const mode = toAutoLearnMode(job.payload.autoLearnMode);
           result = await processAutolearn(
             job.id,
+            workerId,
             job.payload.userId,
             mode,
             job.payload.lectureSeq,
@@ -789,7 +792,7 @@ async function main() {
             continue;
           }
 
-          await finishJob(job.id, result);
+          await finishJob(job.id, workerId, result);
           if (once) {
             onceNoJobDeadline = Date.now() + onceGraceMs;
           }
@@ -802,7 +805,7 @@ async function main() {
             }
             continue;
           }
-          await failJob(job.id, message);
+          await failJob(job.id, workerId, message);
           if (once) {
             onceNoJobDeadline = Date.now() + onceGraceMs;
           }

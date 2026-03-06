@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
   hashPassword,
@@ -26,6 +27,35 @@ const BodySchema = z.object({
 
 function rateLimitedInviteError() {
   return jsonError("Too many invite verification attempts. Please try again shortly.", 429, "RATE_LIMITED");
+}
+
+const INVITE_CONSUME_RACE_ERROR = "INVITE_CONSUME_RACE";
+
+function inviteVerificationFailedError() {
+  return jsonError("Invite verification failed.", 401, "INVITE_VERIFICATION_FAILED");
+}
+
+async function consumeInviteToken(
+  tx: Prisma.TransactionClient,
+  inviteId: string,
+  cu12Id: string,
+  usedByUserId: string,
+): Promise<boolean> {
+  const now = new Date();
+  const consumed = await tx.inviteToken.updateMany({
+    where: {
+      id: inviteId,
+      cu12Id,
+      isActive: true,
+      usedAt: null,
+      expiresAt: { gt: now },
+    },
+    data: {
+      usedAt: now,
+      usedByUserId,
+    },
+  });
+  return consumed.count > 0;
 }
 
 export async function POST(request: NextRequest) {
@@ -74,7 +104,7 @@ export async function POST(request: NextRequest) {
             cu12Id: challenge.cu12Id,
           },
         });
-        return jsonError("This CU12 ID is not approved for self-signup. Contact administrator.", 403, "UNAPPROVED_ID");
+        return inviteVerificationFailedError();
       }
 
       await recordAuthFailure("invite", throttleIdentifiers);
@@ -86,11 +116,7 @@ export async function POST(request: NextRequest) {
           cu12Id: challenge.cu12Id,
         },
       });
-      return jsonError(
-        "Invite code is invalid or expired.",
-        403,
-        "INVITE_CODE_INVALID",
-      );
+      return inviteVerificationFailedError();
     }
 
     if (!invite.isActive) {
@@ -104,7 +130,7 @@ export async function POST(request: NextRequest) {
           inviteId: invite.id,
         },
       });
-      return jsonError("This invite code is currently disabled.", 403, "INVITE_CODE_INVALID");
+      return inviteVerificationFailedError();
     }
 
     if (invite.expiresAt < new Date()) {
@@ -118,7 +144,7 @@ export async function POST(request: NextRequest) {
           inviteId: invite.id,
         },
       });
-      return jsonError("Invite code is invalid or expired.", 403, "INVITE_CODE_INVALID");
+      return inviteVerificationFailedError();
     }
 
     if (invite.usedAt) {
@@ -132,7 +158,7 @@ export async function POST(request: NextRequest) {
           inviteId: invite.id,
         },
       });
-      return jsonError("Invite code is already used.", 403, "INVITE_CODE_INVALID");
+      return inviteVerificationFailedError();
     }
 
     if (invite.cu12Id !== challenge.cu12Id) {
@@ -146,11 +172,7 @@ export async function POST(request: NextRequest) {
           inviteCu12Id: invite.cu12Id,
         },
       });
-      return jsonError(
-        "This CU12 ID is not approved. Contact an administrator.",
-        403,
-        "UNAPPROVED_ID",
-      );
+      return inviteVerificationFailedError();
     }
 
     const existingAccount = await prisma.cu12Account.findUnique({
@@ -170,50 +192,75 @@ export async function POST(request: NextRequest) {
     let firstLogin = false;
 
     if (existingAccount) {
-        const found = await prisma.user.findUnique({
-          where: { id: existingAccount.userId },
-          select: { id: true, email: true, role: true, isActive: true },
-        });
-        if (!found) {
-          return jsonError("User mapping not found.", 500, "INTERNAL_ERROR");
-        }
-        if (!found.isActive) {
-          await recordAuthFailure("invite", throttleIdentifiers);
-          return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
-        }
-        await prisma.inviteToken.update({
-          where: { id: invite.id },
-          data: {
-            usedAt: new Date(),
-            usedByUserId: found.id,
+      const found = await prisma.user.findUnique({
+        where: { id: existingAccount.userId },
+        select: { id: true, email: true, role: true, isActive: true },
+      });
+      if (!found || !found.isActive) {
+        await recordAuthFailure("invite", throttleIdentifiers);
+        return inviteVerificationFailedError();
+      }
+
+      const consumed = await prisma.$transaction((tx) =>
+        consumeInviteToken(tx, invite.id, challenge.cu12Id, found.id),
+      );
+      if (!consumed) {
+        await recordAuthFailure("invite", throttleIdentifiers);
+        await writeAuditLog({
+          category: "AUTH",
+          severity: "WARN",
+          message: "Invite verification failed: invite already consumed during verification",
+          meta: {
+            cu12Id: challenge.cu12Id,
+            inviteId: invite.id,
           },
         });
-        user = found;
-      } else {
+        return inviteVerificationFailedError();
+      }
+
+      user = found;
+    } else {
       const passwordHash = await hashPassword(generateToken(24));
 
-      user = await prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({
-          data: {
-            email: challenge.cu12Id,
-            name: challenge.cu12Id,
-            passwordHash,
-            role: invite.role,
-          },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-          },
-        });
+      try {
+        user = await prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({
+            data: {
+              email: challenge.cu12Id,
+              name: challenge.cu12Id,
+              passwordHash,
+              role: invite.role,
+            },
+            select: {
+              id: true,
+              email: true,
+              role: true,
+            },
+          });
 
-        await tx.inviteToken.update({
-          where: { id: invite.id },
-          data: { usedAt: new Date(), usedByUserId: created.id },
-        });
+          const consumed = await consumeInviteToken(tx, invite.id, challenge.cu12Id, created.id);
+          if (!consumed) {
+            throw new Error(INVITE_CONSUME_RACE_ERROR);
+          }
 
-        return created;
-      });
+          return created;
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === INVITE_CONSUME_RACE_ERROR) {
+          await recordAuthFailure("invite", throttleIdentifiers);
+          await writeAuditLog({
+            category: "AUTH",
+            severity: "WARN",
+            message: "Invite verification failed: invite already consumed during first-login registration",
+            meta: {
+              cu12Id: challenge.cu12Id,
+              inviteId: invite.id,
+            },
+          });
+          return inviteVerificationFailedError();
+        }
+        throw error;
+      }
 
       firstLogin = true;
     }
@@ -229,14 +276,14 @@ export async function POST(request: NextRequest) {
     });
 
     const consent = await getPolicyConsentRequirement(user.id);
-    if (!consent.configured) {
+    if (!consent.configured && user.role !== "ADMIN") {
       return jsonError(
         "Required policy documents are not configured by an administrator.",
         503,
         "POLICY_NOT_CONFIGURED",
       );
     }
-    if (consent.required) {
+    if (consent.configured && consent.required) {
       const consentToken = await signPolicyConsentChallengeToken({
         userId: user.id,
         email: challenge.cu12Id,

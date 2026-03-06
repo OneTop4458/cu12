@@ -6,6 +6,7 @@ import { markJobFailed } from "@/server/queue";
 
 const BodySchema = z.object({
   jobId: z.string().min(10),
+  workerId: z.string().min(2).max(120),
   error: z.string().min(1).max(4000),
 });
 
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    const job = await markJobFailed(body.jobId, body.error);
+    const job = await markJobFailed(body.jobId, body.workerId, body.error);
     return jsonOk({ updated: true, status: job.status });
   } catch (error) {
     if (error instanceof z.ZodError) {

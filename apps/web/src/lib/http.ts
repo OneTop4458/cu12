@@ -8,6 +8,7 @@ import {
   verifyActiveSession,
   verifyImpersonationToken,
 } from "./auth";
+import { getEnv } from "./env";
 import { prisma } from "./prisma";
 
 export function jsonOk<T>(data: T, init?: ResponseInit): NextResponse {
@@ -25,23 +26,92 @@ export function jsonError(message: string, status = 400, errorCode?: string): Ne
   );
 }
 
+function normalizeIp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 120);
+}
+
+function firstForwardedFor(value: string | null): string | null {
+  if (!value) return null;
+  const first = value.split(",")[0];
+  return normalizeIp(first);
+}
+
 export function getRequestIp(request: NextRequest): string | null {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const first = forwardedFor.split(",")[0]?.trim();
-    if (first) return first;
+  const requestWithIp = request as NextRequest & { ip?: string };
+  const directIp = normalizeIp(requestWithIp.ip);
+  if (directIp) return directIp;
+
+  if (!getEnv().TRUST_PROXY_HEADERS) {
+    return null;
   }
 
-  const realIp = request.headers.get("x-real-ip")?.trim();
+  const forwardedFor = firstForwardedFor(request.headers.get("x-forwarded-for"));
+  if (forwardedFor) return forwardedFor;
+
+  const realIp = normalizeIp(request.headers.get("x-real-ip"));
   if (realIp) return realIp;
 
-  const cloudflareIp = request.headers.get("cf-connecting-ip")?.trim();
+  const cloudflareIp = normalizeIp(request.headers.get("cf-connecting-ip"));
   if (cloudflareIp) return cloudflareIp;
 
-  const flyIp = request.headers.get("fly-client-ip")?.trim();
+  const flyIp = normalizeIp(request.headers.get("fly-client-ip"));
   if (flyIp) return flyIp;
 
   return null;
+}
+
+function isMutationMethod(method: string): boolean {
+  const upper = method.toUpperCase();
+  return upper === "POST" || upper === "PUT" || upper === "PATCH" || upper === "DELETE";
+}
+
+function resolveRequestOrigin(request: NextRequest): { protocol: string; host: string } | null {
+  const host = (
+    request.headers.get("x-forwarded-host")
+    ?? request.headers.get("host")
+    ?? ""
+  ).trim().toLowerCase();
+
+  const protocol = (
+    request.headers.get("x-forwarded-proto")
+    ?? new URL(request.url).protocol.replace(":", "")
+  ).trim().toLowerCase();
+
+  if (!host || !protocol) return null;
+  return { protocol, host };
+}
+
+function isHeaderOriginAllowed(value: string | null, expected: { protocol: string; host: string }): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol.replace(":", "").toLowerCase() === expected.protocol
+      && parsed.host.toLowerCase() === expected.host;
+  } catch {
+    return false;
+  }
+}
+
+export function hasValidCsrfOrigin(request: NextRequest): boolean {
+  if (!isMutationMethod(request.method)) return true;
+
+  const expected = resolveRequestOrigin(request);
+  if (!expected) return process.env.NODE_ENV !== "production";
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    return isHeaderOriginAllowed(origin, expected);
+  }
+
+  const referer = request.headers.get("referer");
+  if (referer) {
+    return isHeaderOriginAllowed(referer, expected);
+  }
+
+  return process.env.NODE_ENV !== "production";
 }
 
 export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>): Promise<T> {
@@ -50,6 +120,8 @@ export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>)
 }
 
 export async function requireUser(request: NextRequest): Promise<SessionTokenPayload | null> {
+  if (!hasValidCsrfOrigin(request)) return null;
+
   const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const idleToken = request.cookies.get(IDLE_SESSION_COOKIE_NAME)?.value;
   const session = await verifyActiveSession(sessionToken, idleToken);

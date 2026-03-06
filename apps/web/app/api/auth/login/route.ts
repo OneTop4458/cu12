@@ -30,6 +30,10 @@ function rateLimitedLoginError() {
   return jsonError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
 }
 
+function authenticationFailedError() {
+  return jsonError("Authentication failed.", 401, "AUTH_FAILED");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
@@ -57,24 +61,24 @@ export async function POST(request: NextRequest) {
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive) {
         await recordAuthFailure("login", throttleIdentifiers);
-        return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
+        return authenticationFailedError();
       }
 
       const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
       if (!ok) {
         await recordAuthFailure("login", throttleIdentifiers);
-        return jsonError("This account password is invalid.", 401, "LOCAL_AUTH_FAILED");
+        return authenticationFailedError();
       }
 
       const consent = await getPolicyConsentRequirement(localCandidate.id);
-      if (!consent.configured) {
+      if (!consent.configured && localCandidate.role !== "ADMIN") {
         return jsonError(
           "Required policy documents are not configured by an administrator.",
           503,
           "POLICY_NOT_CONFIGURED",
         );
       }
-      if (consent.required) {
+      if (consent.configured && consent.required) {
         const consentToken = await signPolicyConsentChallengeToken({
           userId: localCandidate.id,
           email: body.cu12Id,
@@ -174,7 +178,7 @@ export async function POST(request: NextRequest) {
           messageCode: validation.messageCode ?? null,
         },
       });
-      return jsonError("CU12 ID or password is invalid.", 401, "CU12_AUTH_FAILED");
+      return authenticationFailedError();
     }
 
     const existingAccount = await prisma.cu12Account.findUnique({
@@ -202,7 +206,7 @@ export async function POST(request: NextRequest) {
 
       if (!found || !found.isActive) {
         await recordAuthFailure("login", throttleIdentifiers);
-        return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
+        return authenticationFailedError();
       }
 
       user = await prisma.user.update({
@@ -219,7 +223,7 @@ export async function POST(request: NextRequest) {
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive) {
         await recordAuthFailure("login", throttleIdentifiers);
-        return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
+        return authenticationFailedError();
       }
 
       user = existingUserByEmail;
@@ -269,14 +273,14 @@ export async function POST(request: NextRequest) {
       },
     );
     const consent = await getPolicyConsentRequirement(user.id);
-    if (!consent.configured) {
+    if (!consent.configured && user.role !== "ADMIN") {
       return jsonError(
         "Required policy documents are not configured by an administrator.",
         503,
         "POLICY_NOT_CONFIGURED",
       );
     }
-    if (consent.required) {
+    if (consent.configured && consent.required) {
       const consentToken = await signPolicyConsentChallengeToken({
         userId: user.id,
         email: body.cu12Id,
