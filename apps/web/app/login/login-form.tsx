@@ -499,7 +499,7 @@ export function LoginForm({
           >
             <h2>필수 약관 동의</h2>
             <p className="muted">
-              마지막 로그인 일시와 IP를 저장하기 위해 필수 약관 동의가 필요합니다.
+              서비스 이용을 위해서는 필수 약관 동의가 필요합니다.
             </p>
 
             <form onSubmit={onSubmitConsent} className="form-stack top-gap">
