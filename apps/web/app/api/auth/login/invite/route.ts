@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { generateToken, hashToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
+import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
 import { upsertCu12Account } from "@/server/cu12-account";
 
 const BodySchema = z.object({
@@ -21,19 +22,34 @@ const BodySchema = z.object({
   rememberSession: z.boolean().optional().default(false),
 });
 
+function rateLimitedInviteError() {
+  return jsonError("Too many invite verification attempts. Please try again shortly.", 429, "RATE_LIMITED");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
+    const ipThrottleIdentifier = loginIp ? `ip:${loginIp}` : null;
+    const ipThrottle = await checkAuthThrottle("invite", [ipThrottleIdentifier]);
+    if (ipThrottle.blocked) {
+      return rateLimitedInviteError();
+    }
 
     const challenge = await verifyLoginChallengeToken(body.challengeToken);
     if (!challenge) {
+      await recordAuthFailure("invite", [ipThrottleIdentifier]);
       return jsonError(
         "Login challenge is invalid or expired. Please log in again.",
         401,
         "LOGIN_CHALLENGE_INVALID",
       );
+    }
+    const throttleIdentifiers = [ipThrottleIdentifier, `cu12:${challenge.cu12Id}`];
+    const challengeThrottle = await checkAuthThrottle("invite", throttleIdentifiers);
+    if (challengeThrottle.blocked) {
+      return rateLimitedInviteError();
     }
 
     const invite = await prisma.inviteToken.findUnique({
@@ -47,6 +63,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!hasInvite) {
+        await recordAuthFailure("invite", throttleIdentifiers);
         await writeAuditLog({
           category: "AUTH",
           severity: "WARN",
@@ -58,6 +75,7 @@ export async function POST(request: NextRequest) {
         return jsonError("This CU12 ID is not approved for self-signup. Contact administrator.", 403, "UNAPPROVED_ID");
       }
 
+      await recordAuthFailure("invite", throttleIdentifiers);
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -74,6 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!invite.isActive) {
+      await recordAuthFailure("invite", throttleIdentifiers);
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -87,6 +106,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.expiresAt < new Date()) {
+      await recordAuthFailure("invite", throttleIdentifiers);
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -100,6 +120,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.usedAt) {
+      await recordAuthFailure("invite", throttleIdentifiers);
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -113,6 +134,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.cu12Id !== challenge.cu12Id) {
+      await recordAuthFailure("invite", throttleIdentifiers);
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -154,6 +176,7 @@ export async function POST(request: NextRequest) {
           return jsonError("User mapping not found.", 500, "INTERNAL_ERROR");
         }
         if (!found.isActive) {
+          await recordAuthFailure("invite", throttleIdentifiers);
           return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
         }
         await prisma.inviteToken.update({
@@ -255,6 +278,7 @@ export async function POST(request: NextRequest) {
         loginIp,
       },
     });
+    await clearAuthFailures("invite", throttleIdentifiers);
 
     return response;
   } catch (error) {

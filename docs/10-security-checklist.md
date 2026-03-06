@@ -7,11 +7,13 @@
 - [ ] `AUTH_JWT_SECRET` length and entropy are sufficient.
 - [ ] `APP_MASTER_KEY` is rotated with a documented procedure.
 - [ ] `WORKER_SHARED_TOKEN` is rotated and synchronized.
+- [ ] `WORKER_SHARED_TOKEN` is 32+ chars and randomly generated.
 
 ## Session and Auth
 
 - [ ] Session cookie is `httpOnly` and `secure` in production.
 - [ ] Login flow distinguishes `CU12_AUTH_FAILED` vs `UNAPPROVED_ID`.
+- [ ] Login and invite verification endpoints enforce rate limiting / lockout.
 - [ ] One-time invite requirement is enforced for first login.
 - [ ] Admin APIs check role before read/write.
 
@@ -31,4 +33,5 @@
 
 - [ ] CI includes dependency/security scanning (CodeQL/Dependabot).
 - [ ] Major dependency upgrades are manually reviewed.
+- [ ] Third-party GitHub Actions are pinned to immutable commit SHA.
 - [ ] Emergency patch procedure is documented.

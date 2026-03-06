@@ -113,6 +113,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Account disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many authentication attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/auth/login/invite:
     post:
@@ -151,6 +163,12 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Invite invalid/expired or CU12 ID not approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many invite verification attempts
           content:
             application/json:
               schema:

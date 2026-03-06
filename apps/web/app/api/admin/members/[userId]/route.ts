@@ -131,13 +131,18 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       },
     });
 
+    const auditSafeBody = { ...body };
+    delete (auditSafeBody as { localPassword?: string }).localPassword;
     await writeAuditLog({
       category: "ADMIN",
       severity: "INFO",
       actorUserId: context.actor.userId,
       targetUserId: userId,
       message: "Admin updated member profile",
-      meta: body,
+      meta: {
+        ...auditSafeBody,
+        localPasswordUpdated: hasLocalPassword,
+      },
     });
 
     return jsonOk({ updated: true, user: updated });

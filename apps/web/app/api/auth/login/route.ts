@@ -13,6 +13,7 @@ import { getRequestIp, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { writeAuditLog } from "@/server/audit-log";
+import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
 import { upsertCu12Account } from "@/server/cu12-account";
 import { verifyCu12Login } from "@/server/cu12-login";
 
@@ -23,12 +24,21 @@ const BodySchema = z.object({
   rememberSession: z.boolean().optional().default(false),
 });
 
+function rateLimitedLoginError() {
+  return jsonError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const campus = body.campus ?? "SONGSIM";
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
+    const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `cu12:${body.cu12Id}`];
+    const throttle = await checkAuthThrottle("login", throttleIdentifiers);
+    if (throttle.blocked) {
+      return rateLimitedLoginError();
+    }
 
     const localCandidate = await prisma.user.findUnique({
       where: { email: body.cu12Id },
@@ -44,11 +54,13 @@ export async function POST(request: NextRequest) {
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive) {
+        await recordAuthFailure("login", throttleIdentifiers);
         return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
       }
 
       const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
       if (!ok) {
+        await recordAuthFailure("login", throttleIdentifiers);
         return jsonError("This account password is invalid.", 401, "LOCAL_AUTH_FAILED");
       }
 
@@ -104,6 +116,7 @@ export async function POST(request: NextRequest) {
           loginIp,
         },
       });
+      await clearAuthFailures("login", throttleIdentifiers);
       return response;
     }
 
@@ -113,6 +126,7 @@ export async function POST(request: NextRequest) {
       campus,
     });
     if (!validation.ok) {
+      await recordAuthFailure("login", throttleIdentifiers);
       await writeAuditLog({
         category: "AUTH",
         severity: "WARN",
@@ -150,6 +164,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!found || !found.isActive) {
+        await recordAuthFailure("login", throttleIdentifiers);
         return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
       }
 
@@ -166,6 +181,7 @@ export async function POST(request: NextRequest) {
       });
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive) {
+        await recordAuthFailure("login", throttleIdentifiers);
         return jsonError("This account has been deactivated.", 403, "ACCOUNT_DISABLED");
       }
 
@@ -193,6 +209,7 @@ export async function POST(request: NextRequest) {
           campus,
         },
       });
+      await clearAuthFailures("login", throttleIdentifiers);
 
       return jsonOk({
         stage: "INVITE_REQUIRED" as const,
@@ -256,6 +273,7 @@ export async function POST(request: NextRequest) {
         loginIp,
       },
     });
+    await clearAuthFailures("login", throttleIdentifiers);
 
     return response;
   } catch (error) {

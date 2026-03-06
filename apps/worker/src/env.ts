@@ -5,7 +5,7 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   APP_MASTER_KEY: z.string().min(32),
   WEB_INTERNAL_BASE_URL: z.string().url().default("http://localhost:3000"),
-  WORKER_SHARED_TOKEN: z.string().min(16),
+  WORKER_SHARED_TOKEN: z.string().min(32),
   WORKER_ID: z.string().optional(),
   CU12_BASE_URL: z.string().url().default("https://www.cu12.ac.kr"),
   PLAYWRIGHT_HEADLESS: z.coerce.boolean().default(true),

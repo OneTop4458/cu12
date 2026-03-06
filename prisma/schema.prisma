@@ -188,6 +188,20 @@ model WorkerHeartbeat {
   @@index([lastSeenAt])
 }
 
+model AuthRateLimit {
+  key         String   @id
+  scope       String
+  identifier  String
+  failCount   Int      @default(0)
+  windowStart DateTime @default(now())
+  blockedUntil DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scope, identifier])
+  @@index([blockedUntil])
+}
+
 model CourseSnapshot {
   id             String      @id @default(cuid())
   userId         String

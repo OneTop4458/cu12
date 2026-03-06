@@ -5,7 +5,7 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_JWT_SECRET: z.string().min(32),
   APP_MASTER_KEY: z.string().min(32),
-  WORKER_SHARED_TOKEN: z.string().min(16),
+  WORKER_SHARED_TOKEN: z.string().min(32),
   CU12_BASE_URL: z.string().url().default("https://www.cu12.ac.kr"),
   GITHUB_OWNER: z.string().optional(),
   GITHUB_REPO: z.string().optional(),
