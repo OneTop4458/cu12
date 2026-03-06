@@ -218,6 +218,36 @@ function cleanupNoticeBody(value: string): string {
     .trim();
 }
 
+function scoreNoticeBody(value: string): number {
+  const text = normalizeWhitespace(value);
+  if (!text) return -1;
+
+  let score = 0;
+  if (text.length >= 40) score += 2;
+  else if (text.length >= 15) score += 1;
+  else score -= 1;
+
+  const metaPatterns = [
+    /\uC870\uD68C\uC218/i,
+    /\uB4F1\uB85D\uC77C/i,
+    /\uC791\uC131\uC77C/i,
+    /\uC791\uC131\uC790/i,
+    /\uACF5\uC9C0\s*\uC0AC\uD56D/i,
+  ];
+  const metaHits = metaPatterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+  const hasDate = /\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(text);
+
+  if (metaHits >= 2 && text.length <= 220) score -= 3;
+  if (hasDate && metaHits >= 1 && text.length <= 220) score -= 2;
+  if (/\uC870\uD68C\uC218/i.test(text) && text.length <= 260) score -= 3;
+
+  return score;
+}
+
+function isLikelyNoticeBody(value: string): boolean {
+  return scoreNoticeBody(value) > 0;
+}
+
 function parseBodyFromNoticeDetailHtml(rawHtml: string, noticeSeq: string): string {
   const cleaned = rawHtml
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -280,6 +310,34 @@ function extractContentsSeq(rawHtml: string): string | null {
   return null;
 }
 
+function extractViewCountFromHtml(rawHtml: string): string | null {
+  const text = normalizeWhitespace(stripTags(rawHtml));
+  if (!text) return null;
+
+  const labeled = text.match(/(?:\uC870\uD68C\uC218|view\s*count)\s*[:：]?\s*(\d{1,9})/i)?.[1];
+  if (labeled) return labeled;
+
+  return null;
+}
+
+function isLikelyAttachmentUrl(url: string): boolean {
+  const normalized = url.toLowerCase();
+
+  if (
+    /\/el\/member\/profile_view_form\.acl/.test(normalized)
+    || /\/el\/class\/file_list_form\.acl/.test(normalized)
+    || /\/el\/co\/file_list_user4\.acl/.test(normalized)
+  ) {
+    return false;
+  }
+
+  if (/\.(?:pdf|hwp|hwpx|doc|docx|xls|xlsx|ppt|pptx|zip|rar|7z|txt|jpg|jpeg|png|gif|bmp|mp4|mp3|wav)$/i.test(normalized)) {
+    return true;
+  }
+
+  return /(?:download|down_file|file_down|filedownload|contents_file_seq|file_seq|atch_file|file_id|attach_id|attachment)/i.test(normalized);
+}
+
 function extractAttachments(rawHtml: string, baseUrl: string): Array<{ name: string; url: string }> {
   const matches = rawHtml.matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi);
   const dedup = new Map<string, { name: string; url: string }>();
@@ -287,11 +345,6 @@ function extractAttachments(rawHtml: string, baseUrl: string): Array<{ name: str
   for (const match of matches) {
     const rawHref = decodeHtmlEntities(match[2] ?? "").trim();
     if (!rawHref || /^javascript:/i.test(rawHref)) continue;
-
-    const fileLike =
-      /(?:download|file|attach|contents_seq|contents_file_seq|file_seq|filedown|down_file)/i.test(rawHref)
-      || /\.(?:pdf|hwp|hwpx|doc|docx|xls|xlsx|ppt|pptx|zip|rar|7z|txt|jpg|jpeg|png|gif)$/i.test(rawHref);
-    if (!fileLike) continue;
 
     const name = normalizeWhitespace(stripTags(match[3] ?? ""));
     if (!name) continue;
@@ -302,6 +355,8 @@ function extractAttachments(rawHtml: string, baseUrl: string): Array<{ name: str
     } catch {
       continue;
     }
+
+    if (!isLikelyAttachmentUrl(absoluteUrl)) continue;
 
     if (!dedup.has(absoluteUrl)) {
       dedup.set(absoluteUrl, { name, url: absoluteUrl });
@@ -321,6 +376,32 @@ function appendAttachmentBlock(
 
   const block = attachments.map((item) => `- ${item.name} (${item.url})`).join("\n");
   return `${bodyText.trim()}\n\n[\uCCA8\uBD80\uD30C\uC77C]\n${block}`.trim();
+}
+
+function composeNoticeBodyWithMeta(
+  bodyText: string,
+  meta: {
+    postedAt: string | null;
+    author: string | null;
+    viewCount: string | null;
+  },
+): string {
+  const body = bodyText.trim();
+  const lines: string[] = [];
+  if (meta.postedAt) lines.push(`\uC791\uC131\uC77C: ${meta.postedAt}`);
+  if (meta.author) lines.push(`\uC791\uC131\uC790: ${meta.author}`);
+  if (meta.viewCount) lines.push(`\uC870\uD68C\uC218: ${meta.viewCount}`);
+
+  if (lines.length === 0) return body;
+  const metaBlock = lines.join("\n");
+  if (!body) return metaBlock;
+
+  // Prevent duplicate metadata when CU12 detail HTML already includes header fields.
+  if (/(?:\uC791\uC131\uC77C|\uC791\uC131\uC790|\uC870\uD68C\uC218)/.test(body)) {
+    return body;
+  }
+
+  return `${metaBlock}\n\n${body}`;
 }
 
 function buildNoticeDetailCandidates(
@@ -359,10 +440,45 @@ function buildNoticeDetailCandidates(
 
   return [
     { method: "GET", path: `/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&A_SEQ=${noticeSeq}&encoding=utf-8` },
+    { method: "GET", path: `/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&A_SEQ=${noticeSeq}` },
     { method: "GET", path: `/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&NOTICE_SEQ=${noticeSeq}&encoding=utf-8` },
     { method: "GET", path: `/el/class/notice_list_form.acl?LECTURE_SEQ=${lectureSeq}&ARTL_SEQ=${noticeSeq}&encoding=utf-8` },
     { method: "POST", path: "/el/class/notice_list.acl", body: queryBody },
+    {
+      method: "POST",
+      path: "/el/class/notice_list.acl",
+      body: new URLSearchParams(`${queryBody.toString()}&mode=ajax`),
+    },
+    {
+      method: "POST",
+      path: "/el/class/notice_list.acl",
+      body: new URLSearchParams({
+        NOTICE_SEQ: noticeSeq,
+        COURSE_SEQ: courseSeq,
+        LECTURE_SEQ: String(lectureSeq),
+        encoding: "utf-8",
+      }),
+    },
+    {
+      method: "GET",
+      path: `/el/class/notice_list.acl?NOTICE_SEQ=${noticeSeq}&LECTURE_SEQ=${lectureSeq}&COURSE_SEQ=${courseSeq}&encoding=utf-8`,
+    },
+    { method: "GET", path: `/el/class/notice_list.acl?${queryBody.toString()}` },
     { method: "POST", path: "/el/class/notice_list_form.acl", body: queryBody },
+    {
+      method: "POST",
+      path: "/el/class/notice_list_form.acl",
+      body: new URLSearchParams({
+        NOTICE_SEQ: noticeSeq,
+        LECTURE_SEQ: String(lectureSeq),
+        encoding: "utf-8",
+      }),
+    },
+    {
+      method: "GET",
+      path: `/el/class/notice_list_form.acl?NOTICE_SEQ=${noticeSeq}&LECTURE_SEQ=${lectureSeq}&encoding=utf-8`,
+    },
+    { method: "POST", path: "/el/co/notice_detail.acl", body: queryBody },
     { method: "POST", path: "/el/class/notice_view_form.acl", body: queryBody },
     { method: "GET", path: `/el/class/notice_view_form.acl?${fallbackBody.toString()}` },
   ];
@@ -378,13 +494,7 @@ function pickBodyFromParsedNoticeList(
   if (parsed.length === 0) return "";
 
   const exact = parsed.find((row) => row.noticeSeq === noticeSeq && row.bodyText.trim().length > 0);
-  if (exact?.bodyText) {
-    return exact.bodyText.trim();
-  }
-
-  return parsed
-    .map((row) => row.bodyText.trim())
-    .sort((a, b) => b.length - a.length)[0] ?? "";
+  return exact?.bodyText?.trim() ?? "";
 }
 
 async function resolveNoticeBodyViaHttp(input: {
@@ -394,9 +504,10 @@ async function resolveNoticeBodyViaHttp(input: {
   noticeSeq: string;
   courseSeq: string;
   shouldCancel: CancelCheck;
-}): Promise<string> {
+}): Promise<{ bodyText: string; viewCount: string | null }> {
   const env = getEnv();
   const candidates = buildNoticeDetailCandidates(input.lectureSeq, input.noticeSeq, input.courseSeq);
+  let best: { bodyText: string; score: number; viewCount: string | null } | null = null;
 
   for (const candidate of candidates) {
     if (await input.shouldCancel()) {
@@ -416,7 +527,7 @@ async function resolveNoticeBodyViaHttp(input: {
       input.noticeSeq,
     );
     const detailBody = parsedBody || parseBodyFromNoticeDetailHtml(response.text, input.noticeSeq);
-    if (!detailBody) continue;
+    if (!detailBody || !isLikelyNoticeBody(detailBody)) continue;
 
     let attachments = extractAttachments(response.text, env.CU12_BASE_URL);
     const contentsSeq = extractContentsSeq(response.text);
@@ -428,10 +539,21 @@ async function resolveNoticeBodyViaHttp(input: {
       attachments = mergeAttachments(attachments, extractAttachments(fileResponse.text, env.CU12_BASE_URL));
     }
 
-    return appendAttachmentBlock(detailBody, attachments);
+    const bodyText = appendAttachmentBlock(detailBody, attachments);
+    const score = scoreNoticeBody(detailBody);
+    const viewCount = extractViewCountFromHtml(response.text);
+    if (!best || score > best.score || (score === best.score && bodyText.length > best.bodyText.length)) {
+      best = { bodyText, score, viewCount };
+    }
+    if (score >= 3) {
+      return { bodyText, viewCount };
+    }
   }
 
-  return "";
+  return {
+    bodyText: best?.bodyText ?? "",
+    viewCount: best?.viewCount ?? null,
+  };
 }
 
 function mergeAttachments(
@@ -449,13 +571,22 @@ function mergeAttachments(
 
 function upsertNoticeBodies(
   notices: CourseNotice[],
-  bodyBySeq: Map<string, string>,
+  detailBySeq: Map<string, { bodyText: string; viewCount: string | null }>,
 ): CourseNotice[] {
   return notices.map((notice) => {
     const seq = notice.noticeSeq ? String(notice.noticeSeq) : "";
     if (!seq || notice.bodyText.trim()) return notice;
-    const bodyText = bodyBySeq.get(seq);
-    return bodyText?.trim() ? { ...notice, bodyText } : notice;
+    const detail = detailBySeq.get(seq);
+    if (!detail?.bodyText.trim()) return notice;
+
+    return {
+      ...notice,
+      bodyText: composeNoticeBodyWithMeta(detail.bodyText, {
+        postedAt: notice.postedAt,
+        author: notice.author,
+        viewCount: detail.viewCount,
+      }),
+    };
   });
 }
 
@@ -544,10 +675,10 @@ export async function collectCu12SnapshotViaHttp(
           .map((notice) => String(notice.noticeSeq)),
       ),
     );
-    const detailBodyBySeq = new Map<string, string>();
+    const detailBodyBySeq = new Map<string, { bodyText: string; viewCount: string | null }>();
 
     for (const noticeSeq of missingBodyNoticeSeqs) {
-      const bodyText = await resolveNoticeBodyViaHttp({
+      const detail = await resolveNoticeBodyViaHttp({
         client,
         userId,
         lectureSeq: course.lectureSeq,
@@ -555,8 +686,11 @@ export async function collectCu12SnapshotViaHttp(
         courseSeq,
         shouldCancel,
       });
-      if (bodyText.trim()) {
-        detailBodyBySeq.set(noticeSeq, bodyText.trim());
+      if (detail.bodyText.trim()) {
+        detailBodyBySeq.set(noticeSeq, {
+          bodyText: detail.bodyText.trim(),
+          viewCount: detail.viewCount,
+        });
       }
     }
 
