@@ -9,6 +9,7 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 export const REMEMBER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export const IDLE_SESSION_MAX_AGE_SECONDS = 60 * 30;
 const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
+const POLICY_CONSENT_CHALLENGE_PURPOSE = "POLICY_CONSENT_CHALLENGE";
 const IMPERSONATION_PURPOSE = "ADMIN_IMPERSONATION";
 const IDLE_SESSION_PURPOSE = "IDLE_SESSION";
 
@@ -30,6 +31,15 @@ export interface ImpersonationPayload {
   purpose: typeof IMPERSONATION_PURPOSE;
   actorUserId: string;
   targetUserId: string;
+}
+
+export interface PolicyConsentChallengePayload {
+  purpose: typeof POLICY_CONSENT_CHALLENGE_PURPOSE;
+  userId: string;
+  email: string;
+  role: "ADMIN" | "USER";
+  rememberSession: boolean;
+  firstLogin: boolean;
 }
 
 export interface IdleSessionPayload {
@@ -184,6 +194,54 @@ export async function verifyLoginChallengeToken(token: string): Promise<LoginCha
       campus: value.campus,
       encryptedCu12Password: value.encryptedCu12Password,
       nonce: value.nonce,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function signPolicyConsentChallengeToken(
+  payload: Omit<PolicyConsentChallengePayload, "purpose">,
+): Promise<string> {
+  return new SignJWT({
+    purpose: POLICY_CONSENT_CHALLENGE_PURPOSE,
+    userId: payload.userId,
+    email: payload.email,
+    role: payload.role,
+    rememberSession: payload.rememberSession,
+    firstLogin: payload.firstLogin,
+  } satisfies PolicyConsentChallengePayload as unknown as JWTPayload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("30m")
+    .sign(jwtSecret());
+}
+
+export async function verifyPolicyConsentChallengeToken(
+  token: string,
+): Promise<PolicyConsentChallengePayload | null> {
+  try {
+    const verified = await jwtVerify(token, jwtSecret());
+    const value = verified.payload as Partial<PolicyConsentChallengePayload>;
+    if (
+      value.purpose !== POLICY_CONSENT_CHALLENGE_PURPOSE
+      || !value.userId
+      || !value.email
+      || !value.role
+    ) {
+      return null;
+    }
+    if (value.role !== "ADMIN" && value.role !== "USER") {
+      return null;
+    }
+
+    return {
+      purpose: POLICY_CONSENT_CHALLENGE_PURPOSE,
+      userId: value.userId,
+      email: value.email,
+      role: value.role,
+      rememberSession: value.rememberSession === true,
+      firstLogin: value.firstLogin === true,
     };
   } catch {
     return null;

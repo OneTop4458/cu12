@@ -76,7 +76,8 @@ paths:
       summary: Step 1 login with CU12 credentials
       description: >-
         Verifies CU12 credentials in real time.
-        Returns AUTHENTICATED for mapped users, or INVITE_REQUIRED with a short-lived challenge token.
+        Returns AUTHENTICATED for mapped users, INVITE_REQUIRED for first-login users,
+        or CONSENT_REQUIRED when required policies must be accepted.
       requestBody:
         required: true
         content:
@@ -107,6 +108,7 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/LoginAuthenticated"
                   - $ref: "#/components/schemas/LoginInviteRequired"
+                  - $ref: "#/components/schemas/LoginConsentRequired"
         "401":
           description: CU12 credential verification failed
           content:
@@ -121,6 +123,12 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Too many authentication attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Required policy documents are not configured
           content:
             application/json:
               schema:
@@ -150,11 +158,13 @@ paths:
                   default: false
       responses:
         "200":
-          description: Authenticated after invite verification
+          description: Authenticated after invite verification or consent required
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LoginAuthenticated"
+                oneOf:
+                  - $ref: "#/components/schemas/LoginAuthenticated"
+                  - $ref: "#/components/schemas/LoginConsentRequired"
         "401":
           description: Challenge token invalid/expired
           content:
@@ -169,6 +179,71 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Too many invite verification attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Required policy documents are not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/consent:
+    post:
+      tags: [Auth]
+      summary: Submit required policy consent and complete login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consentToken, acceptedPolicies]
+              properties:
+                consentToken:
+                  type: string
+                  minLength: 20
+                acceptedPolicies:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [type, version]
+                    properties:
+                      type:
+                        $ref: "#/components/schemas/PolicyDocumentType"
+                      version:
+                        type: integer
+                        minimum: 1
+      responses:
+        "200":
+          description: Authenticated after policy consent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginAuthenticated"
+        "400":
+          description: Missing required consent or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Consent challenge token invalid/expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Policy version mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Required policy documents are not configured
           content:
             application/json:
               schema:
@@ -312,6 +387,87 @@ paths:
           description: Forbidden
         "404":
           description: Invite token not found
+
+  /api/admin/policies:
+    get:
+      tags: [Admin]
+      summary: Get required policy documents (admin only)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Policy document list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requiredTypes, policies]
+                properties:
+                  requiredTypes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyDocumentType"
+                  policies:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyDocument"
+        "403":
+          description: Forbidden
+    put:
+      tags: [Admin]
+      summary: Upsert required policy documents (admin only)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [policies]
+              properties:
+                policies:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [type, content, isActive]
+                    properties:
+                      type:
+                        $ref: "#/components/schemas/PolicyDocumentType"
+                      content:
+                        type: string
+                        minLength: 1
+                        maxLength: 20000
+                      isActive:
+                        type: boolean
+      responses:
+        "200":
+          description: Policy documents updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, requiredTypes, policies]
+                properties:
+                  updated:
+                    type: boolean
+                  requiredTypes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyDocumentType"
+                  policies:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyDocument"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
 
   /api/cu12/account:
     get:
@@ -1802,6 +1958,10 @@ components:
       type: string
       enum: [ADMIN, USER]
 
+    PolicyDocumentType:
+      type: string
+      enum: [PRIVACY_POLICY, TERMS_OF_SERVICE]
+
     Campus:
       type: string
       enum: [SONGSIM, SONGSIN]
@@ -1871,6 +2031,56 @@ components:
           enum: [INVITE_REQUIRED]
         challengeToken:
           type: string
+
+    LoginConsentRequired:
+      type: object
+      required: [stage, consentToken, policies, user, firstLogin, session]
+      properties:
+        stage:
+          type: string
+          enum: [CONSENT_REQUIRED]
+        consentToken:
+          type: string
+        policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyDocument"
+        user:
+          type: object
+          required: [userId, cu12Id, role]
+          properties:
+            userId:
+              type: string
+            cu12Id:
+              type: string
+            role:
+              $ref: "#/components/schemas/UserRole"
+        firstLogin:
+          type: boolean
+        session:
+          $ref: "#/components/schemas/SessionPolicy"
+
+    PolicyDocument:
+      type: object
+      required: [type, title, version, content, isActive, createdAt, updatedAt]
+      properties:
+        type:
+          $ref: "#/components/schemas/PolicyDocumentType"
+        title:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        content:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     ErrorResponse:
       type: object

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ import { UserMenu } from "../../../components/layout/user-menu";
 
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 type NoticeType = "BROADCAST" | "MAINTENANCE";
+type PolicyDocumentType = "PRIVACY_POLICY" | "TERMS_OF_SERVICE";
 
 interface AdminSystemProps {
   initialUser: {
@@ -65,11 +66,35 @@ interface HealthPayload {
   ok: boolean;
 }
 
+interface PolicyDocumentPayload {
+  type: PolicyDocumentType;
+  title: string;
+  version: number;
+  content: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AdminPoliciesPayload {
+  requiredTypes: PolicyDocumentType[];
+  policies: PolicyDocumentPayload[];
+}
+
+interface AdminPoliciesUpdatePayload extends AdminPoliciesPayload {
+  updated: boolean;
+}
+
 const JOB_STATUSES: JobStatus[] = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
 
 const NOTICE_TYPE_LABEL: Record<NoticeType, string> = {
   BROADCAST: "전체 공지",
-  MAINTENANCE: "시스템 점검",
+  MAINTENANCE: "점검 공지",
+};
+
+const POLICY_TYPE_LABEL: Record<PolicyDocumentType, string> = {
+  PRIVACY_POLICY: "개인정보 처리 방침",
+  TERMS_OF_SERVICE: "이용약관",
 };
 
 function parseError(payload: unknown): string {
@@ -97,11 +122,16 @@ const EMPTY_COUNTS: Record<JobStatus, number> = {
   CANCELED: 0,
 };
 
+function toPolicyMap(policies: PolicyDocumentPayload[]): Map<PolicyDocumentType, PolicyDocumentPayload> {
+  return new Map(policies.map((policy) => [policy.type, policy]));
+}
+
 export function AdminSystemClient({ initialUser }: AdminSystemProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [workers, setWorkers] = useState<WorkerHeartbeat[]>([]);
   const [workerSummary, setWorkerSummary] = useState<WorkersPayload["summary"] | null>(null);
@@ -109,13 +139,39 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
   const [staleMinutes, setStaleMinutes] = useState(10);
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
 
-  const fetchJson = useCallback(async <T,>(url: string): Promise<T> => {
-    const response = await fetch(url);
+  const [requiredPolicyTypes, setRequiredPolicyTypes] = useState<PolicyDocumentType[]>([]);
+  const [policies, setPolicies] = useState<PolicyDocumentPayload[]>([]);
+  const [privacyContent, setPrivacyContent] = useState("");
+  const [privacyActive, setPrivacyActive] = useState(true);
+  const [termsContent, setTermsContent] = useState("");
+  const [termsActive, setTermsActive] = useState(true);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [policySavedAt, setPolicySavedAt] = useState<string | null>(null);
+
+  const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
+    const response = await fetch(url, init);
+    const payload = (await response.json().catch(() => ({}))) as unknown;
     if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as ApiErrorPayload;
       throw new Error(parseError(payload));
     }
-    return (await response.json()) as T;
+    return payload as T;
+  }, []);
+
+  const applyPolicies = useCallback((payload: AdminPoliciesPayload) => {
+    const nextRequiredTypes = payload.requiredTypes ?? [];
+    const nextPolicies = payload.policies ?? [];
+    setRequiredPolicyTypes(nextRequiredTypes);
+    setPolicies(nextPolicies);
+
+    const byType = toPolicyMap(nextPolicies);
+    const privacy = byType.get("PRIVACY_POLICY");
+    const terms = byType.get("TERMS_OF_SERVICE");
+
+    setPrivacyContent(privacy?.content ?? "");
+    setPrivacyActive(privacy?.isActive ?? true);
+    setTermsContent(terms?.content ?? "");
+    setTermsActive(terms?.isActive ?? true);
   }, []);
 
   const fetchHealth = useCallback(async () => {
@@ -124,16 +180,16 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
   }, [fetchJson]);
 
   const fetchWorkers = useCallback(async () => {
-    const payload = await fetchJson<WorkersPayload>(`/api/admin/workers?staleMinutes=${Math.max(1, Math.trunc(staleMinutes))}`);
+    const payload = await fetchJson<WorkersPayload>(
+      `/api/admin/workers?staleMinutes=${Math.max(1, Math.trunc(staleMinutes))}`,
+    );
     setWorkers(payload.workers ?? []);
     setWorkerSummary(payload.summary ?? null);
   }, [fetchJson, staleMinutes]);
 
   const fetchJobs = useCallback(async () => {
     const responses = await Promise.all(
-      JOB_STATUSES.map((status) =>
-        fetchJson<AdminJobsPayload>(`/api/admin/jobs?status=${status}&limit=1`),
-      ),
+      JOB_STATUSES.map((status) => fetchJson<AdminJobsPayload>(`/api/admin/jobs?status=${status}&limit=1`)),
     );
 
     const nextCounts = { ...EMPTY_COUNTS };
@@ -151,38 +207,44 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
     setSiteNotices(payload.siteNotices ?? []);
   }, [fetchJson]);
 
+  const fetchPolicies = useCallback(async () => {
+    const payload = await fetchJson<AdminPoliciesPayload>("/api/admin/policies");
+    applyPolicies(payload);
+  }, [applyPolicies, fetchJson]);
+
   const refreshAll = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true);
-    else setLoading(true);
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     try {
-      await Promise.all([
-        fetchHealth(),
-        fetchWorkers(),
-        fetchJobs(),
-        fetchSiteNotices(),
-      ]);
+      await Promise.all([fetchHealth(), fetchWorkers(), fetchJobs(), fetchSiteNotices(), fetchPolicies()]);
     } catch (err) {
-      const messageText = err instanceof Error ? err.message : "시스템 상태를 불러오지 못했습니다.";
-      setError(messageText);
+      setError(err instanceof Error ? err.message : "시스템 상태를 불러오지 못했습니다.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [fetchHealth, fetchJobs, fetchSiteNotices, fetchWorkers]);
+  }, [fetchHealth, fetchJobs, fetchPolicies, fetchSiteNotices, fetchWorkers]);
 
   useEffect(() => {
     void refreshAll(false);
   }, [refreshAll]);
 
   const activeNotices = useMemo(() => siteNotices.filter((notice) => notice.isActive), [siteNotices]);
-  const activeBroadcast = useMemo(() => activeNotices.filter((notice) => notice.type === "BROADCAST").length, [activeNotices]);
-  const activeMaintenance = useMemo(() => activeNotices.filter((notice) => notice.type === "MAINTENANCE").length, [activeNotices]);
-  const jobTotal = useMemo(
-    () => Object.values(jobCounts).reduce((acc, value) => acc + value, 0),
-    [jobCounts],
+  const activeBroadcast = useMemo(
+    () => activeNotices.filter((notice) => notice.type === "BROADCAST").length,
+    [activeNotices],
   );
+  const activeMaintenance = useMemo(
+    () => activeNotices.filter((notice) => notice.type === "MAINTENANCE").length,
+    [activeNotices],
+  );
+  const jobTotal = useMemo(() => Object.values(jobCounts).reduce((acc, value) => acc + value, 0), [jobCounts]);
+
   const sortedNotices = useMemo(() => {
     return [...siteNotices].sort((a, b) => {
       if (a.isActive !== b.isActive) {
@@ -195,6 +257,56 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
     });
   }, [siteNotices]);
 
+  const policyByType = useMemo(() => toPolicyMap(policies), [policies]);
+  const missingPolicyTypes = useMemo(() => {
+    return requiredPolicyTypes.filter((type) => {
+      const current = policyByType.get(type);
+      return !current || !current.isActive || !current.content.trim();
+    });
+  }, [policyByType, requiredPolicyTypes]);
+
+  const handleSavePolicies = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (policySaving) return;
+
+      if (!privacyContent.trim() || !termsContent.trim()) {
+        setPolicyError("개인정보 처리 방침과 이용약관 내용을 모두 입력해 주세요.");
+        return;
+      }
+
+      setPolicySaving(true);
+      setPolicyError(null);
+      try {
+        const payload = await fetchJson<AdminPoliciesUpdatePayload>("/api/admin/policies", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            policies: [
+              {
+                type: "PRIVACY_POLICY",
+                content: privacyContent.trim(),
+                isActive: privacyActive,
+              },
+              {
+                type: "TERMS_OF_SERVICE",
+                content: termsContent.trim(),
+                isActive: termsActive,
+              },
+            ],
+          }),
+        });
+        applyPolicies(payload);
+        setPolicySavedAt(new Date().toISOString());
+      } catch (err) {
+        setPolicyError(err instanceof Error ? err.message : "약관 저장에 실패했습니다.");
+      } finally {
+        setPolicySaving(false);
+      }
+    },
+    [applyPolicies, fetchJson, policySaving, privacyActive, privacyContent, termsActive, termsContent],
+  );
+
   return (
     <main className="dashboard-main page-shell">
       <header className="topbar">
@@ -202,7 +314,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           <div className="topbar-brand">
             <img src="/brand/catholic/crest-mark.png" alt="Catholic University crest" loading="lazy" />
             <div>
-              <p className="brand-kicker">가톨릭대학교 공유대학 운영</p>
+              <p className="brand-kicker">Catholic University CU12 Automation</p>
               <h1>시스템 상태</h1>
             </div>
           </div>
@@ -216,14 +328,14 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
             >
               <RefreshCw size={16} />
             </button>
-            <Link className="ghost-btn" href="/admin/site-notices" as="/admin/site-notices" >
+            <Link className="ghost-btn" href="/admin/site-notices">
               공지/점검 설정
             </Link>
-            <Link className="ghost-btn" href={"/admin/operations" as any} as={"/admin/operations" as any} >
+            <Link className="ghost-btn" href="/admin/operations">
               작업 운영
             </Link>
-            <Link className="ghost-btn" href="/admin" as="/admin" >
-              관리 홈
+            <Link className="ghost-btn" href="/admin">
+              관리자
             </Link>
             <ThemeToggle />
             <UserMenu
@@ -250,7 +362,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
         <article className="admin-stat card">
           <h2>헬스 체크</h2>
           <p className="metric">{healthOk === null ? "-" : healthOk ? "정상" : "비정상"}</p>
-          <p className="muted">서버 상태</p>
+          <p className="muted">웹 서비스 상태</p>
         </article>
         <article className="admin-stat card">
           <h2>워커 상태</h2>
@@ -258,12 +370,12 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           <p className="muted">활성 / 전체</p>
         </article>
         <article className="admin-stat card">
-          <h2>작업 큐</h2>
+          <h2>작업 수</h2>
           <p className="metric">{jobTotal}</p>
-          <p className="muted">총 작업 수</p>
+          <p className="muted">전체 작업 건수</p>
         </article>
         <article className="admin-stat card">
-          <h2>현재 공지</h2>
+          <h2>활성 공지</h2>
           <p className="metric">{activeNotices.length}</p>
           <p className="muted">전체 {activeBroadcast} / 점검 {activeMaintenance}</p>
         </article>
@@ -271,8 +383,8 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>작업 큐 상태</h2>
-          <span className="muted text-small">FAILED/CANCELED는 실패/중단 건수입니다.</span>
+          <h2>작업별 상태</h2>
+          <span className="muted text-small">FAILED/CANCELED는 실패 또는 중단된 작업 수입니다.</span>
         </div>
         <div className="status-grid top-gap">
           {JOB_STATUSES.map((status) => (
@@ -286,9 +398,84 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
       <section className="card">
         <div className="table-toolbar">
+          <h2>개인정보 처리 방침/이용약관</h2>
+          <span className="muted text-small">최초 로그인 전에 사용자가 필수 동의해야 하는 문서입니다.</span>
+        </div>
+
+        {missingPolicyTypes.length > 0 ? (
+          <p className="error-text top-gap">
+            필수 문서 미구성: {missingPolicyTypes.map((type) => POLICY_TYPE_LABEL[type]).join(", ")}
+          </p>
+        ) : null}
+        {policyError ? <p className="error-text top-gap">{policyError}</p> : null}
+        {!policyError && policySavedAt ? (
+          <p className="ok-text top-gap">저장 완료: {formatDate(policySavedAt)}</p>
+        ) : null}
+
+        <form className="form-grid top-gap" onSubmit={handleSavePolicies}>
+          <article className="card">
+            <h3>{POLICY_TYPE_LABEL.PRIVACY_POLICY}</h3>
+            <p className="muted text-small">
+              현재 버전: v{policyByType.get("PRIVACY_POLICY")?.version ?? 0} | 마지막 수정: {" "}
+              {formatDate(policyByType.get("PRIVACY_POLICY")?.updatedAt ?? null)}
+            </p>
+            <label className="field top-gap">
+              <span>문서 내용</span>
+              <textarea
+                rows={10}
+                value={privacyContent}
+                onChange={(event) => setPrivacyContent(event.target.value)}
+                placeholder="개인정보 처리 방침 내용을 입력하세요."
+              />
+            </label>
+            <label className="check-field top-gap">
+              <input
+                type="checkbox"
+                checked={privacyActive}
+                onChange={(event) => setPrivacyActive(event.target.checked)}
+              />
+              <span>활성화 (로그인 시 동의 필수)</span>
+            </label>
+          </article>
+
+          <article className="card">
+            <h3>{POLICY_TYPE_LABEL.TERMS_OF_SERVICE}</h3>
+            <p className="muted text-small">
+              현재 버전: v{policyByType.get("TERMS_OF_SERVICE")?.version ?? 0} | 마지막 수정: {" "}
+              {formatDate(policyByType.get("TERMS_OF_SERVICE")?.updatedAt ?? null)}
+            </p>
+            <label className="field top-gap">
+              <span>문서 내용</span>
+              <textarea
+                rows={10}
+                value={termsContent}
+                onChange={(event) => setTermsContent(event.target.value)}
+                placeholder="이용약관 내용을 입력하세요."
+              />
+            </label>
+            <label className="check-field top-gap">
+              <input
+                type="checkbox"
+                checked={termsActive}
+                onChange={(event) => setTermsActive(event.target.checked)}
+              />
+              <span>활성화 (로그인 시 동의 필수)</span>
+            </label>
+          </article>
+
+          <div className="button-row" style={{ gridColumn: "1 / -1" }}>
+            <button className="btn-success" type="submit" disabled={policySaving}>
+              {policySaving ? "저장 중..." : "약관 저장"}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section className="card">
+        <div className="table-toolbar">
           <h2>워커 상태</h2>
           <label className="field">
-            <span>비정상 판별 기준(분)</span>
+            <span>비정상 판정 기준(분)</span>
             <input
               type="number"
               min={1}
@@ -297,7 +484,12 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
               onChange={(event) => setStaleMinutes(Math.max(1, Number(event.target.value) || 1))}
             />
           </label>
-          <button type="button" className="btn-success" onClick={() => void refreshAll(true)} disabled={loading || refreshing}>
+          <button
+            type="button"
+            className="btn-success"
+            onClick={() => void refreshAll(true)}
+            disabled={loading || refreshing}
+          >
             {refreshing ? "갱신 중..." : "워커 다시 조회"}
           </button>
         </div>
@@ -306,20 +498,19 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
             <thead>
               <tr>
                 <th>Worker ID</th>
-                <th>최종 heartbeat</th>
+                <th>마지막 heartbeat</th>
                 <th>상태</th>
               </tr>
             </thead>
             <tbody>
               {!workerSummary || workers.length === 0 ? (
                 <tr>
-                  <td colSpan={3}>워커가 등록되어 있지 않습니다.</td>
+                  <td colSpan={3}>등록된 워커가 없습니다.</td>
                 </tr>
               ) : (
                 workers.map((worker) => {
-                  const isActive = workerSummary
-                    ? new Date(worker.lastSeenAt).getTime() >= new Date(workerSummary.staleCutoff).getTime()
-                    : false;
+                  const isActive =
+                    new Date(worker.lastSeenAt).getTime() >= new Date(workerSummary.staleCutoff).getTime();
                   return (
                     <tr key={worker.workerId}>
                       <td data-label="Worker ID">{worker.workerId}</td>
@@ -348,8 +539,8 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
                 <th>제목</th>
                 <th>우선순위</th>
                 <th>상태</th>
-                <th>표시 시작</th>
-                <th>표시 종료</th>
+                <th>시작</th>
+                <th>종료</th>
               </tr>
             </thead>
             <tbody>

@@ -18,6 +18,11 @@ enum SiteNoticeType {
   MAINTENANCE
 }
 
+enum PolicyDocumentType {
+  PRIVACY_POLICY
+  TERMS_OF_SERVICE
+}
+
 enum AccountStatus {
   CONNECTED
   NEEDS_REAUTH
@@ -102,6 +107,8 @@ model User {
   auditActorLogs AuditLog[]         @relation("AuditActor")
   auditTargetLogs AuditLog[]        @relation("AuditTarget")
   createdSiteNotices SiteNotice[]   @relation("SiteNoticeCreator")
+  updatedPolicyDocuments PolicyDocument[] @relation("PolicyUpdatedBy")
+  policyConsents UserPolicyConsent[]
 }
 
 model InviteToken {
@@ -178,6 +185,34 @@ model SiteNotice {
   @@index([type, isActive, createdAt])
   @@index([isActive, visibleFrom, visibleTo])
   @@index([priority, createdAt])
+}
+
+model PolicyDocument {
+  id               String             @id @default(cuid())
+  type             PolicyDocumentType @unique
+  version          Int                @default(1)
+  content          String
+  isActive         Boolean            @default(true)
+  updatedByUserId  String?
+  updatedByUser    User?              @relation("PolicyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([isActive, updatedAt])
+}
+
+model UserPolicyConsent {
+  id             String             @id @default(cuid())
+  userId         String
+  policyType     PolicyDocumentType
+  policyVersion  Int
+  consentedAt    DateTime           @default(now())
+  consentIp      String?
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, policyType])
+  @@index([policyType, policyVersion])
+  @@index([consentedAt])
 }
 
 model WorkerHeartbeat {

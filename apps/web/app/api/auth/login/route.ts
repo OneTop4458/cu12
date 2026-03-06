@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
   resolveSessionLifetimePolicy,
+  signPolicyConsentChallengeToken,
   verifyPassword,
   signIdleSessionToken,
   signLoginChallengeToken,
@@ -16,6 +17,7 @@ import { writeAuditLog } from "@/server/audit-log";
 import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
 import { upsertCu12Account } from "@/server/cu12-account";
 import { verifyCu12Login } from "@/server/cu12-login";
+import { getPolicyConsentRequirement } from "@/server/policy";
 
 const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
@@ -64,13 +66,40 @@ export async function POST(request: NextRequest) {
         return jsonError("This account password is invalid.", 401, "LOCAL_AUTH_FAILED");
       }
 
-      await prisma.user.update({
-        where: { id: localCandidate.id },
-        data: {
-          lastLoginAt: new Date(),
-          lastLoginIp: loginIp,
-        },
-      });
+      const consent = await getPolicyConsentRequirement(localCandidate.id);
+      if (!consent.configured) {
+        return jsonError(
+          "Required policy documents are not configured by an administrator.",
+          503,
+          "POLICY_NOT_CONFIGURED",
+        );
+      }
+      if (consent.required) {
+        const consentToken = await signPolicyConsentChallengeToken({
+          userId: localCandidate.id,
+          email: body.cu12Id,
+          role: localCandidate.role,
+          rememberSession: sessionPolicy.rememberSession,
+          firstLogin: false,
+        });
+        await clearAuthFailures("login", throttleIdentifiers);
+        return jsonOk({
+          stage: "CONSENT_REQUIRED" as const,
+          consentToken,
+          policies: consent.policies,
+          user: {
+            userId: localCandidate.id,
+            cu12Id: body.cu12Id,
+            role: localCandidate.role,
+          },
+          firstLogin: false,
+          session: {
+            rememberSession: sessionPolicy.rememberSession,
+            sessionMaxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+            idleMaxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+          },
+        });
+      }
 
       const sessionToken = await signSessionToken(
         {
@@ -103,6 +132,14 @@ export async function POST(request: NextRequest) {
       });
       setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
       setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
+
+      await prisma.user.update({
+        where: { id: localCandidate.id },
+        data: {
+          lastLoginAt: new Date(),
+          lastLoginIp: loginIp,
+        },
+      });
 
       await writeAuditLog({
         category: "AUTH",
@@ -231,6 +268,41 @@ export async function POST(request: NextRequest) {
         maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
       },
     );
+    const consent = await getPolicyConsentRequirement(user.id);
+    if (!consent.configured) {
+      return jsonError(
+        "Required policy documents are not configured by an administrator.",
+        503,
+        "POLICY_NOT_CONFIGURED",
+      );
+    }
+    if (consent.required) {
+      const consentToken = await signPolicyConsentChallengeToken({
+        userId: user.id,
+        email: body.cu12Id,
+        role: user.role,
+        rememberSession: sessionPolicy.rememberSession,
+        firstLogin: false,
+      });
+      await clearAuthFailures("login", throttleIdentifiers);
+      return jsonOk({
+        stage: "CONSENT_REQUIRED" as const,
+        consentToken,
+        policies: consent.policies,
+        user: {
+          userId: user.id,
+          cu12Id: body.cu12Id,
+          role: user.role,
+        },
+        firstLogin: false,
+        session: {
+          rememberSession: sessionPolicy.rememberSession,
+          sessionMaxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+          idleMaxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+        },
+      });
+    }
+
     const idleSessionToken = await signIdleSessionToken(user.id, {
       rememberSession: sessionPolicy.rememberSession,
       maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,

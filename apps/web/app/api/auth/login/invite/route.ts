@@ -4,6 +4,7 @@ import {
   hashPassword,
   resolveSessionLifetimePolicy,
   signIdleSessionToken,
+  signPolicyConsentChallengeToken,
   signSessionToken,
   verifyLoginChallengeToken,
 } from "@/lib/auth";
@@ -15,6 +16,7 @@ import { generateToken, hashToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
 import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
 import { upsertCu12Account } from "@/server/cu12-account";
+import { getPolicyConsentRequirement } from "@/server/policy";
 
 const BodySchema = z.object({
   challengeToken: z.string().min(20),
@@ -225,6 +227,41 @@ export async function POST(request: NextRequest) {
       cu12Password,
       campus: challenge.campus,
     });
+
+    const consent = await getPolicyConsentRequirement(user.id);
+    if (!consent.configured) {
+      return jsonError(
+        "Required policy documents are not configured by an administrator.",
+        503,
+        "POLICY_NOT_CONFIGURED",
+      );
+    }
+    if (consent.required) {
+      const consentToken = await signPolicyConsentChallengeToken({
+        userId: user.id,
+        email: challenge.cu12Id,
+        role: user.role,
+        rememberSession: sessionPolicy.rememberSession,
+        firstLogin,
+      });
+      await clearAuthFailures("invite", throttleIdentifiers);
+      return jsonOk({
+        stage: "CONSENT_REQUIRED" as const,
+        consentToken,
+        policies: consent.policies,
+        user: {
+          userId: user.id,
+          cu12Id: challenge.cu12Id,
+          role: user.role,
+        },
+        firstLogin,
+        session: {
+          rememberSession: sessionPolicy.rememberSession,
+          sessionMaxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+          idleMaxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+        },
+      });
+    }
 
     await prisma.user.update({
       where: { id: user.id },
