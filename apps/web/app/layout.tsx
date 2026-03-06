@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AppThemeProvider } from "../components/theme/theme-provider";
 import { ConsoleSecurityWarning } from "./_components/console-security-warning";
 import { SessionActivityGuard } from "./_components/session-activity-guard";
+import { SiteFooter } from "./_components/site-footer";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <ConsoleSecurityWarning />
           <div className="app-root">{children}</div>
+          <SiteFooter />
           <Toaster richColors position="top-right" closeButton />
         </AppThemeProvider>
       </body>
