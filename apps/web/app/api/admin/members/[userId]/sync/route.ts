@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { enqueueJob } from "@/server/queue";
+import {
+  enqueueJob,
+  cancelBlockedSyncJobsForTestUsers,
+  TEST_USER_SYNC_BLOCKED_ERROR_CODE,
+  TEST_USER_SYNC_BLOCKED_MESSAGE,
+} from "@/server/queue";
 import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 import { writeAuditLog } from "@/server/audit-log";
 
@@ -44,7 +49,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!user.isActive) {
       return jsonError("Target user is inactive", 409, "MEMBER_INACTIVE");
     }
-    if (user.isTestUser || !user.cu12Account) {
+    if (user.isTestUser) {
+      await cancelBlockedSyncJobsForTestUsers(user.id);
+      return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
+    }
+    if (!user.cu12Account) {
       return jsonError("Target user has no CU12 account", 409, "MEMBER_NO_CU12");
     }
 

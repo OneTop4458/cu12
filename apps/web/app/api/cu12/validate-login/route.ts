@@ -2,11 +2,20 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
-import { enqueueJob } from "@/server/queue";
+import {
+  enqueueJob,
+  ensureSyncAllowedForUser,
+  TEST_USER_SYNC_BLOCKED_ERROR_CODE,
+  TEST_USER_SYNC_BLOCKED_MESSAGE,
+} from "@/server/queue";
 
 export async function POST(request: NextRequest) {
   const session = await requireUser(request);
   if (!session) return jsonError("Unauthorized", 401);
+  const syncGate = await ensureSyncAllowedForUser(session.userId);
+  if (!syncGate.allowed) {
+    return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
+  }
 
   const account = await prisma.cu12Account.findUnique({ where: { userId: session.userId } });
   if (!account) {

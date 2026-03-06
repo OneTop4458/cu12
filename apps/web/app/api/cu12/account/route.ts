@@ -3,7 +3,12 @@ import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
-import { enqueueJob } from "@/server/queue";
+import {
+  enqueueJob,
+  ensureSyncAllowedForUser,
+  TEST_USER_SYNC_BLOCKED_ERROR_CODE,
+  TEST_USER_SYNC_BLOCKED_MESSAGE,
+} from "@/server/queue";
 import { upsertCu12Account } from "@/server/cu12-account";
 
 const PostSchema = z.object({
@@ -36,6 +41,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const context = await requireAuthContext(request);
   if (!context) return jsonError("Unauthorized", 401);
+  const syncGate = await ensureSyncAllowedForUser(context.effective.userId);
+  if (!syncGate.allowed) {
+    return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
+  }
 
   try {
     const body = await parseBody(request, PostSchema);

@@ -23,6 +23,29 @@ interface DispatchSummary {
   generatedAt: string;
 }
 
+async function cancelBlockedSyncJobsForTestUsers(): Promise<number> {
+  const canceled = await prisma.jobQueue.updateMany({
+    where: {
+      type: { in: [JobType.SYNC, JobType.NOTICE_SCAN] },
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+      user: {
+        is: {
+          isTestUser: true,
+        },
+      },
+    },
+    data: {
+      status: JobStatus.CANCELED,
+      startedAt: null,
+      workerId: null,
+      finishedAt: new Date(),
+      lastError: "TEST_USER_SYNC_BLOCKED",
+    },
+  });
+
+  return canceled.count;
+}
+
 function getSeoulHour(now = new Date()) {
   try {
     const raw = new Intl.DateTimeFormat("en-US", {
@@ -48,7 +71,12 @@ function toDigestHour(value: unknown, fallback = 8) {
 async function resolveUsers(type: JobType, userId?: string) {
   if (userId) {
     return prisma.user.findMany({
-      where: { id: userId },
+      where: {
+        id: userId,
+        ...(type === JobType.SYNC || type === JobType.NOTICE_SCAN
+          ? { isTestUser: false }
+          : {}),
+      },
       select: { id: true },
     });
   }
@@ -104,6 +132,7 @@ async function resolveUsers(type: JobType, userId?: string) {
 
   return prisma.user.findMany({
     where: {
+      isTestUser: false,
       cu12Account: {
         is: {
           accountStatus: "CONNECTED",
@@ -125,6 +154,10 @@ async function main() {
     throw new Error(`Invalid job type: ${typeRaw}`);
   }
   const type = typeRaw as JobType;
+
+  if (type === JobType.SYNC || type === JobType.NOTICE_SCAN) {
+    await cancelBlockedSyncJobsForTestUsers();
+  }
 
   const users = await resolveUsers(type, userId);
   const cutoff = new Date(Date.now() - minIntervalMinutes * 60_000);

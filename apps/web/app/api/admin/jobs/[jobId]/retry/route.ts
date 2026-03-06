@@ -1,7 +1,14 @@
 import { NextRequest } from "next/server";
+import { JobType } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
-import { retryJob } from "@/server/queue";
+import { prisma } from "@/lib/prisma";
+import {
+  retryJob,
+  cancelBlockedSyncJobsForTestUsers,
+  TEST_USER_SYNC_BLOCKED_ERROR_CODE,
+  TEST_USER_SYNC_BLOCKED_MESSAGE,
+} from "@/server/queue";
 import { writeAuditLog } from "@/server/audit-log";
 
 interface Params {
@@ -18,6 +25,27 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { jobId } = await params;
   const payload = await parseBody(request, RetryRequestSchema);
+  const existing = await prisma.jobQueue.findUnique({
+    where: { id: jobId },
+    select: {
+      type: true,
+      userId: true,
+      user: {
+        select: {
+          isTestUser: true,
+        },
+      },
+    },
+  });
+  if (!existing) {
+    return jsonError("Job not found", 404);
+  }
+
+  const isSyncJob = existing.type === JobType.SYNC || existing.type === JobType.NOTICE_SCAN;
+  if (isSyncJob && existing.user.isTestUser) {
+    await cancelBlockedSyncJobsForTestUsers(existing.userId);
+    return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
+  }
 
   try {
     const job = await retryJob(jobId, { allowCompleted: payload.force });

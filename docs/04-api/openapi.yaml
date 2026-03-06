@@ -546,6 +546,12 @@ paths:
           description: Validation error
         "401":
           description: Unauthorized
+        "409":
+          description: Sync is blocked for test users (`TEST_USER_SYNC_BLOCKED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     patch:
       tags: [CU12]
       summary: Alias of POST /api/cu12/account
@@ -554,6 +560,12 @@ paths:
       responses:
         "200":
           description: Connected and sync queued
+        "409":
+          description: Sync is blocked for test users (`TEST_USER_SYNC_BLOCKED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/cu12/automation:
     patch:
@@ -591,6 +603,12 @@ paths:
           description: CU12 account is not connected
         "401":
           description: Unauthorized
+        "409":
+          description: Sync is blocked for test users (`TEST_USER_SYNC_BLOCKED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/jobs/sync-now:
     post:
@@ -605,6 +623,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobDispatchResponse"
+        "409":
+          description: Sync is blocked for test users (`TEST_USER_SYNC_BLOCKED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/jobs/autolearn-request:
     post:
@@ -1298,7 +1322,11 @@ paths:
         "404":
           description: Job not found
         "409":
-          description: Job cannot be retried
+          description: Job cannot be retried (including sync jobs for test users)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Forbidden
 
@@ -1777,7 +1805,11 @@ paths:
         "403":
           description: Forbidden
         "409":
-          description: Member has no CU12 account or inactive
+          description: Member has no CU12 account, is inactive, or sync is blocked for test users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/admin/logs:
     get:

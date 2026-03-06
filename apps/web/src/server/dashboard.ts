@@ -89,7 +89,7 @@ export async function getDashboardSummary(userId: string) {
   });
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync] = await Promise.all([
+  const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync, user] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, status: CourseStatus.ACTIVE },
@@ -100,6 +100,10 @@ export async function getDashboardSummary(userId: string) {
       where: { userId, type: "SYNC", status: "SUCCEEDED" },
       orderBy: { finishedAt: "desc" },
       select: { finishedAt: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { isTestUser: true },
     }),
   ]);
 
@@ -116,7 +120,7 @@ export async function getDashboardSummary(userId: string) {
     lastSyncAt: lastSync?.finishedAt ?? null,
     nextAutoSyncAt,
     autoSyncIntervalHours: AUTO_SYNC_INTERVAL_HOURS,
-    initialSyncRequired: !lastSync,
+    initialSyncRequired: !lastSync && !user?.isTestUser,
   };
 }
 

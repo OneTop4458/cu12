@@ -1,7 +1,12 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
-import { enqueueJob } from "@/server/queue";
+import {
+  enqueueJob,
+  ensureSyncAllowedForUser,
+  TEST_USER_SYNC_BLOCKED_ERROR_CODE,
+  TEST_USER_SYNC_BLOCKED_MESSAGE,
+} from "@/server/queue";
 import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 
 export async function POST(request: NextRequest) {
@@ -9,6 +14,21 @@ export async function POST(request: NextRequest) {
   if (!context) return jsonError("Unauthorized", 401);
 
   const userId = context.effective.userId;
+  const syncGate = await ensureSyncAllowedForUser(userId);
+  if (!syncGate.allowed) {
+    await writeAuditLog({
+      category: "JOB",
+      severity: "WARN",
+      actorUserId: context.actor.userId,
+      targetUserId: userId,
+      message: "SYNC job blocked for test user",
+      meta: {
+        canceledCount: syncGate.canceledCount,
+      },
+    });
+    return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
+  }
+
   const { job, deduplicated } = await enqueueJob({
     userId,
     type: "SYNC",

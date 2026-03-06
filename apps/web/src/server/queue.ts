@@ -48,6 +48,10 @@ const STALE_WORKER_TIMEOUT_MS = 3 * 60 * 1000;
 const STALE_JOB_REQUEUE_DELAY_MS = 60_000;
 const AUTOLEARN_CONFLICT_DELAY_MS = 60_000;
 const CLAIM_SCAN_LIMIT = 200;
+const SYNC_JOB_TYPES = [JobType.SYNC, JobType.NOTICE_SCAN] as const;
+
+export const TEST_USER_SYNC_BLOCKED_ERROR_CODE = "TEST_USER_SYNC_BLOCKED";
+export const TEST_USER_SYNC_BLOCKED_MESSAGE = "Test users do not support CU12 sync.";
 
 function rankJobTypes(inputTypes: JobType[]): JobType[] {
   const uniqueTypes = Array.from(new Set(inputTypes));
@@ -134,6 +138,47 @@ export async function enqueueJob(input: EnqueueJobInput): Promise<EnqueueJobResu
   return { job: created, deduplicated: false };
 }
 
+export async function ensureSyncAllowedForUser(userId: string): Promise<{
+  allowed: boolean;
+  canceledCount: number;
+}> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isTestUser: true },
+  });
+
+  if (!user?.isTestUser) {
+    return { allowed: true, canceledCount: 0 };
+  }
+
+  const canceledCount = await cancelBlockedSyncJobsForTestUsers(userId);
+  return { allowed: false, canceledCount };
+}
+
+export async function cancelBlockedSyncJobsForTestUsers(userId?: string): Promise<number> {
+  const canceled = await prisma.jobQueue.updateMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      type: { in: [...SYNC_JOB_TYPES] },
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+      user: {
+        is: {
+          isTestUser: true,
+        },
+      },
+    },
+    data: {
+      status: JobStatus.CANCELED,
+      startedAt: null,
+      workerId: null,
+      finishedAt: new Date(),
+      lastError: TEST_USER_SYNC_BLOCKED_ERROR_CODE,
+    },
+  });
+
+  return canceled.count;
+}
+
 export async function listJobsForUser(userId: string, limit = 20, type?: JobType, status?: JobStatus) {
   return prisma.jobQueue.findMany({
     where: {
@@ -153,6 +198,9 @@ export async function getJobForUser(jobId: string, userId: string) {
 }
 
 export async function claimNextJob(workerId: string, types: JobType[]) {
+  if (types.includes(JobType.SYNC) || types.includes(JobType.NOTICE_SCAN)) {
+    await cancelBlockedSyncJobsForTestUsers();
+  }
   await reclaimStaleRunningJobs();
   if (types.length === 0) return null;
 
@@ -224,7 +272,7 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
   const rows = await prisma.jobQueue.findMany({
     where: {
       userId,
-      type: { in: [JobType.SYNC, JobType.NOTICE_SCAN] },
+      type: { in: [...SYNC_JOB_TYPES] },
       status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
     },
     select: {
