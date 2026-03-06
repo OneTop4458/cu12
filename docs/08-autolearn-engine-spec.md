@@ -18,7 +18,13 @@
 
 - `AUTOLEARN_TIME_FACTOR`: speed factor against nominal remaining time.
 - `AUTOLEARN_MAX_TASKS`: maximum tasks processed per run.
+- `PLAYWRIGHT_ACCEPT_LANGUAGE`: request-language header consistency.
+- `AUTOLEARN_HUMANIZATION_ENABLED`: enables conservative human-like timing variation.
+- `AUTOLEARN_DELAY_MIN_MS` / `AUTOLEARN_DELAY_MAX_MS`: per-step interaction delay range.
+- `AUTOLEARN_NAV_SETTLE_MIN_MS` / `AUTOLEARN_NAV_SETTLE_MAX_MS`: post-navigation settle delay range.
+- `AUTOLEARN_TYPING_DELAY_MIN_MS` / `AUTOLEARN_TYPING_DELAY_MAX_MS`: per-character typing delay range.
 - Safe default is conservative (close to real watch time).
+- This module does not implement anti-bot bypass logic or fingerprint spoofing.
 
 ## Failure Handling
 

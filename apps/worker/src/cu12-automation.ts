@@ -8,7 +8,7 @@ import {
   type LearningTask,
   type NotificationEvent,
 } from "@cu12/core";
-import { type Browser, type BrowserContextOptions, type Page } from "playwright";
+import { type Browser, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { getEnv } from "./env";
 
 export interface Cu12Credentials {
@@ -125,6 +125,9 @@ function createRealisticBrowserContextOptions(): BrowserContextOptions {
     userAgent: env.PLAYWRIGHT_USER_AGENT ?? DEFAULT_USER_AGENT,
     locale: env.PLAYWRIGHT_LOCALE,
     timezoneId: env.PLAYWRIGHT_TIMEZONE,
+    extraHTTPHeaders: {
+      "accept-language": env.PLAYWRIGHT_ACCEPT_LANGUAGE,
+    },
     viewport: {
       width: env.PLAYWRIGHT_VIEWPORT_WIDTH,
       height: env.PLAYWRIGHT_VIEWPORT_HEIGHT,
@@ -134,6 +137,35 @@ function createRealisticBrowserContextOptions(): BrowserContextOptions {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randInt(min: number, max: number): number {
+  const lo = Math.floor(Math.min(min, max));
+  const hi = Math.floor(Math.max(min, max));
+  if (hi <= lo) return lo;
+  return Math.floor(Math.random() * (hi - lo + 1)) + lo;
+}
+
+async function humanPause(page: Page, minMs: number, maxMs: number, shouldCancel?: CancelCheck): Promise<void> {
+  const targetMs = randInt(minMs, maxMs);
+  let remainingMs = targetMs;
+
+  while (remainingMs > 0) {
+    if (shouldCancel && await shouldCancel()) {
+      throw new Error("AUTOLEARN_CANCELLED");
+    }
+
+    const chunkMs = Math.min(500, remainingMs);
+    await page.waitForTimeout(chunkMs);
+    remainingMs -= chunkMs;
+  }
+}
+
+async function humanType(locator: Locator, value: string, minDelayMs: number, maxDelayMs: number): Promise<void> {
+  const charDelay = randInt(minDelayMs, maxDelayMs);
+  await locator.click({ delay: randInt(20, 120) });
+  await locator.fill("");
+  await locator.type(value, { delay: charDelay });
 }
 
 function installDialogHandler(page: Page) {
@@ -148,25 +180,44 @@ function installDialogHandler(page: Page) {
 
 async function ensureLogin(page: Page, creds: Cu12Credentials) {
   const env = getEnv();
+  const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
   await page.goto(`${env.CU12_BASE_URL}/el/member/login_form.acl`, { waitUntil: "domcontentloaded" });
 
   const catholicUniversityButton = page.locator("#catholic");
   if (await catholicUniversityButton.count()) {
-    await catholicUniversityButton.first().click();
+    if (useHumanization) {
+      await catholicUniversityButton.first().click({ delay: randInt(20, 120) });
+    } else {
+      await catholicUniversityButton.first().click();
+    }
+    if (useHumanization) {
+      await humanPause(page, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS);
+    }
   }
 
   const songsinRadio = page.locator('input[name="catholic_dv"][value="songsin"]');
   if (creds.campus === "SONGSIN" && (await songsinRadio.count())) {
     await songsinRadio.check();
+    if (useHumanization) {
+      await humanPause(page, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS);
+    }
   }
 
   const idInput = page.locator("#usr_id2, #usr_id").first();
   const pwInput = page.locator("#pwd2, #pwd").first();
   const loginButton = page.locator("#loginBtn_check2, #loginBtn_check1").first();
 
-  await idInput.fill(creds.cu12Id);
-  await pwInput.fill(creds.cu12Password);
-  await loginButton.click();
+  if (useHumanization) {
+    await humanType(idInput, creds.cu12Id, env.AUTOLEARN_TYPING_DELAY_MIN_MS, env.AUTOLEARN_TYPING_DELAY_MAX_MS);
+    await humanPause(page, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS);
+    await humanType(pwInput, creds.cu12Password, env.AUTOLEARN_TYPING_DELAY_MIN_MS, env.AUTOLEARN_TYPING_DELAY_MAX_MS);
+    await humanPause(page, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS);
+    await loginButton.click({ delay: randInt(20, 120) });
+  } else {
+    await idInput.fill(creds.cu12Id);
+    await pwInput.fill(creds.cu12Password);
+    await loginButton.click();
+  }
 
   await page.waitForURL(/\/el\/(main\/main_form|member\/mycourse_list_form)\.acl/, {
     timeout: 20000,
@@ -952,16 +1003,19 @@ async function waitForPlayback(
   shouldCancel: CancelCheck,
   onTick?: PlaybackTick,
 ): Promise<void> {
+  const env = getEnv();
+  const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
   let remainingMs = Math.max(0, waitSeconds * 1000);
   const totalMs = remainingMs;
-  const tickMs = 1000;
+  const minTickMs = useHumanization ? 800 : 1000;
+  const maxTickMs = useHumanization ? 1200 : 1000;
 
   while (remainingMs > 0) {
     if (await shouldCancel()) {
       throw new Error("AUTOLEARN_CANCELLED");
     }
 
-    const chunkMs = Math.min(tickMs, remainingMs);
+    const chunkMs = Math.min(randInt(minTickMs, maxTickMs), remainingMs);
     await page.waitForTimeout(chunkMs);
     remainingMs -= chunkMs;
     if (onTick) {
@@ -980,6 +1034,7 @@ async function watchVodTask(
   onTick?: PlaybackTick,
 ): Promise<number> {
   const env = getEnv();
+  const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
   const remainingSeconds = Math.max(0, task.requiredSeconds - task.learnedSeconds);
   if (remainingSeconds <= 0) {
     return 0;
@@ -989,7 +1044,11 @@ async function watchVodTask(
   const targetUrl = `${env.CU12_BASE_URL}/el/class/contents_vod_view_form.acl?LECTURE_SEQ=${lectureSeq}&COURSE_CONTENTS_SEQ=${task.courseContentsSeq}&WEEK_NO=${task.weekNo}&LESSNS_NO=${task.lessonNo}`;
 
   await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(3000);
+  if (useHumanization) {
+    await humanPause(page, env.AUTOLEARN_NAV_SETTLE_MIN_MS, env.AUTOLEARN_NAV_SETTLE_MAX_MS, shouldCancel);
+  } else {
+    await page.waitForTimeout(3000);
+  }
 
   // The service records attendance by periodic heartbeats during playback;
   // we keep the page open for the remaining required time.
@@ -1002,7 +1061,11 @@ async function watchVodTask(
     }
   });
 
-  await page.waitForTimeout(2000);
+  if (useHumanization) {
+    await humanPause(page, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS, shouldCancel);
+  } else {
+    await page.waitForTimeout(2000);
+  }
   return waitSeconds;
 }
 
@@ -1264,6 +1327,10 @@ export async function runAutoLearning(
             taskTitle: row.task.taskTitle,
           },
         });
+      }
+
+      if (env.AUTOLEARN_HUMANIZATION_ENABLED) {
+        await humanPause(page, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS, shouldCancel);
       }
 
       let lastReportedElapsedSeconds = 0;

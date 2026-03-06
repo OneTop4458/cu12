@@ -233,9 +233,31 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
       runAfter: true,
       createdAt: true,
       startedAt: true,
+      workerId: true,
     },
     orderBy: { createdAt: "asc" },
   });
+
+  const runningWorkerIds = Array.from(
+    new Set(
+      rows
+        .filter((row) => row.status === JobStatus.RUNNING && typeof row.workerId === "string" && row.workerId.length > 0)
+        .map((row) => row.workerId as string),
+    ),
+  );
+  const heartbeats = runningWorkerIds.length === 0
+    ? []
+    : await prisma.workerHeartbeat.findMany({
+      where: {
+        workerId: { in: runningWorkerIds },
+      },
+      select: {
+        workerId: true,
+        lastSeenAt: true,
+      },
+    });
+  const heartbeatByWorkerId = new Map(heartbeats.map((row) => [row.workerId, row.lastSeenAt]));
+  const workerHeartbeatCutoffMs = now.getTime() - STALE_WORKER_TIMEOUT_MS;
 
   let runningCount = 0;
   let runningFresh = false;
@@ -247,8 +269,11 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
 
   for (const row of rows) {
     if (row.status === JobStatus.RUNNING) {
-      const isRunningStale = !row.startedAt
+      const startedAtStale = !row.startedAt
         || now.getTime() - row.startedAt.getTime() >= MANUAL_RUNNING_REDISPATCH_MS;
+      const heartbeatAt = row.workerId ? heartbeatByWorkerId.get(row.workerId) : null;
+      const heartbeatStale = !heartbeatAt || heartbeatAt.getTime() < workerHeartbeatCutoffMs;
+      const isRunningStale = startedAtStale && heartbeatStale;
 
       if (isRunningStale) {
         runningStaleCount += 1;

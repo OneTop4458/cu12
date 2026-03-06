@@ -16,6 +16,8 @@
 3. Retry/backoff schedule executes as defined.
 4. Worker heartbeat updates at expected interval.
 5. Auto-learning run records success/failure and metadata.
+6. Sync queue stale classification keeps `RUNNING` when worker heartbeat is fresh.
+7. Job tracking poll recovers from repeated API fetch failures and resynchronizes dashboard state.
 
 ## Dashboard Data
 

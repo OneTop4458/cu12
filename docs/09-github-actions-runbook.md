@@ -18,6 +18,7 @@
 - Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
 - Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
 - Internal API calls are protected by timeout/retry controls (`WORKER_INTERNAL_API_TIMEOUT_MS`, `WORKER_INTERNAL_API_MAX_RETRIES`, `WORKER_INTERNAL_API_RETRY_BASE_MS`).
+- Supports conservative browser/session realism controls (`PLAYWRIGHT_ACCEPT_LANGUAGE`, `AUTOLEARN_HUMANIZATION_ENABLED`, delay ranges).
 - Manual action dispatch treats SYNC as priority: if a job is duplicate and still running/pending within stale windows, dispatch can be skipped (`SKIPPED_DUPLICATE`) to avoid storming GitHub API; stale duplicates are force-redispatched.
 
 4. `sync-schedule.yml`
@@ -111,3 +112,4 @@
 3. Review failed logs with `gh run view <run_id> --log-failed`.
 4. Confirm `WEB_INTERNAL_BASE_URL` points to production URL.
 5. If job state and Actions are mismatched, call `GET /internal/admin/jobs/reconcile` (or `GET /api/admin/jobs/reconcile` in admin UI) to identify orphaned `RUNNING` jobs or ghost runs.
+6. `RUNNING_STALE` for sync queue now requires both elapsed-time threshold and stale/missing worker heartbeat.

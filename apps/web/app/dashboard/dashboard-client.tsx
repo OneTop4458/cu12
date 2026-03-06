@@ -287,6 +287,8 @@ const POLL_TRACKING_MS = 10000;
 const POLL_TRACKING_RUNNING_MS = 2500;
 const POLL_TRACKING_PENDING_MS = 4500;
 const POLL_TRACKING_HIDDEN_MS = 12000;
+const POLL_TRACKING_ERROR_BASE_MS = 6000;
+const POLL_TRACKING_ERROR_MAX_MS = 30000;
 const SYNC_PENDING_STALE_MS = 5 * 60 * 1000;
 const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 const COURSE_DEADLINE_URGENT_DAYS = 7;
@@ -828,7 +830,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : Math.max(0, Math.floor((Date.now() - autoProgressUpdatedAtMs) / 1000));
   const autoProgressHeartbeatStale = autoProgressStatus === "RUNNING"
     && autoProgressLagSeconds !== null
-    && autoProgressLagSeconds > 90;
+    && autoProgressLagSeconds > 180;
   const autoModeForDisplay = autoProgress?.progress.mode ?? autoResult?.mode ?? null;
   const autoCompletedCount = autoProgress?.progress.completedTasks ?? autoResult?.watchedTaskCount ?? 0;
   const autoWatchedSeconds = autoProgress?.progress.watchedSeconds ?? autoResult?.watchedSeconds ?? 0;
@@ -1150,12 +1152,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   useEffect(() => {
     if (!trackingJobId) return;
     let stopped = false;
+    let consecutiveFailureCount = 0;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       if (stopped) return;
       let nextMs = POLL_TRACKING_RUNNING_MS;
       try {
         const detail = await fetchJson<JobDetail>(`/api/jobs/${trackingJobId}`);
+        consecutiveFailureCount = 0;
         setTrackingDetail(detail);
         if (TERMINAL.has(detail.status)) {
           setTrackingJobId(null);
@@ -1167,7 +1171,17 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         if (detail.status === "PENDING") {
           nextMs = POLL_TRACKING_PENDING_MS;
         }
-      } catch {}
+      } catch {
+        consecutiveFailureCount += 1;
+        nextMs = Math.min(
+          POLL_TRACKING_ERROR_MAX_MS,
+          POLL_TRACKING_ERROR_BASE_MS * consecutiveFailureCount,
+        );
+        if (consecutiveFailureCount >= 3) {
+          await refreshAll(true);
+          consecutiveFailureCount = 0;
+        }
+      }
       if (document.hidden) {
         nextMs = Math.max(nextMs, POLL_TRACKING_HIDDEN_MS);
       }
