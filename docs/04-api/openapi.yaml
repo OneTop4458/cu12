@@ -78,6 +78,7 @@ paths:
         Verifies CU12 credentials in real time.
         Returns AUTHENTICATED for mapped users, INVITE_REQUIRED for first-login users,
         or CONSENT_REQUIRED when required policies must be accepted.
+        Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       requestBody:
         required: true
         content:
@@ -115,6 +116,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden (invalid CSRF origin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Too many authentication attempts
           content:
@@ -132,6 +139,9 @@ paths:
     post:
       tags: [Auth]
       summary: Step 2 invite verification (first login)
+      description: >-
+        Validates one-time invite code after CU12 login challenge.
+        Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       requestBody:
         required: true
         content:
@@ -165,6 +175,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden (invalid CSRF origin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Too many invite verification attempts
           content:
@@ -182,6 +198,9 @@ paths:
     post:
       tags: [Auth]
       summary: Submit required policy consent and complete login
+      description: >-
+        Finalizes login after required policy consent.
+        Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       requestBody:
         required: true
         content:
@@ -224,6 +243,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden (invalid CSRF origin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "409":
           description: Policy version mismatch
           content:
@@ -241,11 +266,18 @@ paths:
     post:
       tags: [Auth]
       summary: Logout and clear session/idle/impersonation cookies
+      description: Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       security:
         - cookieAuth: []
       responses:
         "200":
           description: Logged out
+        "403":
+          description: Forbidden (invalid CSRF origin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/auth/session/refresh:
     post:

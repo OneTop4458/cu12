@@ -10,7 +10,7 @@ import {
   verifyLoginChallengeToken,
 } from "@/lib/auth";
 import { decryptSecret } from "@/lib/crypto";
-import { getRequestIp, jsonError, jsonOk, parseBody } from "@/lib/http";
+import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { generateToken, hashToken } from "@/lib/token";
@@ -59,6 +59,10 @@ async function consumeInviteToken(
 }
 
 export async function POST(request: NextRequest) {
+  if (!hasValidCsrfOrigin(request)) {
+    return jsonError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
+  }
+
   try {
     const body = await parseBody(request, BodySchema);
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);

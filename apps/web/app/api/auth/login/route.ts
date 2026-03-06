@@ -10,7 +10,7 @@ import {
   signSessionToken,
 } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
-import { getRequestIp, jsonError, jsonOk, parseBody } from "@/lib/http";
+import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { writeAuditLog } from "@/server/audit-log";
@@ -35,6 +35,10 @@ function authenticationFailedError() {
 }
 
 export async function POST(request: NextRequest) {
+  if (!hasValidCsrfOrigin(request)) {
+    return jsonError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
+  }
+
   try {
     const body = await parseBody(request, BodySchema);
     const campus = body.campus ?? "SONGSIM";
