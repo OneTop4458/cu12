@@ -190,6 +190,11 @@ export function LoginForm({
     setConsentError(null);
   }
 
+  function declineConsent() {
+    clearConsentState();
+    setError("필수 약관에 동의해야 서비스를 이용할 수 있습니다. 로그인 후 동의해 주세요.");
+  }
+
   function startConsentFlow(payload: ConsentRequiredResponse) {
     const nextChecks: Record<string, boolean> = {};
     payload.policies.forEach((policy) => {
@@ -542,10 +547,10 @@ export function LoginForm({
                 <button
                   type="button"
                   className="ghost-btn"
-                  onClick={clearConsentState}
+                  onClick={declineConsent}
                   disabled={consentSubmitting}
                 >
-                  다시 로그인
+                  동의 거부 (로그인 취소)
                 </button>
               </div>
             </form>
