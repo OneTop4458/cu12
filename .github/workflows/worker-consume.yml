@@ -38,7 +38,7 @@ permissions:
 jobs:
   consume:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 120
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       APP_MASTER_KEY: ${{ secrets.APP_MASTER_KEY }}
@@ -46,6 +46,9 @@ jobs:
       WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
       CU12_BASE_URL: ${{ secrets.CU12_BASE_URL }}
       POLL_INTERVAL_MS: 30000
+      WORKER_INTERNAL_API_TIMEOUT_MS: 15000
+      WORKER_INTERNAL_API_MAX_RETRIES: 2
+      WORKER_INTERNAL_API_RETRY_BASE_MS: 1000
       AUTOLEARN_TIME_FACTOR: ${{ secrets.AUTOLEARN_TIME_FACTOR }}
       AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS: 60
       AUTOLEARN_STALL_TIMEOUT_SECONDS: 1200

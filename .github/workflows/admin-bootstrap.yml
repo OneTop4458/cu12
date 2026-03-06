@@ -19,6 +19,7 @@ permissions:
 jobs:
   issue-admin-invite:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       ADMIN_CU12_ID: ${{ inputs.adminCu12Id }}

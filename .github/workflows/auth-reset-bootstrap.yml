@@ -23,6 +23,7 @@ permissions:
 jobs:
   reset-and-bootstrap:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       CONFIRM_RESET: ${{ inputs.confirmReset }}

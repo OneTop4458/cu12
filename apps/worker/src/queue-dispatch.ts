@@ -16,6 +16,8 @@ interface DispatchSummary {
   scannedCount: number;
   createdCount: number;
   skippedExistingCount: number;
+  skippedExistingPendingCount: number;
+  skippedExistingRunningCount: number;
   skippedIntervalCount: number;
   minIntervalMinutes: number;
   generatedAt: string;
@@ -132,6 +134,8 @@ async function main() {
     scannedCount: users.length,
     createdCount: 0,
     skippedExistingCount: 0,
+    skippedExistingPendingCount: 0,
+    skippedExistingRunningCount: 0,
     skippedIntervalCount: 0,
     minIntervalMinutes,
     generatedAt: new Date().toISOString(),
@@ -146,11 +150,19 @@ async function main() {
         status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
         idempotencyKey: key,
       },
-      select: { id: true },
+      select: {
+        id: true,
+        status: true,
+      },
     });
 
     if (existing) {
       summary.skippedExistingCount += 1;
+      if (existing.status === JobStatus.PENDING) {
+        summary.skippedExistingPendingCount += 1;
+      } else if (existing.status === JobStatus.RUNNING) {
+        summary.skippedExistingRunningCount += 1;
+      }
       continue;
     }
 

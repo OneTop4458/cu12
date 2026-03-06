@@ -11,20 +11,22 @@
 3. `worker-consume.yml`
 - Claims and processes queue jobs via worker runtime.
 - Can be scheduled or manually dispatched.
+- Job timeout is capped at 120 minutes.
 - Uses queue-level concurrency control in `/apps/web/src/server/queue.ts` as the primary guard.
 - No workflow-level concurrency lock is configured, so multiple runners can process different job types in parallel when triggered.
 - Uses `npm ci --prefer-offline --no-audit` and Playwright cache for faster startup.
 - Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
 - Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
+- Internal API calls are protected by timeout/retry controls (`WORKER_INTERNAL_API_TIMEOUT_MS`, `WORKER_INTERNAL_API_MAX_RETRIES`, `WORKER_INTERNAL_API_RETRY_BASE_MS`).
 - Manual action dispatch treats SYNC as priority: if a job is duplicate and still running/pending within stale windows, dispatch can be skipped (`SKIPPED_DUPLICATE`) to avoid storming GitHub API; stale duplicates are force-redispatched.
 
 4. `sync-schedule.yml`
 - Dispatches periodic `SYNC` jobs every 2 hours.
-- Calls `worker-consume.yml` only when new jobs were actually enqueued.
+- Calls `worker-consume.yml` only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
 5. `mail-digest-schedule.yml`
 - Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
-- Calls `worker-consume.yml` only when new digest jobs were enqueued.
+- Calls `worker-consume.yml` only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
 6. `reconcile-health-check.yml`
 - Calls `/internal/admin/jobs/reconcile` every 30 minutes using `WORKER_SHARED_TOKEN`.
