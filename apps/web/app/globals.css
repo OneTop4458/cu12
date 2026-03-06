@@ -881,6 +881,11 @@ textarea:focus {
   background: color-mix(in oklab, var(--surface) 93%, transparent);
 }
 
+.auth-card:hover {
+  transform: none;
+  box-shadow: var(--shadow-soft);
+}
+
 .brand-ribbon {
   height: 8px;
   margin: -18px -18px 16px;
