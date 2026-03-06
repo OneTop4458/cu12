@@ -12,8 +12,9 @@ const nextConfig = {
   async headers() {
     const csp = [
       "default-src 'self'",
-      "script-src 'self'",
-      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+      "font-src 'self' data: https://cdn.jsdelivr.net",
       "img-src 'self' data: blob:",
       "connect-src 'self'",
       "object-src 'none'",
