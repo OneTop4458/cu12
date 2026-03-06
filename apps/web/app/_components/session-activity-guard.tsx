@@ -79,7 +79,6 @@ function getIdleTimeoutMs(): number {
 export function SessionActivityGuard() {
   const pathname = usePathname();
   const shouldTrack = isProtectedPath(pathname);
-  const isLoginPage = pathname === "/login";
   const lastActivityAtRef = useRef<number>(Date.now());
   const lastRefreshAtRef = useRef<number>(0);
   const lastActivityHandledAtRef = useRef<number>(0);
@@ -87,8 +86,7 @@ export function SessionActivityGuard() {
   const loggingOutRef = useRef<boolean>(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => Math.ceil(getIdleTimeoutMs() / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
-  const [sessionExpiredReason, setSessionExpiredReason] = useState<SessionExpiredReason | null>(() => readSessionExpiredState());
-  const shouldRender = shouldTrack && !isLoginPage;
+  const shouldRender = shouldTrack;
 
   const setActiveStateNow = (timestamp: number) => {
     lastActivityAtRef.current = timestamp;
@@ -110,7 +108,6 @@ export function SessionActivityGuard() {
   const markSessionExpired = async (reason: SessionExpiredReason) => {
     if (loggingOutRef.current) return;
     loggingOutRef.current = true;
-    setSessionExpiredReason(reason);
     setRemainingSeconds(0);
     setWarningMode(false);
     writeSessionExpiredState(reason);
@@ -157,7 +154,6 @@ export function SessionActivityGuard() {
   };
 
   const extendSession = async () => {
-    if (sessionExpiredReason) return;
     if (loggingOutRef.current) return;
     const now = Date.now();
     await tryRefresh(now);
@@ -165,12 +161,21 @@ export function SessionActivityGuard() {
   };
 
   useEffect(() => {
+    if (shouldTrack) return;
+    loggingOutRef.current = false;
+    lastMousePositionRef.current = null;
+    setWarningMode(false);
+    setRemainingSeconds(Math.ceil(getIdleTimeoutMs() / 1000));
+  }, [shouldTrack]);
+
+  useEffect(() => {
     if (!shouldTrack) return;
+    loggingOutRef.current = false;
 
     const persistedExpiredReason = readSessionExpiredState();
     if (persistedExpiredReason) {
-      navigateToLogin(persistedExpiredReason);
       loggingOutRef.current = true;
+      navigateToLogin(persistedExpiredReason);
       return;
     }
 
@@ -255,45 +260,6 @@ export function SessionActivityGuard() {
   if (!shouldRender) return null;
 
   const warningRatio = Math.min(1, remainingSeconds / (Math.max(1, getIdleTimeoutMs() / 1000)));
-  const timeoutMessage =
-    sessionExpiredReason === "session-timeout"
-      ? "자동 로그아웃: 30분 이상 활동이 없어 세션이 만료되어 로그아웃되었습니다."
-      : "세션이 만료되어 로그아웃되었습니다. 다시 로그인해 주세요.";
-
-  if (sessionExpiredReason) {
-    return (
-      <div className="modal-overlay">
-        <section className="modal-card" role="dialog" aria-modal="true" aria-label="세션 만료 안내">
-          <h2>세션 만료</h2>
-          <p className="muted">{timeoutMessage}</p>
-          <p className="session-warning-sub">
-            화면을 새로고침하거나 아래 버튼으로 로그인 화면으로 이동해 다시 로그인해 주세요.
-          </p>
-          <div className="button-row">
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={() => {
-                window.location.reload();
-              }}
-            >
-              새로고침
-            </button>
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => {
-                navigateToLogin(sessionExpiredReason);
-              }}
-            >
-              로그인 페이지로 이동
-            </button>
-          </div>
-        </section>
-      </div>
-    );
-  }
-
   return (
     <div
       role="status"
