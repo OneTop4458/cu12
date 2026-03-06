@@ -41,4 +41,4 @@ Run CU12 Automation as a **100% cloud-based system** with no always-on local mac
 
 1. Roll back Vercel deployment if web regression occurs.
 2. Re-run worker after env correction.
-3. Keep DB backup workflow active for data recovery.
+3. Rebuild derived CU12 data by running sync/scan workflows after service recovery.

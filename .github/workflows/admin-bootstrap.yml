@@ -7,6 +7,10 @@ on:
         description: "Admin CU12 ID"
         required: true
         type: string
+      inviteCodeHash:
+        description: "SHA-256 hash of the admin invite code (64 lowercase hex chars)"
+        required: true
+        type: string
       expiresHours:
         description: "Invite expiration in hours (1-720)"
         required: false
@@ -23,6 +27,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       ADMIN_CU12_ID: ${{ inputs.adminCu12Id }}
+      INVITE_CODE_HASH: ${{ inputs.inviteCodeHash }}
       EXPIRES_HOURS: ${{ inputs.expiresHours }}
     steps:
       - uses: actions/checkout@v4
@@ -35,31 +40,29 @@ jobs:
         run: |
           node <<'NODE'
           const { PrismaClient, UserRole } = require("@prisma/client");
-          const { createHash, randomBytes } = require("crypto");
-
-          function hashToken(token) {
-            return createHash("sha256").update(token).digest("hex");
-          }
 
           async function main() {
             const prisma = new PrismaClient();
             const cu12Id = (process.env.ADMIN_CU12_ID || "").trim();
+            const inviteCodeHash = (process.env.INVITE_CODE_HASH || "").trim().toLowerCase();
             const expiresHoursRaw = Number(process.env.EXPIRES_HOURS || "72");
             const expiresHours = Number.isFinite(expiresHoursRaw) ? expiresHoursRaw : 72;
 
             if (!cu12Id || cu12Id.length < 4) {
               throw new Error("Invalid adminCu12Id");
             }
+            if (!/^[a-f0-9]{64}$/.test(inviteCodeHash)) {
+              throw new Error("inviteCodeHash must be a 64-char lowercase SHA-256 hex string");
+            }
             if (expiresHours < 1 || expiresHours > 720) {
               throw new Error("expiresHours out of range");
             }
 
-            const token = randomBytes(24).toString("base64url");
             const invite = await prisma.inviteToken.create({
               data: {
                 cu12Id,
                 role: UserRole.ADMIN,
-                tokenHash: hashToken(token),
+                tokenHash: inviteCodeHash,
                 expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
               },
             });
@@ -69,7 +72,6 @@ jobs:
             console.log("Admin invite issued:");
             console.log("inviteId=" + invite.id);
             console.log("cu12Id=" + cu12Id);
-            console.log("token=" + token);
             console.log("expiresAt=" + invite.expiresAt.toISOString());
           }
 

@@ -30,7 +30,7 @@
 - Calls `worker-consume.yml` only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
 6. `reconcile-health-check.yml`
-- Calls `/internal/admin/jobs/reconcile` every 30 minutes using `WORKER_SHARED_TOKEN`.
+- Calls `/internal/admin/jobs/reconcile` every 4 hours using `WORKER_SHARED_TOKEN`.
 - Fails the workflow when active job/run divergence is detected (`orphanedRunningJobsCount > 0` or `ghostRunsCount > 0`).
 - Fails also when reconciliation could not be performed with GitHub API (`canReconcileWithGitHub = false`).
 
@@ -47,7 +47,17 @@
 - Applies DB schema initialization (`prisma db push`).
 
 10. `auth-reset-bootstrap.yml`
-- Resets auth-related data and issues fresh admin invite code.
+- Resets auth-related data and creates a fresh admin invite record from a provided invite code hash.
+
+## Bootstrap Invite Hash Input
+
+For `admin-bootstrap.yml` and `auth-reset-bootstrap.yml`, set `inviteCodeHash` with SHA-256 (lowercase hex) of your intended invite code.
+
+Example (Node.js):
+
+```bash
+node -e "const c=require('node:crypto');const code='replace-with-invite-code';console.log(c.createHash('sha256').update(code).digest('hex'))"
+```
 
 ## Required Secrets
 
@@ -85,7 +95,7 @@
 ## Operator Sequence
 
 1. Run `DB Bootstrap`.
-2. Run `Auth Reset Bootstrap` on new environment.
+2. Run `Auth Reset Bootstrap` on new environment with `inviteCodeHash`.
 3. Deploy web app (`Deploy Vercel`).
 4. Confirm `/api/health`.
 5. Trigger `Worker Consume` once and validate queue updates.

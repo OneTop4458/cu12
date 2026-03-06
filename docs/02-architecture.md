@@ -22,7 +22,7 @@
 
 4. **GitHub Actions (`.github/workflows`)**
 - CI validation, cloud deploy, scheduled sync, and worker consumption.
-- Optional maintenance workflows (bootstrap, backup, dependabot automation).
+- Optional maintenance workflows (bootstrap and dependabot automation).
 
 ## Login and Onboarding Flow
 

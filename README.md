@@ -191,7 +191,7 @@ When changes are made by AI-assisted workflows, commits and pushes must only hap
 
 1. Configure GitHub Secrets and Vercel environment variables.
 2. Run `DB Bootstrap` workflow.
-3. For fresh setup, run `Auth Reset Bootstrap` and capture admin invite code.
+3. For fresh setup, run `Auth Reset Bootstrap` with `inviteCodeHash` (SHA-256 hash of your chosen invite code).
 4. Deploy web app and verify `/api/health`.
 5. Trigger `worker-consume.yml` once to validate queue consumption.
 6. Admin logs in and issues invite codes for users.

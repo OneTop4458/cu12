@@ -6,7 +6,7 @@
 2. Check count of `FAILED` jobs and retry trend.
 3. Check accounts marked `NEEDS_REAUTH`.
 4. Review error spikes in deployment/workflow logs.
-5. Review last run of `Reconcile Health Check` (scheduled every 30 minutes) and ensure it passes (no orphaned `RUNNING` jobs, no ghost active runs).
+5. Review last run of `Reconcile Health Check` (scheduled every 4 hours) and ensure it passes (no orphaned `RUNNING` jobs, no ghost active runs).
 
 ## Manual Sync Procedure
 
@@ -27,7 +27,7 @@
 ## New Environment Bootstrap
 
 1. Run `DB Bootstrap`.
-2. Run `Auth Reset Bootstrap` and capture admin invite code.
+2. Run `Auth Reset Bootstrap` with `inviteCodeHash` (SHA-256 hash of your chosen admin invite code).
 3. Admin logs in (step-1 + invite modal step-2).
 4. Admin issues invite codes for regular users.
 
