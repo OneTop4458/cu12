@@ -76,9 +76,25 @@ interface PolicyDocumentPayload {
   updatedAt: string;
 }
 
+interface PolicyProfilePayload {
+  companyName: string | null;
+  supportEmail: string | null;
+  companyAddress: string | null;
+  dpoName: string | null;
+  dpoTitle: string | null;
+  dpoEmail: string | null;
+  dpoPhone: string | null;
+  jurisdictionCourt: string | null;
+  effectiveDate: string | null;
+  revisionDate: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 interface AdminPoliciesPayload {
   requiredTypes: PolicyDocumentType[];
   policies: PolicyDocumentPayload[];
+  profile: PolicyProfilePayload;
 }
 
 interface AdminPoliciesUpdatePayload extends AdminPoliciesPayload {
@@ -148,6 +164,16 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
   const [policySaving, setPolicySaving] = useState(false);
   const [policyError, setPolicyError] = useState<string | null>(null);
   const [policySavedAt, setPolicySavedAt] = useState<string | null>(null);
+  const [profileCompanyName, setProfileCompanyName] = useState("");
+  const [profileSupportEmail, setProfileSupportEmail] = useState("");
+  const [profileCompanyAddress, setProfileCompanyAddress] = useState("");
+  const [profileDpoName, setProfileDpoName] = useState("");
+  const [profileDpoTitle, setProfileDpoTitle] = useState("");
+  const [profileDpoEmail, setProfileDpoEmail] = useState("");
+  const [profileDpoPhone, setProfileDpoPhone] = useState("");
+  const [profileJurisdictionCourt, setProfileJurisdictionCourt] = useState("");
+  const [profileEffectiveDate, setProfileEffectiveDate] = useState("");
+  const [profileRevisionDate, setProfileRevisionDate] = useState("");
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
@@ -161,6 +187,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
   const applyPolicies = useCallback((payload: AdminPoliciesPayload) => {
     const nextRequiredTypes = payload.requiredTypes ?? [];
     const nextPolicies = payload.policies ?? [];
+    const profile = payload.profile;
     setRequiredPolicyTypes(nextRequiredTypes);
     setPolicies(nextPolicies);
 
@@ -172,6 +199,17 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
     setPrivacyActive(privacy?.isActive ?? true);
     setTermsContent(terms?.content ?? "");
     setTermsActive(terms?.isActive ?? true);
+
+    setProfileCompanyName(profile?.companyName ?? "");
+    setProfileSupportEmail(profile?.supportEmail ?? "");
+    setProfileCompanyAddress(profile?.companyAddress ?? "");
+    setProfileDpoName(profile?.dpoName ?? "");
+    setProfileDpoTitle(profile?.dpoTitle ?? "");
+    setProfileDpoEmail(profile?.dpoEmail ?? "");
+    setProfileDpoPhone(profile?.dpoPhone ?? "");
+    setProfileJurisdictionCourt(profile?.jurisdictionCourt ?? "");
+    setProfileEffectiveDate(profile?.effectiveDate ?? "");
+    setProfileRevisionDate(profile?.revisionDate ?? "");
   }, []);
 
   const fetchHealth = useCallback(async () => {
@@ -294,6 +332,18 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
                 isActive: termsActive,
               },
             ],
+            profile: {
+              companyName: profileCompanyName,
+              supportEmail: profileSupportEmail,
+              companyAddress: profileCompanyAddress,
+              dpoName: profileDpoName,
+              dpoTitle: profileDpoTitle,
+              dpoEmail: profileDpoEmail,
+              dpoPhone: profileDpoPhone,
+              jurisdictionCourt: profileJurisdictionCourt,
+              effectiveDate: profileEffectiveDate,
+              revisionDate: profileRevisionDate,
+            },
           }),
         });
         applyPolicies(payload);
@@ -304,7 +354,25 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
         setPolicySaving(false);
       }
     },
-    [applyPolicies, fetchJson, policySaving, privacyActive, privacyContent, termsActive, termsContent],
+    [
+      applyPolicies,
+      fetchJson,
+      policySaving,
+      privacyActive,
+      privacyContent,
+      termsActive,
+      termsContent,
+      profileCompanyName,
+      profileSupportEmail,
+      profileCompanyAddress,
+      profileDpoName,
+      profileDpoTitle,
+      profileDpoEmail,
+      profileDpoPhone,
+      profileJurisdictionCourt,
+      profileEffectiveDate,
+      profileRevisionDate,
+    ],
   );
 
   return (
@@ -413,6 +481,58 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
         ) : null}
 
         <form className="form-grid top-gap" onSubmit={handleSavePolicies}>
+          <article className="card" style={{ gridColumn: "1 / -1" }}>
+            <h3>Policy Profile Variables</h3>
+            <p className="muted text-small">
+              These values are used to replace placeholders like <code>{"{{COMPANY_NAME}}"}</code> in policy templates.
+            </p>
+            <div className="form-grid top-gap">
+              <label className="field">
+                <span>Company Name</span>
+                <input value={profileCompanyName} onChange={(event) => setProfileCompanyName(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Support Email</span>
+                <input value={profileSupportEmail} onChange={(event) => setProfileSupportEmail(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Company Address</span>
+                <input value={profileCompanyAddress} onChange={(event) => setProfileCompanyAddress(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>DPO Name</span>
+                <input value={profileDpoName} onChange={(event) => setProfileDpoName(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>DPO Title</span>
+                <input value={profileDpoTitle} onChange={(event) => setProfileDpoTitle(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>DPO Email</span>
+                <input value={profileDpoEmail} onChange={(event) => setProfileDpoEmail(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>DPO Phone</span>
+                <input value={profileDpoPhone} onChange={(event) => setProfileDpoPhone(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Jurisdiction Court</span>
+                <input
+                  value={profileJurisdictionCourt}
+                  onChange={(event) => setProfileJurisdictionCourt(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Effective Date</span>
+                <input value={profileEffectiveDate} onChange={(event) => setProfileEffectiveDate(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Revision Date</span>
+                <input value={profileRevisionDate} onChange={(event) => setProfileRevisionDate(event.target.value)} />
+              </label>
+            </div>
+          </article>
+
           <article className="card">
             <h3>{POLICY_TYPE_LABEL.PRIVACY_POLICY}</h3>
             <p className="muted text-small">

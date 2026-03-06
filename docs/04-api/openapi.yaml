@@ -401,7 +401,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [requiredTypes, policies]
+                required: [requiredTypes, policies, profile]
                 properties:
                   requiredTypes:
                     type: array
@@ -411,6 +411,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/PolicyDocument"
+                  profile:
+                    $ref: "#/components/schemas/PolicyProfile"
         "403":
           description: Forbidden
     put:
@@ -424,7 +426,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [policies]
+              description: At least one of `policies` or `profile` is required.
               properties:
                 policies:
                   type: array
@@ -441,6 +443,8 @@ paths:
                         maxLength: 20000
                       isActive:
                         type: boolean
+                profile:
+                  $ref: "#/components/schemas/PolicyProfileInput"
       responses:
         "200":
           description: Policy documents updated
@@ -448,7 +452,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [updated, requiredTypes, policies]
+                required: [updated, requiredTypes, policies, profile]
                 properties:
                   updated:
                     type: boolean
@@ -460,6 +464,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/PolicyDocument"
+                  profile:
+                    $ref: "#/components/schemas/PolicyProfile"
         "400":
           description: Validation error
           content:
@@ -2081,6 +2087,69 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    PolicyProfileInput:
+      type: object
+      properties:
+        companyName:
+          type: string
+          nullable: true
+        supportEmail:
+          type: string
+          nullable: true
+        companyAddress:
+          type: string
+          nullable: true
+        dpoName:
+          type: string
+          nullable: true
+        dpoTitle:
+          type: string
+          nullable: true
+        dpoEmail:
+          type: string
+          nullable: true
+        dpoPhone:
+          type: string
+          nullable: true
+        jurisdictionCourt:
+          type: string
+          nullable: true
+        effectiveDate:
+          type: string
+          nullable: true
+        revisionDate:
+          type: string
+          nullable: true
+
+    PolicyProfile:
+      allOf:
+        - $ref: "#/components/schemas/PolicyProfileInput"
+        - type: object
+          required:
+            [
+              companyName,
+              supportEmail,
+              companyAddress,
+              dpoName,
+              dpoTitle,
+              dpoEmail,
+              dpoPhone,
+              jurisdictionCourt,
+              effectiveDate,
+              revisionDate,
+              createdAt,
+              updatedAt,
+            ]
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+              nullable: true
+            updatedAt:
+              type: string
+              format: date-time
+              nullable: true
 
     ErrorResponse:
       type: object

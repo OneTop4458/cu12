@@ -108,6 +108,7 @@ model User {
   auditTargetLogs AuditLog[]        @relation("AuditTarget")
   createdSiteNotices SiteNotice[]   @relation("SiteNoticeCreator")
   updatedPolicyDocuments PolicyDocument[] @relation("PolicyUpdatedBy")
+  updatedPolicyProfiles  PolicyProfile[]  @relation("PolicyProfileUpdatedBy")
   policyConsents UserPolicyConsent[]
 }
 
@@ -199,6 +200,24 @@ model PolicyDocument {
   updatedAt        DateTime           @updatedAt
 
   @@index([isActive, updatedAt])
+}
+
+model PolicyProfile {
+  id                String   @id @default("default")
+  companyName       String?
+  supportEmail      String?
+  companyAddress    String?
+  dpoName           String?
+  dpoTitle          String?
+  dpoEmail          String?
+  dpoPhone          String?
+  jurisdictionCourt String?
+  effectiveDate     String?
+  revisionDate      String?
+  updatedByUserId   String?
+  updatedByUser     User?    @relation("PolicyProfileUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model UserPolicyConsent {

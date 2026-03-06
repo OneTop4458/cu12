@@ -6,6 +6,21 @@ export const REQUIRED_POLICY_TYPES: PolicyDocumentType[] = [
   PolicyDocumentType.TERMS_OF_SERVICE,
 ];
 
+const POLICY_PROFILE_ID = "default";
+
+const POLICY_TEMPLATE_TOKENS = {
+  companyName: "{{COMPANY_NAME}}",
+  supportEmail: "{{SUPPORT_EMAIL}}",
+  companyAddress: "{{COMPANY_ADDRESS}}",
+  dpoName: "{{DPO_NAME}}",
+  dpoTitle: "{{DPO_TITLE}}",
+  dpoEmail: "{{DPO_EMAIL}}",
+  dpoPhone: "{{DPO_PHONE}}",
+  jurisdictionCourt: "{{JURISDICTION_COURT}}",
+  effectiveDate: "{{EFFECTIVE_DATE}}",
+  revisionDate: "{{REVISION_DATE}}",
+} as const;
+
 export type PolicyErrorCode =
   | "POLICY_NOT_CONFIGURED"
   | "POLICY_CONSENT_INCOMPLETE"
@@ -30,6 +45,34 @@ export interface PolicyDocumentPayload {
   updatedAt: string;
 }
 
+export interface PolicyProfilePayload {
+  companyName: string | null;
+  supportEmail: string | null;
+  companyAddress: string | null;
+  dpoName: string | null;
+  dpoTitle: string | null;
+  dpoEmail: string | null;
+  dpoPhone: string | null;
+  jurisdictionCourt: string | null;
+  effectiveDate: string | null;
+  revisionDate: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface PolicyProfileInput {
+  companyName?: string | null;
+  supportEmail?: string | null;
+  companyAddress?: string | null;
+  dpoName?: string | null;
+  dpoTitle?: string | null;
+  dpoEmail?: string | null;
+  dpoPhone?: string | null;
+  jurisdictionCourt?: string | null;
+  effectiveDate?: string | null;
+  revisionDate?: string | null;
+}
+
 export interface UserConsentInput {
   type: PolicyDocumentType;
   version: number;
@@ -47,23 +90,147 @@ function policyTitle(type: PolicyDocumentType): string {
   return "이용약관";
 }
 
-function toPolicyPayload(row: {
-  type: PolicyDocumentType;
-  version: number;
-  content: string;
-  isActive: boolean;
+function trimOrNull(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const next = value.trim();
+  return next.length > 0 ? next : null;
+}
+
+function emptyProfilePayload(): PolicyProfilePayload {
+  return {
+    companyName: null,
+    supportEmail: null,
+    companyAddress: null,
+    dpoName: null,
+    dpoTitle: null,
+    dpoEmail: null,
+    dpoPhone: null,
+    jurisdictionCourt: null,
+    effectiveDate: null,
+    revisionDate: null,
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
+function mapProfileRow(row: {
+  companyName: string | null;
+  supportEmail: string | null;
+  companyAddress: string | null;
+  dpoName: string | null;
+  dpoTitle: string | null;
+  dpoEmail: string | null;
+  dpoPhone: string | null;
+  jurisdictionCourt: string | null;
+  effectiveDate: string | null;
+  revisionDate: string | null;
   createdAt: Date;
   updatedAt: Date;
-}): PolicyDocumentPayload {
+} | null): PolicyProfilePayload {
+  if (!row) return emptyProfilePayload();
+  return {
+    companyName: row.companyName,
+    supportEmail: row.supportEmail,
+    companyAddress: row.companyAddress,
+    dpoName: row.dpoName,
+    dpoTitle: row.dpoTitle,
+    dpoEmail: row.dpoEmail,
+    dpoPhone: row.dpoPhone,
+    jurisdictionCourt: row.jurisdictionCourt,
+    effectiveDate: row.effectiveDate,
+    revisionDate: row.revisionDate,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function sanitizeProfileInput(input: PolicyProfileInput): Omit<PolicyProfilePayload, "createdAt" | "updatedAt"> {
+  return {
+    companyName: trimOrNull(input.companyName),
+    supportEmail: trimOrNull(input.supportEmail),
+    companyAddress: trimOrNull(input.companyAddress),
+    dpoName: trimOrNull(input.dpoName),
+    dpoTitle: trimOrNull(input.dpoTitle),
+    dpoEmail: trimOrNull(input.dpoEmail),
+    dpoPhone: trimOrNull(input.dpoPhone),
+    jurisdictionCourt: trimOrNull(input.jurisdictionCourt),
+    effectiveDate: trimOrNull(input.effectiveDate),
+    revisionDate: trimOrNull(input.revisionDate),
+  };
+}
+
+function renderPolicyContent(template: string, profile: PolicyProfilePayload): string {
+  let content = template;
+  const replacements: Array<[string, string]> = [
+    [POLICY_TEMPLATE_TOKENS.companyName, profile.companyName ?? ""],
+    [POLICY_TEMPLATE_TOKENS.supportEmail, profile.supportEmail ?? ""],
+    [POLICY_TEMPLATE_TOKENS.companyAddress, profile.companyAddress ?? ""],
+    [POLICY_TEMPLATE_TOKENS.dpoName, profile.dpoName ?? ""],
+    [POLICY_TEMPLATE_TOKENS.dpoTitle, profile.dpoTitle ?? ""],
+    [POLICY_TEMPLATE_TOKENS.dpoEmail, profile.dpoEmail ?? ""],
+    [POLICY_TEMPLATE_TOKENS.dpoPhone, profile.dpoPhone ?? ""],
+    [POLICY_TEMPLATE_TOKENS.jurisdictionCourt, profile.jurisdictionCourt ?? ""],
+    [POLICY_TEMPLATE_TOKENS.effectiveDate, profile.effectiveDate ?? ""],
+    [POLICY_TEMPLATE_TOKENS.revisionDate, profile.revisionDate ?? ""],
+  ];
+
+  for (const [token, value] of replacements) {
+    content = content.split(token).join(value);
+  }
+  return content;
+}
+
+function toPolicyPayload(
+  row: {
+    type: PolicyDocumentType;
+    version: number;
+    content: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  options?: {
+    profile?: PolicyProfilePayload;
+    renderTemplate?: boolean;
+  },
+): PolicyDocumentPayload {
+  const renderTemplate = options?.renderTemplate === true;
+  const profile = options?.profile ?? emptyProfilePayload();
+
   return {
     type: row.type,
     title: policyTitle(row.type),
     version: row.version,
-    content: row.content,
+    content: renderTemplate ? renderPolicyContent(row.content, profile) : row.content,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+async function getPolicyProfileRow() {
+  return prisma.policyProfile.findUnique({
+    where: { id: POLICY_PROFILE_ID },
+    select: {
+      companyName: true,
+      supportEmail: true,
+      companyAddress: true,
+      dpoName: true,
+      dpoTitle: true,
+      dpoEmail: true,
+      dpoPhone: true,
+      jurisdictionCourt: true,
+      effectiveDate: true,
+      revisionDate: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+}
+
+export async function getPolicyProfileForAdmin(): Promise<PolicyProfilePayload> {
+  const row = await getPolicyProfileRow();
+  return mapProfileRow(row);
 }
 
 export async function listPoliciesForAdmin(): Promise<PolicyDocumentPayload[]> {
@@ -80,27 +247,30 @@ export async function listPoliciesForAdmin(): Promise<PolicyDocumentPayload[]> {
     },
   });
 
-  return rows.map(toPolicyPayload);
+  return rows.map((row) => toPolicyPayload(row));
 }
 
 export async function getActiveRequiredPolicies(): Promise<PolicyDocumentPayload[]> {
-  const rows = await prisma.policyDocument.findMany({
-    where: {
-      type: { in: REQUIRED_POLICY_TYPES },
-      isActive: true,
-    },
-    orderBy: { type: "asc" },
-    select: {
-      type: true,
-      version: true,
-      content: true,
-      isActive: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const [rows, profile] = await Promise.all([
+    prisma.policyDocument.findMany({
+      where: {
+        type: { in: REQUIRED_POLICY_TYPES },
+        isActive: true,
+      },
+      orderBy: { type: "asc" },
+      select: {
+        type: true,
+        version: true,
+        content: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    getPolicyProfileForAdmin(),
+  ]);
 
-  return rows.map(toPolicyPayload);
+  return rows.map((row) => toPolicyPayload(row, { profile, renderTemplate: true }));
 }
 
 export async function getPolicyConsentRequirement(userId: string): Promise<PolicyConsentRequirement> {
@@ -230,7 +400,6 @@ export async function upsertPoliciesByAdmin(
           id: true,
           version: true,
           content: true,
-          isActive: true,
         },
       });
 
@@ -262,4 +431,26 @@ export async function upsertPoliciesByAdmin(
   });
 
   return listPoliciesForAdmin();
+}
+
+export async function upsertPolicyProfileByAdmin(
+  actorUserId: string,
+  input: PolicyProfileInput,
+): Promise<PolicyProfilePayload> {
+  const next = sanitizeProfileInput(input);
+
+  await prisma.policyProfile.upsert({
+    where: { id: POLICY_PROFILE_ID },
+    create: {
+      id: POLICY_PROFILE_ID,
+      ...next,
+      updatedByUserId: actorUserId,
+    },
+    update: {
+      ...next,
+      updatedByUserId: actorUserId,
+    },
+  });
+
+  return getPolicyProfileForAdmin();
 }
