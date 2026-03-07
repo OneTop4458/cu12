@@ -1027,7 +1027,7 @@ paths:
                   siteNotices:
                     type: array
                     items:
-                      $ref: "#/components/schemas/SiteNotice"
+                      $ref: "#/components/schemas/PublicSiteNotice"
         "400":
           description: Validation error
 
@@ -2897,6 +2897,49 @@ components:
             email:
               type: string
               format: email
+
+    PublicSiteNotice:
+      type: object
+      required:
+        [
+          id,
+          title,
+          message,
+          type,
+          isActive,
+          priority,
+          visibleFrom,
+          visibleTo,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        type:
+          $ref: "#/components/schemas/SiteNoticeType"
+        isActive:
+          type: boolean
+        priority:
+          type: integer
+        visibleFrom:
+          type: string
+          format: date-time
+          nullable: true
+        visibleTo:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     JobDispatchResponse:
       type: object

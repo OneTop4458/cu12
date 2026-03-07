@@ -9,6 +9,23 @@ const QuerySchema = z.object({
   type: z.nativeEnum(SiteNoticeType).optional(),
 });
 
+function toPublicNotice(
+  notice: Awaited<ReturnType<typeof listSiteNotices>>[number],
+) {
+  return {
+    id: notice.id,
+    title: notice.title,
+    message: notice.message,
+    type: notice.type,
+    isActive: notice.isActive,
+    priority: notice.priority,
+    visibleFrom: notice.visibleFrom,
+    visibleTo: notice.visibleTo,
+    createdAt: notice.createdAt,
+    updatedAt: notice.updatedAt,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const params = new URL(request.url).searchParams;
   const parsed = QuerySchema.safeParse({ type: params.get("type") ?? undefined });
@@ -17,5 +34,5 @@ export async function GET(request: NextRequest) {
   }
 
   const notices = await listSiteNotices(parsed.data.type, false);
-  return jsonOk({ siteNotices: notices });
+  return jsonOk({ siteNotices: notices.map(toPublicNotice) });
 }
