@@ -44,12 +44,10 @@ export function getRequestIp(request: NextRequest): string | null {
   const directIp = normalizeIp(requestWithIp.ip);
   if (directIp) return directIp;
 
-  if (!getEnv().TRUST_PROXY_HEADERS) {
+  const trustProxyHeaders = getEnv().TRUST_PROXY_HEADERS || process.env.VERCEL === "1";
+  if (!trustProxyHeaders) {
     return null;
   }
-
-  const forwardedFor = firstForwardedFor(request.headers.get("x-forwarded-for"));
-  if (forwardedFor) return forwardedFor;
 
   const realIp = normalizeIp(request.headers.get("x-real-ip"));
   if (realIp) return realIp;
@@ -59,6 +57,9 @@ export function getRequestIp(request: NextRequest): string | null {
 
   const flyIp = normalizeIp(request.headers.get("fly-client-ip"));
   if (flyIp) return flyIp;
+
+  const forwardedFor = firstForwardedFor(request.headers.get("x-forwarded-for"));
+  if (forwardedFor) return forwardedFor;
 
   return null;
 }
