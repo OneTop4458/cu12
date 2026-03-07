@@ -1,12 +1,13 @@
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$Commit,
+  [string]$Commit = "",
   [string]$Title = "",
   [string]$Body = "",
   [string]$Base = "main",
   [switch]$Draft,
   [switch]$SkipBuildWeb,
-  [switch]$AllowPrimaryCheckout
+  [switch]$AllowPrimaryCheckout,
+  [switch]$NoPr,
+  [switch]$NoPush
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,14 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
   if ($LASTEXITCODE -ne 0) {
     throw "Command failed: $Description"
   }
+}
+
+function Get-BranchSlug([string]$BranchName) {
+  $slug = ($BranchName -replace "^ai/", "" -replace "[^a-zA-Z0-9]+", "-").Trim("-").ToLowerInvariant()
+  if (-not $slug) {
+    return "changes"
+  }
+  return $slug
 }
 
 $repoRoot = (& git rev-parse --show-toplevel).Trim()
@@ -52,6 +61,11 @@ else {
 if ($LASTEXITCODE -ne 0) {
   throw "GitHub CLI (gh) is required."
 }
+Invoke-Checked "Verify GitHub CLI authentication" { gh auth status }
+
+if ($NoPush -and -not $NoPr) {
+  throw "-NoPush cannot be used without -NoPr. PR creation requires a remote branch."
+}
 
 Invoke-Checked "Validate text quality" { & $npmExe run check:text }
 Invoke-Checked "Validate OpenAPI sync" { & $npmExe run check:openapi }
@@ -66,8 +80,16 @@ if ($LASTEXITCODE -eq 0) {
   throw "No staged changes to commit."
 }
 
+if (-not $Commit) {
+  $branchSlug = Get-BranchSlug -BranchName $branch
+  $Commit = "chore(ai): $branchSlug apply requested changes"
+  Write-Host "==> Generated commit message: $Commit"
+}
+
 Invoke-Checked "Create commit" { git commit -m $Commit }
-Invoke-Checked "Push branch to origin" { git push --set-upstream origin $branch }
+if (-not $NoPush) {
+  Invoke-Checked "Push branch to origin" { git push --set-upstream origin $branch }
+}
 
 if (-not $Title) {
   $Title = (& git log -1 --pretty=%s).Trim()
@@ -90,12 +112,17 @@ if ($Draft) {
   $prArgs += "--draft"
 }
 
-Write-Host "==> Create pull request"
-& gh @prArgs
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "PR create failed. Attempting to print existing PR URL for this branch..."
-  & gh pr view $branch --json url --jq ".url"
+if ($NoPr) {
+  Write-Host "==> Skip pull request creation by -NoPr."
+}
+else {
+  Write-Host "==> Create pull request"
+  & gh @prArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "Failed to create or locate pull request for branch '$branch'."
+    Write-Host "PR create failed. Attempting to print existing PR URL for this branch..."
+    & gh pr view $branch --json url --jq ".url"
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to create or locate pull request for branch '$branch'."
+    }
   }
 }

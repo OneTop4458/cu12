@@ -12,6 +12,7 @@ test-results/
 .vercel/
 .vscode/
 .worktrees/
+.codex-session.lock
 .DS_Store
 prisma/dev.db
 CON
