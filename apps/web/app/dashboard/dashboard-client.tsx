@@ -1996,13 +1996,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     onChange={(event) => setAutoLearnEnabledDraft(event.target.checked)}
                     disabled={!account}
                   />
-                  <span>정기 자동 수강 대상 포함</span>
+                  <span>신규 강의 감지 시 자동 수강 사용</span>
                 </label>
                 <p className="muted text-small">
-                  이 설정을 켜면 자동 동기화 후 학습 가능한 차시가 있을 때 정기 자동 수강 대상에 포함됩니다.
+                  이 설정을 켜면 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
                 </p>
                 <p className="muted text-small">
-                  정기 자동 실행이 중지된 경우에는 자동으로 실행되지 않으며, 대시보드의 수동 자동 수강 요청은 계속 사용할 수 있습니다.
+                  해당 옵션이 비활성화된 경우 대시보드에서 사용자가 수동으로 요청한 경우에만 자동 수강이 동작합니다.
                 </p>
                 {!account ? (
                   <p className="muted text-small">CU12 계정 연결 후 자동 수강 예약 설정을 사용할 수 있습니다.</p>
