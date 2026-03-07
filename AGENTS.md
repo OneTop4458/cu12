@@ -64,6 +64,43 @@ npm run build:web
 3. Do not commit or push if the above checks fail.
 4. For AI-assisted changes, run the validation sequence first, then commit and push in the same workflow.
 
+## Public Repository Rules
+
+1. This repository is PUBLIC. Assume every commit, PR comment, and workflow log is externally visible.
+2. Never commit secrets or sensitive values (passwords, tokens, cookies, private keys, internal-only credentials, real invite codes).
+3. Never print secrets in CI logs, PR comments, or automation script output.
+4. `main` must be updated only through pull requests. Direct push to `main` is prohibited.
+5. Every AI/operator task must start from latest `origin/main` using an isolated branch and worktree.
+
+## AI Branch and Worktree Standard
+
+1. Do not develop directly in the primary checkout when running multiple AI sessions.
+2. Create one isolated worktree per task from `origin/main`:
+
+```bash
+npm run ai:worktree -- --task "<task-slug>"
+```
+
+3. Worktree path is created under `.worktrees/` and should map 1:1 with a single feature branch.
+4. Never reuse the same branch/worktree for unrelated tasks.
+5. Do not run `ai:ship` from `main` or `develop`; use feature branches only.
+
+## AI Auto-PR Automation
+
+1. After implementation, run the automated ship command:
+
+```bash
+npm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary"
+```
+
+2. `ai:ship` executes required validation in order, then performs:
+   1. `git add -A`
+   2. `git commit`
+   3. `git push --set-upstream origin <branch>`
+   4. `gh pr create --base main --head <branch>`
+3. `gh` authentication must be active before running automation (`gh auth status`).
+4. If validation fails, fix root cause first. Do not bypass checks to force PR creation.
+
 ## Deployment Baseline
 
 1. DB update: `DB Bootstrap` or `npm run prisma:push`
