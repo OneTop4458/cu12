@@ -71,7 +71,11 @@
 3. `labeler.yml`
 - Applies PR labels based on changed paths.
 
-4. `stale.yml`
+4. `secret-scan.yml`
+- Runs gitleaks-based secret scan on pull requests, protected branch pushes, daily schedule, and manual dispatch.
+- Uploads SARIF findings and fails the check when leaks are detected.
+
+5. `stale.yml`
 - Marks and closes stale issues/PRs according to repository policy.
 
 ## Bootstrap Invite Hash Input
