@@ -32,8 +32,10 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - run: npm run check:text
+      - run: npm run check:openapi
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run build:web
 
@@ -51,7 +53,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - name: Push Prisma schema (non-destructive by default)
         run: npm run prisma:push
 
@@ -72,7 +74,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - run: npm i -g vercel@latest
       - name: Validate Vercel token
         shell: bash

@@ -20,6 +20,6 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - name: Push Prisma schema
         run: npm run prisma:push -- --accept-data-loss
