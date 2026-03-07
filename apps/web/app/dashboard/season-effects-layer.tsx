@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Particles, { initParticlesEngine } from "@tsparticles/react";
-import { loadSlim } from "@tsparticles/slim";
-import type { Engine, ISourceOptions } from "@tsparticles/engine";
+import { useCallback, useEffect, useRef } from "react";
+import { Emitter, type EmitterConfigV3 } from "@pixi/particle-emitter";
+import { Application, Assets, Container, type Texture } from "pixi.js";
 
 export type SeasonEffectPreset = "SNOW" | "RAIN" | "BLOSSOM" | "MAPLE" | "BREEZE";
 
@@ -13,321 +12,424 @@ interface SeasonEffectsLayerProps {
   reducedDensity?: boolean;
 }
 
-let particlesEngineReady = false;
+interface EffectTextures {
+  snow: Texture;
+  rain: Texture;
+  blossom: Texture;
+  maple: Texture;
+}
 
-const SNOW_IMAGE = {
-  src: "/effects/snowflake.svg",
-  width: 64,
-  height: 64,
-  name: "snowflake",
-  replaceColor: false,
-  gif: false,
-};
+type Size = { width: number; height: number };
 
-const RAIN_IMAGE = {
-  src: "/effects/raindrop.svg",
-  width: 48,
-  height: 128,
-  name: "raindrop",
-  replaceColor: false,
-  gif: false,
-};
+const RESOLUTION_CAP = 2;
+const DEFAULT_SIZE: Size = { width: 1440, height: 900 };
 
-const BLOSSOM_IMAGE = {
-  src: "/effects/blossom-petal.svg",
-  width: 88,
-  height: 72,
-  name: "blossom-petal",
-  replaceColor: false,
-  gif: false,
-};
+const TEXTURE_PATHS = {
+  snow: "/effects/snowflake.svg",
+  rain: "/effects/raindrop.svg",
+  blossom: "/effects/blossom-petal.svg",
+  maple: "/effects/maple-leaf.svg",
+} as const;
 
-const MAPLE_IMAGE = {
-  src: "/effects/maple-leaf.svg",
-  width: 88,
-  height: 88,
-  name: "maple-leaf",
-  replaceColor: false,
-  gif: false,
-};
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
-function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean): ISourceOptions {
-  const baseCount = reducedDensity ? 22 : 52;
-  const base: ISourceOptions = {
-    fullScreen: {
-      enable: false,
-    },
-    fpsLimit: 90,
-    detectRetina: false,
-    pauseOnBlur: true,
-    particles: {
-      number: {
-        value: baseCount,
-        density: {
-          enable: true,
-          width: 1200,
-          height: 1200,
-        },
-      },
-      collisions: {
-        enable: false,
-      },
-      move: {
-        enable: true,
-        speed: {
-          min: 0.55,
-          max: 1.25,
-        },
-        straight: false,
-        random: false,
-        outModes: {
-          default: "out",
-        },
-      },
-    },
-    interactivity: {
-      events: {
-        resize: {
-          enable: true,
-          delay: 0.2,
-        },
-      },
-    },
-  };
+function makeSize(host: HTMLDivElement | null): Size {
+  if (!host) return DEFAULT_SIZE;
+  const width = host.clientWidth || window.innerWidth || DEFAULT_SIZE.width;
+  const height = host.clientHeight || window.innerHeight || DEFAULT_SIZE.height;
+  return { width, height };
+}
 
-  if (preset === "SNOW") {
-    return {
-      ...base,
-      particles: {
-        ...base.particles,
-        number: {
-          value: reducedDensity ? 14 : 30,
-          density: {
-            enable: true,
-            width: 1000,
-            height: 1200,
-          },
-        },
-        opacity: { value: { min: 0.52, max: 0.94 } },
-        size: { value: { min: 10, max: 22 } },
-        shape: {
-          type: "image",
-          options: {
-            image: [SNOW_IMAGE],
-          },
-        },
-        move: {
-          ...base.particles?.move,
-          direction: "bottom",
-          speed: {
-            min: reducedDensity ? 0.45 : 0.65,
-            max: reducedDensity ? 1.15 : 1.75,
-          },
-          drift: reducedDensity ? 0.35 : 0.55,
-          straight: false,
-          random: true,
-        },
-      },
-    };
-  }
+function scaleDensity(reducedDensity: boolean): number {
+  return reducedDensity ? 0.6 : 1;
+}
 
-  if (preset === "RAIN") {
-    return {
-      ...base,
-      particles: {
-        ...base.particles,
-        number: {
-          value: reducedDensity ? 18 : 40,
-          density: {
-            enable: true,
-            width: 1000,
-            height: 1000,
-          },
-        },
-        opacity: { value: { min: 0.42, max: 0.78 } },
-        size: { value: { min: 9, max: 18 } },
-        shape: {
-          type: "image",
-          options: {
-            image: [RAIN_IMAGE],
-          },
-        },
-        move: {
-          ...base.particles?.move,
-          direction: "bottom-right",
-          speed: {
-            min: reducedDensity ? 9.5 : 12,
-            max: reducedDensity ? 14.5 : 21,
-          },
-          straight: true,
-          random: true,
-        },
-      },
-    };
-  }
-
-  if (preset === "BLOSSOM") {
-    return {
-      ...base,
-      particles: {
-        ...base.particles,
-        number: {
-          value: reducedDensity ? 14 : 30,
-          density: {
-            enable: true,
-            width: 1200,
-            height: 1200,
-          },
-        },
-        opacity: { value: { min: 0.5, max: 0.9 } },
-        size: { value: { min: 11, max: 22 } },
-        shape: {
-          type: "image",
-          options: {
-            image: [BLOSSOM_IMAGE],
-          },
-        },
-        rotate: {
-          value: { min: 0, max: 360 },
-          direction: "random",
-          animation: {
-            enable: true,
-            speed: reducedDensity ? 7 : 13,
-          },
-        },
-        move: {
-          ...base.particles?.move,
-          direction: "bottom-left",
-          speed: {
-            min: reducedDensity ? 0.85 : 1.1,
-            max: reducedDensity ? 1.65 : 2.2,
-          },
-          drift: reducedDensity ? -0.45 : -0.75,
-          straight: false,
-          random: true,
-        },
-      },
-    };
-  }
-
-  if (preset === "MAPLE") {
-    return {
-      ...base,
-      particles: {
-        ...base.particles,
-        number: {
-          value: reducedDensity ? 14 : 28,
-          density: {
-            enable: true,
-            width: 1200,
-            height: 1200,
-          },
-        },
-        opacity: { value: { min: 0.5, max: 0.92 } },
-        size: { value: { min: 12, max: 24 } },
-        shape: {
-          type: "image",
-          options: {
-            image: [MAPLE_IMAGE],
-          },
-        },
-        rotate: {
-          value: { min: 0, max: 360 },
-          direction: "random",
-          animation: {
-            enable: true,
-            speed: reducedDensity ? 6 : 11,
-          },
-        },
-        move: {
-          ...base.particles?.move,
-          direction: "bottom-right",
-          speed: {
-            min: reducedDensity ? 0.75 : 1.05,
-            max: reducedDensity ? 1.55 : 2.1,
-          },
-          drift: reducedDensity ? 0.5 : 0.85,
-          straight: false,
-          random: true,
-        },
-      },
-    };
-  }
-
+function makeAlphaList(mid: number): { list: Array<{ value: number; time: number }> } {
   return {
-    ...base,
-    particles: {
-      ...base.particles,
-      number: {
-        value: reducedDensity ? 12 : 26,
-        density: {
-          enable: true,
-          width: 1400,
-          height: 1400,
-        },
-      },
-      color: { value: ["#7dd3fc", "#bfdbfe", "#e2e8f0", "#93c5fd"] },
-      opacity: { value: { min: 0.2, max: 0.48 } },
-      size: { value: { min: 1.2, max: 2.6 } },
-      shape: { type: "circle" },
-      move: {
-        ...base.particles?.move,
-        direction: "none",
-        speed: {
-          min: reducedDensity ? 0.35 : 0.55,
-          max: reducedDensity ? 0.85 : 1.25,
-        },
-        drift: reducedDensity ? 0.15 : 0.3,
-        straight: false,
-      },
+    list: [
+      { value: 0, time: 0 },
+      { value: mid, time: 0.1 },
+      { value: mid, time: 0.82 },
+      { value: 0, time: 1 },
+    ],
+  };
+}
+
+function makeRectSpawn(width: number, height: number, topOffset: number): { type: "rect"; data: { x: number; y: number; w: number; h: number } } {
+  return {
+    type: "rect",
+    data: {
+      x: -Math.round(width * 0.08),
+      y: -Math.round(topOffset),
+      w: Math.round(width * 1.16),
+      h: Math.round(height * 0.12),
     },
   };
 }
 
-export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: SeasonEffectsLayerProps) {
-  const [isReady, setIsReady] = useState(particlesEngineReady);
+function makeSnowEmitters(textures: EffectTextures, size: Size, reducedDensity: boolean): EmitterConfigV3[] {
+  const density = scaleDensity(reducedDensity);
+  const baseMax = Math.round(clamp(size.width / 14, 80, 220) * density);
+  const spawn = makeRectSpawn(size.width, size.height, 80);
 
-  useEffect(() => {
-    if (particlesEngineReady) return;
-    let mounted = true;
-    void initParticlesEngine(async (engine) => {
-      // NOTE:
-      // On some production bundles, @tsparticles/react can pass undefined here.
-      // Fall back to the global engine exposed by @tsparticles/engine to keep effects working.
-      const globalEngine = typeof window !== "undefined"
-        ? (window as Window & { tsParticles?: Engine }).tsParticles
-        : undefined;
-      const safeEngine = engine ?? globalEngine;
-      if (!safeEngine) {
-        throw new Error("tsParticles engine is unavailable");
-      }
-      await loadSlim(safeEngine);
-    }).then(() => {
-      particlesEngineReady = true;
-      if (mounted) setIsReady(true);
-    }).catch((error) => {
-      console.error("Season effects engine init failed", error);
-    });
-    return () => {
-      mounted = false;
-    };
+  return [
+    {
+      lifetime: { min: 8, max: 14 },
+      frequency: 0.038,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: baseMax,
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.78) } },
+        { type: "scaleStatic", config: { min: 0.11, max: 0.2 } },
+        { type: "moveSpeedStatic", config: { min: 18, max: 35 } },
+        { type: "rotationStatic", config: { min: 0, max: 360 } },
+        { type: "rotation", config: { minStart: 0, maxStart: 360, minSpeed: -14, maxSpeed: 14, accel: 0 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.snow } },
+      ],
+    },
+    {
+      lifetime: { min: 10, max: 17 },
+      frequency: 0.055,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: Math.round(baseMax * 0.72),
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.58) } },
+        { type: "scaleStatic", config: { min: 0.06, max: 0.13 } },
+        { type: "moveSpeedStatic", config: { min: 10, max: 24 } },
+        { type: "rotationStatic", config: { min: 0, max: 360 } },
+        { type: "rotation", config: { minStart: 0, maxStart: 360, minSpeed: -8, maxSpeed: 8, accel: 0 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.snow } },
+      ],
+    },
+  ];
+}
+
+function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: boolean): EmitterConfigV3[] {
+  const density = scaleDensity(reducedDensity);
+  const baseMax = Math.round(clamp(size.width / 9.5, 120, 300) * density);
+  const spawn = makeRectSpawn(size.width, size.height, 120);
+
+  return [
+    {
+      lifetime: { min: 0.72, max: 1.25 },
+      frequency: 0.009,
+      particlesPerWave: 3,
+      emitterLifetime: -1,
+      maxParticles: baseMax,
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.82) } },
+        { type: "scaleStatic", config: { min: 0.08, max: 0.14 } },
+        { type: "rotationStatic", config: { min: 112, max: 118 } },
+        { type: "moveAcceleration", config: { minStart: 1080, maxStart: 1460, accel: { x: 0, y: 1700 }, rotate: true, maxSpeed: 2400 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.rain } },
+      ],
+    },
+    {
+      lifetime: { min: 1.05, max: 1.8 },
+      frequency: 0.015,
+      particlesPerWave: 2,
+      emitterLifetime: -1,
+      maxParticles: Math.round(baseMax * 0.68),
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.56) } },
+        { type: "scaleStatic", config: { min: 0.05, max: 0.09 } },
+        { type: "rotationStatic", config: { min: 112, max: 118 } },
+        { type: "moveAcceleration", config: { minStart: 780, maxStart: 1020, accel: { x: 0, y: 1300 }, rotate: true, maxSpeed: 1800 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.rain } },
+      ],
+    },
+  ];
+}
+
+function makeBlossomEmitters(textures: EffectTextures, size: Size, reducedDensity: boolean): EmitterConfigV3[] {
+  const density = scaleDensity(reducedDensity);
+  const baseMax = Math.round(clamp(size.width / 18, 70, 180) * density);
+  const spawn = makeRectSpawn(size.width, size.height, 70);
+
+  return [
+    {
+      lifetime: { min: 9, max: 14 },
+      frequency: 0.041,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: baseMax,
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.86) } },
+        { type: "scaleStatic", config: { min: 0.12, max: 0.22 } },
+        { type: "rotation", config: { minStart: 22, maxStart: 170, minSpeed: -36, maxSpeed: 28, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 60, maxStart: 125, accel: { x: -58, y: 148 }, rotate: false, maxSpeed: 220 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.blossom } },
+      ],
+    },
+    {
+      lifetime: { min: 11, max: 17 },
+      frequency: 0.057,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: Math.round(baseMax * 0.7),
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.64) } },
+        { type: "scaleStatic", config: { min: 0.07, max: 0.13 } },
+        { type: "rotation", config: { minStart: 12, maxStart: 160, minSpeed: -22, maxSpeed: 18, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 38, maxStart: 85, accel: { x: -36, y: 118 }, rotate: false, maxSpeed: 160 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.blossom } },
+      ],
+    },
+  ];
+}
+
+function makeMapleEmitters(textures: EffectTextures, size: Size, reducedDensity: boolean): EmitterConfigV3[] {
+  const density = scaleDensity(reducedDensity);
+  const baseMax = Math.round(clamp(size.width / 19, 64, 162) * density);
+  const spawn = makeRectSpawn(size.width, size.height, 70);
+
+  return [
+    {
+      lifetime: { min: 8, max: 13 },
+      frequency: 0.044,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: baseMax,
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.9) } },
+        { type: "scaleStatic", config: { min: 0.12, max: 0.24 } },
+        { type: "rotation", config: { minStart: -30, maxStart: 150, minSpeed: -42, maxSpeed: 34, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 72, maxStart: 146, accel: { x: 48, y: 182 }, rotate: false, maxSpeed: 240 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.maple } },
+      ],
+    },
+    {
+      lifetime: { min: 10, max: 15 },
+      frequency: 0.061,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: Math.round(baseMax * 0.72),
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.66) } },
+        { type: "scaleStatic", config: { min: 0.07, max: 0.13 } },
+        { type: "rotation", config: { minStart: -15, maxStart: 135, minSpeed: -28, maxSpeed: 24, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 40, maxStart: 92, accel: { x: 34, y: 128 }, rotate: false, maxSpeed: 170 } },
+        { type: "spawnShape", config: spawn },
+        { type: "textureSingle", config: { texture: textures.maple } },
+      ],
+    },
+  ];
+}
+
+function makeBreezeEmitters(size: Size, reducedDensity: boolean): EmitterConfigV3[] {
+  const density = scaleDensity(reducedDensity);
+  const baseMax = Math.round(clamp(size.width / 18, 60, 165) * density);
+  const spawn = makeRectSpawn(size.width, size.height, 40);
+
+  return [
+    {
+      lifetime: { min: 14, max: 22 },
+      frequency: 0.045,
+      particlesPerWave: 1,
+      emitterLifetime: -1,
+      maxParticles: baseMax,
+      addAtBack: true,
+      pos: { x: 0, y: 0 },
+      behaviors: [
+        { type: "alpha", config: { alpha: makeAlphaList(0.32) } },
+        { type: "scaleStatic", config: { min: 0.05, max: 0.12 } },
+        { type: "colorStatic", config: { color: "dbeafe" } },
+        { type: "moveAcceleration", config: { minStart: 20, maxStart: 58, accel: { x: 8, y: 24 }, rotate: false, maxSpeed: 90 } },
+        { type: "spawnShape", config: spawn },
+      ],
+    },
+  ];
+}
+
+function buildConfigs(preset: SeasonEffectPreset, textures: EffectTextures, size: Size, reducedDensity: boolean): EmitterConfigV3[] {
+  if (preset === "SNOW") return makeSnowEmitters(textures, size, reducedDensity);
+  if (preset === "RAIN") return makeRainEmitters(textures, size, reducedDensity);
+  if (preset === "BLOSSOM") return makeBlossomEmitters(textures, size, reducedDensity);
+  if (preset === "MAPLE") return makeMapleEmitters(textures, size, reducedDensity);
+  return makeBreezeEmitters(size, reducedDensity);
+}
+
+export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: SeasonEffectsLayerProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const appRef = useRef<Application | null>(null);
+  const layerRef = useRef<Container | null>(null);
+  const emittersRef = useRef<Emitter[]>([]);
+  const texturesRef = useRef<EffectTextures | null>(null);
+  const rafResizeRef = useRef<number | null>(null);
+
+  const clearEmitters = useCallback(() => {
+    for (const emitter of emittersRef.current) {
+      emitter.emit = false;
+      emitter.destroy();
+    }
+    emittersRef.current = [];
   }, []);
 
-  const options = useMemo(
-    () => buildPresetOptions(preset, reducedDensity),
-    [preset, reducedDensity],
-  );
+  const ensureTextures = useCallback(async (): Promise<EffectTextures> => {
+    if (texturesRef.current) return texturesRef.current;
 
-  if (!enabled || !isReady) return null;
+    const loaded = await Assets.load([
+      TEXTURE_PATHS.snow,
+      TEXTURE_PATHS.rain,
+      TEXTURE_PATHS.blossom,
+      TEXTURE_PATHS.maple,
+    ]);
+
+    const textures: EffectTextures = {
+      snow: loaded[TEXTURE_PATHS.snow] as Texture,
+      rain: loaded[TEXTURE_PATHS.rain] as Texture,
+      blossom: loaded[TEXTURE_PATHS.blossom] as Texture,
+      maple: loaded[TEXTURE_PATHS.maple] as Texture,
+    };
+
+    texturesRef.current = textures;
+    return textures;
+  }, []);
+
+  const rebuildEmitters = useCallback(async () => {
+    const app = appRef.current;
+    const layer = layerRef.current;
+    const host = hostRef.current;
+    if (!app || !layer || !host || !enabled) {
+      clearEmitters();
+      return;
+    }
+
+    const size = makeSize(host);
+    const textures = await ensureTextures();
+    const configs = buildConfigs(preset, textures, size, reducedDensity);
+
+    clearEmitters();
+    emittersRef.current = configs.map((config) => {
+      const emitter = new Emitter(layer, config);
+      emitter.emit = true;
+      return emitter;
+    });
+  }, [clearEmitters, enabled, ensureTextures, preset, reducedDensity]);
+
+  useEffect(() => {
+    if (!enabled) {
+      clearEmitters();
+      if (appRef.current) {
+        appRef.current.stage.visible = false;
+      }
+      return;
+    }
+
+    const host = hostRef.current;
+    if (!host) return;
+
+    let cancelled = false;
+
+    const setup = async () => {
+      if (!appRef.current) {
+        const app = new Application({
+          resizeTo: host,
+          antialias: true,
+          autoDensity: true,
+          backgroundAlpha: 0,
+          resolution: Math.min(window.devicePixelRatio || 1, RESOLUTION_CAP),
+        });
+
+        const view = app.view as HTMLCanvasElement;
+        view.classList.add("season-effects-canvas");
+        host.appendChild(view);
+
+        const layer = new Container();
+        layer.eventMode = "none";
+        app.stage.eventMode = "none";
+        app.stage.addChild(layer);
+
+        app.ticker.add(() => {
+          const deltaSeconds = app.ticker.deltaMS / 1000;
+          for (const emitter of emittersRef.current) {
+            emitter.update(deltaSeconds);
+          }
+        });
+
+        appRef.current = app;
+        layerRef.current = layer;
+      }
+
+      if (cancelled) return;
+      if (appRef.current) {
+        appRef.current.stage.visible = true;
+      }
+      await rebuildEmitters();
+    };
+
+    void setup();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clearEmitters, enabled, rebuildEmitters]);
+
+  useEffect(() => {
+    if (!enabled || !hostRef.current) return;
+
+    const onResize = () => {
+      if (rafResizeRef.current) {
+        window.cancelAnimationFrame(rafResizeRef.current);
+      }
+      rafResizeRef.current = window.requestAnimationFrame(() => {
+        void rebuildEmitters();
+      });
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (rafResizeRef.current) {
+        window.cancelAnimationFrame(rafResizeRef.current);
+        rafResizeRef.current = null;
+      }
+    };
+  }, [enabled, rebuildEmitters]);
+
+  useEffect(() => {
+    return () => {
+      clearEmitters();
+      if (appRef.current) {
+        appRef.current.destroy(true);
+        appRef.current = null;
+      }
+      layerRef.current = null;
+      texturesRef.current = null;
+    };
+  }, [clearEmitters]);
 
   return (
     <div className={`season-effects-layer season-effects-${preset.toLowerCase()}`} aria-hidden="true">
       <div className="season-effects-atmosphere" />
-      <Particles
-        id="dashboard-season-effects-layer"
-        className="season-effects-particles"
-        options={options}
-      />
+      <div ref={hostRef} className="season-effects-render-host" />
     </div>
   );
 }
