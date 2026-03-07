@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -65,6 +65,7 @@ const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
 const LAST_ACTIVITY_STORAGE_KEY = "cu12:last-activity-at";
 const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
 const LEGACY_IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
+const SAVED_CU12_ID_STORAGE_KEY = "cu12:saved-cu12-id";
 
 function applySessionPolicy(policy: SessionPolicy | undefined) {
   if (typeof window === "undefined") return;
@@ -73,6 +74,24 @@ function applySessionPolicy(policy: SessionPolicy | undefined) {
     window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
     window.localStorage.removeItem(SESSION_EXPIRED_STATE_KEY);
     window.localStorage.removeItem(LEGACY_IDLE_TIMEOUT_STORAGE_KEY);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function syncSavedCu12Id(shouldSave: boolean, cu12Id: string) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!shouldSave) {
+      window.localStorage.removeItem(SAVED_CU12_ID_STORAGE_KEY);
+      return;
+    }
+    const trimmed = cu12Id.trim();
+    if (!trimmed) {
+      window.localStorage.removeItem(SAVED_CU12_ID_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(SAVED_CU12_ID_STORAGE_KEY, trimmed);
   } catch {
     // Ignore storage errors.
   }
@@ -141,7 +160,7 @@ export function LoginForm({
   const [cu12Id, setCu12Id] = useState("");
   const [cu12Password, setCu12Password] = useState("");
   const [campus, setCampus] = useState<Campus>("SONGSIM");
-  const [rememberSession, setRememberSession] = useState(false);
+  const [saveCu12Id, setSaveCu12Id] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpiredReason] = useState<SessionExpiredReason | null>(() => {
@@ -154,6 +173,18 @@ export function LoginForm({
       return null;
     }
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const savedCu12Id = window.localStorage.getItem(SAVED_CU12_ID_STORAGE_KEY)?.trim() ?? "";
+      if (!savedCu12Id) return;
+      setCu12Id(savedCu12Id);
+      setSaveCu12Id(true);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, []);
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
@@ -228,7 +259,7 @@ export function LoginForm({
           cu12Id,
           cu12Password,
           campus,
-          rememberSession,
+          rememberSession: false,
         }),
       });
 
@@ -239,6 +270,7 @@ export function LoginForm({
       }
 
       const payload = (await response.json()) as LoginResponse;
+      syncSavedCu12Id(saveCu12Id, cu12Id);
       if (payload.stage === "INVITE_REQUIRED") {
         clearConsentState();
         setChallengeToken(payload.challengeToken);
@@ -281,7 +313,7 @@ export function LoginForm({
         body: JSON.stringify({
           challengeToken,
           inviteCode: inviteCode.trim(),
-          rememberSession,
+          rememberSession: false,
         }),
       });
 
@@ -298,6 +330,7 @@ export function LoginForm({
       }
 
       const payload = (await response.json()) as AuthenticatedResponse | ConsentRequiredResponse;
+      syncSavedCu12Id(saveCu12Id, cu12Id);
       if (payload.stage === "CONSENT_REQUIRED") {
         startConsentFlow(payload);
         return;
@@ -356,6 +389,7 @@ export function LoginForm({
       }
 
       const payload = (await response.json()) as AuthenticatedResponse;
+      syncSavedCu12Id(saveCu12Id, cu12Id);
       applySessionPolicy(payload.session);
       clearConsentState();
       router.push("/dashboard" as Route);
@@ -416,14 +450,30 @@ export function LoginForm({
           </select>
         </label>
 
-        <label className="check-field">
-          <input
-            type="checkbox"
-            checked={rememberSession}
-            onChange={(event) => setRememberSession(event.target.checked)}
-          />
-          <span>로그인 상태 유지 (30일)</span>
-        </label>
+        <div className="login-options-row">
+          <label className="check-field">
+            <input
+              type="checkbox"
+              checked={saveCu12Id}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setSaveCu12Id(checked);
+                if (!checked) {
+                  syncSavedCu12Id(false, cu12Id);
+                }
+              }}
+            />
+            <span>아이디 저장</span>
+          </label>
+          <a
+            className="btn ghost-btn login-reset-link"
+            href="https://www.cu12.ac.kr/el/member/pw_reset_form.acl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            비밀번호 초기화
+          </a>
+        </div>
 
         {error ? <p className="error-text">{error}</p> : null}
 

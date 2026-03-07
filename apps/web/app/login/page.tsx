@@ -47,12 +47,9 @@ export default async function LoginPage({
             className="brand-wordmark"
           />
           <p className="brand-kicker">Catholic University CU12 Automation</p>
-          <h1>Catholic University CU12 Automation</h1>
+          <h1>가톨릭 공유대학 수강 지원 솔루션</h1>
           <p className="muted">
             CU12 로그인 페이지입니다.
-          </p>
-          <p className="auth-subtitle">
-            아이디, 비밀번호를 입력해 로그인하거나 초대 코드 인증을 진행하세요.
           </p>
           <p className="brand-mark">
             Catholic University CU12 Automation
@@ -63,7 +60,7 @@ export default async function LoginPage({
           <div className="brand-ribbon" />
           <p className="brand-kicker">Catholic University CU12 Automation</p>
           <h1>로그인</h1>
-          <p className="muted">아이디와 비밀번호를 입력해 로그인하세요.</p>
+          <p className="muted">가톨릭 공유대학 아이디와 비밀번호를 입력해 로그인하세요.</p>
           {activeMaintenanceNotice ? (
             <section className="top-gap card">
               <p className="error-text">시스템 점검 공지</p>
