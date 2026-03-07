@@ -14,6 +14,7 @@
 ```bash
 npm install
 npm run check:text
+npm run check:openapi
 npm run prisma:generate
 npm run typecheck
 npm run build:web

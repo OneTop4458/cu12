@@ -144,6 +144,7 @@ npm run build:web
 
 When changes are made by AI-assisted workflows, commits and pushes must only happen after:
 - `npm run check:text`
+- `npm run check:openapi`
 - `npm run typecheck`
 - `npm run build:web` (when web scope is touched)
 
@@ -160,6 +161,7 @@ When changes are made by AI-assisted workflows, commits and pushes must only hap
 - Updated login shell for consistent visual framing and preserved core auth flow behavior.
 - Validation commands executed:
   - `npm run check:text`
+  - `npm run check:openapi` (current baseline requirement)
   - `npm run prisma:generate`
   - `npm run typecheck`
   - `npm run build:web`

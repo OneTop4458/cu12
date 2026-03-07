@@ -32,8 +32,9 @@
 ### Validation Gate (AI-assisted or release validation)
 
 1. `npm run check:text`
-2. `npm run typecheck`
-3. `npm run build:web`
+2. `npm run check:openapi`
+3. `npm run typecheck`
+4. `npm run build:web`
 
 ## End-to-End
 

@@ -17,6 +17,16 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 1. All repository files must be encoded as **UTF-8 (no BOM)**.
 2. Korean copy (UI labels, errors, docs notes) must remain UTF-8; do not use ANSI/CP949/UTF-16.
 3. For any text corruption reports (`U+FFFD`, replacement char), retype the affected strings from a clean UTF-8 source and validate before commit.
+4. On Windows/PowerShell, avoid text-write commands with implicit encoding defaults:
+   - Avoid: `Set-Content` / `Out-File` without explicit UTF-8 options.
+   - Prefer: `apply_patch` for edits, or explicit UTF-8 APIs/flags.
+5. If shell-based file writes are unavoidable, explicitly force UTF-8 (no BOM):
+   - `Set-Content -Encoding utf8`
+   - `[System.IO.File]::WriteAllText(path, text, New-Object System.Text.UTF8Encoding($false))`
+6. For Korean text edits, verify immediately after edit:
+   - Run `npm run check:text` and `npm run check:text:replacements`.
+   - Re-open changed files and confirm Korean is readable (no garbled CJK-looking fallback glyphs).
+7. Never mass-rewrite files that contain Korean strings using unknown encoding pipelines.
 
 ## Authentication Model
 

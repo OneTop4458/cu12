@@ -22,6 +22,7 @@ This audit validates alignment between code, API contract, workflows, and docume
 2. Updated OpenAPI to include `/api/auth/login/invite`.
 3. Standardized docs to English and isolated Korean summary to `README.ko.md`.
 4. Added text-quality gate (`npm run check:text`) to CI.
+5. Current baseline additionally enforces OpenAPI drift check (`npm run check:openapi`) in CI.
 
 ## Residual Risks
 
