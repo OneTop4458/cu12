@@ -1182,11 +1182,6 @@ textarea:focus {
     radial-gradient(1000px 700px at 80% 100%, rgb(245 158 11 / 22%), transparent 66%);
 }
 
-.season-effects-breeze .season-effects-atmosphere {
-  background: radial-gradient(1200px 620px at 15% 0%, rgb(191 219 254 / 18%), transparent 63%),
-    radial-gradient(1000px 700px at 80% 100%, rgb(226 232 240 / 17%), transparent 69%);
-}
-
 .season-effects-canvas {
   position: absolute;
   inset: 0;

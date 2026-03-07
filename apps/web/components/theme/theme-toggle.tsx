@@ -63,7 +63,7 @@ export function ThemeToggle() {
         active={mounted && current === "system"}
         onClick={() => setTheme("system")}
         icon={Monitor}
-        label="시스템"
+        label="시스템(시간 자동)"
         value="system"
       />
     </div>

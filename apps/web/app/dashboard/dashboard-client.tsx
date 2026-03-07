@@ -6,7 +6,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
-import { CloudRain, Leaf, RotateCw, Snowflake, Sparkles, Wind } from "lucide-react";
+import { CloudRain, Leaf, RotateCw, Snowflake, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
@@ -396,7 +396,7 @@ function formatWeatherPresetLabel(preset: SeasonEffectPreset): string {
   if (preset === "RAIN") return "비";
   if (preset === "BLOSSOM") return "벚꽃";
   if (preset === "MAPLE") return "단풍";
-  return "브리즈";
+  return "효과 없음";
 }
 
 function parseSeasonEffectPreset(value: string | null): SeasonEffectPreset | null {
@@ -880,7 +880,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     if (activeSeasonEffectPreset === "SNOW") return <Snowflake size={size} />;
     if (activeSeasonEffectPreset === "RAIN") return <CloudRain size={size} />;
     if (activeSeasonEffectPreset === "MAPLE") return <Leaf size={size} />;
-    if (activeSeasonEffectPreset === "BREEZE") return <Wind size={size} />;
     return <Sparkles size={size} />;
   }, [seasonEffectsEffectiveEnabled, activeSeasonEffectPreset]);
   const deadlineD7Items = useMemo(
@@ -2364,13 +2363,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 onClick={() => applySeasonEffectsTestPreset("MAPLE")}
               >
                 단풍
-              </button>
-              <button
-                type="button"
-                className={seasonEffectsTestPreset === "BREEZE" ? "" : "ghost-btn"}
-                onClick={() => applySeasonEffectsTestPreset("BREEZE")}
-              >
-                브리즈
               </button>
             </div>
             <div className="button-row top-gap">

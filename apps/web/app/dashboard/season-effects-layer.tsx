@@ -29,7 +29,7 @@ const TEXTURE_PATHS = {
   snow: "/effects/snowflake.svg",
   rain: "/effects/raindrop.svg",
   blossom: "/effects/blossom-petal.svg",
-  maple: "/effects/maple-leaf.svg",
+  maple: "/effects/maple-leaf.png",
 } as const;
 
 function clamp(value: number, min: number, max: number): number {
@@ -122,7 +122,7 @@ function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: 
 
   return [
     {
-      lifetime: { min: 1.2, max: 2.1 },
+      lifetime: { min: 2.2, max: 4.1 },
       frequency: 0.01,
       particlesPerWave: 3,
       emitterLifetime: -1,
@@ -133,13 +133,13 @@ function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: 
         { type: "alpha", config: { alpha: makeAlphaList(0.82) } },
         { type: "scaleStatic", config: { min: 0.08, max: 0.14 } },
         { type: "rotationStatic", config: { min: 110, max: 116 } },
-        { type: "moveAcceleration", config: { minStart: 620, maxStart: 890, accel: { x: 0, y: 920 }, rotate: true, maxSpeed: 1420 } },
+        { type: "moveAcceleration", config: { minStart: 310, maxStart: 445, accel: { x: 0, y: 460 }, rotate: true, maxSpeed: 710 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.rain } },
       ],
     },
     {
-      lifetime: { min: 1.7, max: 2.7 },
+      lifetime: { min: 3.1, max: 5.3 },
       frequency: 0.016,
       particlesPerWave: 2,
       emitterLifetime: -1,
@@ -150,7 +150,7 @@ function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: 
         { type: "alpha", config: { alpha: makeAlphaList(0.56) } },
         { type: "scaleStatic", config: { min: 0.05, max: 0.09 } },
         { type: "rotationStatic", config: { min: 110, max: 116 } },
-        { type: "moveAcceleration", config: { minStart: 420, maxStart: 660, accel: { x: 0, y: 720 }, rotate: true, maxSpeed: 1100 } },
+        { type: "moveAcceleration", config: { minStart: 210, maxStart: 330, accel: { x: 0, y: 360 }, rotate: true, maxSpeed: 550 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.rain } },
       ],
@@ -175,8 +175,8 @@ function makeBlossomEmitters(textures: EffectTextures, size: Size, reducedDensit
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.86) } },
         { type: "scaleStatic", config: { min: 0.12, max: 0.22 } },
-        { type: "rotation", config: { minStart: 22, maxStart: 170, minSpeed: -30, maxSpeed: 24, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 48, maxStart: 98, accel: { x: -44, y: 120 }, rotate: false, maxSpeed: 170 } },
+        { type: "rotation", config: { minStart: 22, maxStart: 170, minSpeed: -26, maxSpeed: 21, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 42, maxStart: 86, accel: { x: -39, y: 104 }, rotate: false, maxSpeed: 150 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.blossom } },
       ],
@@ -192,8 +192,8 @@ function makeBlossomEmitters(textures: EffectTextures, size: Size, reducedDensit
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.64) } },
         { type: "scaleStatic", config: { min: 0.07, max: 0.13 } },
-        { type: "rotation", config: { minStart: 12, maxStart: 160, minSpeed: -18, maxSpeed: 14, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 30, maxStart: 68, accel: { x: -28, y: 92 }, rotate: false, maxSpeed: 125 } },
+        { type: "rotation", config: { minStart: 12, maxStart: 160, minSpeed: -16, maxSpeed: 12, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 26, maxStart: 58, accel: { x: -24, y: 80 }, rotate: false, maxSpeed: 108 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.blossom } },
       ],
@@ -218,8 +218,8 @@ function makeMapleEmitters(textures: EffectTextures, size: Size, reducedDensity:
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.9) } },
         { type: "scaleStatic", config: { min: 0.12, max: 0.24 } },
-        { type: "rotation", config: { minStart: -30, maxStart: 150, minSpeed: -34, maxSpeed: 27, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 56, maxStart: 112, accel: { x: 36, y: 142 }, rotate: false, maxSpeed: 175 } },
+        { type: "rotation", config: { minStart: -30, maxStart: 150, minSpeed: -30, maxSpeed: 24, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 48, maxStart: 96, accel: { x: 31, y: 124 }, rotate: false, maxSpeed: 156 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.maple } },
       ],
@@ -235,35 +235,10 @@ function makeMapleEmitters(textures: EffectTextures, size: Size, reducedDensity:
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.66) } },
         { type: "scaleStatic", config: { min: 0.07, max: 0.13 } },
-        { type: "rotation", config: { minStart: -15, maxStart: 135, minSpeed: -22, maxSpeed: 18, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 32, maxStart: 74, accel: { x: 24, y: 102 }, rotate: false, maxSpeed: 130 } },
+        { type: "rotation", config: { minStart: -15, maxStart: 135, minSpeed: -19, maxSpeed: 15, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 28, maxStart: 64, accel: { x: 21, y: 88 }, rotate: false, maxSpeed: 114 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.maple } },
-      ],
-    },
-  ];
-}
-
-function makeBreezeEmitters(size: Size, reducedDensity: boolean): EmitterConfigV3[] {
-  const density = scaleDensity(reducedDensity);
-  const baseMax = Math.round(clamp(size.width / 18, 60, 165) * density);
-  const spawn = makeRectSpawn(size.width, size.height, 40);
-
-  return [
-    {
-      lifetime: { min: 15, max: 24 },
-      frequency: 0.045,
-      particlesPerWave: 1,
-      emitterLifetime: -1,
-      maxParticles: baseMax,
-      addAtBack: true,
-      pos: { x: 0, y: 0 },
-      behaviors: [
-        { type: "alpha", config: { alpha: makeAlphaList(0.32) } },
-        { type: "scaleStatic", config: { min: 0.05, max: 0.12 } },
-        { type: "colorStatic", config: { color: "dbeafe" } },
-        { type: "moveAcceleration", config: { minStart: 16, maxStart: 44, accel: { x: 6, y: 20 }, rotate: false, maxSpeed: 70 } },
-        { type: "spawnShape", config: spawn },
       ],
     },
   ];
@@ -274,10 +249,11 @@ function buildConfigs(preset: SeasonEffectPreset, textures: EffectTextures, size
   if (preset === "RAIN") return makeRainEmitters(textures, size, reducedDensity);
   if (preset === "BLOSSOM") return makeBlossomEmitters(textures, size, reducedDensity);
   if (preset === "MAPLE") return makeMapleEmitters(textures, size, reducedDensity);
-  return makeBreezeEmitters(size, reducedDensity);
+  return [];
 }
 
 export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: SeasonEffectsLayerProps) {
+  const effectsEnabled = enabled && preset !== "BREEZE";
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const layerRef = useRef<Container | null>(null);
@@ -318,7 +294,7 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
     const app = appRef.current;
     const layer = layerRef.current;
     const host = hostRef.current;
-    if (!app || !layer || !host || !enabled) {
+    if (!app || !layer || !host || !effectsEnabled) {
       clearEmitters();
       return;
     }
@@ -333,10 +309,10 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
       emitter.emit = true;
       return emitter;
     });
-  }, [clearEmitters, enabled, ensureTextures, preset, reducedDensity]);
+  }, [clearEmitters, effectsEnabled, ensureTextures, preset, reducedDensity]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!effectsEnabled) {
       clearEmitters();
       if (appRef.current) {
         appRef.current.stage.visible = false;
@@ -391,10 +367,10 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
     return () => {
       cancelled = true;
     };
-  }, [clearEmitters, enabled, rebuildEmitters]);
+  }, [clearEmitters, effectsEnabled, rebuildEmitters]);
 
   useEffect(() => {
-    if (!enabled || !hostRef.current) return;
+    if (!effectsEnabled || !hostRef.current) return;
 
     const onResize = () => {
       if (rafResizeRef.current) {
@@ -413,7 +389,7 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
         rafResizeRef.current = null;
       }
     };
-  }, [enabled, rebuildEmitters]);
+  }, [effectsEnabled, rebuildEmitters]);
 
   useEffect(() => {
     return () => {
@@ -426,6 +402,8 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
       texturesRef.current = null;
     };
   }, [clearEmitters]);
+
+  if (!effectsEnabled) return null;
 
   return (
     <div className={`season-effects-layer season-effects-${preset.toLowerCase()}`} aria-hidden="true">
