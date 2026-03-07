@@ -63,11 +63,13 @@ Browser (User)
 - Invite code must be unexpired, unused, and bound to the same `cu12Id`.
 - On success, creates user mapping and sets session cookie.
 
-### Error Separation
+### Error Handling Policy
 
-- Invalid CU12 credentials: `errorCode = CU12_AUTH_FAILED`
-- Unapproved CU12 ID: `errorCode = UNAPPROVED_ID`
-- Invalid or expired invite code: `errorCode = INVITE_CODE_INVALID`
+- Login API responses use generalized auth failure codes to reduce account/enrollment enumeration risk.
+- `POST /api/auth/login` returns `errorCode = AUTH_FAILED` for authentication failures.
+- `POST /api/auth/login/invite` returns `errorCode = INVITE_VERIFICATION_FAILED` for invite validation failures.
+- Expired/invalid challenge tokens remain explicit as `errorCode = LOGIN_CHALLENGE_INVALID`.
+- Detailed root causes (invalid CU12 credentials, inactive/expired invite, unapproved CU12 ID) are captured in audit logs for operators.
 
 ## 4. Queue and Concurrency
 
@@ -134,6 +136,7 @@ docs/        # architecture, API, runbooks, ADRs
 ```bash
 npm install
 npm run check:text
+npm run check:openapi
 npm run prisma:generate
 npm run typecheck
 npm run build:web

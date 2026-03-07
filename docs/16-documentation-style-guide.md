@@ -33,6 +33,7 @@ Run before pushing:
 
 ```bash
 npm run check:text
+npm run check:openapi
 npm run typecheck
 npm run build:web
 ```

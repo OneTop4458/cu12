@@ -4,7 +4,7 @@
 
 1. Issued after successful authentication stage completion.
 2. Stored as `httpOnly` cookie (`sameSite=lax`, `secure` in production).
-3. TTL: 12 hours.
+3. TTL: 12 hours by default, or 30 days when `rememberSession=true`.
 4. Invalid/expired token returns 401 for protected APIs.
 
 ## Timeout UI

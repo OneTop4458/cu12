@@ -39,5 +39,5 @@ CU12 Automation provides a cloud-only control plane for a small group (about 5 u
 
 1. Dashboard reflects latest course sync within expected schedule window.
 2. Auto-learning request results in queued and executed worker job.
-3. Invalid CU12 credentials and unapproved CU12 ID are clearly distinguishable in UX.
+3. Login/invite failure handling is safe for users (generalized failure responses) while operators can diagnose detailed causes via audit logs.
 4. Cloud deployment can be bootstrapped from docs without local-only steps.
