@@ -6,10 +6,11 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
-import { RotateCw } from "lucide-react";
+import { CloudRain, Leaf, RotateCw, Snowflake, Sparkles, Wind } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
+import { SeasonEffectsLayer, type SeasonEffectPreset } from "./season-effects-layer";
 
 interface DashboardClientProps {
   initialUser: {
@@ -274,6 +275,35 @@ interface SyncProgress {
 
 type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
 type DeadlineFilter = "D7" | "ALL";
+type WeatherSeason = "SPRING" | "SUMMER" | "AUTUMN" | "WINTER";
+type WeatherCondition = "SNOW" | "RAIN" | "CLEAR_OR_CLOUD";
+
+interface DashboardWeatherEffectsResponse {
+  location: {
+    name: string;
+    latitude: number;
+    longitude: number;
+    timezone: string;
+  };
+  weather: {
+    observedAt: string | null;
+    weatherCode: number | null;
+    isDay: boolean | null;
+    temperatureC: number | null;
+  };
+  derived: {
+    season: WeatherSeason;
+    condition: WeatherCondition;
+    effectPreset: SeasonEffectPreset;
+  };
+  fallback: boolean;
+}
+
+interface SeasonEffectsPreference {
+  enabled: boolean;
+  source: "auto" | "user";
+  updatedAt: number;
+}
 
 const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
 const SITE_NOTICE_HOST_ID = "dashboard-site-notice-host";
@@ -293,6 +323,8 @@ const POLL_TRACKING_ERROR_MAX_MS = 30000;
 const SYNC_PENDING_STALE_MS = 5 * 60 * 1000;
 const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 const COURSE_DEADLINE_URGENT_DAYS = 7;
+const WEATHER_EFFECT_REFRESH_MS = 15 * 60 * 1000;
+const SEASON_EFFECTS_PREF_KEY = "dashboard:season-effects:v1";
 
 interface DashboardBootstrap {
   context: SessionContext;
@@ -314,6 +346,56 @@ function toDateTime(value: string | null): string {
 
 function toDateTimeWithFallback(value: string | null, fallback: string): string {
   return value ? toDateTime(value) : fallback;
+}
+
+function parseSeasonEffectsPreference(raw: string | null): SeasonEffectsPreference | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SeasonEffectsPreference>;
+    if (
+      typeof parsed.enabled !== "boolean"
+      || (parsed.source !== "auto" && parsed.source !== "user")
+      || typeof parsed.updatedAt !== "number"
+    ) {
+      return null;
+    }
+    return {
+      enabled: parsed.enabled,
+      source: parsed.source,
+      updatedAt: parsed.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resolveAutoSeasonEffectsEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  if (typeof nav.deviceMemory === "number" && nav.deviceMemory <= 2) return false;
+  return true;
+}
+
+function formatWeatherConditionLabel(condition: WeatherCondition): string {
+  if (condition === "SNOW") return "눈";
+  if (condition === "RAIN") return "비";
+  return "맑음/흐림";
+}
+
+function formatWeatherSeasonLabel(season: WeatherSeason): string {
+  if (season === "SPRING") return "봄";
+  if (season === "SUMMER") return "여름";
+  if (season === "AUTUMN") return "가을";
+  return "겨울";
+}
+
+function formatWeatherPresetLabel(preset: SeasonEffectPreset): string {
+  if (preset === "SNOW") return "눈";
+  if (preset === "RAIN") return "비";
+  if (preset === "BLOSSOM") return "벚꽃";
+  if (preset === "MAPLE") return "단풍";
+  return "브리즈";
 }
 
 function formatSeconds(value: number): string {
@@ -666,6 +748,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
   const [autoLearnEnabledDraft, setAutoLearnEnabledDraft] = useState(true);
   const [account, setAccount] = useState<Account | null>(null);
+  const [seasonEffectsEnabled, setSeasonEffectsEnabled] = useState(false);
+  const [seasonEffectsMounted, setSeasonEffectsMounted] = useState(false);
+  const [seasonEffectsReducedMotion, setSeasonEffectsReducedMotion] = useState(false);
+  const [seasonEffectsReducedDensity, setSeasonEffectsReducedDensity] = useState(false);
+  const [weatherEffects, setWeatherEffects] = useState<DashboardWeatherEffectsResponse | null>(null);
 
   const [mode, setMode] = useState<"SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES">("ALL_COURSES");
   const [lectureSeq, setLectureSeq] = useState<number | null>(null);
@@ -751,6 +838,26 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : selectedAutoCourse
       ? `${selectedAutoCourse.title} (${selectedAutoCourse.lectureSeq})`
       : "강좌 선택 필요";
+  const seasonEffectsEffectiveEnabled = seasonEffectsEnabled && !seasonEffectsReducedMotion;
+  const activeSeasonEffectPreset: SeasonEffectPreset = weatherEffects?.derived.effectPreset ?? "BREEZE";
+  const seasonEffectsStatusLabel = useMemo(() => {
+    if (!weatherEffects) return "효과 준비 중";
+    return `${formatWeatherPresetLabel(weatherEffects.derived.effectPreset)} · ${formatWeatherConditionLabel(weatherEffects.derived.condition)} · ${formatWeatherSeasonLabel(weatherEffects.derived.season)}`;
+  }, [weatherEffects]);
+  const seasonEffectsButtonTitle = seasonEffectsReducedMotion
+    ? "시스템 설정에서 모션 감소가 활성화되어 시즌 효과를 사용할 수 없습니다."
+    : seasonEffectsEffectiveEnabled
+      ? `시즌 효과 끄기 (${seasonEffectsStatusLabel})`
+      : "시즌 효과 켜기";
+  const seasonEffectsIcon = useMemo(() => {
+    const size = 16;
+    if (!seasonEffectsEffectiveEnabled) return <Sparkles size={size} />;
+    if (activeSeasonEffectPreset === "SNOW") return <Snowflake size={size} />;
+    if (activeSeasonEffectPreset === "RAIN") return <CloudRain size={size} />;
+    if (activeSeasonEffectPreset === "MAPLE") return <Leaf size={size} />;
+    if (activeSeasonEffectPreset === "BREEZE") return <Wind size={size} />;
+    return <Sparkles size={size} />;
+  }, [seasonEffectsEffectiveEnabled, activeSeasonEffectPreset]);
   const deadlineD7Items = useMemo(
     () => deadlines.filter((item) => item.daysLeft !== null && item.daysLeft >= 0 && item.daysLeft <= 7),
     [deadlines],
@@ -874,6 +981,28 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     return payload;
   }, [router]);
 
+  const loadWeatherEffects = useCallback(async () => {
+    return fetchJson<DashboardWeatherEffectsResponse>("/api/dashboard/weather-effects");
+  }, [fetchJson]);
+
+  const toggleSeasonEffects = useCallback(() => {
+    if (seasonEffectsReducedMotion) return;
+    setSeasonEffectsEnabled((prev) => {
+      const next = !prev;
+      const pref: SeasonEffectsPreference = {
+        enabled: next,
+        source: "user",
+        updatedAt: Date.now(),
+      };
+      try {
+        window.localStorage.setItem(SEASON_EFFECTS_PREF_KEY, JSON.stringify(pref));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+  }, [seasonEffectsReducedMotion]);
+
   const loadNotificationHistory = useCallback(async () => {
     setNotificationHistoryLoading(true);
     try {
@@ -941,6 +1070,86 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   useEffect(() => {
     void refreshAll(false);
   }, [refreshAll]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const narrowViewportQuery = window.matchMedia("(max-width: 960px)");
+    const updateFlags = () => {
+      const nav = navigator as Navigator & { deviceMemory?: number };
+      const lowMemory = typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4;
+      setSeasonEffectsReducedMotion(reducedMotionQuery.matches);
+      setSeasonEffectsReducedDensity(reducedMotionQuery.matches || narrowViewportQuery.matches || lowMemory);
+    };
+
+    updateFlags();
+    const savedPref = parseSeasonEffectsPreference(window.localStorage.getItem(SEASON_EFFECTS_PREF_KEY));
+    if (savedPref) {
+      setSeasonEffectsEnabled(savedPref.enabled);
+    } else {
+      const autoEnabled = resolveAutoSeasonEffectsEnabled();
+      setSeasonEffectsEnabled(autoEnabled);
+      const pref: SeasonEffectsPreference = {
+        enabled: autoEnabled,
+        source: "auto",
+        updatedAt: Date.now(),
+      };
+      try {
+        window.localStorage.setItem(SEASON_EFFECTS_PREF_KEY, JSON.stringify(pref));
+      } catch {
+        // no-op
+      }
+    }
+    setSeasonEffectsMounted(true);
+
+    const onQueryChange = () => updateFlags();
+    if (typeof reducedMotionQuery.addEventListener === "function") {
+      reducedMotionQuery.addEventListener("change", onQueryChange);
+      narrowViewportQuery.addEventListener("change", onQueryChange);
+      return () => {
+        reducedMotionQuery.removeEventListener("change", onQueryChange);
+        narrowViewportQuery.removeEventListener("change", onQueryChange);
+      };
+    }
+
+    reducedMotionQuery.addListener(onQueryChange);
+    narrowViewportQuery.addListener(onQueryChange);
+    return () => {
+      reducedMotionQuery.removeListener(onQueryChange);
+      narrowViewportQuery.removeListener(onQueryChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!seasonEffectsMounted || !seasonEffectsEffectiveEnabled) return;
+    let cancelled = false;
+    const syncWeather = async () => {
+      try {
+        const payload = await loadWeatherEffects();
+        if (!cancelled) {
+          setWeatherEffects(payload);
+        }
+      } catch {
+        // no-op
+      }
+    };
+
+    void syncWeather();
+    const intervalId = window.setInterval(() => {
+      void syncWeather();
+    }, WEATHER_EFFECT_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [seasonEffectsMounted, seasonEffectsEffectiveEnabled, loadWeatherEffects]);
+
+  useEffect(() => {
+    if (seasonEffectsEffectiveEnabled) return;
+    setWeatherEffects(null);
+  }, [seasonEffectsEffectiveEnabled]);
 
   useEffect(() => {
     if (!message) return;
@@ -1479,6 +1688,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       {siteNoticePortal}
+      <SeasonEffectsLayer
+        enabled={seasonEffectsEffectiveEnabled}
+        preset={activeSeasonEffectPreset}
+        reducedDensity={seasonEffectsReducedDensity}
+      />
       <header className="topbar" id="notifications">
         <div className="topbar-main">
           <div className="topbar-brand">
@@ -1501,6 +1715,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               type="button"
             >
               <RotateCw size={16} />
+            </button>
+            <button
+              className={`icon-btn season-effects-toggle ${seasonEffectsEffectiveEnabled ? "is-active" : ""}`}
+              onClick={toggleSeasonEffects}
+              disabled={!seasonEffectsMounted || seasonEffectsReducedMotion}
+              title={seasonEffectsButtonTitle}
+              aria-label={seasonEffectsButtonTitle}
+              type="button"
+            >
+              {seasonEffectsIcon}
             </button>
             <ThemeToggle />
             <Link className="ghost-btn" href={"/notices" as any}>
