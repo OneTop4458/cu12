@@ -2,7 +2,7 @@ name: Mail Digest Dispatch
 
 on:
   schedule:
-    - cron: "0 23 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions:

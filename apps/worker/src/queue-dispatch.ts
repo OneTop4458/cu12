@@ -68,7 +68,56 @@ function toDigestHour(value: unknown, fallback = 8) {
   return Math.min(23, Math.max(0, Math.floor(value)));
 }
 
-async function resolveUsers(type: JobType, userId?: string) {
+function toBoolArg(value: string | undefined, fallback = false) {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
+  return fallback;
+}
+
+async function resolveAutoLearnWindowEligibleUserIds(userIds: string[]): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set<string>();
+
+  const now = new Date();
+  const tasks = await prisma.learningTask.findMany({
+    where: {
+      userId: { in: userIds },
+      state: "PENDING",
+      activityType: "VOD",
+      requiredSeconds: { gt: 0 },
+      AND: [
+        {
+          OR: [
+            { availableFrom: null },
+            { availableFrom: { lte: now } },
+          ],
+        },
+        {
+          OR: [
+            { dueAt: null },
+            { dueAt: { gte: now } },
+          ],
+        },
+      ],
+    },
+    select: {
+      userId: true,
+      requiredSeconds: true,
+      learnedSeconds: true,
+    },
+  });
+
+  const eligible = new Set<string>();
+  for (const task of tasks) {
+    if (task.learnedSeconds < task.requiredSeconds) {
+      eligible.add(task.userId);
+    }
+  }
+  return eligible;
+}
+
+async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWindowOnly = false) {
   if (userId) {
     return prisma.user.findMany({
       where: {
@@ -117,7 +166,7 @@ async function resolveUsers(type: JobType, userId?: string) {
   }
 
   if (type === JobType.AUTOLEARN) {
-    return prisma.user.findMany({
+    const users = await prisma.user.findMany({
       where: {
         cu12Account: {
           is: {
@@ -128,6 +177,13 @@ async function resolveUsers(type: JobType, userId?: string) {
       },
       select: { id: true },
     });
+
+    if (!autoLearnEligibleWindowOnly) {
+      return users;
+    }
+
+    const eligibleUserIds = await resolveAutoLearnWindowEligibleUserIds(users.map((user) => user.id));
+    return users.filter((user) => eligibleUserIds.has(user.id));
   }
 
   return prisma.user.findMany({
@@ -148,6 +204,7 @@ async function main() {
   const typeRaw = args.get("type") ?? "SYNC";
   const userId = args.get("userId");
   const minIntervalMinutes = Math.max(0, Number(args.get("min-interval-minutes") ?? "0"));
+  const autoLearnEligibleWindowOnly = toBoolArg(args.get("eligible-window-only"), false);
   const summaryJson = args.get("summary-json");
 
   if (!Object.values(JobType).includes(typeRaw as JobType)) {
@@ -159,7 +216,7 @@ async function main() {
     await cancelBlockedSyncJobsForTestUsers();
   }
 
-  const users = await resolveUsers(type, userId);
+  const users = await resolveUsers(type, userId, autoLearnEligibleWindowOnly);
   const cutoff = new Date(Date.now() - minIntervalMinutes * 60_000);
 
   const summary: DispatchSummary = {

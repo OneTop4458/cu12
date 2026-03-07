@@ -12,7 +12,7 @@ Core goals:
 2. One-time invite verification for first login only.
 3. Dashboard visibility for progress/notices/jobs.
 4. Cloud-only execution for long-running auto-learning tasks.
-5. Email alerts for new notices, deadline risk, and auto-learning completion.
+5. Email alerts for new notices, deadline risk, and auto-learning lifecycle (start + end).
 
 ## 2. Architecture at a Glance
 
@@ -98,11 +98,14 @@ Concurrency model:
 - `ALL_COURSES`
 - `SINGLE_ALL`
 - `SINGLE_NEXT`
-4. In-dashboard email preferences:
+4. Scheduled auto-learning dispatch:
+- Runs every 2 hours (`20 */2 * * *`, UTC).
+- Scheduled dispatch only enqueues users who currently have available pending VOD tasks.
+5. In-dashboard email preferences:
 - destination email
-- notice/deadline/autolearn immediate alerts
-- daily digest toggle + digest hour
-5. Admin-only capabilities:
+- notice/deadline/autolearn immediate alerts (autolearn start + end)
+- daily digest toggle + digest hour (KST, dispatched hourly and filtered by user digest hour)
+6. Admin-only capabilities:
 - member creation/update with CU12 credential verification
 - one-time invite code issue and tracking
 - admin-to-user impersonation view for troubleshooting
