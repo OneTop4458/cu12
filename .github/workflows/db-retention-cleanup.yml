@@ -22,5 +22,5 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - run: npm --workspace @cu12/worker run cleanup:retention

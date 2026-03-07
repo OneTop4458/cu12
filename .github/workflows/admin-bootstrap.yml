@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - name: Issue ADMIN invite token
         run: |
           node <<'NODE'
