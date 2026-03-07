@@ -72,9 +72,9 @@ npm run build:web
 4. `main` must be updated only through pull requests. Direct push to `main` is prohibited.
 5. Every AI/operator task must start from latest `origin/main` using an isolated branch and worktree.
 6. Branch protection baseline for `main`:
-   - required status checks: `test`
+   - required status checks: `test`, `secret-scan`
    - required approving reviews: `0`
-   - required conversation resolution: enabled
+   - required conversation resolution: disabled
 
 ## AI Branch and Worktree Standard
 
@@ -110,7 +110,14 @@ npm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary
 ## Codex Review Policy
 
 1. Codex review is optional guidance for PR quality and is not a required merge gate.
-2. Merge readiness is determined by required checks (currently `test`) plus branch protection rules.
+2. Merge readiness is determined by required checks (currently `test`, `secret-scan`) plus branch protection rules.
+
+## Secret Leak Response Baseline
+
+1. If any key/token/password is exposed, treat it as compromised immediately.
+2. Rotate/revoke the credential first, then investigate usage and blast radius.
+3. Verify no secret values were printed in Actions logs, PR comments, or issue threads.
+4. After rotation, rerun CI secret scan and confirm clean status before merge/redeploy.
 
 ## Deployment Baseline
 
