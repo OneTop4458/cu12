@@ -1,0 +1,53 @@
+name: Codex Auto Merge On Approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: >
+      github.event.review.state == 'approved' &&
+      github.event.pull_request.state == 'open' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Codex reviewer
+        id: reviewer
+        shell: bash
+        run: |
+          reviewer="${{ github.event.review.user.login }}"
+          bots="${{ vars.CODEX_REVIEW_BOTS }}"
+          if [ -z "$bots" ]; then
+            bots="openai-codex[bot],codex[bot],codex"
+          fi
+
+          ok=0
+          IFS=',' read -ra arr <<< "$bots"
+          for bot in "${arr[@]}"; do
+            trimmed="$(echo "$bot" | xargs)"
+            if [ "$reviewer" = "$trimmed" ]; then
+              ok=1
+              break
+            fi
+          done
+
+          echo "reviewer=$reviewer" >> "$GITHUB_OUTPUT"
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          if [ "$ok" -ne 1 ]; then
+            echo "Reviewer '$reviewer' is not configured as Codex bot. Skip."
+          fi
+
+      - name: Enable auto-merge (squash)
+        if: steps.reviewer.outputs.ok == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" --auto --squash --delete-branch
