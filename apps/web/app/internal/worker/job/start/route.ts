@@ -7,7 +7,8 @@ import { claimNextJob, touchHeartbeat } from "@/server/queue";
 
 const BodySchema = z.object({
   workerId: z.string().min(2).max(120),
-  types: z.array(z.nativeEnum(JobType)).default([JobType.SYNC, JobType.NOTICE_SCAN, JobType.AUTOLEARN]),
+  types: z.array(z.nativeEnum(JobType)).default([JobType.SYNC, JobType.NOTICE_SCAN, JobType.AUTOLEARN, JobType.MAIL_DIGEST]),
+  userId: z.string().min(1).max(191).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
     const body = await parseBody(request, BodySchema);
     const types = body.types ?? [JobType.SYNC, JobType.AUTOLEARN];
     await touchHeartbeat(body.workerId);
-    const job = await claimNextJob(body.workerId, types);
+    const job = await claimNextJob(body.workerId, types, body.userId);
 
     if (!job) {
       return jsonOk({ job: null });

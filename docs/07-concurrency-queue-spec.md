@@ -22,6 +22,8 @@
 - `AUTOLEARN` can chain continuation jobs when a chunk is truncated; continuation keeps mode/target lecture and increments chain segment metadata.
 - Continuation chain is capped by cumulative elapsed seconds (`AUTOLEARN_CHAIN_MAX_SECONDS`, default 12h). When cap is reached, no further continuation job is created.
 - Multiple workers can run SYNC jobs for different users (and the same user when deduplication allows a new row) while AUTOLEARN is running.
+- Worker dispatch is user-scoped: a consume run can be pinned to one user via `userId`, and claim filters to that user's runnable jobs.
+- Global worker fan-out is capped by centralized dispatch (`WORKER_DISPATCH_MAX_PARALLEL`, default `12`) to avoid runner over-commit.
 - Manual SYNC/AUTOLEARN API requests use idempotency keys but are always evaluated against a re-dispatch policy:
   - If the same request is duplicated while a related job is still `RUNNING` or `PENDING` for a short window, no new Actions dispatch is sent.
   - `PENDING` stale for 5 minutes or `RUNNING` stale for 10 minutes triggers a forced re-dispatch of the same trigger (to recover worker stalls).
@@ -36,6 +38,7 @@
 5. If claim succeeds but the AUTOLEARN user-level policy blocks it, the job is requeued after a short delay.
 6. If claim succeeds without conflict, worker starts execution.
 7. In `--once` mode, worker performs handoff dispatch when pending jobs remain for the requested type set.
+8. Handoff dispatch uses centralized fan-out and can start other pending users when capacity is available.
 
 ## Retry Policy
 
@@ -56,5 +59,5 @@
 
 ## Capacity Guidance
 
-- Designed for around 5 users.
-- Keep auto-learning concurrency conservative and scale based on runner budget.
+- Keep `WORKER_DISPATCH_MAX_PARALLEL` below your GitHub plan ceiling with headroom for CI jobs.
+- Recommended default is `12` on personal-account repositories with mixed CI/ops workloads.

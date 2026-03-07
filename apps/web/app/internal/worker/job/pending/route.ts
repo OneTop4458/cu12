@@ -7,6 +7,7 @@ import { hasPendingJobs } from "@/server/queue";
 
 const BodySchema = z.object({
   types: z.array(z.nativeEnum(JobType)).min(1),
+  userId: z.string().min(1).max(191).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    const pending = await hasPendingJobs(body.types);
+    const pending = await hasPendingJobs(body.types, body.userId);
     return jsonOk({ pending });
   } catch (error) {
     if (error instanceof z.ZodError) {

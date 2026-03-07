@@ -1378,6 +1378,7 @@ async function main() {
   const onceGraceMs = env.WORKER_ONCE_IDLE_GRACE_MS;
   let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
   const jobTypes = parseJobTypes(args.get("types"));
+  const targetUserId = args.get("userId");
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const heartbeat = startHeartbeatLoop(workerId, env.POLL_INTERVAL_MS);
   const handoffTrigger = once ? resolveHandoffTrigger(jobTypes) : null;
@@ -1386,7 +1387,7 @@ async function main() {
   try {
     while (true) {
       try {
-        const job = await claimJob(workerId, jobTypes);
+        const job = await claimJob(workerId, jobTypes, targetUserId);
 
         if (!job) {
           if (once) {

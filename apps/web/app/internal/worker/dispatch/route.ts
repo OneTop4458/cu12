@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
+import { JobType } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { isWorkerAuthorized } from "@/lib/worker-auth";
 import { dispatchWorkerRun, type WorkerDispatchType } from "@/server/github-actions-dispatch";
 
 const BodySchema = z.object({
-  trigger: z.enum(["sync", "autolearn"]),
+  trigger: z.enum(["sync", "autolearn", "digest"]),
+  userId: z.string().min(1).max(191).optional(),
+  jobTypes: z.array(z.nativeEnum(JobType)).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -16,7 +19,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const trigger = body.trigger as WorkerDispatchType;
-    const dispatched = await dispatchWorkerRun(trigger);
+    const jobTypes = body.jobTypes?.join(",");
+    const dispatched = await dispatchWorkerRun(trigger, body.userId, jobTypes);
     return jsonOk(dispatched);
   } catch (error) {
     if (error instanceof z.ZodError) {
