@@ -185,6 +185,7 @@ interface Account {
   campus: "SONGSIM" | "SONGSIN";
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
+  autoLearnEnabled: boolean;
   lastLoginAt: string | null;
   lastLoginIp: string | null;
 }
@@ -663,6 +664,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
+  const [autoLearnEnabledDraft, setAutoLearnEnabledDraft] = useState(true);
   const [account, setAccount] = useState<Account | null>(null);
 
   const [mode, setMode] = useState<"SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES">("ALL_COURSES");
@@ -919,6 +921,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setSyncQueueSummary(payload.syncQueue ?? null);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
+      setAutoLearnEnabledDraft(payload.account?.autoLearnEnabled ?? true);
       setMailDraft(payload.preference);
       const requiresMailSetup = payload.preference.updatedAt === null;
       setIsMailSetupRequired(requiresMailSetup);
@@ -1428,16 +1431,23 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     event.preventDefault();
     if (!mailDraft) return;
     setMailSaving(true);
-    setBlockingMessage("메일 설정 저장 중...");
+    setBlockingMessage("설정 저장 중...");
     try {
       await fetchJson("/api/mail/preferences", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(mailDraft),
       });
+      if (account) {
+        await fetchJson("/api/cu12/automation", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ autoLearnEnabled: autoLearnEnabledDraft }),
+        });
+      }
       setIsMailSetupRequired(false);
       setSettingsOpen(false);
-      setMessage("메일 설정을 저장했습니다.");
+      setMessage("설정을 저장했습니다.");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1534,7 +1544,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           <p><strong>마지막 동기화</strong>: {toDateTimeWithFallback(summary?.lastSyncAt ?? null, "아직 동기화 이력 없음")}</p>
           <p><strong>다음 자동 동기화</strong>: {toDateTimeWithFallback(summary?.nextAutoSyncAt ?? null, "예정 계산 대기")}</p>
           <p className="muted">
-            현재는 {summary?.autoSyncIntervalHours ?? 2}시간마다 자동 동기화됩니다. 최신 데이터를 원하면 아래에서 수동 동기화를 실행하세요.
+            일정 주기로 자동 동기화 됩니다. 최신 데이터를 원하면 아래에서 수동 동기화를 실행하세요.
           </p>
         </div>
         <div className="button-row">
@@ -1943,6 +1953,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <tr><th>CU12 아이디</th><td>{account?.cu12Id ?? "-"}</td></tr>
                   <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
+                  <tr><th>예약 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
                   <tr><th>다음 자동 동기화</th><td>{toDateTime(summary?.nextAutoSyncAt ?? null)}</td></tr>
                   <tr><th>마지막 접속일</th><td>{toDateTime(account?.lastLoginAt ?? null)}</td></tr>
@@ -1962,6 +1973,21 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <p className="muted text-small">
                   요약 메일은 KST(한국시간) 기준으로 매시간 검사되며 설정한 시각(0~23)에 발송됩니다. 자동 수강 알림은 시작 시 1회, 종료(성공/실패/취소) 시 1회 발송됩니다.
                 </p>
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={autoLearnEnabledDraft}
+                    onChange={(event) => setAutoLearnEnabledDraft(event.target.checked)}
+                    disabled={!account}
+                  />
+                  <span>예약 자동 수강 대상 포함</span>
+                </label>
+                <p className="muted text-small">
+                  이 설정은 예약/배치 자동 수강 대상 포함 여부만 제어합니다. 대시보드의 수동 자동 수강 요청은 계속 사용할 수 있습니다.
+                </p>
+                {!account ? (
+                  <p className="muted text-small">CU12 계정 연결 후 자동 수강 예약 설정을 사용할 수 있습니다.</p>
+                ) : null}
                 {isMailSetupRequired ? (
                   <p className="error-text" style={{ marginBottom: "4px" }}>
                     최초 접속 사용자입니다. 메일 주소와 알림 설정을 저장해야 대시보드를 계속 사용할 수 있습니다.

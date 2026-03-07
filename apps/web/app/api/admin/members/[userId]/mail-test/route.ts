@@ -83,16 +83,16 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     const to = body.to?.trim() || subscription?.email || user.email;
-    const resolvedSubject = body.subject?.trim() || "[CU12] Mail Delivery Test";
+    const resolvedSubject = body.subject?.trim() || "[CU12] 메일 발송 테스트";
     const resolvedMessage = body.message?.trim()
       || [
-        "This is a CU12 mail delivery test message.",
+        "CU12 메일 발송 테스트 메시지입니다.",
         "",
-        `Recipient: ${user.email}`,
-        `Name: ${user.name}`,
-        `Target mailbox: ${to}`,
-        `Subscription status: ${subscription?.enabled === false ? "OFF" : "ON"}`,
-        `Sent at: ${new Date().toLocaleString("ko-KR")}`,
+        `회원 이메일: ${user.email}`,
+        `이름: ${user.name ?? "-"}`,
+        `수신 대상 메일함: ${to}`,
+        `수신 설정 상태: ${subscription?.enabled === false ? "비활성" : "활성"}`,
+        `발송 시각: ${new Date().toLocaleString("ko-KR")}`,
       ].join("\n");
 
     const result = await sendMail(to, resolvedSubject, resolvedMessage);
