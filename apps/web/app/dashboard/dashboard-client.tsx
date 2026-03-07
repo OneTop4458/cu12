@@ -1621,7 +1621,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
       <section className="card" id="jobs">
         <h2>자동 수강</h2>
-        <p className="muted">동기화된 최신 정보를 기준으로 자동 수강을 실행합니다.</p>
+        <p className="muted">동기화된 최신 정보를 기준으로 자동 수강을 실행합니다. 아래 버튼은 수동 요청입니다.</p>
         <div className="button-row">
           <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
         </div>
@@ -1953,7 +1953,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <tr><th>CU12 아이디</th><td>{account?.cu12Id ?? "-"}</td></tr>
                   <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
-                  <tr><th>예약 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
+                  <tr><th>정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
                   <tr><th>다음 자동 동기화</th><td>{toDateTime(summary?.nextAutoSyncAt ?? null)}</td></tr>
                   <tr><th>마지막 접속일</th><td>{toDateTime(account?.lastLoginAt ?? null)}</td></tr>
@@ -1980,10 +1980,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     onChange={(event) => setAutoLearnEnabledDraft(event.target.checked)}
                     disabled={!account}
                   />
-                  <span>예약 자동 수강 대상 포함</span>
+                  <span>정기 자동 수강 대상 포함</span>
                 </label>
                 <p className="muted text-small">
-                  이 설정은 예약/배치 자동 수강 대상 포함 여부만 제어합니다. 대시보드의 수동 자동 수강 요청은 계속 사용할 수 있습니다.
+                  이 설정을 켜면 자동 동기화 후 학습 가능한 차시가 있을 때 정기 자동 수강 대상에 포함됩니다.
+                </p>
+                <p className="muted text-small">
+                  정기 자동 실행이 중지된 경우에는 자동으로 실행되지 않으며, 대시보드의 수동 자동 수강 요청은 계속 사용할 수 있습니다.
                 </p>
                 {!account ? (
                   <p className="muted text-small">CU12 계정 연결 후 자동 수강 예약 설정을 사용할 수 있습니다.</p>
