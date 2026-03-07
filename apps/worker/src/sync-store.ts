@@ -272,6 +272,21 @@ export interface PersistSnapshotResult {
   newNoticeCount: number;
   newNotificationCount: number;
   newUnreadNotificationCount: number;
+  newNotices: Array<{
+    lectureSeq: number;
+    noticeKey: string;
+    title: string;
+    author: string | null;
+    postedAt: string | null;
+    bodyText: string;
+  }>;
+  newUnreadNotifications: Array<{
+    notifierSeq: string;
+    courseTitle: string;
+    category: string;
+    message: string;
+    occurredAt: string | null;
+  }>;
   deadlineTasks: Array<{
     lectureSeq: number;
     courseContentsSeq: number;
@@ -418,6 +433,8 @@ export async function persistSnapshot(
   let newNoticeCount = 0;
   let newNotificationCount = 0;
   let newUnreadNotificationCount = 0;
+  const newNotices: PersistSnapshotResult["newNotices"] = [];
+  const newUnreadNotifications: PersistSnapshotResult["newUnreadNotifications"] = [];
 
   for (const course of data.courses) {
     await runWithPrismaRetry(() =>
@@ -494,6 +511,14 @@ export async function persistSnapshot(
 
     if (isNewRecord) {
       newNoticeCount += 1;
+      newNotices.push({
+        lectureSeq: notice.lectureSeq,
+        noticeKey: notice.noticeKey,
+        title: notice.title,
+        author: notice.author,
+        postedAt: notice.postedAt,
+        bodyText: notice.bodyText,
+      });
     }
   }
 
@@ -542,6 +567,13 @@ export async function persistSnapshot(
       newNotificationCount += 1;
       if (event.isUnread) {
         newUnreadNotificationCount += 1;
+        newUnreadNotifications.push({
+          notifierSeq: event.notifierSeq,
+          courseTitle: event.courseTitle,
+          category: event.category,
+          message: event.message,
+          occurredAt: event.occurredAt,
+        });
       }
     }
 
@@ -653,6 +685,8 @@ export async function persistSnapshot(
     newNoticeCount,
     newNotificationCount,
     newUnreadNotificationCount,
+    newNotices,
+    newUnreadNotifications,
     deadlineTasks,
     pendingTaskCount,
   };

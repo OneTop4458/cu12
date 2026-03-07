@@ -30,6 +30,7 @@
 5. `mail-digest-schedule.yml`
 - Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
 - Calls `worker-consume.yml` only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
+- Digest and alert mails are rendered as HTML with actionable detail blocks (last 24h notice/notification changes, upcoming deadlines) and dashboard deep links.
 
 6. `autolearn-dispatch.yml`
 - Manual AUTOLEARN dispatch workflow.

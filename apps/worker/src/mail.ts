@@ -33,7 +33,7 @@ function buildSendMailReason(error: unknown): string {
   return error.message;
 }
 
-export async function sendMail(to: string, subject: string, text: string): Promise<SendMailResult> {
+export async function sendMail(to: string, subject: string, html: string): Promise<SendMailResult> {
   const env = getEnv();
   if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASS || !env.SMTP_FROM) {
     return { sent: false, reason: "SMTP_NOT_CONFIGURED" };
@@ -54,7 +54,7 @@ export async function sendMail(to: string, subject: string, text: string): Promi
       from: env.SMTP_FROM,
       to,
       subject,
-      text,
+      html,
     });
 
     return { sent: true, reason: null };

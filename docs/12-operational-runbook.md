@@ -7,6 +7,7 @@
 3. Check accounts marked `NEEDS_REAUTH`.
 4. Review error spikes in deployment/workflow logs.
 5. Review last run of `Reconcile Health Check` (scheduled every 4 hours) and ensure it passes (no orphaned `RUNNING` jobs, no ghost active runs).
+6. Spot-check recent `MailDelivery` rows and confirm digest/sync/autolearn mails include detailed HTML sections and working dashboard anchor links.
 
 ## Manual Sync Procedure
 

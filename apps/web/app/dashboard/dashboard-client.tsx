@@ -1455,7 +1455,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       {siteNoticePortal}
-      <header className="topbar">
+      <header className="topbar" id="notifications">
         <div className="topbar-main">
           <div className="topbar-brand">
             <img
@@ -1516,7 +1516,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </header>
       {error ? <p className="error-text">{error}</p> : null}
 
-      <section className="grid-kpi">
+      <section className="grid-kpi" id="overview">
         <article className="card"><h2>진행 강좌</h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
         <article className="card"><h2>평균 진도율</h2><p className="metric">{Math.round(summary?.avgProgress ?? 0)}%</p></article>
         <article className="card"><h2>미확인 공지</h2><p className="metric">{summary?.unreadNoticeCount ?? 0}</p></article>
@@ -1528,7 +1528,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </article>
       </section>
 
-      <section className="card">
+      <section className="card" id="sync">
         <h2>학습 데이터 동기화</h2>
         <div className="sync-overview top-gap">
           <p><strong>마지막 동기화</strong>: {toDateTimeWithFallback(summary?.lastSyncAt ?? null, "아직 동기화 이력 없음")}</p>
@@ -1609,7 +1609,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
       </section>
 
-      <section className="card">
+      <section className="card" id="jobs">
         <h2>자동 수강</h2>
         <p className="muted">동기화된 최신 정보를 기준으로 자동 수강을 실행합니다.</p>
         <div className="button-row">
@@ -1725,7 +1725,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
       </section>
 
-      <section className="card">
+      <section className="card" id="deadlines">
         <h2>마감 임박 차시</h2>
         <div className="deadline-filter-bar">
           <div className="button-row">
@@ -1786,7 +1786,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </div>
       </section>
 
-      <section className="card">
+      <section className="card" id="courses">
         <h2>강좌 현황</h2>
         <div className="course-grid">
           {courses.map((course) => {

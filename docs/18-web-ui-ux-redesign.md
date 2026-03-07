@@ -31,6 +31,7 @@
 
 - Required commands were run:
   - `npm run check:text`
+  - `npm run check:openapi` (current baseline requirement)
   - `npm run prisma:generate`
   - `npm run typecheck`
   - `npm run build:web`
