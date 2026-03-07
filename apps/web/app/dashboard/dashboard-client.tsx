@@ -1282,11 +1282,25 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       } catch {
         // Ignore hydration failure. Polling will continue.
       }
-      const baseMessage = payload.notice ?? (payload.deduplicated ? "이미 진행 중인 작업이 있습니다." : "요청을 접수했습니다.");
-      if (action === "SYNC" && payload.dispatched === false) {
-        setMessage(`${baseMessage} 즉시 워커 실행 신호가 지연되어 큐 대기 후 자동 처리될 수 있습니다.`);
+      if (action === "AUTOLEARN") {
+        const baseMessage = payload.notice
+          ?? (payload.deduplicated
+            ? "같은 조건의 자동 수강 요청이 이미 있어 현재 작업이 끝난 뒤 이어서 진행됩니다."
+            : "자동 수강 요청이 접수되었습니다. 순서대로 곧 시작됩니다.");
+        const pendingGuide = "요청이 몰리면 잠시 기다리실 수 있습니다. 보통 몇 분 안에 시작됩니다.";
+        const mailGuide = '설정에서 "자동 수강 시작/종료 알림 발송"을 켜 두시면 시작과 종료를 메일로 안내해 드립니다.';
+        if (payload.dispatched === false || payload.dispatchState === "FAILED" || payload.dispatchState === "NOT_CONFIGURED") {
+          setMessage(`${baseMessage} 실행 준비가 조금 지연되고 있어 시작까지 더 걸릴 수 있습니다. ${pendingGuide} ${mailGuide}`);
+        } else {
+          setMessage(`${baseMessage} ${pendingGuide} ${mailGuide}`);
+        }
       } else {
-        setMessage(baseMessage);
+        const baseMessage = payload.notice ?? (payload.deduplicated ? "이미 진행 중인 작업이 있습니다." : "요청을 접수했습니다.");
+        if (payload.dispatched === false) {
+          setMessage(`${baseMessage} 실행 준비 중이라 시작까지 조금 더 걸릴 수 있습니다.`);
+        } else {
+          setMessage(baseMessage);
+        }
       }
       await refreshAll(true);
     } catch (err) {
@@ -1621,7 +1635,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
       <section className="card" id="jobs">
         <h2>자동 수강</h2>
-        <p className="muted">동기화된 최신 정보를 기준으로 자동 수강을 실행합니다. 아래 버튼은 수동 요청입니다.</p>
+        <p className="muted">동기화된 정보를 기준으로 자동 수강이 수행됩니다.</p>
+        <p className="muted text-small">요청 후에는 순서대로 진행되며 잠시 대기하실 수 있습니다. 보통 몇 분 안에 시작되지만, 요청이 몰리면 더 걸릴 수 있습니다.</p>
+        <p className="muted text-small">설정에서 &quot;자동 수강 시작/종료 알림 발송&quot;을 켜면 시작과 종료를 메일로 받아보실 수 있습니다.</p>
         <div className="button-row">
           <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
         </div>
