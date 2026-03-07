@@ -867,10 +867,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : seasonEffectsEffectiveEnabled
       ? `시즌 효과 끄기 (${seasonEffectsStatusLabel})`
       : "시즌 효과 켜기";
-  const seasonEffectsToggleLabel = seasonEffectsEffectiveEnabled ? "날씨 효과 ON" : "날씨 효과 OFF";
+  const seasonEffectsToggleLabel = seasonEffectsEffectiveEnabled ? "실시간 날씨 연출 ON" : "실시간 날씨 연출 OFF";
   const seasonEffectsDetailLabel = seasonEffectsTestPreset
     ? `TEST: ${formatWeatherPresetLabel(seasonEffectsTestPreset)}`
-    : seasonEffectsStatusLabel;
+    : seasonEffectsReducedMotion
+      ? "OS 모션 최소화 설정으로 자동 중지됨"
+      : seasonEffectsStatusLabel;
+  const seasonEffectsStateBadge = seasonEffectsEffectiveEnabled ? "LIVE" : "OFF";
   const seasonEffectsIcon = useMemo(() => {
     const size = 16;
     if (!seasonEffectsEffectiveEnabled) return <Sparkles size={size} />;
@@ -1787,6 +1790,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <strong>{seasonEffectsToggleLabel}</strong>
                 <small>{seasonEffectsDetailLabel}</small>
               </span>
+              <span className="weather-toggle-state">{seasonEffectsStateBadge}</span>
             </button>
             <ThemeToggle />
             <Link className="ghost-btn" href={"/notices" as any}>
@@ -2259,6 +2263,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <tr><th>정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
                   <tr><th>다음 자동 동기화</th><td>{toDateTime(summary?.nextAutoSyncAt ?? null)}</td></tr>
+                  <tr><th>날씨 효과 엔진</th><td>PixiJS Particle Emitter (고품질 렌더링)</td></tr>
+                  <tr><th>접근성 정책</th><td>OS 모션 최소화 설정이 켜져 있으면 자동으로 효과를 중지합니다.</td></tr>
                   <tr><th>마지막 접속일</th><td>{toDateTime(account?.lastLoginAt ?? null)}</td></tr>
                   <tr><th>마지막 접속 IP</th><td>{account?.lastLoginIp ?? "-"}</td></tr>
                 </tbody>
