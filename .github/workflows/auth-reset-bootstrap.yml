@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - name: Reset auth data and issue ADMIN invite token
         run: |
           node <<'NODE'

@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit --incremental false",
     "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema ../../prisma/schema.prisma"
@@ -36,7 +36,7 @@
     "@types/nodemailer": "^6.4.17",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "eslint": "^8.57.1",
+    "eslint": "^9.0.0",
     "eslint-config-next": "^16.1.6",
     "prisma": "^6.5.0",
     "typescript": "^5.6.3"

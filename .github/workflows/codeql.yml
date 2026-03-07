@@ -29,6 +29,6 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-      - run: npm install
+      - run: npm ci --prefer-offline --no-audit
       - run: npm run build:web
       - uses: github/codeql-action/analyze@820e3160e279568db735cee8ed8f8e77a6da7818
