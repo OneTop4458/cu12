@@ -33,6 +33,7 @@
 - [ ] No password/token/secret appears in logs.
 - [ ] Worker errors retain enough context for incident analysis.
 - [ ] Deployment and workflow audit trail is retained.
+- [ ] GitHub Secret Scanning and Push Protection are enabled for public repo operation.
 
 ## Dependency Hygiene
 
@@ -40,3 +41,11 @@
 - [ ] Major dependency upgrades are manually reviewed.
 - [ ] Third-party GitHub Actions are pinned to immutable commit SHA.
 - [ ] Emergency patch procedure is documented.
+
+## Secret Leak Incident Response
+
+- [ ] Exposed credential is revoked/rotated immediately (do not wait for patch merge).
+- [ ] Affected external systems (DB, SMTP, Vercel, GitHub token, worker token) are rotated and validated.
+- [ ] Past Actions logs/PR comments/issues are checked for potential secret echo.
+- [ ] Public exposure window and impact are documented in incident notes.
+- [ ] Post-rotation secret scan (`secret-scan` check) is green before redeploy.
