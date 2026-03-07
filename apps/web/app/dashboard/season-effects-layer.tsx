@@ -15,14 +15,50 @@ interface SeasonEffectsLayerProps {
 
 let particlesEngineReady = false;
 
+const SNOW_IMAGE = {
+  src: "/effects/snowflake.svg",
+  width: 64,
+  height: 64,
+  name: "snowflake",
+  replaceColor: false,
+  gif: false,
+};
+
+const RAIN_IMAGE = {
+  src: "/effects/raindrop.svg",
+  width: 48,
+  height: 128,
+  name: "raindrop",
+  replaceColor: false,
+  gif: false,
+};
+
+const BLOSSOM_IMAGE = {
+  src: "/effects/blossom-petal.svg",
+  width: 88,
+  height: 72,
+  name: "blossom-petal",
+  replaceColor: false,
+  gif: false,
+};
+
+const MAPLE_IMAGE = {
+  src: "/effects/maple-leaf.svg",
+  width: 88,
+  height: 88,
+  name: "maple-leaf",
+  replaceColor: false,
+  gif: false,
+};
+
 function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean): ISourceOptions {
-  const baseCount = reducedDensity ? 36 : 72;
+  const baseCount = reducedDensity ? 22 : 52;
   const base: ISourceOptions = {
     fullScreen: {
       enable: false,
     },
-    fpsLimit: 60,
-    detectRetina: true,
+    fpsLimit: 90,
+    detectRetina: false,
     pauseOnBlur: true,
     particles: {
       number: {
@@ -38,6 +74,12 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       },
       move: {
         enable: true,
+        speed: {
+          min: 0.55,
+          max: 1.25,
+        },
+        straight: false,
+        random: false,
         outModes: {
           default: "out",
         },
@@ -58,14 +100,30 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       ...base,
       particles: {
         ...base.particles,
-        color: { value: ["#ffffff", "#dbeafe"] },
-        opacity: { value: { min: 0.5, max: 0.95 } },
-        size: { value: { min: 2.4, max: 6.4 } },
-        shape: { type: "circle" },
+        number: {
+          value: reducedDensity ? 14 : 30,
+          density: {
+            enable: true,
+            width: 1000,
+            height: 1200,
+          },
+        },
+        opacity: { value: { min: 0.52, max: 0.94 } },
+        size: { value: { min: 10, max: 22 } },
+        shape: {
+          type: "image",
+          options: {
+            image: [SNOW_IMAGE],
+          },
+        },
         move: {
           ...base.particles?.move,
           direction: "bottom",
-          speed: reducedDensity ? 1.2 : 1.9,
+          speed: {
+            min: reducedDensity ? 0.45 : 0.65,
+            max: reducedDensity ? 1.15 : 1.75,
+          },
+          drift: reducedDensity ? 0.35 : 0.55,
           straight: false,
           random: true,
         },
@@ -79,22 +137,30 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       particles: {
         ...base.particles,
         number: {
-          value: reducedDensity ? 34 : 70,
+          value: reducedDensity ? 18 : 40,
           density: {
             enable: true,
             width: 1000,
             height: 1000,
           },
         },
-        color: { value: ["#93c5fd", "#60a5fa"] },
-        opacity: { value: { min: 0.28, max: 0.6 } },
-        size: { value: { min: 2.2, max: 3.4 } },
-        shape: { type: "circle" },
+        opacity: { value: { min: 0.42, max: 0.78 } },
+        size: { value: { min: 9, max: 18 } },
+        shape: {
+          type: "image",
+          options: {
+            image: [RAIN_IMAGE],
+          },
+        },
         move: {
           ...base.particles?.move,
           direction: "bottom-right",
-          speed: reducedDensity ? 9 : 14,
+          speed: {
+            min: reducedDensity ? 9.5 : 12,
+            max: reducedDensity ? 14.5 : 21,
+          },
           straight: true,
+          random: true,
         },
       },
     };
@@ -105,22 +171,38 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       ...base,
       particles: {
         ...base.particles,
-        color: { value: ["#f9a8d4", "#fbcfe8", "#fda4af"] },
-        opacity: { value: { min: 0.45, max: 0.82 } },
-        size: { value: { min: 3.5, max: 8.2 } },
-        shape: { type: "circle" },
+        number: {
+          value: reducedDensity ? 14 : 30,
+          density: {
+            enable: true,
+            width: 1200,
+            height: 1200,
+          },
+        },
+        opacity: { value: { min: 0.5, max: 0.9 } },
+        size: { value: { min: 11, max: 22 } },
+        shape: {
+          type: "image",
+          options: {
+            image: [BLOSSOM_IMAGE],
+          },
+        },
         rotate: {
           value: { min: 0, max: 360 },
           direction: "random",
           animation: {
             enable: true,
-            speed: reducedDensity ? 12 : 20,
+            speed: reducedDensity ? 7 : 13,
           },
         },
         move: {
           ...base.particles?.move,
           direction: "bottom-left",
-          speed: reducedDensity ? 1.9 : 2.9,
+          speed: {
+            min: reducedDensity ? 0.85 : 1.1,
+            max: reducedDensity ? 1.65 : 2.2,
+          },
+          drift: reducedDensity ? -0.45 : -0.75,
           straight: false,
           random: true,
         },
@@ -133,22 +215,38 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       ...base,
       particles: {
         ...base.particles,
-        color: { value: ["#fb923c", "#fdba74", "#f59e0b", "#b45309"] },
-        opacity: { value: { min: 0.45, max: 0.86 } },
-        size: { value: { min: 3.2, max: 7.8 } },
-        shape: { type: "circle" },
+        number: {
+          value: reducedDensity ? 14 : 28,
+          density: {
+            enable: true,
+            width: 1200,
+            height: 1200,
+          },
+        },
+        opacity: { value: { min: 0.5, max: 0.92 } },
+        size: { value: { min: 12, max: 24 } },
+        shape: {
+          type: "image",
+          options: {
+            image: [MAPLE_IMAGE],
+          },
+        },
         rotate: {
           value: { min: 0, max: 360 },
           direction: "random",
           animation: {
             enable: true,
-            speed: reducedDensity ? 11 : 18,
+            speed: reducedDensity ? 6 : 11,
           },
         },
         move: {
           ...base.particles?.move,
           direction: "bottom-right",
-          speed: reducedDensity ? 1.7 : 2.7,
+          speed: {
+            min: reducedDensity ? 0.75 : 1.05,
+            max: reducedDensity ? 1.55 : 2.1,
+          },
+          drift: reducedDensity ? 0.5 : 0.85,
           straight: false,
           random: true,
         },
@@ -161,21 +259,25 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
     particles: {
       ...base.particles,
       number: {
-        value: reducedDensity ? 18 : 34,
+        value: reducedDensity ? 12 : 26,
         density: {
           enable: true,
           width: 1400,
           height: 1400,
         },
       },
-      color: { value: ["#dbeafe", "#bfdbfe", "#e2e8f0"] },
-      opacity: { value: { min: 0.18, max: 0.36 } },
-      size: { value: { min: 1.4, max: 2.8 } },
+      color: { value: ["#7dd3fc", "#bfdbfe", "#e2e8f0", "#93c5fd"] },
+      opacity: { value: { min: 0.2, max: 0.48 } },
+      size: { value: { min: 1.2, max: 2.6 } },
       shape: { type: "circle" },
       move: {
         ...base.particles?.move,
         direction: "none",
-        speed: reducedDensity ? 0.7 : 1.1,
+        speed: {
+          min: reducedDensity ? 0.35 : 0.55,
+          max: reducedDensity ? 0.85 : 1.25,
+        },
+        drift: reducedDensity ? 0.15 : 0.3,
         straight: false,
       },
     },
