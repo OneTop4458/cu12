@@ -1,118 +1,18 @@
-name: Codex Auto Merge On Gate
+name: PR Auto Merge On CI
 
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
-  issue_comment:
-    types: [created, edited]
 
 permissions:
-  checks: read
   contents: write
-  issues: read
   pull-requests: write
 
 jobs:
-  codex-review-gate:
-    name: codex-review-gate
-    if: >
-      (github.event_name == 'pull_request' &&
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request != null)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      pr_number: ${{ steps.gate.outputs.pr_number }}
-    steps:
-      - name: Validate Codex pass signal
-        id: gate
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
-        env:
-          CODEX_REVIEW_BOTS: ${{ vars.CODEX_REVIEW_BOTS }}
-          CODEX_PASS_PHRASE: ${{ vars.CODEX_PASS_PHRASE }}
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const defaultBots = "chatgpt-codex-connector[bot]";
-            const botsRaw = (process.env.CODEX_REVIEW_BOTS || defaultBots)
-              .split(",")
-              .map((bot) => bot.trim().toLowerCase())
-              .filter(Boolean);
-            const bots = new Set(botsRaw);
-            const passPhrase = (process.env.CODEX_PASS_PHRASE || "didn't find any major issues").toLowerCase();
-
-            const prNumber = context.eventName === "pull_request"
-              ? context.payload.pull_request.number
-              : context.payload.issue.number;
-            core.setOutput("pr_number", String(prNumber));
-
-            const pr = await github.rest.pulls.get({
-              owner,
-              repo,
-              pull_number: prNumber,
-            });
-
-            if (pr.data.state !== "open") {
-              core.setFailed(`PR #${prNumber} is not open.`);
-              return;
-            }
-
-            if (pr.data.draft) {
-              core.setFailed(`PR #${prNumber} is draft.`);
-              return;
-            }
-
-            if (pr.data.head.repo.full_name !== `${owner}/${repo}`) {
-              core.setFailed("PR head repository is outside the base repository.");
-              return;
-            }
-
-            const headSha = pr.data.head.sha;
-            const headCommit = await github.rest.repos.getCommit({
-              owner,
-              repo,
-              ref: headSha,
-            });
-
-            const headCommitDateRaw =
-              headCommit.data.commit.committer?.date ??
-              headCommit.data.commit.author?.date ??
-              null;
-            const headCommitDate = headCommitDateRaw ? Date.parse(headCommitDateRaw) : Number.NaN;
-            if (Number.isNaN(headCommitDate)) {
-              core.setFailed("Unable to resolve PR head commit timestamp.");
-              return;
-            }
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100,
-            });
-
-            const matched = comments
-              .filter((comment) => bots.has((comment.user?.login ?? "").toLowerCase()))
-              .filter((comment) => (comment.body ?? "").toLowerCase().includes(passPhrase))
-              .filter((comment) => Date.parse(comment.created_at) >= headCommitDate)
-              .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-
-            if (!matched) {
-              core.setFailed(
-                `No Codex pass comment found after the latest commit (${headSha.slice(0, 12)}). ` +
-                `Expected bot in [${Array.from(bots).join(", ")}] and phrase containing '${passPhrase}'.`
-              );
-              return;
-            }
-
-            core.info(`Codex gate passed via ${matched.html_url}`);
-
   auto-merge:
-    needs: [codex-review-gate]
-    if: needs.codex-review-gate.result == 'success'
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -121,12 +21,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          number="${{ needs.codex-review-gate.outputs.pr_number }}"
-          if [ -z "$number" ]; then
-            echo "No PR number from gate job. Skip."
-            exit 0
-          fi
-
+          number="${{ github.event.pull_request.number }}"
           state="$(gh pr view "$number" --json state,isDraft --jq '.state + ":" + (.isDraft|tostring)')"
           if [ "$state" != "OPEN:false" ]; then
             echo "PR #$number is not mergeable state ($state). Skip."

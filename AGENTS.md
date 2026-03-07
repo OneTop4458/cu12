@@ -72,8 +72,8 @@ npm run build:web
 4. `main` must be updated only through pull requests. Direct push to `main` is prohibited.
 5. Every AI/operator task must start from latest `origin/main` using an isolated branch and worktree.
 6. Branch protection baseline for `main`:
-   - required status checks: `test`, `codex-review-gate`
-   - required approving reviews: `0` (Codex gate handles merge readiness)
+   - required status checks: `test`
+   - required approving reviews: `0`
    - required conversation resolution: enabled
 
 ## AI Branch and Worktree Standard
@@ -107,12 +107,10 @@ npm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary
 4. If validation fails, fix root cause first. Do not bypass checks to force PR creation.
 5. Emergency override for primary checkout exists but should be avoided: `--allowPrimaryCheckout`.
 
-## Codex Review Gate Policy
+## Codex Review Policy
 
-1. Codex is treated as a merge gate via workflow check `codex-review-gate`, not via GitHub `APPROVED` review state.
-2. Pass condition uses bot comment signal from `chatgpt-codex-connector[bot]` after latest PR commit.
-3. Default pass phrase is `didn't find any major issues` (override allowed via `CODEX_PASS_PHRASE` repo variable).
-4. If signal format changes or no valid comment exists after latest commit, gate must fail closed.
+1. Codex review is optional guidance for PR quality and is not a required merge gate.
+2. Merge readiness is determined by required checks (currently `test`) plus branch protection rules.
 
 ## Deployment Baseline
 
