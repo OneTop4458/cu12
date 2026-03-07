@@ -77,7 +77,7 @@ function makeSnowEmitters(textures: EffectTextures, size: Size, reducedDensity: 
 
   return [
     {
-      lifetime: { min: 8, max: 14 },
+      lifetime: { min: 9, max: 16 },
       frequency: 0.038,
       particlesPerWave: 1,
       emitterLifetime: -1,
@@ -87,7 +87,7 @@ function makeSnowEmitters(textures: EffectTextures, size: Size, reducedDensity: 
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.78) } },
         { type: "scaleStatic", config: { min: 0.11, max: 0.2 } },
-        { type: "moveSpeedStatic", config: { min: 18, max: 35 } },
+        { type: "moveSpeedStatic", config: { min: 14, max: 28 } },
         { type: "rotationStatic", config: { min: 0, max: 360 } },
         { type: "rotation", config: { minStart: 0, maxStart: 360, minSpeed: -14, maxSpeed: 14, accel: 0 } },
         { type: "spawnShape", config: spawn },
@@ -95,7 +95,7 @@ function makeSnowEmitters(textures: EffectTextures, size: Size, reducedDensity: 
       ],
     },
     {
-      lifetime: { min: 10, max: 17 },
+      lifetime: { min: 11, max: 19 },
       frequency: 0.055,
       particlesPerWave: 1,
       emitterLifetime: -1,
@@ -105,7 +105,7 @@ function makeSnowEmitters(textures: EffectTextures, size: Size, reducedDensity: 
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.58) } },
         { type: "scaleStatic", config: { min: 0.06, max: 0.13 } },
-        { type: "moveSpeedStatic", config: { min: 10, max: 24 } },
+        { type: "moveSpeedStatic", config: { min: 8, max: 18 } },
         { type: "rotationStatic", config: { min: 0, max: 360 } },
         { type: "rotation", config: { minStart: 0, maxStart: 360, minSpeed: -8, maxSpeed: 8, accel: 0 } },
         { type: "spawnShape", config: spawn },
@@ -122,8 +122,8 @@ function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: 
 
   return [
     {
-      lifetime: { min: 0.72, max: 1.25 },
-      frequency: 0.009,
+      lifetime: { min: 1.2, max: 2.1 },
+      frequency: 0.01,
       particlesPerWave: 3,
       emitterLifetime: -1,
       maxParticles: baseMax,
@@ -132,15 +132,15 @@ function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: 
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.82) } },
         { type: "scaleStatic", config: { min: 0.08, max: 0.14 } },
-        { type: "rotationStatic", config: { min: 112, max: 118 } },
-        { type: "moveAcceleration", config: { minStart: 1080, maxStart: 1460, accel: { x: 0, y: 1700 }, rotate: true, maxSpeed: 2400 } },
+        { type: "rotationStatic", config: { min: 110, max: 116 } },
+        { type: "moveAcceleration", config: { minStart: 620, maxStart: 890, accel: { x: 0, y: 920 }, rotate: true, maxSpeed: 1420 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.rain } },
       ],
     },
     {
-      lifetime: { min: 1.05, max: 1.8 },
-      frequency: 0.015,
+      lifetime: { min: 1.7, max: 2.7 },
+      frequency: 0.016,
       particlesPerWave: 2,
       emitterLifetime: -1,
       maxParticles: Math.round(baseMax * 0.68),
@@ -149,8 +149,8 @@ function makeRainEmitters(textures: EffectTextures, size: Size, reducedDensity: 
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.56) } },
         { type: "scaleStatic", config: { min: 0.05, max: 0.09 } },
-        { type: "rotationStatic", config: { min: 112, max: 118 } },
-        { type: "moveAcceleration", config: { minStart: 780, maxStart: 1020, accel: { x: 0, y: 1300 }, rotate: true, maxSpeed: 1800 } },
+        { type: "rotationStatic", config: { min: 110, max: 116 } },
+        { type: "moveAcceleration", config: { minStart: 420, maxStart: 660, accel: { x: 0, y: 720 }, rotate: true, maxSpeed: 1100 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.rain } },
       ],
@@ -175,8 +175,8 @@ function makeBlossomEmitters(textures: EffectTextures, size: Size, reducedDensit
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.86) } },
         { type: "scaleStatic", config: { min: 0.12, max: 0.22 } },
-        { type: "rotation", config: { minStart: 22, maxStart: 170, minSpeed: -36, maxSpeed: 28, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 60, maxStart: 125, accel: { x: -58, y: 148 }, rotate: false, maxSpeed: 220 } },
+        { type: "rotation", config: { minStart: 22, maxStart: 170, minSpeed: -30, maxSpeed: 24, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 48, maxStart: 98, accel: { x: -44, y: 120 }, rotate: false, maxSpeed: 170 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.blossom } },
       ],
@@ -192,8 +192,8 @@ function makeBlossomEmitters(textures: EffectTextures, size: Size, reducedDensit
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.64) } },
         { type: "scaleStatic", config: { min: 0.07, max: 0.13 } },
-        { type: "rotation", config: { minStart: 12, maxStart: 160, minSpeed: -22, maxSpeed: 18, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 38, maxStart: 85, accel: { x: -36, y: 118 }, rotate: false, maxSpeed: 160 } },
+        { type: "rotation", config: { minStart: 12, maxStart: 160, minSpeed: -18, maxSpeed: 14, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 30, maxStart: 68, accel: { x: -28, y: 92 }, rotate: false, maxSpeed: 125 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.blossom } },
       ],
@@ -208,7 +208,7 @@ function makeMapleEmitters(textures: EffectTextures, size: Size, reducedDensity:
 
   return [
     {
-      lifetime: { min: 8, max: 13 },
+      lifetime: { min: 9, max: 15 },
       frequency: 0.044,
       particlesPerWave: 1,
       emitterLifetime: -1,
@@ -218,14 +218,14 @@ function makeMapleEmitters(textures: EffectTextures, size: Size, reducedDensity:
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.9) } },
         { type: "scaleStatic", config: { min: 0.12, max: 0.24 } },
-        { type: "rotation", config: { minStart: -30, maxStart: 150, minSpeed: -42, maxSpeed: 34, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 72, maxStart: 146, accel: { x: 48, y: 182 }, rotate: false, maxSpeed: 240 } },
+        { type: "rotation", config: { minStart: -30, maxStart: 150, minSpeed: -34, maxSpeed: 27, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 56, maxStart: 112, accel: { x: 36, y: 142 }, rotate: false, maxSpeed: 175 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.maple } },
       ],
     },
     {
-      lifetime: { min: 10, max: 15 },
+      lifetime: { min: 11, max: 17 },
       frequency: 0.061,
       particlesPerWave: 1,
       emitterLifetime: -1,
@@ -235,8 +235,8 @@ function makeMapleEmitters(textures: EffectTextures, size: Size, reducedDensity:
       behaviors: [
         { type: "alpha", config: { alpha: makeAlphaList(0.66) } },
         { type: "scaleStatic", config: { min: 0.07, max: 0.13 } },
-        { type: "rotation", config: { minStart: -15, maxStart: 135, minSpeed: -28, maxSpeed: 24, accel: 0 } },
-        { type: "moveAcceleration", config: { minStart: 40, maxStart: 92, accel: { x: 34, y: 128 }, rotate: false, maxSpeed: 170 } },
+        { type: "rotation", config: { minStart: -15, maxStart: 135, minSpeed: -22, maxSpeed: 18, accel: 0 } },
+        { type: "moveAcceleration", config: { minStart: 32, maxStart: 74, accel: { x: 24, y: 102 }, rotate: false, maxSpeed: 130 } },
         { type: "spawnShape", config: spawn },
         { type: "textureSingle", config: { texture: textures.maple } },
       ],
@@ -251,7 +251,7 @@ function makeBreezeEmitters(size: Size, reducedDensity: boolean): EmitterConfigV
 
   return [
     {
-      lifetime: { min: 14, max: 22 },
+      lifetime: { min: 15, max: 24 },
       frequency: 0.045,
       particlesPerWave: 1,
       emitterLifetime: -1,
@@ -262,7 +262,7 @@ function makeBreezeEmitters(size: Size, reducedDensity: boolean): EmitterConfigV
         { type: "alpha", config: { alpha: makeAlphaList(0.32) } },
         { type: "scaleStatic", config: { min: 0.05, max: 0.12 } },
         { type: "colorStatic", config: { color: "dbeafe" } },
-        { type: "moveAcceleration", config: { minStart: 20, maxStart: 58, accel: { x: 8, y: 24 }, rotate: false, maxSpeed: 90 } },
+        { type: "moveAcceleration", config: { minStart: 16, maxStart: 44, accel: { x: 6, y: 20 }, rotate: false, maxSpeed: 70 } },
         { type: "spawnShape", config: spawn },
       ],
     },
