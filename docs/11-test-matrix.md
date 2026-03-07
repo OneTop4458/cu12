@@ -22,6 +22,8 @@
 8. Truncated AUTOLEARN result enqueues continuation job with incremented chain segment.
 9. AUTOLEARN continuation stops when cumulative chain elapsed reaches configured max cap.
 10. Worker `--once` handoff dispatches follow-up consume run when pending AUTOLEARN jobs remain.
+11. User-scoped consume run (`--userId`) claims only that user's jobs.
+12. Centralized dispatch enforces parallel cap and returns `SKIPPED_CAPACITY` when full.
 
 ## Dashboard Data
 

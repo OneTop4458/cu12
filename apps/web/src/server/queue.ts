@@ -227,9 +227,9 @@ export async function getJobForUser(jobId: string, userId: string) {
   });
 }
 
-export async function claimNextJob(workerId: string, types: JobType[]) {
+export async function claimNextJob(workerId: string, types: JobType[], userId?: string) {
   if (types.includes(JobType.SYNC) || types.includes(JobType.NOTICE_SCAN)) {
-    await cancelBlockedSyncJobsForTestUsers();
+    await cancelBlockedSyncJobsForTestUsers(userId);
   }
   await reclaimStaleRunningJobs();
   if (types.length === 0) return null;
@@ -240,6 +240,7 @@ export async function claimNextJob(workerId: string, types: JobType[]) {
   for (const requestType of requestTypes) {
     const candidates = await prisma.jobQueue.findMany({
       where: {
+        ...(userId ? { userId } : {}),
         type: requestType,
         status: JobStatus.PENDING,
         runAfter: { lte: now },
@@ -298,11 +299,12 @@ export async function claimNextJob(workerId: string, types: JobType[]) {
   return null;
 }
 
-export async function hasPendingJobs(types: JobType[]): Promise<boolean> {
+export async function hasPendingJobs(types: JobType[], userId?: string): Promise<boolean> {
   if (types.length === 0) return false;
   const uniqueTypes = Array.from(new Set(types));
   const count = await prisma.jobQueue.count({
     where: {
+      ...(userId ? { userId } : {}),
       type: { in: uniqueTypes },
       status: JobStatus.PENDING,
     },
