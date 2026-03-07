@@ -45,11 +45,11 @@ export async function POST(request: NextRequest) {
     });
     const notice = deduplicated
       ? dispatch.state === "SKIPPED_DUPLICATE"
-        ? "자동 수강이 이미 진행 중입니다. 현재 작업 완료 후 다시 요청해 주세요."
-        : "자동 수강 요청이 중복이었지만 오래된 요청은 새로 시작하도록 처리했습니다."
+        ? "같은 조건의 요청이 이미 있어 현재 작업이 끝난 뒤 이어서 진행돼요."
+        : "이전 요청이 오래되어 자동 수강을 다시 시작하도록 준비했어요."
       : dispatch.dispatched
-        ? "자동 수강 실행을 시작했습니다."
-        : "자동 수강 요청은 저장되었지만 실행 트리거 전송이 실패했습니다. 잠시 후 다시 시도해 주세요.";
+        ? "자동 수강 요청이 접수됐어요. 순서대로 곧 시작돼요."
+        : "자동 수강 요청은 접수됐어요. 실행 준비가 지연되어 시작까지 조금 더 걸릴 수 있어요.";
 
     await writeAuditLog({
       category: "JOB",
