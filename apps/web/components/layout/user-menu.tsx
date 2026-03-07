@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
+import { ChevronDown, FlaskConical, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
 
 type RoleType = "ADMIN" | "USER";
 
@@ -10,6 +10,7 @@ type UserMenuProps = {
   onDashboard?: () => void;
   onGoAdmin?: () => void;
   onOpenSettings?: () => void;
+  onOpenSeasonEffectsTest?: () => void;
   onLogout: () => void;
 };
 
@@ -20,6 +21,7 @@ export function UserMenu({
   onDashboard,
   onGoAdmin,
   onOpenSettings,
+  onOpenSeasonEffectsTest,
   onLogout,
 }: UserMenuProps) {
   const initials = email.slice(0, 2).toUpperCase();
@@ -72,6 +74,12 @@ export function UserMenu({
             <DropdownMenu.Item className="user-menu-item" onSelect={onOpenSettings}>
               <Settings size={16} />
               <span>설정</span>
+            </DropdownMenu.Item>
+          ) : null}
+          {role === "ADMIN" && onOpenSeasonEffectsTest ? (
+            <DropdownMenu.Item className="user-menu-item" onSelect={onOpenSeasonEffectsTest}>
+              <FlaskConical size={16} />
+              <span>시즌 효과 테스트</span>
             </DropdownMenu.Item>
           ) : null}
           <DropdownMenu.Separator className="user-menu-separator" />

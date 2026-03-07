@@ -16,19 +16,13 @@ interface SeasonEffectsLayerProps {
 let particlesEngineReady = false;
 
 function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean): ISourceOptions {
-  const baseCount = reducedDensity ? 22 : 44;
+  const baseCount = reducedDensity ? 36 : 72;
   const base: ISourceOptions = {
-    background: {
-      color: {
-        value: "transparent",
-      },
-    },
     fullScreen: {
-      enable: true,
-      zIndex: 30,
+      enable: false,
     },
-    fpsLimit: 40,
-    detectRetina: false,
+    fpsLimit: 60,
+    detectRetina: true,
     pauseOnBlur: true,
     particles: {
       number: {
@@ -53,7 +47,7 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       events: {
         resize: {
           enable: true,
-          delay: 0.4,
+          delay: 0.2,
         },
       },
     },
@@ -65,18 +59,14 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       particles: {
         ...base.particles,
         color: { value: ["#ffffff", "#dbeafe"] },
-        opacity: { value: { min: 0.45, max: 0.95 } },
-        size: { value: { min: 1.8, max: 5.2 } },
+        opacity: { value: { min: 0.5, max: 0.95 } },
+        size: { value: { min: 2.4, max: 6.4 } },
         shape: { type: "circle" },
         move: {
           ...base.particles?.move,
           direction: "bottom",
-          speed: reducedDensity ? 1.1 : 1.7,
+          speed: reducedDensity ? 1.2 : 1.9,
           straight: false,
-          angle: {
-            value: 20,
-            offset: 0,
-          },
           random: true,
         },
       },
@@ -89,21 +79,21 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       particles: {
         ...base.particles,
         number: {
-          value: reducedDensity ? 24 : 52,
+          value: reducedDensity ? 34 : 70,
           density: {
             enable: true,
             width: 1000,
             height: 1000,
           },
         },
-        color: { value: ["#93c5fd", "#bfdbfe"] },
-        opacity: { value: { min: 0.22, max: 0.55 } },
-        size: { value: { min: 8, max: 18 } },
-        shape: { type: "line" },
+        color: { value: ["#93c5fd", "#60a5fa"] },
+        opacity: { value: { min: 0.28, max: 0.6 } },
+        size: { value: { min: 2.2, max: 3.4 } },
+        shape: { type: "circle" },
         move: {
           ...base.particles?.move,
           direction: "bottom-right",
-          speed: reducedDensity ? 8 : 12,
+          speed: reducedDensity ? 9 : 14,
           straight: true,
         },
       },
@@ -116,26 +106,23 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       particles: {
         ...base.particles,
         color: { value: ["#f9a8d4", "#fbcfe8", "#fda4af"] },
-        opacity: { value: { min: 0.35, max: 0.75 } },
-        size: { value: { min: 2.5, max: 6.5 } },
+        opacity: { value: { min: 0.45, max: 0.82 } },
+        size: { value: { min: 3.5, max: 8.2 } },
         shape: { type: "circle" },
         rotate: {
           value: { min: 0, max: 360 },
           direction: "random",
           animation: {
             enable: true,
-            speed: reducedDensity ? 10 : 18,
+            speed: reducedDensity ? 12 : 20,
           },
         },
         move: {
           ...base.particles?.move,
           direction: "bottom-left",
-          speed: reducedDensity ? 1.5 : 2.2,
+          speed: reducedDensity ? 1.9 : 2.9,
           straight: false,
-          angle: {
-            value: 16,
-            offset: 0,
-          },
+          random: true,
         },
       },
     };
@@ -147,26 +134,23 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
       particles: {
         ...base.particles,
         color: { value: ["#fb923c", "#fdba74", "#f59e0b", "#b45309"] },
-        opacity: { value: { min: 0.35, max: 0.78 } },
-        size: { value: { min: 2.2, max: 5.8 } },
-        shape: { type: "polygon" },
+        opacity: { value: { min: 0.45, max: 0.86 } },
+        size: { value: { min: 3.2, max: 7.8 } },
+        shape: { type: "circle" },
         rotate: {
           value: { min: 0, max: 360 },
           direction: "random",
           animation: {
             enable: true,
-            speed: reducedDensity ? 8 : 14,
+            speed: reducedDensity ? 11 : 18,
           },
         },
         move: {
           ...base.particles?.move,
           direction: "bottom-right",
-          speed: reducedDensity ? 1.3 : 2.1,
+          speed: reducedDensity ? 1.7 : 2.7,
           straight: false,
-          angle: {
-            value: 24,
-            offset: 0,
-          },
+          random: true,
         },
       },
     };
@@ -177,7 +161,7 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
     particles: {
       ...base.particles,
       number: {
-        value: reducedDensity ? 12 : 22,
+        value: reducedDensity ? 18 : 34,
         density: {
           enable: true,
           width: 1400,
@@ -185,13 +169,13 @@ function buildPresetOptions(preset: SeasonEffectPreset, reducedDensity: boolean)
         },
       },
       color: { value: ["#dbeafe", "#bfdbfe", "#e2e8f0"] },
-      opacity: { value: { min: 0.12, max: 0.28 } },
-      size: { value: { min: 1, max: 2.4 } },
+      opacity: { value: { min: 0.18, max: 0.36 } },
+      size: { value: { min: 1.4, max: 2.8 } },
       shape: { type: "circle" },
       move: {
         ...base.particles?.move,
         direction: "none",
-        speed: reducedDensity ? 0.45 : 0.75,
+        speed: reducedDensity ? 0.7 : 1.1,
         straight: false,
       },
     },
@@ -223,10 +207,13 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
   if (!enabled || !isReady) return null;
 
   return (
-    <Particles
-      id="dashboard-season-effects-layer"
-      className="season-effects-layer"
-      options={options}
-    />
+    <div className={`season-effects-layer season-effects-${preset.toLowerCase()}`} aria-hidden="true">
+      <div className="season-effects-atmosphere" />
+      <Particles
+        id="dashboard-season-effects-layer"
+        className="season-effects-particles"
+        options={options}
+      />
+    </div>
   );
 }

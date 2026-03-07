@@ -325,6 +325,7 @@ const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 const COURSE_DEADLINE_URGENT_DAYS = 7;
 const WEATHER_EFFECT_REFRESH_MS = 15 * 60 * 1000;
 const SEASON_EFFECTS_PREF_KEY = "dashboard:season-effects:v1";
+const SEASON_EFFECTS_TEST_PRESET_KEY = "dashboard:season-effects:test-preset:v1";
 
 interface DashboardBootstrap {
   context: SessionContext;
@@ -396,6 +397,19 @@ function formatWeatherPresetLabel(preset: SeasonEffectPreset): string {
   if (preset === "BLOSSOM") return "벚꽃";
   if (preset === "MAPLE") return "단풍";
   return "브리즈";
+}
+
+function parseSeasonEffectPreset(value: string | null): SeasonEffectPreset | null {
+  if (
+    value === "SNOW"
+    || value === "RAIN"
+    || value === "BLOSSOM"
+    || value === "MAPLE"
+    || value === "BREEZE"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 function formatSeconds(value: number): string {
@@ -753,6 +767,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [seasonEffectsReducedMotion, setSeasonEffectsReducedMotion] = useState(false);
   const [seasonEffectsReducedDensity, setSeasonEffectsReducedDensity] = useState(false);
   const [weatherEffects, setWeatherEffects] = useState<DashboardWeatherEffectsResponse | null>(null);
+  const [seasonEffectsTestPreset, setSeasonEffectsTestPreset] = useState<SeasonEffectPreset | null>(null);
+  const [seasonEffectsTestOpen, setSeasonEffectsTestOpen] = useState(false);
 
   const [mode, setMode] = useState<"SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES">("ALL_COURSES");
   const [lectureSeq, setLectureSeq] = useState<number | null>(null);
@@ -839,7 +855,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       ? `${selectedAutoCourse.title} (${selectedAutoCourse.lectureSeq})`
       : "강좌 선택 필요";
   const seasonEffectsEffectiveEnabled = seasonEffectsEnabled && !seasonEffectsReducedMotion;
-  const activeSeasonEffectPreset: SeasonEffectPreset = weatherEffects?.derived.effectPreset ?? "BREEZE";
+  const isAdminUser = initialUser.role === "ADMIN";
+  const weatherPreset: SeasonEffectPreset = weatherEffects?.derived.effectPreset ?? "BREEZE";
+  const activeSeasonEffectPreset: SeasonEffectPreset = seasonEffectsTestPreset ?? weatherPreset;
   const seasonEffectsStatusLabel = useMemo(() => {
     if (!weatherEffects) return "효과 준비 중";
     return `${formatWeatherPresetLabel(weatherEffects.derived.effectPreset)} · ${formatWeatherConditionLabel(weatherEffects.derived.condition)} · ${formatWeatherSeasonLabel(weatherEffects.derived.season)}`;
@@ -849,6 +867,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : seasonEffectsEffectiveEnabled
       ? `시즌 효과 끄기 (${seasonEffectsStatusLabel})`
       : "시즌 효과 켜기";
+  const seasonEffectsToggleLabel = seasonEffectsEffectiveEnabled ? "날씨 효과 ON" : "날씨 효과 OFF";
+  const seasonEffectsDetailLabel = seasonEffectsTestPreset
+    ? `TEST: ${formatWeatherPresetLabel(seasonEffectsTestPreset)}`
+    : seasonEffectsStatusLabel;
   const seasonEffectsIcon = useMemo(() => {
     const size = 16;
     if (!seasonEffectsEffectiveEnabled) return <Sparkles size={size} />;
@@ -1003,6 +1025,36 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     });
   }, [seasonEffectsReducedMotion]);
 
+  const applySeasonEffectsTestPreset = useCallback((preset: SeasonEffectPreset | null) => {
+    setSeasonEffectsTestPreset(preset);
+    try {
+      if (preset) {
+        window.localStorage.setItem(SEASON_EFFECTS_TEST_PRESET_KEY, preset);
+      } else {
+        window.localStorage.removeItem(SEASON_EFFECTS_TEST_PRESET_KEY);
+      }
+    } catch {
+      // no-op
+    }
+    if (preset && !seasonEffectsReducedMotion) {
+      setSeasonEffectsEnabled(true);
+      const pref: SeasonEffectsPreference = {
+        enabled: true,
+        source: "user",
+        updatedAt: Date.now(),
+      };
+      try {
+        window.localStorage.setItem(SEASON_EFFECTS_PREF_KEY, JSON.stringify(pref));
+      } catch {
+        // no-op
+      }
+    }
+  }, [seasonEffectsReducedMotion]);
+
+  const openSeasonEffectsTest = useCallback(() => {
+    setSeasonEffectsTestOpen(true);
+  }, []);
+
   const loadNotificationHistory = useCallback(async () => {
     setNotificationHistoryLoading(true);
     try {
@@ -1101,6 +1153,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         // no-op
       }
     }
+    if (isAdminUser) {
+      const savedTestPreset = parseSeasonEffectPreset(window.localStorage.getItem(SEASON_EFFECTS_TEST_PRESET_KEY));
+      setSeasonEffectsTestPreset(savedTestPreset);
+    } else {
+      setSeasonEffectsTestPreset(null);
+    }
     setSeasonEffectsMounted(true);
 
     const onQueryChange = () => updateFlags();
@@ -1119,7 +1177,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       reducedMotionQuery.removeListener(onQueryChange);
       narrowViewportQuery.removeListener(onQueryChange);
     };
-  }, []);
+  }, [isAdminUser]);
 
   useEffect(() => {
     if (!seasonEffectsMounted || !seasonEffectsEffectiveEnabled) return;
@@ -1717,14 +1775,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               <RotateCw size={16} />
             </button>
             <button
-              className={`icon-btn season-effects-toggle ${seasonEffectsEffectiveEnabled ? "is-active" : ""}`}
+              className={`weather-toggle-btn ${seasonEffectsEffectiveEnabled ? "is-active" : ""}`}
               onClick={toggleSeasonEffects}
               disabled={!seasonEffectsMounted || seasonEffectsReducedMotion}
               title={seasonEffectsButtonTitle}
               aria-label={seasonEffectsButtonTitle}
               type="button"
             >
-              {seasonEffectsIcon}
+              <span className="weather-toggle-icon">{seasonEffectsIcon}</span>
+              <span className="weather-toggle-copy">
+                <strong>{seasonEffectsToggleLabel}</strong>
+                <small>{seasonEffectsDetailLabel}</small>
+              </span>
             </button>
             <ThemeToggle />
             <Link className="ghost-btn" href={"/notices" as any}>
@@ -1757,6 +1819,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               onDashboard={undefined}
               onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
               onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSeasonEffectsTest={isAdminUser ? openSeasonEffectsTest : undefined}
               onLogout={logout}
             />
           </div>
@@ -2249,6 +2312,64 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </div>
               </form>
             ) : null}
+          </section>
+        </div>
+      ) : null}
+
+      {seasonEffectsTestOpen ? (
+        <div className="modal-overlay" onClick={() => setSeasonEffectsTestOpen(false)}>
+          <section className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <h2>시즌 효과 테스트</h2>
+            <p className="muted">관리자 테스트용 기능입니다. 선택한 프리셋은 이 브라우저에만 임시 저장됩니다.</p>
+            <p className="muted text-small">현재 적용: {formatWeatherPresetLabel(activeSeasonEffectPreset)}</p>
+            <p className="muted text-small">실시간 날씨 계산: {formatWeatherPresetLabel(weatherPreset)}</p>
+            <div className="button-row top-gap">
+              <button
+                type="button"
+                className={seasonEffectsTestPreset === null ? "" : "ghost-btn"}
+                onClick={() => applySeasonEffectsTestPreset(null)}
+              >
+                AUTO
+              </button>
+              <button
+                type="button"
+                className={seasonEffectsTestPreset === "SNOW" ? "" : "ghost-btn"}
+                onClick={() => applySeasonEffectsTestPreset("SNOW")}
+              >
+                눈
+              </button>
+              <button
+                type="button"
+                className={seasonEffectsTestPreset === "RAIN" ? "" : "ghost-btn"}
+                onClick={() => applySeasonEffectsTestPreset("RAIN")}
+              >
+                비
+              </button>
+              <button
+                type="button"
+                className={seasonEffectsTestPreset === "BLOSSOM" ? "" : "ghost-btn"}
+                onClick={() => applySeasonEffectsTestPreset("BLOSSOM")}
+              >
+                벚꽃
+              </button>
+              <button
+                type="button"
+                className={seasonEffectsTestPreset === "MAPLE" ? "" : "ghost-btn"}
+                onClick={() => applySeasonEffectsTestPreset("MAPLE")}
+              >
+                단풍
+              </button>
+              <button
+                type="button"
+                className={seasonEffectsTestPreset === "BREEZE" ? "" : "ghost-btn"}
+                onClick={() => applySeasonEffectsTestPreset("BREEZE")}
+              >
+                브리즈
+              </button>
+            </div>
+            <div className="button-row top-gap">
+              <button type="button" className="ghost-btn" onClick={() => setSeasonEffectsTestOpen(false)}>닫기</button>
+            </div>
           </section>
         </div>
       ) : null}
