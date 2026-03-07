@@ -1141,25 +1141,112 @@ textarea:focus {
 }
 
 .season-effects-layer {
-  position: fixed !important;
+  position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 30;
+  z-index: 1200;
+  overflow: hidden;
 }
 
-.season-effects-layer > canvas {
-  opacity: 0.88;
+.season-effects-atmosphere {
+  position: absolute;
+  inset: 0;
+  opacity: 0.28;
+  mix-blend-mode: screen;
+  animation: seasonAtmosphereDrift 14s linear infinite;
 }
 
-.season-effects-toggle.is-active {
+.season-effects-snow .season-effects-atmosphere {
+  background: radial-gradient(1200px 600px at 10% 0%, rgb(191 219 254 / 40%), transparent 60%),
+    radial-gradient(1000px 700px at 90% 100%, rgb(219 234 254 / 30%), transparent 62%);
+}
+
+.season-effects-rain .season-effects-atmosphere {
+  background: radial-gradient(1200px 700px at 20% 0%, rgb(59 130 246 / 35%), transparent 62%),
+    radial-gradient(1000px 700px at 85% 90%, rgb(147 197 253 / 30%), transparent 65%);
+}
+
+.season-effects-blossom .season-effects-atmosphere {
+  background: radial-gradient(1200px 620px at 10% 0%, rgb(244 114 182 / 32%), transparent 60%),
+    radial-gradient(1000px 700px at 90% 100%, rgb(251 207 232 / 36%), transparent 64%);
+}
+
+.season-effects-maple .season-effects-atmosphere {
+  background: radial-gradient(1200px 620px at 15% 0%, rgb(251 146 60 / 34%), transparent 60%),
+    radial-gradient(1000px 700px at 80% 100%, rgb(245 158 11 / 30%), transparent 64%);
+}
+
+.season-effects-breeze .season-effects-atmosphere {
+  background: radial-gradient(1200px 620px at 15% 0%, rgb(191 219 254 / 26%), transparent 62%),
+    radial-gradient(1000px 700px at 80% 100%, rgb(226 232 240 / 24%), transparent 68%);
+}
+
+.season-effects-particles,
+.season-effects-particles > canvas,
+.season-effects-particles canvas {
+  position: absolute !important;
+  inset: 0;
+}
+
+.season-effects-particles canvas {
+  opacity: 0.94;
+}
+
+.weather-toggle-btn {
+  min-width: 148px;
+  height: 40px;
+  border-radius: 12px;
+  padding: 0 11px;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.weather-toggle-btn:hover {
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+}
+
+.weather-toggle-btn.is-active {
   color: var(--primary);
   border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
   background: color-mix(in oklab, var(--primary-soft) 45%, var(--surface));
 }
 
-.season-effects-toggle:disabled {
+.weather-toggle-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.weather-toggle-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--primary) 38%, var(--border));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in oklab, var(--primary-soft) 34%, var(--surface));
+}
+
+.weather-toggle-copy {
+  display: grid;
+  text-align: left;
+  line-height: 1.1;
+}
+
+.weather-toggle-copy strong {
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+}
+
+.weather-toggle-copy small {
+  font-size: 0.65rem;
+  color: var(--text-muted);
 }
 
 .theme-toggle {
@@ -1758,6 +1845,18 @@ code {
   }
 }
 
+@keyframes seasonAtmosphereDrift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(1.8%, -1.4%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 @media (min-width: 921px) {
   .auth-brand {
     display: block;
@@ -1915,6 +2014,12 @@ code {
   .topbar-actions button,
   .topbar-actions .ghost-btn {
     width: auto;
+  }
+
+  .weather-toggle-btn {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
   }
 
   .topbar-brand h1 {
