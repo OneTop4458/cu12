@@ -1,7 +1,15 @@
+import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
 
-export type WorkerDispatchType = "sync" | "autolearn";
-export type WorkerDispatchState = "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE";
+export type WorkerDispatchType = "sync" | "autolearn" | "digest";
+export type WorkerDispatchState =
+  | "DISPATCHED"
+  | "NOT_CONFIGURED"
+  | "FAILED"
+  | "SKIPPED_DUPLICATE"
+  | "SKIPPED_CAPACITY"
+  | "SKIPPED_NO_PENDING";
 export type WorkerRunCancelState = "REQUESTED" | "NOT_CONFIGURED" | "NOT_APPLICABLE" | "FAILED";
 
 export interface WorkerDispatchResult {
@@ -10,6 +18,9 @@ export interface WorkerDispatchResult {
   errorCode: string | null;
   error?: string;
   statusCode?: number;
+  dispatchCount?: number;
+  capacity?: number;
+  activeRunCount?: number;
 }
 
 export interface WorkerRunCancelResult {
@@ -18,6 +29,236 @@ export interface WorkerRunCancelResult {
   errorCode: string | null;
   error?: string;
   statusCode?: number;
+}
+
+interface GitHubWorkflowRun {
+  id: number;
+  status: string;
+}
+
+interface GitHubWorkflowRunsResponse {
+  workflow_runs?: GitHubWorkflowRun[];
+}
+
+const JOB_TYPE_PRIORITY: JobType[] = [
+  JobType.SYNC,
+  JobType.NOTICE_SCAN,
+  JobType.AUTOLEARN,
+  JobType.MAIL_DIGEST,
+];
+
+function rankJobTypes(inputTypes: JobType[]): JobType[] {
+  const unique = Array.from(new Set(inputTypes));
+  const ordered: JobType[] = [];
+
+  for (const type of JOB_TYPE_PRIORITY) {
+    if (unique.includes(type)) {
+      ordered.push(type);
+    }
+  }
+
+  for (const type of unique) {
+    if (!ordered.includes(type)) {
+      ordered.push(type);
+    }
+  }
+
+  return ordered;
+}
+
+function parseJobTypes(jobTypes?: string): JobType[] {
+  if (!jobTypes || !jobTypes.trim()) return [];
+  const tokens = jobTypes
+    .split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter((value) => value.length > 0);
+  const types: JobType[] = [];
+  for (const token of tokens) {
+    if (!Object.values(JobType).includes(token as JobType)) continue;
+    types.push(token as JobType);
+  }
+  return rankJobTypes(types);
+}
+
+function resolveTypesFromTrigger(type: WorkerDispatchType): JobType[] {
+  if (type === "autolearn") return [JobType.AUTOLEARN];
+  if (type === "digest") return [JobType.MAIL_DIGEST];
+  return [JobType.SYNC, JobType.NOTICE_SCAN];
+}
+
+function resolveTriggerFromTypes(types: JobType[], fallback: WorkerDispatchType): WorkerDispatchType {
+  if (types.includes(JobType.AUTOLEARN)) return "autolearn";
+  if (types.includes(JobType.SYNC) || types.includes(JobType.NOTICE_SCAN)) return "sync";
+  if (types.includes(JobType.MAIL_DIGEST)) return "digest";
+  return fallback;
+}
+
+function resolveDispatchCapacity() {
+  const env = getEnv();
+  return Math.max(1, env.WORKER_DISPATCH_MAX_PARALLEL);
+}
+
+function toDispatchPayload(input: {
+  trigger: WorkerDispatchType;
+  userId?: string;
+  jobTypes?: string;
+}) {
+  const payload: Record<string, unknown> = {
+    ref: getEnv().GITHUB_WORKFLOW_REF,
+    inputs: {
+      trigger: input.trigger,
+    },
+  };
+
+  if (input.userId) {
+    (payload.inputs as Record<string, unknown>).userId = input.userId;
+  }
+  if (input.jobTypes) {
+    (payload.inputs as Record<string, unknown>).jobTypes = input.jobTypes;
+  }
+
+  return payload;
+}
+
+async function listActiveWorkerRuns(): Promise<number> {
+  const env = getEnv();
+  const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/runs?per_page=100`;
+  const response = await fetch(apiUrl, {
+    method: "GET",
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`GITHUB_RUN_LIST_FAILED:${response.status}:${text}`);
+  }
+
+  const body = await response.json().then((value) => value as GitHubWorkflowRunsResponse);
+  const runs = Array.isArray(body.workflow_runs) ? body.workflow_runs : [];
+  return runs.filter((run) => run.status !== "completed").length;
+}
+
+async function listPendingCandidateUsers(input: {
+  types: JobType[];
+  preferredUserId?: string;
+  limit: number;
+}): Promise<string[]> {
+  if (input.limit <= 0 || input.types.length === 0) return [];
+  const now = new Date();
+
+  const runningRows = await prisma.jobQueue.findMany({
+    where: {
+      status: JobStatus.RUNNING,
+    },
+    select: {
+      userId: true,
+    },
+  });
+  const runningUsers = new Set(runningRows.map((row) => row.userId));
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  if (input.preferredUserId && !runningUsers.has(input.preferredUserId)) {
+    const preferredPending = await prisma.jobQueue.findFirst({
+      where: {
+        userId: input.preferredUserId,
+        type: { in: input.types },
+        status: JobStatus.PENDING,
+        runAfter: { lte: now },
+      },
+      select: { id: true },
+    });
+    if (preferredPending) {
+      result.push(input.preferredUserId);
+      seen.add(input.preferredUserId);
+    }
+  }
+
+  if (result.length >= input.limit) {
+    return result.slice(0, input.limit);
+  }
+
+  const pendingRows = await prisma.jobQueue.findMany({
+    where: {
+      type: { in: input.types },
+      status: JobStatus.PENDING,
+      runAfter: { lte: now },
+    },
+    select: {
+      userId: true,
+    },
+    orderBy: { createdAt: "asc" },
+    take: Math.max(200, input.limit * 50),
+  });
+
+  for (const row of pendingRows) {
+    if (runningUsers.has(row.userId)) continue;
+    if (seen.has(row.userId)) continue;
+    seen.add(row.userId);
+    result.push(row.userId);
+    if (result.length >= input.limit) break;
+  }
+
+  return result;
+}
+
+async function resolvePendingTypesForUser(userId: string, allowedTypes: JobType[]): Promise<JobType[]> {
+  const now = new Date();
+  const rows = await prisma.jobQueue.findMany({
+    where: {
+      userId,
+      type: { in: allowedTypes },
+      status: JobStatus.PENDING,
+      runAfter: { lte: now },
+    },
+    select: { type: true },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+  });
+  return rankJobTypes(rows.map((row) => row.type));
+}
+
+async function dispatchWorkerRunRequest(
+  trigger: WorkerDispatchType,
+  userId?: string,
+  jobTypes?: string,
+): Promise<WorkerDispatchResult> {
+  const env = getEnv();
+  const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/dispatches`;
+  const payload = toDispatchPayload({ trigger, userId, jobTypes });
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "x-github-api-version": "2022-11-28",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (response.status !== 204) {
+    const text = await response.text();
+    return {
+      state: "FAILED",
+      dispatched: false,
+      errorCode: "GITHUB_DISPATCH_FAILED",
+      error: `GITHUB_DISPATCH_FAILED:${response.status}:${text}`,
+      statusCode: response.status,
+    };
+  }
+
+  return {
+    state: "DISPATCHED",
+    dispatched: true,
+    errorCode: null,
+  };
 }
 
 export function parseGitHubRunIdFromWorkerId(workerId: string | null | undefined): number | null {
@@ -60,7 +301,11 @@ export function parseGitHubRunIdFromWorkerId(workerId: string | null | undefined
   return null;
 }
 
-export async function dispatchWorkerRun(type: WorkerDispatchType, userId?: string): Promise<WorkerDispatchResult> {
+export async function dispatchWorkerRun(
+  type: WorkerDispatchType,
+  userId?: string,
+  jobTypes?: string,
+): Promise<WorkerDispatchResult> {
   const env = getEnv();
   if (!env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_WORKFLOW_ID || !env.GITHUB_TOKEN) {
     return {
@@ -71,45 +316,105 @@ export async function dispatchWorkerRun(type: WorkerDispatchType, userId?: strin
     };
   }
 
-  const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/dispatches`;
-
-  const payload: Record<string, unknown> = {
-    ref: env.GITHUB_WORKFLOW_REF,
-    inputs: {
-      trigger: type,
-    },
-  };
-
-  if (userId) {
-    (payload.inputs as Record<string, string>).userId = userId;
-  }
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "accept": "application/vnd.github+json",
-      "authorization": `Bearer ${env.GITHUB_TOKEN}`,
-      "x-github-api-version": "2022-11-28",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (response.status !== 204) {
-    const text = await response.text();
+  let activeRunCount = 0;
+  try {
+    activeRunCount = await listActiveWorkerRuns();
+  } catch (error) {
     return {
       state: "FAILED",
       dispatched: false,
-      errorCode: "GITHUB_DISPATCH_FAILED",
-      error: `GITHUB_DISPATCH_FAILED:${response.status}:${text}`,
-      statusCode: response.status,
+      errorCode: "GITHUB_RUN_LIST_FAILED",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const capacity = resolveDispatchCapacity();
+  const availableSlots = Math.max(0, capacity - activeRunCount);
+  if (availableSlots <= 0) {
+    return {
+      state: "SKIPPED_CAPACITY",
+      dispatched: false,
+      errorCode: "WORKER_DISPATCH_CAPACITY_REACHED",
+      dispatchCount: 0,
+      activeRunCount,
+      capacity,
+    };
+  }
+
+  const parsedTypes = parseJobTypes(jobTypes);
+  const targetTypes = parsedTypes.length > 0 ? parsedTypes : resolveTypesFromTrigger(type);
+  const candidateUsers = await listPendingCandidateUsers({
+    types: targetTypes,
+    preferredUserId: userId,
+    limit: userId ? 1 : availableSlots,
+  });
+
+  if (candidateUsers.length === 0) {
+    if (userId) {
+      const fallbackDispatch = await dispatchWorkerRunRequest(type, userId, targetTypes.join(","));
+      return {
+        ...fallbackDispatch,
+        dispatchCount: fallbackDispatch.dispatched ? 1 : 0,
+        activeRunCount,
+        capacity,
+      };
+    }
+
+    return {
+      state: "SKIPPED_NO_PENDING",
+      dispatched: false,
+      errorCode: "WORKER_DISPATCH_NO_PENDING",
+      dispatchCount: 0,
+      activeRunCount,
+      capacity,
+    };
+  }
+
+  let dispatchCount = 0;
+  let lastFailure: WorkerDispatchResult | null = null;
+
+  for (const candidateUserId of candidateUsers) {
+    if (dispatchCount >= availableSlots) break;
+    const pendingTypes = await resolvePendingTypesForUser(candidateUserId, targetTypes);
+    if (pendingTypes.length === 0) continue;
+
+    const trigger = resolveTriggerFromTypes(pendingTypes, type);
+    const response = await dispatchWorkerRunRequest(trigger, candidateUserId, pendingTypes.join(","));
+    if (response.dispatched) {
+      dispatchCount += 1;
+      continue;
+    }
+
+    lastFailure = response;
+  }
+
+  if (dispatchCount > 0) {
+    return {
+      state: "DISPATCHED",
+      dispatched: true,
+      errorCode: null,
+      dispatchCount,
+      activeRunCount,
+      capacity,
+    };
+  }
+
+  if (lastFailure) {
+    return {
+      ...lastFailure,
+      dispatchCount: 0,
+      activeRunCount,
+      capacity,
     };
   }
 
   return {
-    state: "DISPATCHED",
-    dispatched: true,
-    errorCode: null,
+    state: "SKIPPED_NO_PENDING",
+    dispatched: false,
+    errorCode: "WORKER_DISPATCH_NO_PENDING",
+    dispatchCount: 0,
+    activeRunCount,
+    capacity,
   };
 }
 

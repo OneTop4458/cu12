@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: ""
+      userId:
+        description: "Optional user id"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       trigger:
@@ -60,7 +65,7 @@ jobs:
       AUTOLEARN_TIME_FACTOR: ${{ secrets.AUTOLEARN_TIME_FACTOR }}
       AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS: 60
       AUTOLEARN_STALL_TIMEOUT_SECONDS: 1200
-      AUTOLEARN_CHUNK_TARGET_SECONDS: 5400
+      AUTOLEARN_CHUNK_TARGET_SECONDS: 3600
       AUTOLEARN_MAX_TASKS: ${{ secrets.AUTOLEARN_MAX_TASKS }}
       WORKER_ONCE_IDLE_GRACE_MS: 60000
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
@@ -109,4 +114,10 @@ jobs:
             ${{ runner.os }}-playwright-chromium-
       - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
         run: npx playwright install chromium
-      - run: npm --workspace @cu12/worker run once -- --types=${{ steps.resolve.outputs.job_types }}
+      - shell: bash
+        run: |
+          RUN_ARGS="--types=${{ steps.resolve.outputs.job_types }}"
+          if [ -n "${{ inputs.userId }}" ]; then
+            RUN_ARGS="$RUN_ARGS --userId=${{ inputs.userId }}"
+          fi
+          npm --workspace @cu12/worker run once -- $RUN_ARGS

@@ -15,13 +15,16 @@ interface ClaimedJob {
   attempts: number;
 }
 
-type WorkerDispatchType = "sync" | "autolearn";
+type WorkerDispatchType = "sync" | "autolearn" | "digest";
 
 interface WorkerDispatchResult {
-  state: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE";
+  state: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE" | "SKIPPED_CAPACITY" | "SKIPPED_NO_PENDING";
   dispatched: boolean;
   errorCode: string | null;
   error?: string;
+  dispatchCount?: number;
+  activeRunCount?: number;
+  capacity?: number;
 }
 
 interface FinishJobResponse {
@@ -109,10 +112,11 @@ export async function sendHeartbeat(workerId: string) {
   await post("/internal/worker/heartbeat", { workerId });
 }
 
-export async function claimJob(workerId: string, types: JobType[]): Promise<ClaimedJob | null> {
+export async function claimJob(workerId: string, types: JobType[], userId?: string): Promise<ClaimedJob | null> {
   const response = await post<{ job: ClaimedJob | null }>("/internal/worker/job/start", {
     workerId,
     types,
+    userId,
   });
   return response.job;
 }
@@ -129,11 +133,18 @@ export async function progressJob(jobId: string, workerId: string, result: unkno
   await post("/internal/worker/job/progress", { jobId, workerId, result });
 }
 
-export async function hasPendingJobs(types: JobType[]): Promise<boolean> {
-  const response = await post<{ pending: boolean }>("/internal/worker/job/pending", { types });
+export async function hasPendingJobs(types: JobType[], userId?: string): Promise<boolean> {
+  const response = await post<{ pending: boolean }>("/internal/worker/job/pending", { types, userId });
   return response.pending;
 }
 
-export async function requestWorkerDispatch(trigger: WorkerDispatchType): Promise<WorkerDispatchResult> {
-  return post<WorkerDispatchResult>("/internal/worker/dispatch", { trigger });
+export async function requestWorkerDispatch(
+  trigger: WorkerDispatchType,
+  options?: { userId?: string; jobTypes?: JobType[] },
+): Promise<WorkerDispatchResult> {
+  return post<WorkerDispatchResult>("/internal/worker/dispatch", {
+    trigger,
+    userId: options?.userId,
+    jobTypes: options?.jobTypes,
+  });
 }

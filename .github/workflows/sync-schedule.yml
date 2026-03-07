@@ -12,12 +12,10 @@ jobs:
   dispatch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:
-      created_count: ${{ steps.dispatch.outputs.created_count }}
-      existing_count: ${{ steps.dispatch.outputs.existing_count }}
-      pending_count: ${{ steps.dispatch.outputs.pending_count }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
+      WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -35,15 +33,16 @@ jobs:
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           PENDING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingPendingCount ?? 0));" "$SUMMARY_JSON_ROOT")
-          echo "created_count=$CREATED_COUNT" >> "$GITHUB_OUTPUT"
-          echo "existing_count=$EXISTING_COUNT" >> "$GITHUB_OUTPUT"
-          echo "pending_count=$PENDING_COUNT" >> "$GITHUB_OUTPUT"
-
-  consume:
-    needs: dispatch
-    if: ${{ needs.dispatch.outputs.created_count != '0' || needs.dispatch.outputs.pending_count != '0' }}
-    uses: ./.github/workflows/worker-consume.yml
-    with:
-      trigger: sync
-      jobTypes: SYNC,NOTICE_SCAN
-    secrets: inherit
+          if [ "$CREATED_COUNT" != "0" ] || [ "$PENDING_COUNT" != "0" ]; then
+            TARGET_URL="${WEB_INTERNAL_BASE_URL%/}/internal/worker/dispatch"
+            RESPONSE=$(curl -fsS -X POST "$TARGET_URL" \
+              -H "content-type: application/json" \
+              -H "x-worker-token: $WORKER_SHARED_TOKEN" \
+              -d '{"trigger":"sync"}')
+            echo "dispatch_response=$RESPONSE"
+            STATE=$(node -e "const data=JSON.parse(process.argv[1]); process.stdout.write(String(data.state ?? ''));" "$RESPONSE")
+            if [ "$STATE" = "FAILED" ]; then
+              echo "worker dispatch failed" >&2
+              exit 1
+            fi
+          fi

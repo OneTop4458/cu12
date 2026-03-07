@@ -13,7 +13,8 @@
 - Can be scheduled or manually dispatched.
 - Job timeout is capped at 120 minutes.
 - Uses queue-level concurrency control in `/apps/web/src/server/queue.ts` as the primary guard.
-- No workflow-level concurrency lock is configured, so multiple runners can process different job types in parallel when triggered.
+- Accepts optional `userId` input so a single consume run can be pinned to one user queue.
+- `AUTOLEARN_CHUNK_TARGET_SECONDS` is tuned for 60-minute chunks to reduce long single-user slot holding.
 - Uses `npm ci --prefer-offline --no-audit` and Playwright cache for faster startup.
 - Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
 - Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
@@ -22,22 +23,23 @@
 - Supports conservative browser/session realism controls (`PLAYWRIGHT_ACCEPT_LANGUAGE`, `AUTOLEARN_HUMANIZATION_ENABLED`, delay ranges).
 - In `--once`, AUTOLEARN run exits after one completed chunk and hands off pending AUTOLEARN work by requesting a follow-up dispatch.
 - Manual action dispatch treats SYNC as priority: if a job is duplicate and still running/pending within stale windows, dispatch can be skipped (`SKIPPED_DUPLICATE`) to avoid storming GitHub API; stale duplicates are force-redispatched.
+- Internal dispatch is centralized through `/internal/worker/dispatch` with capped parallel fan-out (`WORKER_DISPATCH_MAX_PARALLEL`, default `12`).
 
 4. `sync-schedule.yml`
 - Dispatches periodic `SYNC` jobs every 2 hours.
-- Calls `worker-consume.yml` only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
+- Enqueues jobs first, then calls `/internal/worker/dispatch` only when new/pending work exists.
 
 5. `mail-digest-schedule.yml`
-- Dispatches hourly `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
+- Dispatches hourly `MAIL_DIGEST` jobs and then requests centralized worker dispatch.
 - Worker dispatch filters users by KST hour (`digestHour`) so each user receives digest at the configured hour.
-- Calls `worker-consume.yml` only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
+- Calls centralized dispatch only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 - Digest and alert mails are rendered as HTML with actionable detail blocks (last 24h notice/notification changes, upcoming deadlines) and dashboard deep links.
 
 6. `autolearn-dispatch.yml`
 - Dispatches periodic AUTOLEARN jobs daily (`20 0 * * *`, UTC) and supports manual dispatch.
 - Scheduled dispatch uses `--min-interval-minutes=1440` and `--eligible-window-only=true` so only users with currently available pending VOD tasks are queued.
 - Manual dispatch keeps operator-trigger behavior for explicit AUTOLEARN execution.
-- Calls `worker-consume.yml` only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
+- Calls centralized dispatch only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
 7. `reconcile-health-check.yml`
 - Calls `/internal/admin/jobs/reconcile` every 4 hours using `WORKER_SHARED_TOKEN`.
