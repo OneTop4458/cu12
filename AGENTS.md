@@ -79,33 +79,55 @@ npm run build:web
 ## AI Branch and Worktree Standard
 
 1. Do not develop directly in the primary checkout when running multiple AI sessions.
-2. Create one isolated worktree per task from `origin/main`:
+2. Every Codex session must start with `ai:start` (mandatory bootstrap):
 
 ```bash
-npm run ai:worktree -- --task "<task-slug>"
+npm run ai:start -- --task "<task-slug>"
 ```
 
-3. Worktree path is created under `.worktrees/` and should map 1:1 with a single feature branch.
-4. Never reuse the same branch/worktree for unrelated tasks.
-5. Do not run `ai:ship` from `main` or `develop`; use feature branches only.
-6. `ai:ship` is designed to run inside linked worktrees (not primary checkout) to reduce multi-agent conflicts.
+3. `ai:start` always fetches latest `origin/main` first, then prepares a session-safe worktree.
+4. Default mode is session worktree reuse (one worktree per Codex session/thread):
+   - Branch: `ai/session-<session-id>`
+   - Path: `.worktrees/session-<session-id>`
+5. `session-id` is `CODEX_THREAD_ID` by default. If unavailable, provide `--session <id>`.
+6. Use `--new-task` only for truly unrelated work that must be isolated in a separate task branch/worktree.
+7. Session lock file (`.codex-session.lock`) is enforced. If active lock exists, abort; use `--force` only when intentional.
+8. `ai:worktree` remains available for low-level/manual branch bootstrapping, but `ai:start` is the default entry point.
+9. Do not run `ai:ship` from `main` or `develop`; use feature branches only.
+10. `ai:ship` is designed to run inside linked worktrees (not primary checkout) to reduce multi-agent conflicts.
 
 ## AI Auto-PR Automation
 
-1. After implementation, run the automated ship command:
+1. For AI implementation tasks that produce code/doc changes, default finish line is `ai:ship` (commit/push/PR) unless user explicitly requests otherwise (`no-pr`, `no-push`, plan-only, research-only).
+2. After implementation, run:
 
 ```bash
 npm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary"
 ```
 
-2. `ai:ship` executes required validation in order, then performs:
+3. `ai:ship` executes required validation in order, then performs:
    1. `git add -A`
    2. `git commit`
    3. `git push --set-upstream origin <branch>`
    4. `gh pr create --base main --head <branch>`
-3. `gh` authentication must be active before running automation (`gh auth status`).
-4. If validation fails, fix root cause first. Do not bypass checks to force PR creation.
-5. Emergency override for primary checkout exists but should be avoided: `--allowPrimaryCheckout`.
+4. `--commit` / `--title` are optional. When omitted, `ai:ship` generates defaults from current branch slug.
+5. `gh` authentication must be active before running automation (`gh auth status`).
+6. If validation fails, fix root cause first. Do not bypass checks to force PR creation.
+7. Emergency override for primary checkout exists but should be avoided: `--allowPrimaryCheckout`.
+8. Controlled exceptions:
+   - `--noPr`: push only, skip PR creation.
+   - `--noPush --noPr`: local commit only.
+
+## AI Worktree Cleanup Policy
+
+1. After PR merge, remove merged task/session worktrees and local branches that are no longer needed.
+2. Run periodic cleanup to avoid stale session worktrees:
+
+```bash
+git worktree prune --expire=7.days.ago
+```
+
+3. Never prune active worktrees used by a live Codex session.
 
 ## Codex Review Policy
 

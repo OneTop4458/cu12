@@ -23,6 +23,7 @@
     "prisma:generate": "npm --workspace @cu12/web run prisma:generate",
     "prisma:migrate": "npm --workspace @cu12/web run prisma:migrate",
     "prisma:push": "npx prisma db push --schema prisma/schema.prisma",
+    "ai:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-start.ps1",
     "ai:worktree": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-worktree-create.ps1",
     "ai:ship": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-pr.ps1",
     "postinstall": "npm run prisma:generate"
