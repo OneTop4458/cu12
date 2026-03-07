@@ -71,6 +71,10 @@ npm run build:web
 3. Never print secrets in CI logs, PR comments, or automation script output.
 4. `main` must be updated only through pull requests. Direct push to `main` is prohibited.
 5. Every AI/operator task must start from latest `origin/main` using an isolated branch and worktree.
+6. Branch protection baseline for `main`:
+   - required status checks: `test`
+   - required approving reviews: `0`
+   - required conversation resolution: enabled
 
 ## AI Branch and Worktree Standard
 
@@ -102,6 +106,11 @@ npm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary
 3. `gh` authentication must be active before running automation (`gh auth status`).
 4. If validation fails, fix root cause first. Do not bypass checks to force PR creation.
 5. Emergency override for primary checkout exists but should be avoided: `--allowPrimaryCheckout`.
+
+## Codex Review Policy
+
+1. Codex review is optional guidance for PR quality and is not a required merge gate.
+2. Merge readiness is determined by required checks (currently `test`) plus branch protection rules.
 
 ## Deployment Baseline
 

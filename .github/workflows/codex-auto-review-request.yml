@@ -15,6 +15,59 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Request default reviewer
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          DEFAULT_PR_REVIEWER: ${{ vars.DEFAULT_PR_REVIEWER }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+            const author = context.payload.pull_request.user?.login ?? "";
+            const defaultReviewer = (process.env.DEFAULT_PR_REVIEWER || "OneTop4458").trim();
+
+            if (!defaultReviewer) {
+              core.info("No default reviewer configured. Skipping.");
+              return;
+            }
+
+            if (defaultReviewer === author) {
+              core.info(`Default reviewer '${defaultReviewer}' is PR author. Skipping reviewer request.`);
+              return;
+            }
+
+            const pr = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number,
+            });
+
+            const alreadyRequested = (pr.data.requested_reviewers ?? []).some((reviewer) => {
+              return reviewer.login === defaultReviewer;
+            });
+
+            if (alreadyRequested) {
+              core.info(`Reviewer '${defaultReviewer}' is already requested.`);
+              return;
+            }
+
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number,
+                reviewers: [defaultReviewer],
+              });
+              core.info(`Requested reviewer '${defaultReviewer}'.`);
+            } catch (error) {
+              if (error.status === 422) {
+                core.info(`Unable to request reviewer '${defaultReviewer}' (likely invalid reviewer for this repo).`);
+                return;
+              }
+              throw error;
+            }
+
       - name: Comment @codex review once
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         with:
