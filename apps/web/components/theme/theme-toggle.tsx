@@ -9,12 +9,14 @@ function ThemeOptionButton({
   onClick,
   icon: Icon,
   label,
+  ariaLabel,
   value,
 }: {
   active: boolean;
   onClick: () => void;
   icon: typeof Sun;
   label: string;
+  ariaLabel?: string;
   value: "light" | "dark" | "system";
 }) {
   return (
@@ -22,7 +24,7 @@ function ThemeOptionButton({
       type="button"
       className={`theme-toggle-item ${active ? "active" : ""}`}
       aria-pressed={active}
-      aria-label={`${label} 테마 설정`}
+      aria-label={ariaLabel ?? `${label} 테마 설정`}
       onClick={onClick}
       data-theme-option={value}
     >
@@ -63,7 +65,8 @@ export function ThemeToggle() {
         active={mounted && current === "system"}
         onClick={() => setTheme("system")}
         icon={Monitor}
-        label="시스템(시간 자동)"
+        label="시스템"
+        ariaLabel="시스템(시간 자동) 테마 설정"
         value="system"
       />
     </div>
