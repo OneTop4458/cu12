@@ -1140,6 +1140,28 @@ textarea:focus {
   justify-content: center;
 }
 
+.season-effects-layer {
+  position: fixed !important;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.season-effects-layer > canvas {
+  opacity: 0.88;
+}
+
+.season-effects-toggle.is-active {
+  color: var(--primary);
+  border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
+  background: color-mix(in oklab, var(--primary-soft) 45%, var(--surface));
+}
+
+.season-effects-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .theme-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
