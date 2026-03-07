@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Particles, { initParticlesEngine } from "@tsparticles/react";
 import { loadSlim } from "@tsparticles/slim";
-import type { ISourceOptions } from "@tsparticles/engine";
+import type { Engine, ISourceOptions } from "@tsparticles/engine";
 
 export type SeasonEffectPreset = "SNOW" | "RAIN" | "BLOSSOM" | "MAPLE" | "BREEZE";
 
@@ -189,10 +189,22 @@ export function SeasonEffectsLayer({ enabled, preset, reducedDensity = false }: 
     if (particlesEngineReady) return;
     let mounted = true;
     void initParticlesEngine(async (engine) => {
-      await loadSlim(engine);
+      // NOTE:
+      // On some production bundles, @tsparticles/react can pass undefined here.
+      // Fall back to the global engine exposed by @tsparticles/engine to keep effects working.
+      const globalEngine = typeof window !== "undefined"
+        ? (window as Window & { tsParticles?: Engine }).tsParticles
+        : undefined;
+      const safeEngine = engine ?? globalEngine;
+      if (!safeEngine) {
+        throw new Error("tsParticles engine is unavailable");
+      }
+      await loadSlim(safeEngine);
     }).then(() => {
       particlesEngineReady = true;
       if (mounted) setIsReady(true);
+    }).catch((error) => {
+      console.error("Season effects engine init failed", error);
     });
     return () => {
       mounted = false;
