@@ -589,7 +589,26 @@ export async function updateJobProgress(jobId: string, workerId: string, result:
   });
 }
 
-export async function markJobFailed(jobId: string, workerId: string, errorMessage: string) {
+export async function markJobFailed(jobId: string, workerId: string, errorMessage: string): Promise<{
+  job: {
+    id: string;
+    userId: string;
+    type: JobType;
+    status: JobStatus;
+    payload: Prisma.JsonValue;
+    result: Prisma.JsonValue | null;
+    idempotencyKey: string | null;
+    attempts: number;
+    runAfter: Date;
+    workerId: string | null;
+    startedAt: Date | null;
+    finishedAt: Date | null;
+    lastError: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+  retryQueued: boolean;
+}> {
   const current = await prisma.jobQueue.findUnique({
     where: { id: jobId },
     select: { status: true, workerId: true, userId: true, type: true, payload: true, attempts: true, idempotencyKey: true },
@@ -608,7 +627,8 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
     || current.status === JobStatus.CANCELED
     || current.status === JobStatus.FAILED
   ) {
-    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+    const job = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+    return { job, retryQueued: false };
   }
 
   const failed = await prisma.jobQueue.updateMany({
@@ -624,10 +644,12 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
     },
   });
   if (failed.count === 0) {
-    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+    const job = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+    return { job, retryQueued: false };
   }
 
   const updated = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+  let retryQueued = false;
 
   if (updated.attempts < 4) {
     const delayMinutes = [1, 5, 15, 60][Math.max(0, updated.attempts - 1)] ?? 60;
@@ -639,11 +661,13 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
         status: JobStatus.PENDING,
         runAfter: new Date(Date.now() + delayMinutes * 60_000),
         idempotencyKey: updated.idempotencyKey,
+        attempts: updated.attempts,
       },
     });
+    retryQueued = true;
   }
 
-  return updated;
+  return { job: updated, retryQueued };
 }
 
 export async function cancelJob(jobId: string): Promise<{

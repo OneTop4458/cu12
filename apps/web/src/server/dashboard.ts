@@ -18,6 +18,7 @@ interface CourseWeekSummary {
 }
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
+const AUTO_SYNC_MIN_INTERVAL_MINUTES = AUTO_SYNC_INTERVAL_HOURS * 60;
 
 function isTaskCompletedByProgress(task: { state: string; activityType: string; requiredSeconds: number; learnedSeconds: number }): boolean {
   if (task.state === "COMPLETED") return true;
@@ -45,6 +46,18 @@ function getNextScheduledSyncAt(now: Date): Date {
     0,
     0,
   ));
+}
+
+function getNextAutoSyncAt(now: Date, recentSyncCreatedAt: Date | null): Date {
+  if (!recentSyncCreatedAt) {
+    return getNextScheduledSyncAt(now);
+  }
+
+  const earliestEligibleAt = new Date(
+    recentSyncCreatedAt.getTime() + AUTO_SYNC_MIN_INTERVAL_MINUTES * 60_000,
+  );
+  const base = earliestEligibleAt.getTime() > now.getTime() ? earliestEligibleAt : now;
+  return getNextScheduledSyncAt(base);
 }
 
 function daysUntil(target: Date, now: Date): number {
@@ -89,7 +102,7 @@ export async function getDashboardSummary(userId: string) {
   });
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync, user] = await Promise.all([
+  const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync, recentSync, user] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, status: CourseStatus.ACTIVE },
@@ -101,13 +114,24 @@ export async function getDashboardSummary(userId: string) {
       orderBy: { finishedAt: "desc" },
       select: { finishedAt: true },
     }),
+    prisma.jobQueue.findFirst({
+      where: {
+        userId,
+        type: "SYNC",
+        status: {
+          in: ["PENDING", "RUNNING", "SUCCEEDED"],
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
     prisma.user.findUnique({
       where: { id: userId },
       select: { isTestUser: true },
     }),
   ]);
 
-  const nextAutoSyncAt = getNextScheduledSyncAt(now);
+  const nextAutoSyncAt = getNextAutoSyncAt(now, recentSync?.createdAt ?? null);
   const nextDeadlineTask = upcomingPendingTasks[0] ?? null;
 
   return {
