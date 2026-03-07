@@ -34,8 +34,8 @@
 - Digest and alert mails are rendered as HTML with actionable detail blocks (last 24h notice/notification changes, upcoming deadlines) and dashboard deep links.
 
 6. `autolearn-dispatch.yml`
-- Dispatches periodic AUTOLEARN jobs every 2 hours (`20 */2 * * *`, UTC) and supports manual dispatch.
-- Scheduled dispatch uses `--min-interval-minutes=120` and `--eligible-window-only=true` so only users with currently available pending VOD tasks are queued.
+- Dispatches periodic AUTOLEARN jobs daily (`20 0 * * *`, UTC) and supports manual dispatch.
+- Scheduled dispatch uses `--min-interval-minutes=1440` and `--eligible-window-only=true` so only users with currently available pending VOD tasks are queued.
 - Manual dispatch keeps operator-trigger behavior for explicit AUTOLEARN execution.
 - Calls `worker-consume.yml` only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 

@@ -87,7 +87,7 @@ const EXPECTED_SCHEDULES: Array<{
   {
     key: "autolearn",
     workflowPath: ".github/workflows/autolearn-dispatch.yml",
-    expectedCrons: ["20 */2 * * *"],
+    expectedCrons: ["20 0 * * *"],
   },
 ];
 
