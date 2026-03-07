@@ -5,96 +5,44 @@ import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
 
 type EffectiveTheme = "light" | "dark";
 
-type SunTimesPayload = {
-  daily?: {
-    sunrise?: string[];
-    sunset?: string[];
-  };
-};
-
-type SunThemeResult = {
+type TimedThemeResult = {
   theme: EffectiveTheme;
   nextSwitchAtMs: number;
 };
 
-const SEOUL_LOCATION = {
-  latitude: 37.4201,
-  longitude: 127.1262,
-  timezone: "Asia/Seoul",
-} as const;
-
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
-const SUN_REFRESH_FALLBACK_MS = 30 * 60 * 1000;
 const MIN_RECHECK_DELAY_MS = 45 * 1000;
-const KST_OFFSET = "+09:00";
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const SYSTEM_LIGHT_START_HOUR = 7;
+const SYSTEM_DARK_START_HOUR = 19;
 
-function parseKstDateTime(value: unknown): number | null {
-  if (typeof value !== "string" || !value) return null;
-  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(value)) {
-    const direct = Date.parse(value);
-    return Number.isFinite(direct) ? direct : null;
-  }
+function resolveSystemThemeByTime(nowMs = Date.now()): TimedThemeResult {
+  const nowKstMs = nowMs + KST_OFFSET_MS;
+  const nowKst = new Date(nowKstMs);
+  const year = nowKst.getUTCFullYear();
+  const month = nowKst.getUTCMonth();
+  const date = nowKst.getUTCDate();
+  const lightStartKstMs = Date.UTC(year, month, date, SYSTEM_LIGHT_START_HOUR, 0, 0, 0);
+  const darkStartKstMs = Date.UTC(year, month, date, SYSTEM_DARK_START_HOUR, 0, 0, 0);
 
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
-    const withOffset = Date.parse(`${value}:00${KST_OFFSET}`);
-    return Number.isFinite(withOffset) ? withOffset : null;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) {
-    const withOffset = Date.parse(`${value}${KST_OFFSET}`);
-    return Number.isFinite(withOffset) ? withOffset : null;
-  }
-
-  return null;
-}
-
-function computeSunTheme(nowMs: number, sunriseTodayMs: number, sunsetTodayMs: number, sunriseTomorrowMs: number | null): SunThemeResult | null {
-  if (!Number.isFinite(sunriseTodayMs) || !Number.isFinite(sunsetTodayMs)) return null;
-  if (sunriseTodayMs >= sunsetTodayMs) return null;
-
-  if (nowMs < sunriseTodayMs) {
+  if (nowKstMs < lightStartKstMs) {
     return {
       theme: "dark",
-      nextSwitchAtMs: sunriseTodayMs + 1000,
+      nextSwitchAtMs: lightStartKstMs - KST_OFFSET_MS + 1000,
     };
   }
 
-  if (nowMs < sunsetTodayMs) {
+  if (nowKstMs < darkStartKstMs) {
     return {
       theme: "light",
-      nextSwitchAtMs: sunsetTodayMs + 1000,
+      nextSwitchAtMs: darkStartKstMs - KST_OFFSET_MS + 1000,
     };
   }
 
   return {
     theme: "dark",
-    nextSwitchAtMs: (sunriseTomorrowMs ?? sunriseTodayMs + 24 * 60 * 60 * 1000) + 1000,
+    nextSwitchAtMs: lightStartKstMs + 24 * 60 * 60 * 1000 - KST_OFFSET_MS + 1000,
   };
-}
-
-async function fetchSunTheme(now = new Date()): Promise<SunThemeResult | null> {
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", String(SEOUL_LOCATION.latitude));
-  url.searchParams.set("longitude", String(SEOUL_LOCATION.longitude));
-  url.searchParams.set("daily", "sunrise,sunset");
-  url.searchParams.set("forecast_days", "2");
-  url.searchParams.set("timezone", SEOUL_LOCATION.timezone);
-
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      accept: "application/json",
-    },
-  });
-
-  if (!response.ok) return null;
-  const payload = (await response.json()) as SunTimesPayload;
-  const sunriseTodayMs = parseKstDateTime(payload.daily?.sunrise?.[0]);
-  const sunsetTodayMs = parseKstDateTime(payload.daily?.sunset?.[0]);
-  const sunriseTomorrowMs = parseKstDateTime(payload.daily?.sunrise?.[1]);
-  if (sunriseTodayMs === null || sunsetTodayMs === null) return null;
-  return computeSunTheme(now.getTime(), sunriseTodayMs, sunsetTodayMs, sunriseTomorrowMs);
 }
 
 function normalizeResolvedTheme(value: string | undefined): EffectiveTheme | null {
@@ -105,12 +53,12 @@ function normalizeResolvedTheme(value: string | undefined): EffectiveTheme | nul
 
 function ThemeBridge() {
   const { theme, resolvedTheme } = useTheme();
-  const [sunTheme, setSunTheme] = useState<EffectiveTheme | null>(null);
+  const [timedTheme, setTimedTheme] = useState<EffectiveTheme | null>(null);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (theme !== "system") {
-      setSunTheme(null);
+      setTimedTheme(null);
       if (timerRef.current) {
         window.clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -125,29 +73,18 @@ function ThemeBridge() {
         window.clearTimeout(timerRef.current);
       }
       timerRef.current = window.setTimeout(() => {
-        void refreshSunTheme();
+        refreshTimedTheme();
       }, Math.max(MIN_RECHECK_DELAY_MS, delayMs));
     };
 
-    const refreshSunTheme = async () => {
-      try {
-        const result = await fetchSunTheme();
-        if (cancelled) return;
-        if (!result) {
-          setSunTheme(null);
-          scheduleRefresh(SUN_REFRESH_FALLBACK_MS);
-          return;
-        }
-        setSunTheme(result.theme);
-        scheduleRefresh(result.nextSwitchAtMs - Date.now());
-      } catch {
-        if (cancelled) return;
-        setSunTheme(null);
-        scheduleRefresh(SUN_REFRESH_FALLBACK_MS);
-      }
+    const refreshTimedTheme = () => {
+      const next = resolveSystemThemeByTime(Date.now());
+      if (cancelled) return;
+      setTimedTheme(next.theme);
+      scheduleRefresh(next.nextSwitchAtMs - Date.now());
     };
 
-    void refreshSunTheme();
+    refreshTimedTheme();
 
     return () => {
       cancelled = true;
@@ -160,17 +97,17 @@ function ThemeBridge() {
 
   const fallbackTheme = normalizeResolvedTheme(resolvedTheme);
   const effectiveTheme = useMemo<EffectiveTheme | null>(() => {
-    if (theme === "system") return sunTheme ?? fallbackTheme;
+    if (theme === "system") return timedTheme ?? fallbackTheme;
     return fallbackTheme;
-  }, [fallbackTheme, sunTheme, theme]);
+  }, [fallbackTheme, timedTheme, theme]);
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "system" && sunTheme) {
+    if (theme === "system" && timedTheme) {
       root.classList.remove("light", "dark");
-      root.classList.add(sunTheme);
-      root.style.colorScheme = sunTheme;
-      root.dataset.cu12SystemTheme = sunTheme;
+      root.classList.add(timedTheme);
+      root.style.colorScheme = timedTheme;
+      root.dataset.cu12SystemTheme = timedTheme;
       return;
     }
 
@@ -180,7 +117,7 @@ function ThemeBridge() {
       root.classList.remove("light", "dark");
       root.classList.add(fallbackTheme);
     }
-  }, [fallbackTheme, sunTheme, theme]);
+  }, [fallbackTheme, timedTheme, theme]);
 
   useEffect(() => {
     if (!effectiveTheme) return;

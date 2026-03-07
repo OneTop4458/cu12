@@ -875,22 +875,6 @@ paths:
                     items:
                       $ref: "#/components/schemas/DashboardDeadline"
 
-  /api/dashboard/weather-effects:
-    get:
-      tags: [Dashboard]
-      summary: Weather-driven seasonal effect preset for dashboard visuals
-      security:
-        - cookieAuth: []
-      responses:
-        "200":
-          description: Current weather snapshot and derived effect preset
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DashboardWeatherEffects"
-        "401":
-          description: Unauthorized
-
   /api/dashboard/courses/{lectureSeq}/notices:
     get:
       tags: [Dashboard]
@@ -2753,65 +2737,6 @@ components:
           type: integer
           minimum: 1
         initialSyncRequired:
-          type: boolean
-
-    DashboardWeatherLocation:
-      type: object
-      required: [name, latitude, longitude, timezone]
-      properties:
-        name:
-          type: string
-        latitude:
-          type: number
-          format: double
-        longitude:
-          type: number
-          format: double
-        timezone:
-          type: string
-
-    DashboardWeatherSnapshot:
-      type: object
-      required: [observedAt, weatherCode, isDay, temperatureC]
-      properties:
-        observedAt:
-          type: string
-          nullable: true
-        weatherCode:
-          type: integer
-          nullable: true
-        isDay:
-          type: boolean
-          nullable: true
-        temperatureC:
-          type: number
-          nullable: true
-
-    DashboardWeatherDerived:
-      type: object
-      required: [season, condition, effectPreset]
-      properties:
-        season:
-          type: string
-          enum: [SPRING, SUMMER, AUTUMN, WINTER]
-        condition:
-          type: string
-          enum: [SNOW, RAIN, CLEAR_OR_CLOUD]
-        effectPreset:
-          type: string
-          enum: [SNOW, RAIN, BLOSSOM, MAPLE, BREEZE]
-
-    DashboardWeatherEffects:
-      type: object
-      required: [location, weather, derived, fallback]
-      properties:
-        location:
-          $ref: "#/components/schemas/DashboardWeatherLocation"
-        weather:
-          $ref: "#/components/schemas/DashboardWeatherSnapshot"
-        derived:
-          $ref: "#/components/schemas/DashboardWeatherDerived"
-        fallback:
           type: boolean
 
     DashboardActivityTypeCounts:
