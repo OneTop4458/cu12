@@ -3781,7 +3781,7 @@ components:
     AdminJobReconcileResponse:
       type: object
       required:
-        [checkedAt, canReconcileWithGitHub, summary, runningJobs, orphanedRunningJobs, activeRuns, ghostRuns]
+        [checkedAt, canReconcileWithGitHub, summary, scheduleChecks, runningJobs, orphanedRunningJobs, activeRuns, ghostRuns]
       properties:
         checkedAt:
           type: string
@@ -3790,6 +3790,10 @@ components:
           type: boolean
         summary:
           $ref: "#/components/schemas/AdminJobReconcileSummary"
+        scheduleChecks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobScheduleCheck"
         runningJobs:
           type: array
           items:
@@ -3825,6 +3829,29 @@ components:
         nonparseableWorkerIdCount:
           type: integer
           default: 0
+
+    AdminJobScheduleCheck:
+      type: object
+      required: [key, workflowPath, expectedCrons, actualCrons, status, message]
+      properties:
+        key:
+          type: string
+          enum: [sync, autolearn]
+        workflowPath:
+          type: string
+        expectedCrons:
+          type: array
+          items:
+            type: string
+        actualCrons:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [MATCH, MISMATCH, UNKNOWN]
+        message:
+          type: string
 
     AdminJobReconcileDbItem:
       type: object

@@ -1,4 +1,4 @@
-import { JobType } from "@prisma/client";
+import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "./env";
 
 interface ClaimedJob {
@@ -22,6 +22,22 @@ interface WorkerDispatchResult {
   dispatched: boolean;
   errorCode: string | null;
   error?: string;
+}
+
+interface FinishJobResponse {
+  updated: boolean;
+  status: JobStatus;
+  autoLearn?: {
+    continuationQueued: boolean;
+    chainLimitReached: boolean;
+    chainSegment: number | null;
+  } | null;
+}
+
+interface FailJobResponse {
+  updated: boolean;
+  status: JobStatus;
+  retryQueued: boolean;
 }
 
 function sleep(ms: number) {
@@ -101,12 +117,12 @@ export async function claimJob(workerId: string, types: JobType[]): Promise<Clai
   return response.job;
 }
 
-export async function finishJob(jobId: string, workerId: string, result: unknown) {
-  await post("/internal/worker/job/finish", { jobId, workerId, result });
+export async function finishJob(jobId: string, workerId: string, result: unknown): Promise<FinishJobResponse> {
+  return post<FinishJobResponse>("/internal/worker/job/finish", { jobId, workerId, result });
 }
 
-export async function failJob(jobId: string, workerId: string, error: string) {
-  await post("/internal/worker/job/fail", { jobId, workerId, error });
+export async function failJob(jobId: string, workerId: string, error: string): Promise<FailJobResponse> {
+  return post<FailJobResponse>("/internal/worker/job/fail", { jobId, workerId, error });
 }
 
 export async function progressJob(jobId: string, workerId: string, result: unknown) {

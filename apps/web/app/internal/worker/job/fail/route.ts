@@ -17,8 +17,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    const job = await markJobFailed(body.jobId, body.workerId, body.error);
-    return jsonOk({ updated: true, status: job.status });
+    const { job, retryQueued } = await markJobFailed(body.jobId, body.workerId, body.error);
+    return jsonOk({ updated: true, status: job.status, retryQueued });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400);

@@ -28,19 +28,22 @@
 - Calls `worker-consume.yml` only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
 5. `mail-digest-schedule.yml`
-- Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
+- Dispatches hourly `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
+- Worker dispatch filters users by KST hour (`digestHour`) so each user receives digest at the configured hour.
 - Calls `worker-consume.yml` only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 - Digest and alert mails are rendered as HTML with actionable detail blocks (last 24h notice/notification changes, upcoming deadlines) and dashboard deep links.
 
 6. `autolearn-dispatch.yml`
-- Manual AUTOLEARN dispatch workflow.
-- Enqueues AUTOLEARN request(s) and calls `worker-consume.yml` for execution.
-- Used for operator/manual triggering when explicit AUTOLEARN dispatch is needed.
+- Dispatches periodic AUTOLEARN jobs every 2 hours (`20 */2 * * *`, UTC) and supports manual dispatch.
+- Scheduled dispatch uses `--min-interval-minutes=120` and `--eligible-window-only=true` so only users with currently available pending VOD tasks are queued.
+- Manual dispatch keeps operator-trigger behavior for explicit AUTOLEARN execution.
+- Calls `worker-consume.yml` only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
 7. `reconcile-health-check.yml`
 - Calls `/internal/admin/jobs/reconcile` every 4 hours using `WORKER_SHARED_TOKEN`.
 - Fails the workflow when active job/run divergence is detected (`orphanedRunningJobsCount > 0` or `ghostRunsCount > 0`).
 - Fails also when reconciliation could not be performed with GitHub API (`canReconcileWithGitHub = false`).
+- Includes workflow schedule consistency checks for `sync-schedule.yml` and `autolearn-dispatch.yml` in reconcile payload (`scheduleChecks`).
 
 8. `db-retention-cleanup.yml`
 - Deletes old rows by retention policy:

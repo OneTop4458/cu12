@@ -10,6 +10,27 @@ const BodySchema = z.object({
   result: z.unknown().optional(),
 });
 
+function parseAutoLearnMeta(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+
+  const record = result as Record<string, unknown>;
+  if (!("continuationQueued" in record) && !("chainLimitReached" in record) && !("chainSegment" in record)) {
+    return null;
+  }
+
+  const chainSegment = typeof record.chainSegment === "number" && Number.isFinite(record.chainSegment)
+    ? Math.max(1, Math.floor(record.chainSegment))
+    : null;
+
+  return {
+    continuationQueued: record.continuationQueued === true,
+    chainLimitReached: record.chainLimitReached === true,
+    chainSegment,
+  };
+}
+
 export async function POST(request: NextRequest) {
   if (!isWorkerAuthorized(request)) {
     return jsonError("Forbidden", 403);
@@ -18,7 +39,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, BodySchema);
     const job = await markJobSucceeded(body.jobId, body.workerId, body.result);
-    return jsonOk({ updated: true, status: job.status });
+    const autoLearn = job.type === "AUTOLEARN" ? parseAutoLearnMeta(job.result) : null;
+    return jsonOk({ updated: true, status: job.status, autoLearn });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400);

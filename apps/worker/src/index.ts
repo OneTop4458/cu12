@@ -235,11 +235,60 @@ function formatAutoLearnNoOpReason(reason: string | null | undefined): string | 
   if (reason === "NO_TASKS_AFTER_FILTER") return "No lesson remained after filter application.";
   return reason;
 }
+
+type AutoLearnTerminalStatus = "SUCCEEDED" | "FAILED" | "CANCELED";
+
+function formatAutoLearnTarget(mode: AutoLearnMode, lectureSeq?: number): string {
+  if (mode === "ALL_COURSES") return "All active courses";
+  if (typeof lectureSeq === "number" && Number.isFinite(lectureSeq)) {
+    return `Lecture ${lectureSeq}`;
+  }
+  return "Selected course";
+}
+
+function formatAutoLearnTerminalStatus(status: AutoLearnTerminalStatus): string {
+  if (status === "SUCCEEDED") return "Succeeded";
+  if (status === "CANCELED") return "Canceled";
+  return "Failed";
+}
+
 function toAutoLearnMode(raw: unknown): AutoLearnMode {
   if (raw === "SINGLE_NEXT" || raw === "SINGLE_ALL" || raw === "ALL_COURSES") {
     return raw;
   }
   return "ALL_COURSES";
+}
+
+function toChainSegment(raw: unknown, fallback = 1): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(raw));
+}
+
+interface AutoLearnJobResultPayload {
+  type: "AUTOLEARN";
+  mode: AutoLearnMode;
+  watchedTaskCount: number;
+  watchedSeconds: number;
+  plannedTaskCount: number;
+  noOpReason?: string | null;
+  planned?: AutoLearnPlannedTask[];
+  truncated: boolean;
+  estimatedTotalSeconds: number;
+  chainSegment?: number;
+}
+
+function isAutoLearnJobResultPayload(value: unknown): value is AutoLearnJobResultPayload {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (record.type !== "AUTOLEARN") return false;
+  if (record.mode !== "SINGLE_NEXT" && record.mode !== "SINGLE_ALL" && record.mode !== "ALL_COURSES") return false;
+  return typeof record.watchedTaskCount === "number"
+    && typeof record.watchedSeconds === "number"
+    && typeof record.plannedTaskCount === "number"
+    && typeof record.truncated === "boolean"
+    && typeof record.estimatedTotalSeconds === "number";
 }
 
 function parseArgs() {
@@ -652,6 +701,163 @@ async function sendAutoLearnResultMail(
     });
   }
 }
+
+async function sendAutoLearnStartMail(
+  userId: string,
+  payload: {
+    mode: AutoLearnMode;
+    lectureSeq?: number;
+    chainSegment?: number;
+  },
+) {
+  const pref = await getUserMailPreference(userId);
+  if (!pref || !pref.enabled || !pref.alertOnAutolearn) {
+    return;
+  }
+
+  const segment = typeof payload.chainSegment === "number" && Number.isFinite(payload.chainSegment)
+    ? Math.max(1, Math.floor(payload.chainSegment))
+    : 1;
+  const subject = "[CU12] Auto-learn Started";
+  const html = renderMailLayout({
+    title: "Auto-learn Started",
+    subtitle: "An auto-learn execution has started.",
+    summaryRows: [
+      { label: "Started at", value: formatKoDateTime(new Date()) },
+      { label: "Mode", value: formatAutoLearnModeLabel(payload.mode) },
+      { label: "Target", value: formatAutoLearnTarget(payload.mode, payload.lectureSeq) },
+      { label: "Chain segment", value: String(segment) },
+    ],
+    sections: [
+      renderMailSection(
+        "Execution Started",
+        `<p style="margin:0;color:#111827;">This notification is sent once at the start of an auto-learn chain. A completion mail will be sent when the run ends.</p>`,
+        { href: buildDashboardLink(DASHBOARD_SECTION_ID.JOBS), label: "Open job status" },
+      ),
+    ],
+    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "Open dashboard" },
+  });
+
+  try {
+    const result = await sendMail(pref.email, subject, html);
+    if (result.sent) {
+      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "Autolearn start mail sent",
+        meta: { to: pref.email, subject },
+      });
+      return;
+    }
+
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: userId,
+      message: "Autolearn start mail skipped",
+      meta: { to: pref.email, subject, reason },
+    });
+  } catch (error) {
+    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "Autolearn start mail failed",
+      meta: { to: pref.email, subject, error: errMessage(error) },
+    });
+  }
+}
+
+async function sendAutoLearnTerminalMail(
+  userId: string,
+  payload: {
+    status: AutoLearnTerminalStatus;
+    mode: AutoLearnMode;
+    lectureSeq?: number;
+    chainSegment?: number;
+    reason?: string | null;
+  },
+) {
+  const pref = await getUserMailPreference(userId);
+  if (!pref || !pref.enabled || !pref.alertOnAutolearn) {
+    return;
+  }
+
+  const segment = typeof payload.chainSegment === "number" && Number.isFinite(payload.chainSegment)
+    ? Math.max(1, Math.floor(payload.chainSegment))
+    : 1;
+  const statusLabel = formatAutoLearnTerminalStatus(payload.status);
+  const subject = `[CU12] Auto-learn Ended (${statusLabel})`;
+  const sections: string[] = [
+    renderMailSection(
+      "Run Outcome",
+      `<p style="margin:0;color:#111827;">Auto-learn run ended with status <strong>${escapeHtml(statusLabel)}</strong>.</p>`,
+      { href: buildDashboardLink(DASHBOARD_SECTION_ID.JOBS), label: "Open job status" },
+    ),
+  ];
+
+  if (payload.reason && payload.reason.trim().length > 0) {
+    sections.push(
+      renderMailSection(
+        "Reason",
+        `<p style="margin:0;color:#111827;">${escapeHtml(payload.reason)}</p>`,
+      ),
+    );
+  }
+
+  const html = renderMailLayout({
+    title: `Auto-learn ${statusLabel}`,
+    subtitle: "Final status for the latest auto-learn execution.",
+    summaryRows: [
+      { label: "Ended at", value: formatKoDateTime(new Date()) },
+      { label: "Status", value: statusLabel },
+      { label: "Mode", value: formatAutoLearnModeLabel(payload.mode) },
+      { label: "Target", value: formatAutoLearnTarget(payload.mode, payload.lectureSeq) },
+      { label: "Chain segment", value: String(segment) },
+    ],
+    sections,
+    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "Open dashboard" },
+  });
+
+  try {
+    const result = await sendMail(pref.email, subject, html);
+    if (result.sent) {
+      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: userId,
+        message: "Autolearn end mail sent",
+        meta: { to: pref.email, subject, status: payload.status },
+      });
+      return;
+    }
+
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: userId,
+      message: "Autolearn end mail skipped",
+      meta: { to: pref.email, subject, status: payload.status, reason },
+    });
+  } catch (error) {
+    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: userId,
+      message: "Autolearn end mail failed",
+      meta: { to: pref.email, subject, status: payload.status, error: errMessage(error) },
+    });
+  }
+}
 async function processSync(
   jobId: string,
   workerId: string,
@@ -801,6 +1007,10 @@ async function processAutolearn(
   mode: AutoLearnMode,
   lectureSeq?: number,
   onCancelCheck?: CancelCheck,
+  options?: {
+    chainSegment?: number;
+    sendStartMail?: boolean;
+  },
 ) {
   const creds = await getUserCu12Credentials(userId);
   if (!creds) {
@@ -820,6 +1030,13 @@ async function processAutolearn(
     stallDetected = true;
     console.error(`[AUTOLEARN] stalled job=${jobId} idle=${Math.floor(idleMs / 1000)}s`);
   }, 5000);
+  if (options?.sendStartMail) {
+    await sendAutoLearnStartMail(userId, {
+      mode,
+      lectureSeq,
+      chainSegment: options.chainSegment,
+    });
+  }
   try {
     const autoResult = await runAutoLearning(
       browser,
@@ -864,20 +1081,6 @@ async function processAutolearn(
     const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
     await persistSnapshot(userId, snapshot);
 
-    await sendAutoLearnResultMail(userId, {
-      mode: autoResult.mode,
-      watchedTaskCount: autoResult.watchedTaskCount,
-      watchedSeconds: autoResult.watchedSeconds,
-      plannedTaskCount: autoResult.plannedTaskCount,
-      truncated: autoResult.truncated,
-      continuationQueued: autoResult.continuationQueued,
-      chainLimitReached: autoResult.chainLimitReached,
-      chainSegment: autoResult.chainSegment,
-      estimatedTotalSeconds: autoResult.estimatedTotalSeconds,
-      noOpReason: autoResult.noOpReason,
-      planned: autoResult.planned,
-    });
-
     await writeAuditLog({
       category: "WORKER",
       severity: "INFO",
@@ -903,6 +1106,7 @@ async function processAutolearn(
       truncated: autoResult.truncated,
       estimatedTotalSeconds: autoResult.estimatedTotalSeconds,
       lectureSeqs: autoResult.lectureSeqs,
+      chainSegment: options?.chainSegment ?? 1,
     };
   } catch (error) {
     let message = errMessage(error);
@@ -1204,37 +1408,61 @@ async function main() {
             continue;
           }
 
-        let result: unknown;
-        if (job.type === JobType.SYNC || job.type === JobType.NOTICE_SCAN) {
-          const shouldCancel = async () => {
-            const status = await getJobStatus(job.id);
-            return status === null || status === JobStatus.CANCELED;
-          };
-          result = await processSync(job.id, workerId, job.payload.userId, job.type, shouldCancel);
-        } else if (job.type === JobType.AUTOLEARN) {
-          const shouldCancel = async () => {
-            const status = await getJobStatus(job.id);
-            return status === null || status === JobStatus.CANCELED;
-          };
-          const mode = toAutoLearnMode(job.payload.autoLearnMode);
-          result = await processAutolearn(
-            job.id,
-            workerId,
-            job.payload.userId,
-            mode,
-            job.payload.lectureSeq,
-            shouldCancel,
-          );
-        } else {
-          result = await processMailDigest(job.payload.userId);
-        }
+          let result: unknown;
+          if (job.type === JobType.SYNC || job.type === JobType.NOTICE_SCAN) {
+            const shouldCancel = async () => {
+              const status = await getJobStatus(job.id);
+              return status === null || status === JobStatus.CANCELED;
+            };
+            result = await processSync(job.id, workerId, job.payload.userId, job.type, shouldCancel);
+          } else if (job.type === JobType.AUTOLEARN) {
+            const shouldCancel = async () => {
+              const status = await getJobStatus(job.id);
+              return status === null || status === JobStatus.CANCELED;
+            };
+            const mode = toAutoLearnMode(job.payload.autoLearnMode);
+            const chainSegment = toChainSegment(job.payload.chainSegment, 1);
+            const shouldSendStartMail = chainSegment <= 1 && job.attempts <= 1;
+            result = await processAutolearn(
+              job.id,
+              workerId,
+              job.payload.userId,
+              mode,
+              job.payload.lectureSeq,
+              shouldCancel,
+              {
+                chainSegment,
+                sendStartMail: shouldSendStartMail,
+              },
+            );
+          } else {
+            result = await processMailDigest(job.payload.userId);
+          }
 
           const terminalStatus = await getJobStatus(job.id);
           if (terminalStatus !== JobStatus.RUNNING) {
             continue;
           }
 
-          await finishJob(job.id, workerId, result);
+          const finished = await finishJob(job.id, workerId, result);
+          if (job.type === JobType.AUTOLEARN && isAutoLearnJobResultPayload(result)) {
+            const continuationQueued = finished.autoLearn?.continuationQueued === true;
+            if (!continuationQueued) {
+              await sendAutoLearnResultMail(job.payload.userId, {
+                mode: result.mode,
+                watchedTaskCount: result.watchedTaskCount,
+                watchedSeconds: result.watchedSeconds,
+                plannedTaskCount: result.plannedTaskCount,
+                truncated: result.truncated,
+                continuationQueued,
+                chainLimitReached: finished.autoLearn?.chainLimitReached === true,
+                chainSegment: finished.autoLearn?.chainSegment ?? result.chainSegment,
+                estimatedTotalSeconds: result.estimatedTotalSeconds,
+                noOpReason: result.noOpReason,
+                planned: result.planned,
+              });
+            }
+          }
           if (once) {
             if (job.type === JobType.AUTOLEARN) {
               shouldCheckHandoff = true;
@@ -1246,12 +1474,30 @@ async function main() {
           const message = errMessage(jobError);
           const terminalStatus = await getJobStatus(job.id);
           if (message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR || terminalStatus === JobStatus.CANCELED) {
+            if (job.type === JobType.AUTOLEARN) {
+              await sendAutoLearnTerminalMail(job.payload.userId, {
+                status: "CANCELED",
+                mode: toAutoLearnMode(job.payload.autoLearnMode),
+                lectureSeq: job.payload.lectureSeq,
+                chainSegment: toChainSegment(job.payload.chainSegment, 1),
+                reason: message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR ? null : message,
+              });
+            }
             if (once) {
               break;
             }
             continue;
           }
-          await failJob(job.id, workerId, message);
+          const failed = await failJob(job.id, workerId, message);
+          if (job.type === JobType.AUTOLEARN && failed.status === JobStatus.FAILED && !failed.retryQueued) {
+            await sendAutoLearnTerminalMail(job.payload.userId, {
+              status: "FAILED",
+              mode: toAutoLearnMode(job.payload.autoLearnMode),
+              lectureSeq: job.payload.lectureSeq,
+              chainSegment: toChainSegment(job.payload.chainSegment, 1),
+              reason: message,
+            });
+          }
           if (once) {
             if (job.type === JobType.AUTOLEARN) {
               shouldCheckHandoff = true;

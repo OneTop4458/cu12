@@ -115,6 +115,15 @@ interface ReconcileJob {
   updatedAt: string;
 }
 
+interface ReconcileScheduleCheck {
+  key: "sync" | "autolearn";
+  workflowPath: string;
+  expectedCrons: string[];
+  actualCrons: string[];
+  status: "MATCH" | "MISMATCH" | "UNKNOWN";
+  message: string;
+}
+
 interface JobReconcilePayload {
   checkedAt: string;
   canReconcileWithGitHub: boolean;
@@ -129,6 +138,7 @@ interface JobReconcilePayload {
   orphanedRunningJobs: ReconcileJob[];
   activeRuns: ReconcileRun[];
   ghostRuns: ReconcileRun[];
+  scheduleChecks?: ReconcileScheduleCheck[];
   error?: string;
 }
 
@@ -189,6 +199,17 @@ function statusClassForJob(status: JobStatus): string {
       return "status-failed";
     default:
       return "status-failed";
+  }
+}
+
+function statusClassForSchedule(status: ReconcileScheduleCheck["status"]): string {
+  switch (status) {
+    case "MATCH":
+      return "status-succeeded";
+    case "MISMATCH":
+      return "status-failed";
+    default:
+      return "status-pending";
   }
 }
 
@@ -852,6 +873,41 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
         {reconcileResult ? (
           <div className="top-gap">
             <p className="muted">점검 시각: {formatDateTime(reconcileResult.checkedAt)}</p>
+            {(reconcileResult.scheduleChecks?.length ?? 0) > 0 ? (
+              <div className="top-gap">
+                <h3 className="muted">Workflow schedule checks</h3>
+                <div className="table-wrap mobile-card-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Target</th>
+                        <th>Expected cron</th>
+                        <th>Actual cron</th>
+                        <th>Status</th>
+                        <th>Message</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconcileResult.scheduleChecks?.map((item) => (
+                        <tr key={`${item.key}:${item.workflowPath}`}>
+                          <td data-label="Target">{item.key.toUpperCase()}</td>
+                          <td data-label="Expected cron">{item.expectedCrons.join(", ") || "-"}</td>
+                          <td data-label="Actual cron">{item.actualCrons.join(", ") || "-"}</td>
+                          <td data-label="Status">
+                            <span className={`status-chip ${statusClassForSchedule(item.status)}`}>
+                              {item.status}
+                            </span>
+                          </td>
+                          <td data-label="Message">
+                            <span className="muted" style={{ overflowWrap: "anywhere" }}>{item.message}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
             {reconcileResult.canReconcileWithGitHub ? (
               <div className="status-grid top-gap">
                 <article className="card admin-stat">

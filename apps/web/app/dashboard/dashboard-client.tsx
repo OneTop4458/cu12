@@ -1911,6 +1911,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <p><strong>대상</strong>: {autoConfirmTarget}</p>
                   <p className="muted">{getAutoModeDescription(mode)}</p>
                 </div>
+                <div className="session-timeout-banner" role="note" aria-live="polite">
+                  <p><strong>주의</strong></p>
+                  <p>자동 수강 완료 후 각 주차의 최종 점검(출석/진도/과제/시험 반영)은 반드시 본인이 직접 확인하세요.</p>
+                </div>
                 {!canExecuteAutoLearn ? (
                   <p className="error-text">선택 강좌 모드에서는 대상 강좌를 먼저 선택해 주세요.</p>
                 ) : null}
@@ -1952,9 +1956,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>메일 알림 사용</span></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnNotice} onChange={(event) => setMailDraft({ ...mailDraft, alertOnNotice: event.target.checked })} /><span>신규 공지/알림 즉시 발송</span></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnDeadline} onChange={(event) => setMailDraft({ ...mailDraft, alertOnDeadline: event.target.checked })} /><span>차시 마감 임박 알림</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>자동 수강 결과 발송</span></label>
+                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>자동 수강 시작/종료 알림 발송</span></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.digestEnabled} onChange={(event) => setMailDraft({ ...mailDraft, digestEnabled: event.target.checked })} /><span>일일 요약 메일</span></label>
                 <label className="field"><span>요약 시각 (0~23)</span><input type="number" min={0} max={23} value={mailDraft.digestHour} onChange={(event) => setMailDraft({ ...mailDraft, digestHour: Number(event.target.value) })} /></label>
+                <p className="muted text-small">
+                  요약 메일은 KST(한국시간) 기준으로 매시간 검사되며 설정한 시각(0~23)에 발송됩니다. 자동 수강 알림은 시작 시 1회, 종료(성공/실패/취소) 시 1회 발송됩니다.
+                </p>
                 {isMailSetupRequired ? (
                   <p className="error-text" style={{ marginBottom: "4px" }}>
                     최초 접속 사용자입니다. 메일 주소와 알림 설정을 저장해야 대시보드를 계속 사용할 수 있습니다.
