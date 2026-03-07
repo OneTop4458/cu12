@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { Emitter, type EmitterConfigV3 } from "@pixi/particle-emitter";
+import "@pixi/unsafe-eval";
 import { Application, Assets, Container, type Texture } from "pixi.js";
 
 export type SeasonEffectPreset = "SNOW" | "RAIN" | "BLOSSOM" | "MAPLE" | "BREEZE";
