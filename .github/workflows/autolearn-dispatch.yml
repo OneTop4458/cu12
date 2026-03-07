@@ -2,7 +2,7 @@ name: AutoLearn Dispatch
 
 on:
   schedule:
-    - cron: "20 */2 * * *"
+    - cron: "20 0 * * *"
   workflow_dispatch:
     inputs:
       userId:
@@ -38,7 +38,7 @@ jobs:
           SUMMARY_JSON_WORKER="dispatch-summary.json"
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            npm --workspace @cu12/worker run dispatch:autolearn -- --min-interval-minutes=120 --eligible-window-only=true --summary-json="$SUMMARY_JSON_WORKER"
+            npm --workspace @cu12/worker run dispatch:autolearn -- --min-interval-minutes=1440 --eligible-window-only=true --summary-json="$SUMMARY_JSON_WORKER"
           elif [ -n "${{ inputs.userId }}" ]; then
             npm --workspace @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }} --summary-json="$SUMMARY_JSON_WORKER"
           else
