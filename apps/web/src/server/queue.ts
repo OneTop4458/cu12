@@ -1,5 +1,6 @@
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getEnv } from "@/lib/env";
 import type { QueuePayload } from "@cu12/core";
 import { MANUAL_PENDING_REDISPATCH_MS, MANUAL_RUNNING_REDISPATCH_MS } from "@/server/manual-dispatch-policy";
 
@@ -49,9 +50,38 @@ const STALE_JOB_REQUEUE_DELAY_MS = 60_000;
 const AUTOLEARN_CONFLICT_DELAY_MS = 60_000;
 const CLAIM_SCAN_LIMIT = 200;
 const SYNC_JOB_TYPES = [JobType.SYNC, JobType.NOTICE_SCAN] as const;
+const AUTOLEARN_MODES = ["SINGLE_NEXT", "SINGLE_ALL", "ALL_COURSES"] as const;
 
 export const TEST_USER_SYNC_BLOCKED_ERROR_CODE = "TEST_USER_SYNC_BLOCKED";
 export const TEST_USER_SYNC_BLOCKED_MESSAGE = "Test users do not support CU12 sync.";
+
+interface AutoLearnResultLike {
+  mode?: unknown;
+  watchedSeconds?: unknown;
+  truncated?: unknown;
+  continuationQueued?: unknown;
+  chainLimitReached?: unknown;
+  chainSegment?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toSafeInt(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.floor(value));
+}
+
+function normalizeAutoLearnMode(value: unknown): QueuePayload["autoLearnMode"] | null {
+  if (typeof value !== "string") return null;
+  if ((AUTOLEARN_MODES as readonly string[]).includes(value)) {
+    return value as QueuePayload["autoLearnMode"];
+  }
+  return null;
+}
 
 function rankJobTypes(inputTypes: JobType[]): JobType[] {
   const uniqueTypes = Array.from(new Set(inputTypes));
@@ -268,6 +298,18 @@ export async function claimNextJob(workerId: string, types: JobType[]) {
   return null;
 }
 
+export async function hasPendingJobs(types: JobType[]): Promise<boolean> {
+  if (types.length === 0) return false;
+  const uniqueTypes = Array.from(new Set(types));
+  const count = await prisma.jobQueue.count({
+    where: {
+      type: { in: uniqueTypes },
+      status: JobStatus.PENDING,
+    },
+  });
+  return count > 0;
+}
+
 export async function getSyncQueueSummaryForUser(userId: string, now = new Date()): Promise<SyncQueueSummary> {
   const rows = await prisma.jobQueue.findMany({
     where: {
@@ -402,38 +444,122 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
 }
 
 export async function markJobSucceeded(jobId: string, workerId: string, result?: unknown) {
-  const updatedCount = await prisma.jobQueue.updateMany({
-    where: {
-      id: jobId,
-      status: JobStatus.RUNNING,
-      workerId,
-    },
-    data: {
-      status: JobStatus.SUCCEEDED,
-      finishedAt: new Date(),
-      result: (result ?? null) as Prisma.InputJsonValue,
-    },
+  const env = getEnv();
+  const chainMaxSeconds = env.AUTOLEARN_CHAIN_MAX_SECONDS;
+
+  const txResult = await prisma.$transaction(async (tx) => {
+    const current = await tx.jobQueue.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        workerId: true,
+        type: true,
+        payload: true,
+      },
+    });
+
+    if (!current) {
+      return { state: "MISSING" as const };
+    }
+
+    if (current.workerId !== workerId) {
+      return { state: "OWNERSHIP_MISMATCH" as const };
+    }
+
+    if (current.status !== JobStatus.RUNNING) {
+      const existing = await tx.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+      return { state: "ALREADY_TERMINAL" as const, job: existing };
+    }
+
+    let resultForStore = (result ?? null) as Prisma.InputJsonValue;
+    let continuationPayload: Prisma.InputJsonValue | null = null;
+    let continuationKey: string | null = null;
+
+    if (current.type === JobType.AUTOLEARN && isRecord(result)) {
+      const payload = isRecord(current.payload) ? (current.payload as unknown as QueuePayload) : null;
+      const resultPatch: Record<string, unknown> = { ...(result as AutoLearnResultLike) };
+      const chainSegment = Math.max(1, toSafeInt(payload?.chainSegment, 1));
+      const previousElapsed = toSafeInt(payload?.chainElapsedSeconds, 0);
+      const watchedSeconds = toSafeInt(resultPatch.watchedSeconds, 0);
+      const totalElapsed = previousElapsed + watchedSeconds;
+      const truncated = resultPatch.truncated === true;
+      const chainLimitReached = truncated && totalElapsed >= chainMaxSeconds;
+
+      resultPatch.chainSegment = chainSegment;
+      resultPatch.chainLimitReached = chainLimitReached;
+      resultPatch.continuationQueued = false;
+
+      if (truncated && !chainLimitReached && payload && typeof payload.userId === "string" && payload.userId.length > 0) {
+        const mode = normalizeAutoLearnMode(payload.autoLearnMode)
+          ?? normalizeAutoLearnMode(resultPatch.mode)
+          ?? "ALL_COURSES";
+        const lectureSeq = typeof payload.lectureSeq === "number" && Number.isFinite(payload.lectureSeq)
+          ? payload.lectureSeq
+          : undefined;
+        const nextSegment = chainSegment + 1;
+        const lecturePart = typeof lectureSeq === "number" ? String(lectureSeq) : "all";
+        continuationKey = `autolearn-chain:${current.userId}:${mode}:${lecturePart}:${nextSegment}`;
+        continuationPayload = {
+          ...(payload ?? { userId: current.userId }),
+          userId: current.userId,
+          autoLearnMode: mode,
+          lectureSeq,
+          reason: "auto_continuation",
+          chainSegment: nextSegment,
+          chainElapsedSeconds: totalElapsed,
+        } as Prisma.InputJsonValue;
+
+        resultPatch.continuationQueued = true;
+      }
+
+      resultForStore = resultPatch as Prisma.InputJsonValue;
+    }
+
+    const updatedCount = await tx.jobQueue.updateMany({
+      where: {
+        id: jobId,
+        status: JobStatus.RUNNING,
+        workerId,
+      },
+      data: {
+        status: JobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        result: resultForStore,
+      },
+    });
+
+    if (updatedCount.count === 0) {
+      throw new Error("Failed to mark job as succeeded");
+    }
+
+    if (continuationPayload && continuationKey) {
+      await tx.jobQueue.create({
+        data: {
+          userId: current.userId,
+          type: JobType.AUTOLEARN,
+          status: JobStatus.PENDING,
+          payload: continuationPayload,
+          runAfter: new Date(),
+          idempotencyKey: continuationKey,
+        },
+      });
+    }
+
+    const updated = await tx.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+    return { state: "UPDATED" as const, job: updated };
   });
 
-  if (updatedCount.count > 0) {
-    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-  }
-
-  const current = await prisma.jobQueue.findUnique({
-    where: { id: jobId },
-    select: { status: true, workerId: true },
-  });
-  if (!current) {
+  if (txResult.state === "MISSING") {
     throw new Error("Job not found");
   }
-  if (current.workerId !== workerId) {
+
+  if (txResult.state === "OWNERSHIP_MISMATCH") {
     throw new Error("Job ownership mismatch");
   }
-  if (current.status !== JobStatus.RUNNING) {
-    return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-  }
 
-  throw new Error("Failed to mark job as succeeded");
+  return txResult.job;
 }
 
 export async function updateJobProgress(jobId: string, workerId: string, result: unknown) {

@@ -23,6 +23,7 @@
 3. Validate worker logs and learning run records.
 4. AUTOLEARN is limited to one concurrent job per user; additional AUTOLEARN jobs for the same user are delayed by the queue.
 5. If `dispatchState` is `SKIPPED_DUPLICATE`, use the existing queue row and monitor `RUNNING` job completion before retrying.
+6. Long AUTOLEARN requests are chunked; if result includes `truncated=true`, continuation should be enqueued automatically unless chain cap is reached.
 
 ## New Environment Bootstrap
 

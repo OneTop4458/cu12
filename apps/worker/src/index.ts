@@ -1,9 +1,18 @@
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
-import { claimJob, failJob, finishJob, progressJob, sendHeartbeat } from "./internal-api";
+import {
+  claimJob,
+  failJob,
+  finishJob,
+  hasPendingJobs,
+  progressJob,
+  requestWorkerDispatch,
+  sendHeartbeat,
+} from "./internal-api";
 import {
   collectCu12Snapshot,
   runAutoLearning,
+  type AutoLearnPlannedTask,
   type AutoLearnMode,
   type AutoLearnProgress,
   type SyncProgress,
@@ -95,6 +104,138 @@ function formatDuration(seconds: number): string {
   return `${sec}s`;
 }
 
+const DASHBOARD_SECTION_ID = {
+  OVERVIEW: "overview",
+  NOTIFICATIONS: "notifications",
+  DEADLINES: "deadlines",
+  JOBS: "jobs",
+  COURSES: "courses",
+} as const;
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeInlineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function toSnippet(value: string | null | undefined, maxLength = 140): string {
+  const normalized = normalizeInlineText(value ?? "");
+  if (!normalized) return "-";
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+}
+
+function formatKoDateTime(value: Date | string | null | undefined): string {
+  if (!value) return "-";
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "-";
+  return parsed.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false });
+}
+
+function toPercent(numerator: number, denominator: number): string {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return "0%";
+  }
+  return `${Math.round((Math.max(0, numerator) / denominator) * 100)}%`;
+}
+
+function buildDashboardLink(anchor?: string): string {
+  const baseUrl = getEnv().WEB_INTERNAL_BASE_URL.replace(/\/+$/, "");
+  const dashboard = `${baseUrl}/dashboard`;
+  if (!anchor) return dashboard;
+  return `${dashboard}#${encodeURIComponent(anchor)}`;
+}
+
+function renderMailList(items: string[], limit = 8): string {
+  if (items.length === 0) return '<p style="margin:0;color:#4b5563;">-</p>';
+
+  const visible = items.slice(0, Math.max(1, limit));
+  const hiddenCount = Math.max(0, items.length - visible.length);
+
+  return `
+    <ul style="margin:8px 0 0;padding:0 0 0 18px;color:#111827;">
+      ${visible.join("")}
+    </ul>
+    ${hiddenCount > 0 ? `<p style="margin:8px 0 0;color:#6b7280;">외 ${hiddenCount}건은 대시보드에서 확인하세요.</p>` : ""}
+  `;
+}
+
+function renderMailSection(title: string, bodyHtml: string, link?: { href: string; label: string }): string {
+  return `
+    <section style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;background:#f9fafb;">
+      <h2 style="margin:0 0 10px;font-size:16px;color:#111827;">${escapeHtml(title)}</h2>
+      ${bodyHtml}
+      ${link
+    ? `<p style="margin:12px 0 0;"><a href="${escapeHtml(link.href)}" style="color:#0f3b8a;text-decoration:underline;">${escapeHtml(link.label)}</a></p>`
+    : ""}
+    </section>
+  `;
+}
+
+function renderMailLayout(input: {
+  title: string;
+  subtitle: string;
+  summaryRows: Array<{ label: string; value: string }>;
+  sections: string[];
+  primaryLink?: { href: string; label: string };
+}): string {
+  const summaryRowsHtml = input.summaryRows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;color:#4b5563;white-space:nowrap;">${escapeHtml(row.label)}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;color:#111827;font-weight:600;">${escapeHtml(row.value)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  return `<!doctype html>
+<html lang="ko">
+  <body style="margin:0;padding:0;background:#eef2f7;font-family:'Segoe UI',Arial,sans-serif;color:#111827;">
+    <div style="max-width:760px;margin:0 auto;padding:24px 16px;">
+      <article style="background:#ffffff;border:1px solid #d9e1ea;border-radius:16px;padding:20px;">
+        <h1 style="margin:0 0 8px;font-size:22px;color:#0f172a;">${escapeHtml(input.title)}</h1>
+        <p style="margin:0 0 16px;color:#334155;">${escapeHtml(input.subtitle)}</p>
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+          <tbody>${summaryRowsHtml}</tbody>
+        </table>
+        ${input.primaryLink
+    ? `<p style="margin:0 0 16px;"><a href="${escapeHtml(input.primaryLink.href)}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#0f3b8a;color:#ffffff;text-decoration:none;font-weight:600;">${escapeHtml(input.primaryLink.label)}</a></p>`
+    : ""}
+        <div style="display:grid;gap:12px;">
+          ${input.sections.join("")}
+        </div>
+        <p style="margin:18px 0 0;color:#6b7280;font-size:12px;">본 메일은 CU12 자동화 워커가 생성했습니다.</p>
+      </article>
+    </div>
+  </body>
+</html>`;
+}
+
+function formatAutoLearnModeLabel(mode: AutoLearnMode): string {
+  if (mode === "SINGLE_NEXT") return "선택 강의 다음 차시";
+  if (mode === "SINGLE_ALL") return "선택 강의 전체";
+  return "전체 강의";
+}
+
+function formatAutoLearnNoOpReason(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  if (reason === "NO_ACTIVE_COURSES") return "진행 중인 강의가 없습니다.";
+  if (reason === "LECTURE_NOT_FOUND") return "요청한 강의를 찾을 수 없습니다.";
+  if (reason === "NO_PENDING_TASKS") return "미완료 차시가 없습니다.";
+  if (reason === "NO_PENDING_VOD_TASKS") return "미완료 VOD 차시가 없습니다.";
+  if (reason === "NO_AVAILABLE_VOD_TASKS") return "수강 가능한 VOD 차시가 없습니다.";
+  if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 실행 대상이 없습니다.";
+  return reason;
+}
+
 function toAutoLearnMode(raw: unknown): AutoLearnMode {
   if (raw === "SINGLE_NEXT" || raw === "SINGLE_ALL" || raw === "ALL_COURSES") {
     return raw;
@@ -145,6 +286,12 @@ function parseJobTypes(raw: string | undefined): JobType[] {
   }
 
   return [...unique];
+}
+
+function resolveHandoffTrigger(jobTypes: JobType[]): "autolearn" | "sync" | null {
+  if (jobTypes.includes(JobType.AUTOLEARN)) return "autolearn";
+  if (jobTypes.includes(JobType.SYNC) || jobTypes.includes(JobType.NOTICE_SCAN)) return "sync";
+  return null;
 }
 
 async function reportJobProgress(jobId: string, workerId: string, progress: AutoLearnProgress) {
@@ -309,7 +456,7 @@ async function sendAutoLearnResultMail(
     `- 처리한 차시: ${payload.watchedTaskCount}/${payload.plannedTaskCount}`,
     `- 재생 시간: ${formatDuration(payload.watchedSeconds)}`,
     payload.noOpReason ? `- 완료 사유: ${payload.noOpReason}` : "",
-    payload.truncated ? "- 안내: 회차 제한값(AUTOLEARN_MAX_TASKS)으로 일부 차시는 다음 실행에서 처리됩니다." : "",
+    payload.truncated ? "- 안내: 실행 청크 제한으로 일부 차시는 다음 실행에서 처리됩니다." : "",
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -739,6 +886,8 @@ async function main() {
   const jobTypes = parseJobTypes(args.get("types"));
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const heartbeat = startHeartbeatLoop(workerId, env.POLL_INTERVAL_MS);
+  const handoffTrigger = once ? resolveHandoffTrigger(jobTypes) : null;
+  let shouldCheckHandoff = false;
 
   try {
     while (true) {
@@ -748,7 +897,10 @@ async function main() {
         if (!job) {
           if (once) {
             const deadline = onceNoJobDeadline ?? 0;
-            if (Date.now() >= deadline) break;
+            if (Date.now() >= deadline) {
+              shouldCheckHandoff = true;
+              break;
+            }
             await sleep(Math.min(Math.max(2_000, Math.floor(env.POLL_INTERVAL_MS / 6)), 5_000));
             continue;
           }
@@ -794,6 +946,10 @@ async function main() {
 
           await finishJob(job.id, workerId, result);
           if (once) {
+            if (job.type === JobType.AUTOLEARN) {
+              shouldCheckHandoff = true;
+              break;
+            }
             onceNoJobDeadline = Date.now() + onceGraceMs;
           }
         } catch (jobError) {
@@ -807,6 +963,10 @@ async function main() {
           }
           await failJob(job.id, workerId, message);
           if (once) {
+            if (job.type === JobType.AUTOLEARN) {
+              shouldCheckHandoff = true;
+              break;
+            }
             onceNoJobDeadline = Date.now() + onceGraceMs;
           }
         }
@@ -819,6 +979,21 @@ async function main() {
     }
   } finally {
     heartbeat.stop();
+
+    if (once && shouldCheckHandoff && handoffTrigger) {
+      try {
+        const pendingTypes = handoffTrigger === "autolearn"
+          ? [JobType.AUTOLEARN]
+          : [JobType.SYNC, JobType.NOTICE_SCAN];
+        const pending = await hasPendingJobs(pendingTypes);
+        if (pending) {
+          const dispatch = await requestWorkerDispatch(handoffTrigger);
+          console.log(`[WORKER] handoff trigger=${handoffTrigger} state=${dispatch.state}`);
+        }
+      } catch (error) {
+        console.warn(`[WORKER] handoff dispatch failed: ${errMessage(error)}`);
+      }
+    }
   }
 }
 

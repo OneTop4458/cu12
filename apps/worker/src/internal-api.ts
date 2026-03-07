@@ -9,8 +9,19 @@ interface ClaimedJob {
     lectureSeq?: number;
     autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
     reason?: string;
+    chainSegment?: number;
+    chainElapsedSeconds?: number;
   };
   attempts: number;
+}
+
+type WorkerDispatchType = "sync" | "autolearn";
+
+interface WorkerDispatchResult {
+  state: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE";
+  dispatched: boolean;
+  errorCode: string | null;
+  error?: string;
 }
 
 function sleep(ms: number) {
@@ -100,4 +111,13 @@ export async function failJob(jobId: string, workerId: string, error: string) {
 
 export async function progressJob(jobId: string, workerId: string, result: unknown) {
   await post("/internal/worker/job/progress", { jobId, workerId, result });
+}
+
+export async function hasPendingJobs(types: JobType[]): Promise<boolean> {
+  const response = await post<{ pending: boolean }>("/internal/worker/job/pending", { types });
+  return response.pending;
+}
+
+export async function requestWorkerDispatch(trigger: WorkerDispatchType): Promise<WorkerDispatchResult> {
+  return post<WorkerDispatchResult>("/internal/worker/dispatch", { trigger });
 }

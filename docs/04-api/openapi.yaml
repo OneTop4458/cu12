@@ -4,7 +4,7 @@ info:
   version: 0.5.0
   description: >-
     API contract for the CU12 Automation web application.
-    This document reflects the runtime behavior implemented in apps/web as of 2026-03-03.
+    This document reflects the runtime behavior implemented in apps/web as of 2026-03-07.
 servers:
   - url: https://your-app.example.com
 
@@ -18,6 +18,7 @@ tags:
   - name: Mail
   - name: Admin
   - name: SiteNotice
+  - name: WorkerInternal
 
 paths:
   /api/health:
@@ -1434,6 +1435,240 @@ paths:
         "500":
           description: Reconciliation failed
 
+  /internal/worker/heartbeat:
+    post:
+      tags: [WorkerInternal]
+      summary: Update worker heartbeat timestamp
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workerId]
+              properties:
+                workerId:
+                  type: string
+                  minLength: 2
+                  maxLength: 120
+      responses:
+        "200":
+          description: Heartbeat accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
+  /internal/worker/job/start:
+    post:
+      tags: [WorkerInternal]
+      summary: Claim next runnable job for worker
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalWorkerJobStartRequest"
+      responses:
+        "200":
+          description: Claimed job or null when queue is idle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalWorkerJobStartResponse"
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
+  /internal/worker/job/progress:
+    post:
+      tags: [WorkerInternal]
+      summary: Persist worker progress payload while job is RUNNING
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalWorkerJobProgressRequest"
+      responses:
+        "200":
+          description: Progress update accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated]
+                properties:
+                  updated:
+                    type: boolean
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
+  /internal/worker/job/finish:
+    post:
+      tags: [WorkerInternal]
+      summary: Mark claimed job as SUCCEEDED
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalWorkerJobFinishRequest"
+      responses:
+        "200":
+          description: Job completion accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, status]
+                properties:
+                  updated:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
+  /internal/worker/job/fail:
+    post:
+      tags: [WorkerInternal]
+      summary: Mark claimed job as FAILED
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalWorkerJobFailRequest"
+      responses:
+        "200":
+          description: Job failure accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, status]
+                properties:
+                  updated:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
+  /internal/worker/job/pending:
+    post:
+      tags: [WorkerInternal]
+      summary: Check whether pending jobs exist for requested types
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [types]
+              properties:
+                types:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+      responses:
+        "200":
+          description: Pending-check result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pending]
+                properties:
+                  pending:
+                    type: boolean
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
+  /internal/worker/dispatch:
+    post:
+      tags: [WorkerInternal]
+      summary: Request worker-consume workflow dispatch from internal worker flow
+      description: Internal worker endpoint secured by `x-worker-token`.
+      security:
+        - workerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trigger]
+              properties:
+                trigger:
+                  type: string
+                  enum: [sync, autolearn]
+      responses:
+        "200":
+          description: Dispatch request result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalWorkerDispatchResult"
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+        "500":
+          description: Server error
+
   /internal/admin/jobs/reconcile:
     get:
       tags: [Admin]
@@ -2211,6 +2446,136 @@ components:
           type: string
         errorCode:
           type: string
+
+    InternalWorkerJobPayload:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+        lectureSeq:
+          type: integer
+          nullable: true
+        autoLearnMode:
+          type: string
+          enum: [SINGLE_NEXT, SINGLE_ALL, ALL_COURSES]
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        chainSegment:
+          type: integer
+          minimum: 1
+          nullable: true
+        chainElapsedSeconds:
+          type: integer
+          minimum: 0
+          nullable: true
+
+    InternalWorkerClaimedJob:
+      type: object
+      required: [id, type, payload, attempts]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+        payload:
+          $ref: "#/components/schemas/InternalWorkerJobPayload"
+        attempts:
+          type: integer
+          minimum: 0
+
+    InternalWorkerJobStartRequest:
+      type: object
+      required: [workerId]
+      properties:
+        workerId:
+          type: string
+          minLength: 2
+          maxLength: 120
+        types:
+          type: array
+          items:
+            type: string
+            enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+          default: [SYNC, NOTICE_SCAN, AUTOLEARN]
+
+    InternalWorkerJobStartResponse:
+      type: object
+      required: [job]
+      properties:
+        job:
+          allOf:
+            - $ref: "#/components/schemas/InternalWorkerClaimedJob"
+          nullable: true
+
+    InternalWorkerJobProgressRequest:
+      type: object
+      required: [jobId, workerId, result]
+      properties:
+        jobId:
+          type: string
+          minLength: 10
+        workerId:
+          type: string
+          minLength: 2
+          maxLength: 120
+        result:
+          type: object
+          additionalProperties: true
+
+    InternalWorkerJobFinishRequest:
+      type: object
+      required: [jobId, workerId]
+      properties:
+        jobId:
+          type: string
+          minLength: 10
+        workerId:
+          type: string
+          minLength: 2
+          maxLength: 120
+        result:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    InternalWorkerJobFailRequest:
+      type: object
+      required: [jobId, workerId, error]
+      properties:
+        jobId:
+          type: string
+          minLength: 10
+        workerId:
+          type: string
+          minLength: 2
+          maxLength: 120
+        error:
+          type: string
+          minLength: 1
+          maxLength: 4000
+
+    InternalWorkerDispatchResult:
+      type: object
+      required: [state, dispatched, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE]
+        dispatched:
+          type: boolean
+        errorCode:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        statusCode:
+          type: integer
+          nullable: true
 
     Pagination:
       type: object
@@ -3242,6 +3607,13 @@ components:
           type: integer
         truncated:
           type: boolean
+        continuationQueued:
+          type: boolean
+        chainLimitReached:
+          type: boolean
+        chainSegment:
+          type: integer
+          minimum: 1
         estimatedTotalSeconds:
           type: integer
         noOpReason:

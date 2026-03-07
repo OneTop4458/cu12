@@ -19,6 +19,8 @@
 - Priority order (when a worker receives multiple types): `SYNC` and `NOTICE_SCAN` first, then `AUTOLEARN`, then `MAIL_DIGEST`.
 - `SYNC` and `NOTICE_SCAN` jobs are not blocked by any other job type for the same user.
 - `AUTOLEARN` is restricted to one concurrent job per user. If another AUTOLEARN job is already `RUNNING` for that user, the job is delayed with a short retry backoff.
+- `AUTOLEARN` can chain continuation jobs when a chunk is truncated; continuation keeps mode/target lecture and increments chain segment metadata.
+- Continuation chain is capped by cumulative elapsed seconds (`AUTOLEARN_CHAIN_MAX_SECONDS`, default 12h). When cap is reached, no further continuation job is created.
 - Multiple workers can run SYNC jobs for different users (and the same user when deduplication allows a new row) while AUTOLEARN is running.
 - Manual SYNC/AUTOLEARN API requests use idempotency keys but are always evaluated against a re-dispatch policy:
   - If the same request is duplicated while a related job is still `RUNNING` or `PENDING` for a short window, no new Actions dispatch is sent.
@@ -33,6 +35,7 @@
 4. If claim fails due to race, worker scans the next candidate.
 5. If claim succeeds but the AUTOLEARN user-level policy blocks it, the job is requeued after a short delay.
 6. If claim succeeds without conflict, worker starts execution.
+7. In `--once` mode, worker performs handoff dispatch when pending jobs remain for the requested type set.
 
 ## Retry Policy
 

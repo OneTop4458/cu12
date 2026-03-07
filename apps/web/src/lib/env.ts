@@ -13,6 +13,7 @@ const EnvSchema = z.object({
   GITHUB_WORKFLOW_ID: z.string().optional(),
   GITHUB_WORKFLOW_REF: z.string().default("main"),
   GITHUB_TOKEN: z.string().optional(),
+  AUTOLEARN_CHAIN_MAX_SECONDS: z.coerce.number().int().min(3600).max(172800).default(43200),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),
   SMTP_USER: z.string().optional(),

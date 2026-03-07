@@ -30,6 +30,7 @@ const EnvSchema = z.object({
   AUTOLEARN_TIME_FACTOR: z.coerce.number().default(1),
   AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS: z.coerce.number().int().min(10).max(300).default(60),
   AUTOLEARN_STALL_TIMEOUT_SECONDS: z.coerce.number().int().min(120).max(7200).default(1200),
+  AUTOLEARN_CHUNK_TARGET_SECONDS: z.coerce.number().int().min(300).max(21600).default(5400),
   AUTOLEARN_MAX_TASKS: z.coerce.number().int().min(1).max(200).default(50),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),

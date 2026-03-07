@@ -17,8 +17,10 @@
 - Uses `npm ci --prefer-offline --no-audit` and Playwright cache for faster startup.
 - Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
 - Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
+- Supports AUTOLEARN chunk controls (`AUTOLEARN_CHUNK_TARGET_SECONDS`, `AUTOLEARN_MAX_TASKS`) and continuation chain cap (`AUTOLEARN_CHAIN_MAX_SECONDS`).
 - Internal API calls are protected by timeout/retry controls (`WORKER_INTERNAL_API_TIMEOUT_MS`, `WORKER_INTERNAL_API_MAX_RETRIES`, `WORKER_INTERNAL_API_RETRY_BASE_MS`).
 - Supports conservative browser/session realism controls (`PLAYWRIGHT_ACCEPT_LANGUAGE`, `AUTOLEARN_HUMANIZATION_ENABLED`, delay ranges).
+- In `--once`, AUTOLEARN run exits after one completed chunk and hands off pending AUTOLEARN work by requesting a follow-up dispatch.
 - Manual action dispatch treats SYNC as priority: if a job is duplicate and still running/pending within stale windows, dispatch can be skipped (`SKIPPED_DUPLICATE`) to avoid storming GitHub API; stale duplicates are force-redispatched.
 
 4. `sync-schedule.yml`
@@ -29,25 +31,44 @@
 - Dispatches daily `MAIL_DIGEST` jobs and then calls `worker-consume.yml`.
 - Calls `worker-consume.yml` only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
 
-6. `reconcile-health-check.yml`
+6. `autolearn-dispatch.yml`
+- Manual AUTOLEARN dispatch workflow.
+- Enqueues AUTOLEARN request(s) and calls `worker-consume.yml` for execution.
+- Used for operator/manual triggering when explicit AUTOLEARN dispatch is needed.
+
+7. `reconcile-health-check.yml`
 - Calls `/internal/admin/jobs/reconcile` every 4 hours using `WORKER_SHARED_TOKEN`.
 - Fails the workflow when active job/run divergence is detected (`orphanedRunningJobsCount > 0` or `ghostRunsCount > 0`).
 - Fails also when reconciliation could not be performed with GitHub API (`canReconcileWithGitHub = false`).
 
-7. `db-retention-cleanup.yml`
+8. `db-retention-cleanup.yml`
 - Deletes old rows by retention policy:
   - `AuditLog`: 30 days
   - `JobQueue` terminal states: 14 days
   - `MailDelivery`: 30 days
 
-8. `actions-usage-forecast.yml`
+9. `actions-usage-forecast.yml`
 - Forecasts monthly Actions usage and writes utilization summary.
 
-9. `db-bootstrap.yml`
+10. `db-bootstrap.yml`
 - Applies DB schema initialization (`prisma db push`).
 
-10. `auth-reset-bootstrap.yml`
+11. `auth-reset-bootstrap.yml`
 - Resets auth-related data and creates a fresh admin invite record from a provided invite code hash.
+
+## Auxiliary/Repository Workflows
+
+1. `codeql.yml`
+- Weekly static security analysis with manual run support.
+
+2. `dependabot-auto-review.yml`
+- Applies automated review/label flow for Dependabot pull requests.
+
+3. `labeler.yml`
+- Applies PR labels based on changed paths.
+
+4. `stale.yml`
+- Marks and closes stale issues/PRs according to repository policy.
 
 ## Bootstrap Invite Hash Input
 

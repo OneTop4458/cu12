@@ -102,6 +102,9 @@ export interface AutoLearnResult {
   lectureSeqs: number[];
   plannedTaskCount: number;
   truncated: boolean;
+  continuationQueued?: boolean;
+  chainLimitReached?: boolean;
+  chainSegment?: number;
   noOpReason?: AutoLearnNoOpReason | null;
   planned?: AutoLearnPlannedTask[];
   estimatedTotalSeconds: number;
@@ -110,6 +113,12 @@ export interface AutoLearnResult {
 interface PlanResult {
   planned: PlannedTask[];
   noOpReason: AutoLearnNoOpReason | null;
+}
+
+interface ChunkSelection {
+  planned: PlannedTask[];
+  estimatedTotalSeconds: number;
+  truncated: boolean;
 }
 
 type CancelCheck = () => Promise<boolean>;
@@ -144,6 +153,39 @@ function randInt(min: number, max: number): number {
   const hi = Math.floor(Math.max(min, max));
   if (hi <= lo) return lo;
   return Math.floor(Math.random() * (hi - lo + 1)) + lo;
+}
+
+function selectChunkTasks(plannedAll: PlannedTask[], env = getEnv()): ChunkSelection {
+  const maxTasks = Math.max(1, env.AUTOLEARN_MAX_TASKS);
+  const targetSeconds = Math.max(300, env.AUTOLEARN_CHUNK_TARGET_SECONDS);
+  const planned: PlannedTask[] = [];
+  let estimatedTotalSeconds = 0;
+
+  for (const row of plannedAll) {
+    if (planned.length >= maxTasks) break;
+    const rowSeconds = Math.max(1, Math.ceil(row.remainingSeconds * env.AUTOLEARN_TIME_FACTOR));
+    const wouldExceedTarget = estimatedTotalSeconds + rowSeconds > targetSeconds;
+
+    if (planned.length > 0 && wouldExceedTarget) {
+      break;
+    }
+
+    planned.push(row);
+    estimatedTotalSeconds += rowSeconds;
+  }
+
+  if (planned.length === 0 && plannedAll.length > 0) {
+    const first = plannedAll[0];
+    const firstSeconds = Math.max(1, Math.ceil(first.remainingSeconds * env.AUTOLEARN_TIME_FACTOR));
+    planned.push(first);
+    estimatedTotalSeconds = firstSeconds;
+  }
+
+  return {
+    planned,
+    estimatedTotalSeconds,
+    truncated: planned.length < plannedAll.length,
+  };
 }
 
 async function humanPause(page: Page, minMs: number, maxMs: number, shouldCancel?: CancelCheck): Promise<void> {
@@ -1272,11 +1314,11 @@ export async function runAutoLearning(
     const mode = options.mode;
     const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
     const { planned: plannedAll, noOpReason } = await planTasks(page, env.CU12_BASE_URL, userId, mode, options.lectureSeq);
-    const truncated = plannedAll.length > env.AUTOLEARN_MAX_TASKS;
-    const planned = plannedAll.slice(0, env.AUTOLEARN_MAX_TASKS);
+    const chunk = selectChunkTasks(plannedAll, env);
+    const planned = chunk.planned;
+    const truncated = chunk.truncated;
     const plannedPreview = planned.map(toAutoLearnPlannedTask);
-
-    const estimatedTotalSeconds = planned.reduce((acc, row) => acc + Math.ceil(row.remainingSeconds * env.AUTOLEARN_TIME_FACTOR), 0);
+    const estimatedTotalSeconds = chunk.estimatedTotalSeconds;
 
     if (onProgress) {
       await onProgress({

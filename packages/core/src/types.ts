@@ -63,6 +63,8 @@ export interface QueuePayload {
   autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
   courseContentsSeq?: number;
   reason?: string;
+  chainSegment?: number;
+  chainElapsedSeconds?: number;
 }
 
 export interface Cu12Credentials {
