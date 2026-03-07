@@ -664,6 +664,22 @@ textarea:focus {
   width: auto;
 }
 
+.login-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.login-options-row .check-field {
+  margin: 0;
+}
+
+.login-reset-link {
+  width: auto;
+}
+
 .error-text {
   color: var(--danger);
 }
