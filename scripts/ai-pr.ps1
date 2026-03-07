@@ -5,7 +5,8 @@ param(
   [string]$Body = "",
   [string]$Base = "main",
   [switch]$Draft,
-  [switch]$SkipBuildWeb
+  [switch]$SkipBuildWeb,
+  [switch]$AllowPrimaryCheckout
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,11 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
 $repoRoot = (& git rev-parse --show-toplevel).Trim()
 if ($LASTEXITCODE -ne 0 -or -not $repoRoot) {
   throw "Not inside a git repository."
+}
+
+$gitMetaPath = Join-Path $repoRoot ".git"
+if ((Test-Path $gitMetaPath -PathType Container) -and -not $AllowPrimaryCheckout) {
+  throw "Run this script from a linked worktree (for example .worktrees/<branch>) to avoid multi-agent conflicts. Use -AllowPrimaryCheckout to override."
 }
 
 Set-Location $repoRoot

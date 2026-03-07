@@ -84,6 +84,7 @@ npm run ai:worktree -- --task "<task-slug>"
 3. Worktree path is created under `.worktrees/` and should map 1:1 with a single feature branch.
 4. Never reuse the same branch/worktree for unrelated tasks.
 5. Do not run `ai:ship` from `main` or `develop`; use feature branches only.
+6. `ai:ship` is designed to run inside linked worktrees (not primary checkout) to reduce multi-agent conflicts.
 
 ## AI Auto-PR Automation
 
@@ -100,6 +101,7 @@ npm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary
    4. `gh pr create --base main --head <branch>`
 3. `gh` authentication must be active before running automation (`gh auth status`).
 4. If validation fails, fix root cause first. Do not bypass checks to force PR creation.
+5. Emergency override for primary checkout exists but should be avoided: `--allowPrimaryCheckout`.
 
 ## Deployment Baseline
 
