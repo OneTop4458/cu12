@@ -18,14 +18,15 @@ jobs:
     steps:
       - name: Enable auto-merge (squash)
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           number="${{ github.event.pull_request.number }}"
-          state="$(gh pr view "$number" --json state,isDraft --jq '.state + ":" + (.isDraft|tostring)')"
+          state="$(gh pr view "$number" -R "$GH_REPO" --json state,isDraft --jq '.state + ":" + (.isDraft|tostring)')"
           if [ "$state" != "OPEN:false" ]; then
             echo "PR #$number is not mergeable state ($state). Skip."
             exit 0
           fi
 
-          gh pr merge "$number" --auto --squash --delete-branch
+          gh pr merge "$number" -R "$GH_REPO" --auto --squash --delete-branch
