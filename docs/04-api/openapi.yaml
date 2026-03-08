@@ -111,6 +111,12 @@ paths:
                   - $ref: "#/components/schemas/LoginAuthenticated"
                   - $ref: "#/components/schemas/LoginInviteRequired"
                   - $ref: "#/components/schemas/LoginConsentRequired"
+        "400":
+          description: Validation failed (invalid JSON body or missing/invalid fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Authentication failed (AUTH_FAILED or ACCOUNT_DISABLED)
           content:
