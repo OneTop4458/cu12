@@ -11,7 +11,7 @@ import {
   signSessionToken,
 } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
-import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "@/lib/http";
+import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
@@ -28,6 +28,35 @@ const BodySchema = z.object({
   campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
   rememberSession: z.boolean().optional().default(false),
 });
+
+function isPrismaError(error: unknown): boolean {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError
+    || error instanceof Prisma.PrismaClientUnknownRequestError
+    || error instanceof Prisma.PrismaClientInitializationError
+    || error instanceof Prisma.PrismaClientValidationError
+  ) {
+    return true;
+  }
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const candidate = error as Record<string, unknown>;
+  return typeof candidate.name === "string" && candidate.name.startsWith("Prisma");
+}
+
+function prismaErrorCode(error: unknown): string {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code;
+  }
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as Record<string, unknown>;
+    if (typeof candidate.code === "string" && candidate.code.length > 0) {
+      return candidate.code;
+    }
+  }
+  return "UNKNOWN";
+}
 
 function rateLimitedLoginError() {
   return jsonError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
@@ -79,7 +108,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await parseBody(request, BodySchema);
+    let body: z.output<typeof BodySchema>;
+    try {
+      body = BodySchema.parse(await request.json());
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return jsonError("Invalid request body.", 400, "VALIDATION_ERROR");
+      }
+      throw error;
+    }
     const campus = body.campus ?? "SONGSIM";
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
@@ -483,16 +520,17 @@ export async function POST(request: NextRequest) {
         "VALIDATION_ERROR",
       );
     }
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (isPrismaError(error)) {
+      const code = prismaErrorCode(error);
       await safeWriteAuditLog({
         category: "AUTH",
         severity: "ERROR",
         message: "Authentication failed due to database error",
         meta: {
-          code: error.code,
+          code,
         },
       });
-      return jsonError("Authentication failed.", 500, `INTERNAL_DB_${error.code}`);
+      return jsonError("Authentication failed.", 500, `INTERNAL_DB_${code}`);
     }
     if (error instanceof Error) {
       const message = error.message.toLowerCase();

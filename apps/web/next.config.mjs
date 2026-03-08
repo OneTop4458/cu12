@@ -1,13 +1,26 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const workspaceRoot = path.resolve(__dirname, "../..");
+const primaryCheckoutRoot = path.resolve(__dirname, "../../../..");
+
+function hasNextPackage(rootDir) {
+  return existsSync(path.join(rootDir, "node_modules", "next", "package.json"));
+}
+
+const turbopackRoot = [
+  workspaceRoot,
+  __dirname,
+  primaryCheckoutRoot,
+].find(hasNextPackage) ?? workspaceRoot;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typedRoutes: true,
   turbopack: {
-    root: path.resolve(__dirname, "../.."),
+    root: turbopackRoot,
   },
   async headers() {
     const csp = [
