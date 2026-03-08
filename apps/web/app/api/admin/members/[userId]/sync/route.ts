@@ -34,6 +34,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       select: {
         id: true,
         isActive: true,
+        withdrawnAt: true,
         isTestUser: true,
         cu12Account: {
           select: {
@@ -45,6 +46,9 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     if (!user) {
       return jsonError("User not found", 404);
+    }
+    if (user.withdrawnAt !== null) {
+      return jsonError("Target user is withdrawn", 409, "MEMBER_WITHDRAWN");
     }
     if (!user.isActive) {
       return jsonError("Target user is inactive", 409, "MEMBER_INACTIVE");

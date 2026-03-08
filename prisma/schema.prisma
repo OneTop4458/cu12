@@ -86,6 +86,7 @@ model User {
   name           String
   passwordHash   String
   isActive       Boolean            @default(true)
+  withdrawnAt    DateTime?
   isTestUser     Boolean            @default(false)
   role           UserRole           @default(USER)
   lastLoginAt    DateTime?

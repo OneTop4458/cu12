@@ -66,6 +66,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           email: true,
           name: true,
           isActive: true,
+          withdrawnAt: true,
         },
       }),
       prisma.mailSubscription.findUnique({
@@ -76,6 +77,9 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     if (!user) {
       return jsonError("User not found", 404);
+    }
+    if (user.withdrawnAt !== null) {
+      return jsonError("Withdrawn members cannot receive test mails.", 409, "MEMBER_WITHDRAWN");
     }
 
     if (!user.isActive) {

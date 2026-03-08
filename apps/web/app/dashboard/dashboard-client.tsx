@@ -866,6 +866,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
     const res = await fetch(url, requestInit);
     if (res.status === 401) {
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
       router.push("/login" as Route);
       throw new Error("Unauthorized");
     }

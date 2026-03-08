@@ -112,7 +112,7 @@ paths:
                   - $ref: "#/components/schemas/LoginInviteRequired"
                   - $ref: "#/components/schemas/LoginConsentRequired"
         "401":
-          description: Authentication failed (credentials/account state)
+          description: Authentication failed (AUTH_FAILED or ACCOUNT_DISABLED)
           content:
             application/json:
               schema:
@@ -171,7 +171,7 @@ paths:
                   - $ref: "#/components/schemas/LoginAuthenticated"
                   - $ref: "#/components/schemas/LoginConsentRequired"
         "401":
-          description: Challenge token invalid/expired or invite verification failed
+          description: Challenge token invalid/expired, invite verification failed, or account disabled
           content:
             application/json:
               schema:
@@ -1961,7 +1961,7 @@ paths:
           description: Member updated
     delete:
       tags: [Admin]
-      summary: Delete member account
+      summary: Withdraw member account (anonymize + cleanup)
       security:
         - cookieAuth: []
       parameters:
@@ -1982,7 +1982,13 @@ paths:
                   maxLength: 500
       responses:
         "200":
-          description: Member deleted
+          description: Member withdrawn
+        "409":
+          description: Member is already withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/admin/members/{userId}/sync:
     post:
@@ -2040,7 +2046,7 @@ paths:
         "403":
           description: Forbidden
         "409":
-          description: Member has no CU12 account, is inactive, or sync is blocked for test users
+          description: Member is withdrawn, has no CU12 account, is inactive, or sync is blocked for test users
           content:
             application/json:
               schema:
@@ -2233,7 +2239,7 @@ paths:
         "404":
           description: User not found
         "409":
-          description: Cannot send to inactive member
+          description: Cannot send to inactive or withdrawn member
 
 components:
   securitySchemes:

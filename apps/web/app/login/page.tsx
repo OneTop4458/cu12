@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteNoticeType } from "@prisma/client";
-import { IDLE_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, verifyActiveSession } from "@/lib/auth";
+import { getServerActiveSession } from "@/lib/session-user";
 import { listSiteNotices } from "@/server/site-notice";
 import { LoginForm } from "./login-form";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
@@ -17,11 +16,7 @@ export default async function LoginPage({
   const sessionExpiredReason =
     reason === "session-timeout" || reason === "session-expired" ? reason : undefined;
 
-  const cookieStore = await cookies();
-  const session = await verifyActiveSession(
-    cookieStore.get(SESSION_COOKIE_NAME)?.value,
-    cookieStore.get(IDLE_SESSION_COOKIE_NAME)?.value,
-  );
+  const session = await getServerActiveSession();
   if (session) {
     redirect("/dashboard");
   }
