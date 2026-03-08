@@ -52,6 +52,7 @@
   - `AuditLog`: 30 days
   - `JobQueue` terminal states: 14 days
   - `MailDelivery`: 30 days
+  - `UserPolicyConsent` for withdrawn members: 3 years after `User.withdrawnAt`
 
 9. `actions-usage-forecast.yml`
 - Forecasts monthly Actions usage and writes utilization summary.

@@ -13,6 +13,7 @@ import { encryptSecret } from "@/lib/crypto";
 import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
+import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 import { writeAuditLog } from "@/server/audit-log";
 import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
 import { upsertCu12Account } from "@/server/cu12-account";
@@ -54,18 +55,33 @@ export async function POST(request: NextRequest) {
       return rateLimitedLoginError();
     }
 
-    const localCandidate = await prisma.user.findUnique({
-      where: { email: body.cu12Id },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        isActive: true,
-        withdrawnAt: true,
-        isTestUser: true,
-        passwordHash: true,
-      },
-    });
+    const localCandidate = await withWithdrawnAtFallback(
+      () =>
+        prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+            withdrawnAt: true,
+            isTestUser: true,
+            passwordHash: true,
+          },
+        }),
+      () =>
+        prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+            isTestUser: true,
+            passwordHash: true,
+          },
+        }),
+    );
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
@@ -194,10 +210,18 @@ export async function POST(request: NextRequest) {
       where: { cu12Id: body.cu12Id },
       select: { userId: true },
     });
-    const existingUserByEmail = await prisma.user.findUnique({
-      where: { email: body.cu12Id },
-      select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-    });
+    const existingUserByEmail = await withWithdrawnAtFallback(
+      () =>
+        prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+        }),
+      () =>
+        prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: { id: true, email: true, role: true, isActive: true },
+        }),
+    );
 
     let user:
       | {
@@ -208,10 +232,18 @@ export async function POST(request: NextRequest) {
       | undefined;
 
     if (existingAccount) {
-      const found = await prisma.user.findUnique({
-        where: { id: existingAccount.userId },
-        select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-      });
+      const found = await withWithdrawnAtFallback(
+        () =>
+          prisma.user.findUnique({
+            where: { id: existingAccount.userId },
+            select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+          }),
+        () =>
+          prisma.user.findUnique({
+            where: { id: existingAccount.userId },
+            select: { id: true, email: true, role: true, isActive: true },
+          }),
+      );
 
       if (!found) {
         await recordAuthFailure("login", throttleIdentifiers);
