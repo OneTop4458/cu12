@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
   resolveSessionLifetimePolicy,
@@ -437,6 +438,38 @@ export async function POST(request: NextRequest) {
         400,
         "VALIDATION_ERROR",
       );
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      await safeWriteAuditLog({
+        category: "AUTH",
+        severity: "ERROR",
+        message: "Authentication failed due to database error",
+        meta: {
+          code: error.code,
+        },
+      });
+      return jsonError("Authentication failed.", 500, `INTERNAL_DB_${error.code}`);
+    }
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      const networkFailure =
+        message.includes("fetch failed")
+        || message.includes("etimedout")
+        || message.includes("econnrefused")
+        || message.includes("enotfound")
+        || message.includes("eai_again")
+        || message.includes("network");
+      if (networkFailure) {
+        await safeWriteAuditLog({
+          category: "AUTH",
+          severity: "ERROR",
+          message: "Authentication failed due to CU12 network failure",
+          meta: {
+            error: error.message,
+          },
+        });
+        return jsonError("Authentication service unavailable.", 503, "CU12_UNAVAILABLE");
+      }
     }
     await safeWriteAuditLog({
       category: "AUTH",
