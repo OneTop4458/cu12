@@ -19,6 +19,7 @@ import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/serve
 import { upsertCu12Account } from "@/server/cu12-account";
 import { verifyCu12Login } from "@/server/cu12-login";
 import { getPolicyConsentRequirement } from "@/server/policy";
+import type { WriteAuditLogInput } from "@/server/audit-log";
 
 const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
@@ -39,6 +40,38 @@ function accountDisabledError() {
   return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
 }
 
+async function safeCheckAuthThrottle(identifiers: Array<string | null | undefined>) {
+  try {
+    return await checkAuthThrottle("login", identifiers);
+  } catch {
+    return { blocked: false, retryAfterSeconds: 0 };
+  }
+}
+
+async function safeRecordAuthFailure(identifiers: Array<string | null | undefined>) {
+  try {
+    await recordAuthFailure("login", identifiers);
+  } catch {
+    // Ignore throttle persistence failures so auth flow stays available.
+  }
+}
+
+async function safeClearAuthFailures(identifiers: Array<string | null | undefined>) {
+  try {
+    await clearAuthFailures("login", identifiers);
+  } catch {
+    // Ignore throttle cleanup failures so auth flow stays available.
+  }
+}
+
+async function safeWriteAuditLog(input: WriteAuditLogInput) {
+  try {
+    await writeAuditLog(input);
+  } catch {
+    // Ignore audit persistence failures so auth flow stays available.
+  }
+}
+
 export async function POST(request: NextRequest) {
   if (!hasValidCsrfOrigin(request)) {
     return jsonError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
@@ -50,7 +83,7 @@ export async function POST(request: NextRequest) {
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
     const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `cu12:${body.cu12Id}`];
-    const throttle = await checkAuthThrottle("login", throttleIdentifiers);
+    const throttle = await safeCheckAuthThrottle(throttleIdentifiers);
     if (throttle.blocked) {
       return rateLimitedLoginError();
     }
@@ -85,13 +118,13 @@ export async function POST(request: NextRequest) {
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
-        await recordAuthFailure("login", throttleIdentifiers);
+        await safeRecordAuthFailure(throttleIdentifiers);
         return accountDisabledError();
       }
 
       const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
       if (!ok) {
-        await recordAuthFailure("login", throttleIdentifiers);
+        await safeRecordAuthFailure(throttleIdentifiers);
         return authenticationFailedError();
       }
 
@@ -111,7 +144,7 @@ export async function POST(request: NextRequest) {
           rememberSession: sessionPolicy.rememberSession,
           firstLogin: false,
         });
-        await clearAuthFailures("login", throttleIdentifiers);
+        await safeClearAuthFailures(throttleIdentifiers);
         return jsonOk({
           stage: "CONSENT_REQUIRED" as const,
           consentToken,
@@ -170,7 +203,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await writeAuditLog({
+      await safeWriteAuditLog({
         category: "AUTH",
         severity: "INFO",
         actorUserId: localCandidate.id,
@@ -182,7 +215,7 @@ export async function POST(request: NextRequest) {
           loginIp,
         },
       });
-      await clearAuthFailures("login", throttleIdentifiers);
+      await safeClearAuthFailures(throttleIdentifiers);
       return response;
     }
 
@@ -192,8 +225,8 @@ export async function POST(request: NextRequest) {
       campus,
     });
     if (!validation.ok) {
-      await recordAuthFailure("login", throttleIdentifiers);
-      await writeAuditLog({
+      await safeRecordAuthFailure(throttleIdentifiers);
+      await safeWriteAuditLog({
         category: "AUTH",
         severity: "WARN",
         message: "CU12 login validation failed",
@@ -246,11 +279,11 @@ export async function POST(request: NextRequest) {
       );
 
       if (!found) {
-        await recordAuthFailure("login", throttleIdentifiers);
+        await safeRecordAuthFailure(throttleIdentifiers);
         return authenticationFailedError();
       }
       if (!found.isActive || found.withdrawnAt !== null) {
-        await recordAuthFailure("login", throttleIdentifiers);
+        await safeRecordAuthFailure(throttleIdentifiers);
         return accountDisabledError();
       }
 
@@ -267,7 +300,7 @@ export async function POST(request: NextRequest) {
       });
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
-        await recordAuthFailure("login", throttleIdentifiers);
+        await safeRecordAuthFailure(throttleIdentifiers);
         return accountDisabledError();
       }
 
@@ -286,7 +319,7 @@ export async function POST(request: NextRequest) {
         nonce: randomUUID(),
       });
 
-      await writeAuditLog({
+      await safeWriteAuditLog({
         category: "AUTH",
         severity: "INFO",
         message: "Login challenge issued for first-time CU12 user",
@@ -295,7 +328,7 @@ export async function POST(request: NextRequest) {
           campus,
         },
       });
-      await clearAuthFailures("login", throttleIdentifiers);
+      await safeClearAuthFailures(throttleIdentifiers);
 
       return jsonOk({
         stage: "INVITE_REQUIRED" as const,
@@ -333,7 +366,7 @@ export async function POST(request: NextRequest) {
         rememberSession: sessionPolicy.rememberSession,
         firstLogin: false,
       });
-      await clearAuthFailures("login", throttleIdentifiers);
+      await safeClearAuthFailures(throttleIdentifiers);
       return jsonOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
@@ -382,7 +415,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await writeAuditLog({
+    await safeWriteAuditLog({
       category: "AUTH",
       severity: "INFO",
       actorUserId: user.id,
@@ -394,7 +427,7 @@ export async function POST(request: NextRequest) {
         loginIp,
       },
     });
-    await clearAuthFailures("login", throttleIdentifiers);
+    await safeClearAuthFailures(throttleIdentifiers);
 
     return response;
   } catch (error) {
@@ -405,7 +438,7 @@ export async function POST(request: NextRequest) {
         "VALIDATION_ERROR",
       );
     }
-    await writeAuditLog({
+    await safeWriteAuditLog({
       category: "AUTH",
       severity: "ERROR",
       message: "Authentication failed due to server error",
