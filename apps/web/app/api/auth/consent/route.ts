@@ -37,21 +37,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: challenge.userId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+        withdrawnAt: true,
+      },
+    });
+    if (!user || !user.isActive || user.withdrawnAt !== null) {
+      return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
+    }
+
     const loginIp = getRequestIp(request);
-    await recordUserPolicyConsent(challenge.userId, body.acceptedPolicies, loginIp);
+    await recordUserPolicyConsent(user.id, body.acceptedPolicies, loginIp);
 
     const sessionPolicy = resolveSessionLifetimePolicy(challenge.rememberSession);
     const sessionToken = await signSessionToken(
       {
         userId: challenge.userId,
-        email: challenge.email,
-        role: challenge.role,
+        email: user.email,
+        role: user.role,
       },
       {
         maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
       },
     );
-    const idleSessionToken = await signIdleSessionToken(challenge.userId, {
+    const idleSessionToken = await signIdleSessionToken(user.id, {
       rememberSession: sessionPolicy.rememberSession,
       maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
     });
@@ -79,8 +93,8 @@ export async function POST(request: NextRequest) {
       stage: "AUTHENTICATED" as const,
       user: {
         userId: challenge.userId,
-        cu12Id: challenge.email,
-        role: challenge.role,
+        cu12Id: user.email,
+        role: user.role,
       },
       firstLogin: challenge.firstLogin,
       session: {

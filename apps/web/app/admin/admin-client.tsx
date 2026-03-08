@@ -283,6 +283,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     });
 
     if (response.status === 401) {
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
       router.push("/login" as Route);
       throw new Error("Unauthorized");
     }

@@ -35,6 +35,10 @@ function inviteVerificationFailedError() {
   return jsonError("Invite verification failed.", 401, "INVITE_VERIFICATION_FAILED");
 }
 
+function accountDisabledError() {
+  return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
+}
+
 async function consumeInviteToken(
   tx: Prisma.TransactionClient,
   inviteId: string,
@@ -198,11 +202,15 @@ export async function POST(request: NextRequest) {
     if (existingAccount) {
       const found = await prisma.user.findUnique({
         where: { id: existingAccount.userId },
-        select: { id: true, email: true, role: true, isActive: true },
+        select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
       });
-      if (!found || !found.isActive) {
+      if (!found) {
         await recordAuthFailure("invite", throttleIdentifiers);
         return inviteVerificationFailedError();
+      }
+      if (!found.isActive || found.withdrawnAt !== null) {
+        await recordAuthFailure("invite", throttleIdentifiers);
+        return accountDisabledError();
       }
 
       const consumed = await prisma.$transaction((tx) =>

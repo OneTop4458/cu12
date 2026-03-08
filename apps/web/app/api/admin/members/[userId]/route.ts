@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
+import { z } from "zod";
 import { hashPassword } from "@/lib/auth";
+import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { generateToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
 
 interface Params {
@@ -39,10 +40,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, isTestUser: true },
+      select: {
+        id: true,
+        isTestUser: true,
+        withdrawnAt: true,
+      },
     });
     if (!user) {
       return jsonError("User not found", 404);
+    }
+    if (user.withdrawnAt !== null) {
+      return jsonError("Target member is already withdrawn.", 409, "MEMBER_WITHDRAWN");
     }
 
     if (userId === context.actor.userId && body.isActive === false) {
@@ -105,7 +113,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           },
         });
       }
-
     });
 
     const updated = await prisma.user.findUnique({
@@ -165,26 +172,32 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     if (bodyText) {
       body = DeleteSchema.parse(JSON.parse(bodyText));
     }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, isActive: true },
+      select: {
+        id: true,
+        email: true,
+        withdrawnAt: true,
+      },
     });
-
     if (!user) {
       return jsonError("User not found", 404);
     }
-
     if (userId === context.actor.userId) {
       return jsonError("Cannot delete own account", 400);
     }
+    if (user.withdrawnAt !== null) {
+      return jsonError("Member already withdrawn", 404, "MEMBER_NOT_FOUND");
+    }
+
+    const withdrawnAt = new Date();
+    const anonymizedEmail = `withdrawn-${userId}@withdrawn.local`;
+    const anonymizedName = `Withdrawn Account ${userId.slice(0, 8)}`;
+    const anonymizedPasswordHash = await hashPassword(generateToken(48));
 
     await prisma.$transaction(async (tx) => {
-      await tx.auditLog.deleteMany({
-        where: {
-          OR: [{ actorUserId: userId }, { targetUserId: userId }],
-        },
-      });
-      await tx.mailDelivery.deleteMany({ where: { userId } });
+      await tx.cu12Account.deleteMany({ where: { userId } });
       await tx.mailSubscription.deleteMany({ where: { userId } });
       await tx.taskDeadlineAlert.deleteMany({ where: { userId } });
       await tx.courseNotice.deleteMany({ where: { userId } });
@@ -192,25 +205,48 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       await tx.learningRun.deleteMany({ where: { userId } });
       await tx.learningTask.deleteMany({ where: { userId } });
       await tx.notificationEvent.deleteMany({ where: { userId } });
-      await tx.jobQueue.deleteMany({ where: { userId } });
-      await tx.user.delete({ where: { id: userId } });
+      await tx.jobQueue.updateMany({
+        where: {
+          userId,
+          status: { in: ["PENDING", "RUNNING"] },
+        },
+        data: {
+          status: "CANCELED",
+          finishedAt: withdrawnAt,
+          lastError: "Canceled due to member withdrawal",
+        },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          email: anonymizedEmail,
+          name: anonymizedName,
+          passwordHash: anonymizedPasswordHash,
+          isActive: false,
+          isTestUser: false,
+          lastLoginAt: null,
+          lastLoginIp: null,
+          withdrawnAt,
+        },
+      });
     });
 
     await writeAuditLog({
       category: "ADMIN",
       severity: "WARN",
       actorUserId: context.actor.userId,
-      targetUserId: userId,
-      message: "Admin deleted member",
+      message: "Admin withdrew member",
       meta: {
-        userEmail: user.email,
+        withdrawnUserId: userId,
+        withdrawnUserEmail: user.email,
+        withdrawnAt: withdrawnAt.toISOString(),
         reason: body.reason ?? null,
       },
     });
 
     return jsonOk({
       deleted: true,
-      deactivated: false,
+      deactivated: true,
       userId,
     });
   } catch (error) {
@@ -219,15 +255,15 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2025") {
-        return jsonError("이미 탈퇴 처리된 회원입니다.", 404, "MEMBER_NOT_FOUND");
+        return jsonError("Member already withdrawn", 404, "MEMBER_NOT_FOUND");
       }
       if (error.code === "P2003") {
-        return jsonError("회원 탈퇴 중 연관 데이터 정리가 실패했습니다.", 409, "MEMBER_DELETE_CONSTRAINT");
+        return jsonError("Failed to cleanup related member records", 409, "MEMBER_DELETE_CONSTRAINT");
       }
     }
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
     }
-    return jsonError("회원 탈퇴 처리 중 오류가 발생했습니다.", 500);
+    return jsonError("Failed to withdraw member", 500);
   }
 }

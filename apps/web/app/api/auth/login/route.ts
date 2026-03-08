@@ -34,6 +34,10 @@ function authenticationFailedError() {
   return jsonError("Authentication failed.", 401, "AUTH_FAILED");
 }
 
+function accountDisabledError() {
+  return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
+}
+
 export async function POST(request: NextRequest) {
   if (!hasValidCsrfOrigin(request)) {
     return jsonError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
@@ -57,15 +61,16 @@ export async function POST(request: NextRequest) {
         email: true,
         role: true,
         isActive: true,
+        withdrawnAt: true,
         isTestUser: true,
         passwordHash: true,
       },
     });
 
     if (localCandidate?.isTestUser) {
-      if (!localCandidate.isActive) {
+      if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
         await recordAuthFailure("login", throttleIdentifiers);
-        return authenticationFailedError();
+        return accountDisabledError();
       }
 
       const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
@@ -191,7 +196,7 @@ export async function POST(request: NextRequest) {
     });
     const existingUserByEmail = await prisma.user.findUnique({
       where: { email: body.cu12Id },
-      select: { id: true, email: true, role: true, isActive: true },
+      select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
     });
 
     let user:
@@ -205,12 +210,16 @@ export async function POST(request: NextRequest) {
     if (existingAccount) {
       const found = await prisma.user.findUnique({
         where: { id: existingAccount.userId },
-        select: { id: true, email: true, role: true, isActive: true },
+        select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
       });
 
-      if (!found || !found.isActive) {
+      if (!found) {
         await recordAuthFailure("login", throttleIdentifiers);
         return authenticationFailedError();
+      }
+      if (!found.isActive || found.withdrawnAt !== null) {
+        await recordAuthFailure("login", throttleIdentifiers);
+        return accountDisabledError();
       }
 
       user = await prisma.user.update({
@@ -225,9 +234,9 @@ export async function POST(request: NextRequest) {
         campus,
       });
     } else if (existingUserByEmail) {
-      if (!existingUserByEmail.isActive) {
+      if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
         await recordAuthFailure("login", throttleIdentifiers);
-        return authenticationFailedError();
+        return accountDisabledError();
       }
 
       user = existingUserByEmail;

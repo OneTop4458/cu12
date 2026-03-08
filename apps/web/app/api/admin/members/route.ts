@@ -29,14 +29,17 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(limitRaw, 1), 500);
 
   const members = await prisma.user.findMany({
-    where: q
-      ? {
-        OR: [
-          { email: { contains: q, mode: "insensitive" } },
-          { name: { contains: q, mode: "insensitive" } },
-        ],
-      }
-      : undefined,
+    where: {
+      withdrawnAt: null,
+      ...(q
+        ? {
+          OR: [
+            { email: { contains: q, mode: "insensitive" } },
+            { name: { contains: q, mode: "insensitive" } },
+          ],
+        }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
     select: {

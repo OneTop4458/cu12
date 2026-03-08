@@ -130,9 +130,9 @@ export async function requireUser(request: NextRequest): Promise<SessionTokenPay
 
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { email: true, role: true, isActive: true },
+    select: { email: true, role: true, isActive: true, withdrawnAt: true },
   });
-  if (!user || !user.isActive) return null;
+  if (!user || !user.isActive || user.withdrawnAt !== null) return null;
 
   return {
     userId: session.userId,
@@ -184,10 +184,11 @@ export async function requireAuthContext(request: NextRequest): Promise<RequestA
       email: true,
       role: true,
       isActive: true,
+      withdrawnAt: true,
     },
   });
 
-  if (!target || !target.isActive) {
+  if (!target || !target.isActive || target.withdrawnAt !== null) {
     return {
       actor,
       effective: actor,

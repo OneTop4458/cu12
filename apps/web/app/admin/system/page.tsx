@@ -1,15 +1,10 @@
 import type { Route } from "next";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { IDLE_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, verifyActiveSession } from "@/lib/auth";
+import { getServerActiveSession } from "@/lib/session-user";
 import { AdminSystemClient } from "./system-client";
 
 export default async function AdminSystemPage() {
-  const cookieStore = await cookies();
-  const session = await verifyActiveSession(
-    cookieStore.get(SESSION_COOKIE_NAME)?.value,
-    cookieStore.get(IDLE_SESSION_COOKIE_NAME)?.value,
-  );
+  const session = await getServerActiveSession();
   if (!session) {
     redirect("/login" as Route);
   }

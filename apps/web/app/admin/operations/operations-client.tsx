@@ -263,6 +263,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
     if (response.status === 401) {
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
       router.push("/login?reason=session-expired");
       throw new Error("Unauthorized");
     }
