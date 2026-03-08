@@ -14,6 +14,7 @@ import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { generateToken, hashToken } from "@/lib/token";
+import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 import { writeAuditLog } from "@/server/audit-log";
 import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
 import { upsertCu12Account } from "@/server/cu12-account";
@@ -200,10 +201,18 @@ export async function POST(request: NextRequest) {
     let firstLogin = false;
 
     if (existingAccount) {
-      const found = await prisma.user.findUnique({
-        where: { id: existingAccount.userId },
-        select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-      });
+      const found = await withWithdrawnAtFallback(
+        () =>
+          prisma.user.findUnique({
+            where: { id: existingAccount.userId },
+            select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+          }),
+        () =>
+          prisma.user.findUnique({
+            where: { id: existingAccount.userId },
+            select: { id: true, email: true, role: true, isActive: true },
+          }),
+      );
       if (!found) {
         await recordAuthFailure("invite", throttleIdentifiers);
         return inviteVerificationFailedError();

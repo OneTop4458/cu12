@@ -10,6 +10,7 @@ import {
 } from "./auth";
 import { getEnv } from "./env";
 import { prisma } from "./prisma";
+import { withWithdrawnAtFallback } from "./withdrawn-compat";
 
 export function jsonOk<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json(data, { status: 200, ...init });
@@ -128,10 +129,18 @@ export async function requireUser(request: NextRequest): Promise<SessionTokenPay
   const session = await verifyActiveSession(sessionToken, idleToken);
   if (!session) return null;
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { email: true, role: true, isActive: true, withdrawnAt: true },
-  });
+  const user = await withWithdrawnAtFallback(
+    () =>
+      prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { email: true, role: true, isActive: true, withdrawnAt: true },
+      }),
+    () =>
+      prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { email: true, role: true, isActive: true },
+      }),
+  );
   if (!user || !user.isActive || user.withdrawnAt !== null) return null;
 
   return {
@@ -177,16 +186,29 @@ export async function requireAuthContext(request: NextRequest): Promise<RequestA
     };
   }
 
-  const target = await prisma.user.findUnique({
-    where: { id: payload.targetUserId },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      isActive: true,
-      withdrawnAt: true,
-    },
-  });
+  const target = await withWithdrawnAtFallback(
+    () =>
+      prisma.user.findUnique({
+        where: { id: payload.targetUserId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+          withdrawnAt: true,
+        },
+      }),
+    () =>
+      prisma.user.findUnique({
+        where: { id: payload.targetUserId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+        },
+      }),
+  );
 
   if (!target || !target.isActive || target.withdrawnAt !== null) {
     return {

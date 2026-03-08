@@ -10,6 +10,7 @@ import {
 import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
+import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 import { writeAuditLog } from "@/server/audit-log";
 import { PolicyError, recordUserPolicyConsent } from "@/server/policy";
 
@@ -37,16 +38,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: challenge.userId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        isActive: true,
-        withdrawnAt: true,
-      },
-    });
+    const user = await withWithdrawnAtFallback(
+      () =>
+        prisma.user.findUnique({
+          where: { id: challenge.userId },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+            withdrawnAt: true,
+          },
+        }),
+      () =>
+        prisma.user.findUnique({
+          where: { id: challenge.userId },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+          },
+        }),
+    );
     if (!user || !user.isActive || user.withdrawnAt !== null) {
       return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
     }

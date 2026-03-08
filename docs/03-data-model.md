@@ -6,6 +6,8 @@
 - Application user identity and role (`ADMIN`/`USER`).
 - Linked to a single CU12 account in normal operation.
 - Includes `isTestUser` for admin-driven test onboarding.
+- Uses `withdrawnAt` to mark withdrawn members without hard-deleting the identity row.
+- Admin withdrawal flow anonymizes identity fields (`email`, `name`, `passwordHash`) and clears login traces (`lastLoginAt`, `lastLoginIp`).
 
 2. `InviteToken`
 - One-time onboarding token, bound to `cu12Id`.
@@ -32,6 +34,7 @@
 7. `UserPolicyConsent`
 - Immutable per-user consent version record for required policy types.
 - Tracks consent time and source IP.
+- Consent rows for withdrawn users are retained for policy/audit purposes and deleted by retention cleanup after 3 years from `User.withdrawnAt`.
 
 8. `AuthRateLimit`
 - Persistent throttle buckets for login/invite failure windows and temporary blocks.
@@ -70,6 +73,21 @@
 - Worker owns CU12 scraping outputs and job final state transitions.
 - Admin-only APIs own invite token issuance, member management, and impersonation control.
 - Audit logging is shared: both web and worker append logs.
+
+## Withdrawal Lifecycle
+
+- Member withdrawal is implemented as logical withdrawal plus cleanup, not hard delete of `User`.
+- Immediate cleanup removes service-linked personal activity data:
+  - `Cu12Account`
+  - `MailSubscription`
+  - `TaskDeadlineAlert`
+  - `CourseSnapshot`
+  - `CourseNotice`
+  - `LearningTask`
+  - `LearningRun`
+  - `NotificationEvent`
+- Pending/running `JobQueue` rows are canceled during withdrawal.
+- `UserPolicyConsent` and `AuditLog` are retained under retention policy windows.
 
 ## Data Protection
 
