@@ -27,7 +27,6 @@ function toUnivId(campus: Cu12Campus): "catholic" | "songsin" {
 }
 
 export async function verifyCu12Login(input: VerifyCu12LoginInput): Promise<VerifyCu12LoginResult> {
-  const url = new URL("/el/lo/hak_login_proc.acl", getEnv().CU12_BASE_URL);
   const body = new URLSearchParams({
     univ_id: toUnivId(input.campus),
     usr_id: input.cu12Id,
@@ -38,46 +37,72 @@ export async function verifyCu12Login(input: VerifyCu12LoginInput): Promise<Veri
     remember: "N",
     encoding: "utf-8",
   });
+  const configuredBaseUrl = getEnv().CU12_BASE_URL;
+  const fallbackBaseUrl = "https://www.cu12.ac.kr";
+  const baseUrls = configuredBaseUrl === fallbackBaseUrl
+    ? [configuredBaseUrl]
+    : [configuredBaseUrl, fallbackBaseUrl];
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "x-requested-with": "XMLHttpRequest",
-    },
-    body: body.toString(),
-    cache: "no-store",
-  });
+  for (const baseUrl of baseUrls) {
+    const url = new URL("/el/lo/hak_login_proc.acl", baseUrl);
+    let response: Response;
 
-  if (!response.ok) {
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "x-requested-with": "XMLHttpRequest",
+        },
+        body: body.toString(),
+        cache: "no-store",
+      });
+    } catch {
+      continue;
+    }
+
+    if (!response.ok) {
+      if (baseUrl !== fallbackBaseUrl) {
+        continue;
+      }
+      return {
+        ok: false,
+        message: `CU12 login request failed (${response.status})`,
+      };
+    }
+
+    const raw = await response.text();
+    let parsed: Cu12LoginResponse;
+    try {
+      parsed = JSON.parse(raw) as Cu12LoginResponse;
+    } catch {
+      if (baseUrl !== fallbackBaseUrl) {
+        continue;
+      }
+      return {
+        ok: false,
+        message: "CU12 login response parse failed",
+      };
+    }
+
+    if (parsed.isError) {
+      return {
+        ok: false,
+        message: parsed.message ?? "Invalid CU12 credentials",
+        messageCode: parsed.messageCode,
+      };
+    }
+
     return {
-      ok: false,
-      message: `CU12 login request failed (${response.status})`,
-    };
-  }
-
-  const raw = await response.text();
-  let parsed: Cu12LoginResponse;
-  try {
-    parsed = JSON.parse(raw) as Cu12LoginResponse;
-  } catch {
-    return {
-      ok: false,
-      message: "CU12 login response parse failed",
-    };
-  }
-
-  if (parsed.isError) {
-    return {
-      ok: false,
-      message: parsed.message ?? "Invalid CU12 credentials",
+      ok: true,
+      message: parsed.message ?? "OK",
       messageCode: parsed.messageCode,
     };
   }
 
   return {
-    ok: true,
-    message: parsed.message ?? "OK",
-    messageCode: parsed.messageCode,
+    ok: false,
+    message: "CU12 login request failed",
+    messageCode: "CU12_UNAVAILABLE",
   };
 }
