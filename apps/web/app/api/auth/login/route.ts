@@ -89,33 +89,65 @@ export async function POST(request: NextRequest) {
       return rateLimitedLoginError();
     }
 
-    const localCandidate = await withWithdrawnAtFallback(
-      () =>
-        prisma.user.findUnique({
-          where: { email: body.cu12Id },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-            withdrawnAt: true,
-            isTestUser: true,
-            passwordHash: true,
-          },
-        }),
-      () =>
-        prisma.user.findUnique({
-          where: { email: body.cu12Id },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-            isTestUser: true,
-            passwordHash: true,
-          },
-        }),
-    );
+    let localCandidate: {
+      id: string;
+      email: string;
+      role: "ADMIN" | "USER";
+      isActive: boolean;
+      withdrawnAt: Date | null;
+      isTestUser: boolean;
+      passwordHash: string;
+    } | null = null;
+    try {
+      localCandidate = await withWithdrawnAtFallback(
+        () =>
+          prisma.user.findUnique({
+            where: { email: body.cu12Id },
+            select: {
+              id: true,
+              email: true,
+              role: true,
+              isActive: true,
+              withdrawnAt: true,
+              isTestUser: true,
+              passwordHash: true,
+            },
+          }),
+        () =>
+          prisma.user.findUnique({
+            where: { email: body.cu12Id },
+            select: {
+              id: true,
+              email: true,
+              role: true,
+              isActive: true,
+              isTestUser: true,
+              passwordHash: true,
+            },
+          }),
+      );
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2022") {
+        throw error;
+      }
+      const legacyCandidate = await prisma.user.findUnique({
+        where: { email: body.cu12Id },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+          passwordHash: true,
+        },
+      });
+      localCandidate = legacyCandidate
+        ? {
+          ...legacyCandidate,
+          withdrawnAt: null,
+          isTestUser: false,
+        }
+        : null;
+    }
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
