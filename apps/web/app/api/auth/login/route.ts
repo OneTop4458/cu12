@@ -464,6 +464,18 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
+    if (error instanceof Error) {
+      console.error("[auth/login] runtime failure", {
+        name: error.name,
+        message: error.message,
+      });
+    } else {
+      console.error("[auth/login] runtime failure (non-error)", {
+        type: typeof error,
+        value: String(error),
+      });
+    }
+
     if (error instanceof z.ZodError) {
       return jsonError(
         error.issues.map((it) => it.message).join(", "),
