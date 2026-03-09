@@ -5,10 +5,13 @@
 1. Login with valid CU12 credentials and existing mapping.
 2. Login with invalid CU12 credentials -> `AUTH_FAILED`.
 3. First login valid CU12 credentials -> `INVITE_REQUIRED`.
-4. Invite step with invalid/expired token -> `LOGIN_CHALLENGE_INVALID`.
-5. Invite step with invalid/unbound invite code -> `INVITE_VERIFICATION_FAILED`.
-6. Admin invite create/list authorization (ADMIN vs USER).
-7. Verify detailed auth failure reasons are recorded in audit logs even when API responses are generalized.
+4. Login while CU12 upstream is unavailable -> `CU12_UNAVAILABLE` (`503`) without counting as credential failure.
+5. Invite step with invalid/expired token -> `LOGIN_CHALLENGE_INVALID`.
+6. Invite step with invalid/unbound invite code -> `INVITE_VERIFICATION_FAILED`.
+7. Invite step still completes expected response when throttle/audit persistence fails.
+8. Consent step still returns expected policy/app errors and does not fail only because audit persistence fails.
+9. Admin invite create/list authorization (ADMIN vs USER).
+10. Verify detailed auth failure reasons are recorded in audit logs even when API responses are generalized.
 
 ## Queue and Worker
 

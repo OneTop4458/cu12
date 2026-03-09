@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test:auth": "tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit --incremental false",
     "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema ../../prisma/schema.prisma"

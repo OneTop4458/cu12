@@ -20,6 +20,7 @@
     "check:openapi": "node scripts/check-openapi-sync.mjs",
     "check:text:replacements": "node scripts/check-replacement-characters.mjs",
     "typecheck": "npm --workspace @cu12/web run typecheck && npm --workspace @cu12/worker run typecheck",
+    "test:web": "npm --workspace @cu12/web run test:auth",
     "prisma:generate": "npm --workspace @cu12/web run prisma:generate",
     "prisma:migrate": "npm --workspace @cu12/web run prisma:migrate",
     "prisma:push": "npx prisma db push --schema prisma/schema.prisma",
