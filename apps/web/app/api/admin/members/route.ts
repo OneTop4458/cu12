@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth";
 import { generateToken } from "@/lib/token";
 import { upsertCu12Account } from "@/server/cu12-account";
-import { verifyCu12Login } from "@/server/cu12-login";
+import { isCu12UnavailableResult, verifyCu12Login } from "@/server/cu12-login";
 import { writeAuditLog } from "@/server/audit-log";
 
 const CreateMemberSchema = z.object({
@@ -116,17 +116,23 @@ export async function POST(request: NextRequest) {
         campus,
       });
       if (!validation.ok) {
+        const unavailable = isCu12UnavailableResult(validation);
         await writeAuditLog({
           category: "AUTH",
-          severity: "WARN",
+          severity: unavailable ? "ERROR" : "WARN",
           actorUserId: context.actor.userId,
-          message: "Admin member create failed due to CU12 verification",
+          message: unavailable
+            ? "Admin member create failed due to CU12 service unavailability"
+            : "Admin member create failed due to CU12 verification",
           meta: {
             cu12Id: body.cu12Id,
             campus,
             messageCode: validation.messageCode ?? null,
           },
         });
+        if (unavailable) {
+          return jsonError("CU12 authentication service unavailable.", 503, "CU12_UNAVAILABLE");
+        }
         return jsonError("CU12 ID or password is invalid.", 401, "CU12_AUTH_FAILED");
       }
     }

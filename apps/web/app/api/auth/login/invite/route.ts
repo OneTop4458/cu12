@@ -15,8 +15,12 @@ import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { generateToken, hashToken } from "@/lib/token";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
-import { writeAuditLog } from "@/server/audit-log";
-import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
+import {
+  checkAuthThrottleBestEffort,
+  clearAuthFailuresBestEffort,
+  recordAuthFailureBestEffort,
+  writeAuditLogBestEffort,
+} from "@/server/auth-best-effort";
 import { upsertCu12Account } from "@/server/cu12-account";
 import { getPolicyConsentRequirement } from "@/server/policy";
 
@@ -73,14 +77,14 @@ export async function POST(request: NextRequest) {
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
     const ipThrottleIdentifier = loginIp ? `ip:${loginIp}` : null;
-    const ipThrottle = await checkAuthThrottle("invite", [ipThrottleIdentifier]);
+    const ipThrottle = await checkAuthThrottleBestEffort("invite", [ipThrottleIdentifier]);
     if (ipThrottle.blocked) {
       return rateLimitedInviteError();
     }
 
     const challenge = await verifyLoginChallengeToken(body.challengeToken);
     if (!challenge) {
-      await recordAuthFailure("invite", [ipThrottleIdentifier]);
+      await recordAuthFailureBestEffort("invite", [ipThrottleIdentifier]);
       return jsonError(
         "Login challenge is invalid or expired. Please log in again.",
         401,
@@ -88,7 +92,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const throttleIdentifiers = [ipThrottleIdentifier, `cu12:${challenge.cu12Id}`];
-    const challengeThrottle = await checkAuthThrottle("invite", throttleIdentifiers);
+    const challengeThrottle = await checkAuthThrottleBestEffort("invite", throttleIdentifiers);
     if (challengeThrottle.blocked) {
       return rateLimitedInviteError();
     }
@@ -104,8 +108,8 @@ export async function POST(request: NextRequest) {
       });
 
       if (!hasInvite) {
-        await recordAuthFailure("invite", throttleIdentifiers);
-        await writeAuditLog({
+        await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+        await writeAuditLogBestEffort({
           category: "AUTH",
           severity: "WARN",
           message: "Invite verification failed: CU12 ID is not approved",
@@ -116,8 +120,8 @@ export async function POST(request: NextRequest) {
         return inviteVerificationFailedError();
       }
 
-      await recordAuthFailure("invite", throttleIdentifiers);
-      await writeAuditLog({
+      await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "WARN",
         message: "Invite verification failed: invalid invite code",
@@ -129,8 +133,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (!invite.isActive) {
-      await recordAuthFailure("invite", throttleIdentifiers);
-      await writeAuditLog({
+      await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "WARN",
         message: "Invite verification failed: invite code is inactive",
@@ -143,8 +147,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.expiresAt < new Date()) {
-      await recordAuthFailure("invite", throttleIdentifiers);
-      await writeAuditLog({
+      await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "WARN",
         message: "Invite verification failed: invite code expired",
@@ -157,8 +161,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.usedAt) {
-      await recordAuthFailure("invite", throttleIdentifiers);
-      await writeAuditLog({
+      await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "WARN",
         message: "Invite verification failed: invite code already used",
@@ -171,8 +175,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (invite.cu12Id !== challenge.cu12Id) {
-      await recordAuthFailure("invite", throttleIdentifiers);
-      await writeAuditLog({
+      await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "WARN",
         message: "Invite verification failed: unapproved CU12 ID",
@@ -214,11 +218,11 @@ export async function POST(request: NextRequest) {
           }),
       );
       if (!found) {
-        await recordAuthFailure("invite", throttleIdentifiers);
+        await recordAuthFailureBestEffort("invite", throttleIdentifiers);
         return inviteVerificationFailedError();
       }
       if (!found.isActive || found.withdrawnAt !== null) {
-        await recordAuthFailure("invite", throttleIdentifiers);
+        await recordAuthFailureBestEffort("invite", throttleIdentifiers);
         return accountDisabledError();
       }
 
@@ -226,8 +230,8 @@ export async function POST(request: NextRequest) {
         consumeInviteToken(tx, invite.id, challenge.cu12Id, found.id),
       );
       if (!consumed) {
-        await recordAuthFailure("invite", throttleIdentifiers);
-        await writeAuditLog({
+        await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+        await writeAuditLogBestEffort({
           category: "AUTH",
           severity: "WARN",
           message: "Invite verification failed: invite already consumed during verification",
@@ -268,8 +272,8 @@ export async function POST(request: NextRequest) {
         });
       } catch (error) {
         if (error instanceof Error && error.message === INVITE_CONSUME_RACE_ERROR) {
-          await recordAuthFailure("invite", throttleIdentifiers);
-          await writeAuditLog({
+          await recordAuthFailureBestEffort("invite", throttleIdentifiers);
+          await writeAuditLogBestEffort({
             category: "AUTH",
             severity: "WARN",
             message: "Invite verification failed: invite already consumed during first-login registration",
@@ -312,7 +316,7 @@ export async function POST(request: NextRequest) {
         rememberSession: sessionPolicy.rememberSession,
         firstLogin,
       });
-      await clearAuthFailures("invite", throttleIdentifiers);
+      await clearAuthFailuresBestEffort("invite", throttleIdentifiers);
       return jsonOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
@@ -371,7 +375,7 @@ export async function POST(request: NextRequest) {
     setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
     setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
-    await writeAuditLog({
+    await writeAuditLogBestEffort({
       category: "AUTH",
       severity: "INFO",
       actorUserId: user.id,
@@ -383,7 +387,7 @@ export async function POST(request: NextRequest) {
         loginIp,
       },
     });
-    await clearAuthFailures("invite", throttleIdentifiers);
+    await clearAuthFailuresBestEffort("invite", throttleIdentifiers);
 
     return response;
   } catch (error) {
@@ -394,7 +398,7 @@ export async function POST(request: NextRequest) {
         "VALIDATION_ERROR",
       );
     }
-    await writeAuditLog({
+    await writeAuditLogBestEffort({
       category: "AUTH",
       severity: "ERROR",
       message: "Invite verification failed due to server error",

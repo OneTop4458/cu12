@@ -136,7 +136,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Required policy documents are not configured
+          description: Required policy documents are not configured or CU12 is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal database or server error
           content:
             application/json:
               schema:
@@ -196,6 +202,12 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Required policy documents are not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -264,6 +276,12 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Required policy documents are not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -1918,6 +1936,10 @@ paths:
           description: Member created/updated
         "401":
           description: CU12 credential verification failed
+        "503":
+          description: CU12 authentication service unavailable
+        "500":
+          description: Internal server error
 
   /api/admin/members/{userId}:
     patch:

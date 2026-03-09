@@ -27,6 +27,7 @@
     "check:openapi": "node scripts/check-openapi-sync.mjs",
     "check:text:replacements": "node scripts/check-replacement-characters.mjs",
     "typecheck": "corepack pnpm --filter @cu12/web run typecheck && corepack pnpm --filter @cu12/worker run typecheck",
+    "test:web": "corepack pnpm --filter @cu12/web run test:auth",
     "prisma:generate": "node scripts/prisma-cli.mjs generate",
     "prisma:migrate": "node scripts/prisma-cli.mjs migrate dev",
     "prisma:push": "node scripts/prisma-cli.mjs db push",
