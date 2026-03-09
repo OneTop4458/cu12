@@ -31,7 +31,7 @@ A Korean summary is available only in `README.ko.md`.
 1. Update docs in the same PR when changing behavior.
 2. Keep `docs/04-api/openapi.yaml` synchronized with implementation.
 3. Preserve end-to-end consistency across web app, worker, DB schema, and workflows.
-4. Validate with `npm run check:text` and `npm run check:openapi` before push.
+4. Validate with `pnpm run check:text` and `pnpm run check:openapi` before push.
 
 ## Baseline Date
 

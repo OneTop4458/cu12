@@ -9,7 +9,7 @@ on:
       - "packages/**"
       - "prisma/**"
       - "package.json"
-      - "package-lock.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/deploy-vercel.yml"
   workflow_dispatch:
 
@@ -31,13 +31,16 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
-      - run: npm run check:text
-      - run: npm run check:openapi
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run build:web
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
+      - run: pnpm run check:text
+      - run: pnpm run check:openapi
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run build:web
 
   db-sync:
     needs: verify
@@ -52,10 +55,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
       - name: Push Prisma schema (non-destructive by default)
-        run: npm run prisma:push
+        run: pnpm run prisma:push
 
   deploy:
     needs: db-sync
@@ -73,9 +79,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
-      - run: npm i -g vercel@latest
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
       - name: Validate Vercel token
         shell: bash
         run: |
@@ -84,14 +92,14 @@ jobs:
             exit 1
           fi
 
-          if ! vercel whoami --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
+          if ! pnpm dlx vercel@latest whoami --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
             echo "::error::VERCEL_TOKEN is invalid or expired."
             exit 1
           fi
 
       - name: Pull Vercel project settings
-        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+        run: pnpm dlx vercel@latest pull --yes --environment=production --token=$VERCEL_TOKEN
       - name: Build production bundle
-        run: vercel build --prod --token=$VERCEL_TOKEN
+        run: pnpm dlx vercel@latest build --prod --token=$VERCEL_TOKEN
       - name: Deploy production bundle
-        run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+        run: pnpm dlx vercel@latest deploy --prebuilt --prod --token=$VERCEL_TOKEN

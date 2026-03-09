@@ -137,22 +137,31 @@ docs/        # architecture, API, runbooks, ADRs
 ## 8. Local Validation Commands
 
 ```bash
-npm install
-npm run check:text
-npm run check:openapi
-npm run prisma:generate
-npm run typecheck
-npm run build:web
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm run prisma:generate
+pnpm run check:text
+pnpm run check:openapi
+pnpm run typecheck
+pnpm run build:web
 ```
 
+Reuse the existing install between worktrees unless `pnpm-lock.yaml` or the active Node version changes.
+Re-run `pnpm run prisma:generate` after a fresh install and whenever `prisma/schema.prisma` or Prisma model usage changes.
+
+### Codex Worktree Workflow
+
+- In a Codex-linked worktree, `pnpm run ai:start -- --task "<task-slug>"` reuses the current linked worktree and creates or reuses `ai/session-<thread-id>` instead of nesting another repo-local worktree.
+- Use `pnpm run ai:worktree -- --task "<task-slug>"` only for manual fallback parallel work outside the default Codex flow.
+- After merge or abandonment, run `pnpm run ai:clean` to remove merged clean repo-local worktrees and stale locks.
+
 When changes are made by AI-assisted workflows, commits and pushes must only happen after:
-- `npm run check:text`
-- `npm run check:openapi`
-- `npm run typecheck`
-- `npm run build:web` (when web scope is touched)
+- `pnpm run check:text`
+- `pnpm run check:openapi`
+- `pnpm run typecheck`
+- `pnpm run build:web` (when web scope is touched)
 
 ## 2026-03-04 UI/UX Modernization
-
 - Added a modernized web shell in `apps/web` with shared visual tokens in `apps/web/app/globals.css`.
 - Added theme system support with `next-themes` (`light`, `dark`, `system`) and a reusable theme provider.
 - Modernized dashboard and admin headers into a unified topbar with quick actions, notification center, and user menu.
@@ -163,11 +172,11 @@ When changes are made by AI-assisted workflows, commits and pushes must only hap
   - `apps/web/components/notifications/notification-center.tsx`
 - Updated login shell for consistent visual framing and preserved core auth flow behavior.
 - Validation commands executed:
-  - `npm run check:text`
-  - `npm run check:openapi` (current baseline requirement)
-  - `npm run prisma:generate`
-  - `npm run typecheck`
-  - `npm run build:web`
+  - `pnpm run check:text`
+  - `pnpm run check:openapi` (current baseline requirement)
+  - `pnpm run prisma:generate`
+  - `pnpm run typecheck`
+  - `pnpm run build:web`
 
 ## 9. Required Environment Variables
 

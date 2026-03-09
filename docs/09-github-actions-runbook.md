@@ -15,7 +15,7 @@
 - Uses queue-level concurrency control in `/apps/web/src/server/queue.ts` as the primary guard.
 - Accepts optional `userId` input so a single consume run can be pinned to one user queue.
 - `AUTOLEARN_CHUNK_TARGET_SECONDS` is tuned for 60-minute chunks to reduce long single-user slot holding.
-- Uses `npm ci --prefer-offline --no-audit` and Playwright cache for faster startup.
+- Uses `pnpm install --frozen-lockfile` and Playwright cache for faster startup.
 - Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
 - Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
 - Supports AUTOLEARN chunk controls (`AUTOLEARN_CHUNK_TARGET_SECONDS`, `AUTOLEARN_MAX_TASKS`) and continuation chain cap (`AUTOLEARN_CHAIN_MAX_SECONDS`).

@@ -28,19 +28,22 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
       - id: dispatch
         name: Dispatch autolearn jobs
         run: |
           SUMMARY_JSON_WORKER="dispatch-summary.json"
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            npm --workspace @cu12/worker run dispatch:autolearn -- --min-interval-minutes=1440 --eligible-window-only=true --summary-json="$SUMMARY_JSON_WORKER"
+            pnpm --filter @cu12/worker run dispatch:autolearn -- --min-interval-minutes=1440 --eligible-window-only=true --summary-json="$SUMMARY_JSON_WORKER"
           elif [ -n "${{ inputs.userId }}" ]; then
-            npm --workspace @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }} --summary-json="$SUMMARY_JSON_WORKER"
+            pnpm --filter @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }} --summary-json="$SUMMARY_JSON_WORKER"
           else
-            npm --workspace @cu12/worker run dispatch:autolearn -- --summary-json="$SUMMARY_JSON_WORKER"
+            pnpm --filter @cu12/worker run dispatch:autolearn -- --summary-json="$SUMMARY_JSON_WORKER"
           fi
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")

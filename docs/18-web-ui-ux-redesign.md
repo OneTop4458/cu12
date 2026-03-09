@@ -30,8 +30,8 @@
 ## Verification
 
 - Required commands were run:
-  - `npm run check:text`
-  - `npm run check:openapi` (current baseline requirement)
-  - `npm run prisma:generate`
-  - `npm run typecheck`
-  - `npm run build:web`
+  - `pnpm run check:text`
+  - `pnpm run check:openapi` (current baseline requirement)
+  - `pnpm run prisma:generate`
+  - `pnpm run typecheck`
+  - `pnpm run build:web`

@@ -2,31 +2,38 @@
   "name": "cu12-automation",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.0.0",
   "engines": {
     "node": ">=20.11.0"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
+  },
   "scripts": {
-    "dev:web": "npm --workspace @cu12/web run dev",
-    "build:web": "npm --workspace @cu12/web run build",
-    "start:web": "npm --workspace @cu12/web run start",
-    "worker": "npm --workspace @cu12/worker run dev",
-    "worker:once": "npm --workspace @cu12/worker run once",
-    "lint": "npm --workspace @cu12/web run lint",
+    "dev:web": "corepack pnpm --filter @cu12/web run dev",
+    "build:web": "corepack pnpm --filter @cu12/web run build",
+    "start:web": "corepack pnpm --filter @cu12/web run start",
+    "worker": "corepack pnpm --filter @cu12/worker run dev",
+    "worker:once": "corepack pnpm --filter @cu12/worker run once",
+    "lint": "corepack pnpm --filter @cu12/web run lint",
     "check:text": "node scripts/check-text-quality.mjs && node scripts/check-replacement-characters.mjs",
     "check:openapi": "node scripts/check-openapi-sync.mjs",
     "check:text:replacements": "node scripts/check-replacement-characters.mjs",
-    "typecheck": "npm --workspace @cu12/web run typecheck && npm --workspace @cu12/worker run typecheck",
-    "prisma:generate": "npm --workspace @cu12/web run prisma:generate",
-    "prisma:migrate": "npm --workspace @cu12/web run prisma:migrate",
-    "prisma:push": "npx prisma db push --schema prisma/schema.prisma",
+    "typecheck": "corepack pnpm --filter @cu12/web run typecheck && corepack pnpm --filter @cu12/worker run typecheck",
+    "prisma:generate": "node scripts/prisma-cli.mjs generate",
+    "prisma:migrate": "node scripts/prisma-cli.mjs migrate dev",
+    "prisma:push": "node scripts/prisma-cli.mjs db push",
     "ai:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-start.ps1",
     "ai:worktree": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-worktree-create.ps1",
     "ai:ship": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-pr.ps1",
-    "postinstall": "npm run prisma:generate"
+    "ai:clean": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-clean.ps1"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

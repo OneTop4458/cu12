@@ -41,8 +41,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
       - name: Reset auth data and issue ADMIN invite token
         run: |
           node <<'NODE'

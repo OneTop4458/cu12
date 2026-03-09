@@ -19,10 +19,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
-      - run: npm run check:text
-      - run: npm run check:openapi
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run build:web
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
+      - run: pnpm run check:text
+      - run: pnpm run check:openapi
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run build:web
