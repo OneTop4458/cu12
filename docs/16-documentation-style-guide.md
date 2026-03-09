@@ -21,8 +21,8 @@
    - `Set-Content -Encoding utf8`
    - `[System.IO.File]::WriteAllText(path, text, New-Object System.Text.UTF8Encoding($false))`
 4. After touching Korean strings, run:
-   - `npm run check:text`
-   - `npm run check:text:replacements`
+   - `pnpm run check:text`
+   - `pnpm run check:text:replacements`
 5. Re-open modified files and visually verify Korean readability before commit.
 
 ## Formatting Rules
@@ -44,10 +44,10 @@
 Run before pushing:
 
 ```bash
-npm run check:text
-npm run check:openapi
-npm run typecheck
-npm run build:web
+pnpm run check:text
+pnpm run check:openapi
+pnpm run typecheck
+pnpm run build:web
 ```
 
 For AI-assisted changes, pushing is allowed only after this check sequence completes successfully.

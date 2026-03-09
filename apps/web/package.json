@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node ../../scripts/run-next-build.mjs build",
     "start": "next start",
     "lint": "eslint .",
-    "test:auth": "tsx --test test/**/*.test.ts",
+    "test:auth": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit --incremental false",
-    "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma",
-    "prisma:migrate": "prisma migrate dev --schema ../../prisma/schema.prisma"
+    "prisma:generate": "node ../../scripts/prisma-cli.mjs generate",
+    "prisma:migrate": "node ../../scripts/prisma-cli.mjs migrate dev"
   },
   "dependencies": {
     "@cu12/core": "file:../../packages/core",

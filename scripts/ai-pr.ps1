@@ -20,6 +20,17 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
   }
 }
 
+function Get-CommandText([scriptblock]$Command, [string]$ErrorMessage) {
+  $output = & $Command
+  if ($LASTEXITCODE -ne 0) {
+    throw $ErrorMessage
+  }
+  if ($null -eq $output) {
+    return ""
+  }
+  return ($output | Out-String).Trim()
+}
+
 function Get-BranchSlug([string]$BranchName) {
   $slug = ($BranchName -replace "^ai/", "" -replace "[^a-zA-Z0-9]+", "-").Trim("-").ToLowerInvariant()
   if (-not $slug) {
@@ -28,8 +39,31 @@ function Get-BranchSlug([string]$BranchName) {
   return $slug
 }
 
-$repoRoot = (& git rev-parse --show-toplevel).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $repoRoot) {
+function Invoke-Pnpm([string[]]$Arguments) {
+  $pnpmCommand = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
+  if ($pnpmCommand) {
+    & $pnpmCommand.Source @Arguments
+  }
+  else {
+    & corepack pnpm @Arguments
+  }
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "pnpm failed: $($Arguments -join ' ')"
+  }
+}
+
+function Release-SessionLock([string]$RepoRoot) {
+  $lockPath = Join-Path $RepoRoot '.codex-session.lock'
+  if (Test-Path $lockPath -PathType Leaf) {
+    Remove-Item -LiteralPath $lockPath -Force
+    Write-Host "==> Released session lock '$lockPath'"
+    Write-Host "next=pnpm run ai:clean"
+  }
+}
+
+$repoRoot = Get-CommandText -Command { git rev-parse --show-toplevel } -ErrorMessage "Not inside a git repository."
+if (-not $repoRoot) {
   throw "Not inside a git repository."
 }
 
@@ -40,21 +74,13 @@ if ((Test-Path $gitMetaPath -PathType Container) -and -not $AllowPrimaryCheckout
 
 Set-Location $repoRoot
 
-$branch = (& git branch --show-current).Trim()
+$branch = Get-CommandText -Command { git branch --show-current } -ErrorMessage "Unable to detect current branch."
 if (-not $branch) {
   throw "Unable to detect current branch."
 }
 
 if ($branch -eq "main" -or $branch -eq "develop") {
   throw "Refusing to run on protected branch '$branch'. Use a feature branch/worktree."
-}
-
-$npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if ($npmCommand) {
-  $npmExe = "npm.cmd"
-}
-else {
-  $npmExe = "npm"
 }
 
 & gh --version | Out-Null
@@ -67,11 +93,12 @@ if ($NoPush -and -not $NoPr) {
   throw "-NoPush cannot be used without -NoPr. PR creation requires a remote branch."
 }
 
-Invoke-Checked "Validate text quality" { & $npmExe run check:text }
-Invoke-Checked "Validate OpenAPI sync" { & $npmExe run check:openapi }
-Invoke-Checked "Typecheck all workspaces" { & $npmExe run typecheck }
+Invoke-Checked "Validate text quality" { Invoke-Pnpm @('run', 'check:text') }
+Invoke-Checked "Validate OpenAPI sync" { Invoke-Pnpm @('run', 'check:openapi') }
+Invoke-Checked "Generate Prisma client" { Invoke-Pnpm @('run', 'prisma:generate') }
+Invoke-Checked "Typecheck all workspaces" { Invoke-Pnpm @('run', 'typecheck') }
 if (-not $SkipBuildWeb) {
-  Invoke-Checked "Build web app" { & $npmExe run build:web }
+  Invoke-Checked "Build web app" { Invoke-Pnpm @('run', 'build:web') }
 }
 
 Invoke-Checked "Stage all changes" { git add -A }
@@ -92,7 +119,7 @@ if (-not $NoPush) {
 }
 
 if (-not $Title) {
-  $Title = (& git log -1 --pretty=%s).Trim()
+  $Title = Get-CommandText -Command { git log -1 --pretty=%s } -ErrorMessage "Unable to read latest commit subject."
 }
 
 if (-not $Body) {
@@ -100,16 +127,17 @@ if (-not $Body) {
 Automated PR created by `scripts/ai-pr.ps1`.
 
 Validation executed in order:
-- npm run check:text
-- npm run check:openapi
-- npm run typecheck
-- npm run build:web
+- pnpm run check:text
+- pnpm run check:openapi
+- pnpm run prisma:generate
+- pnpm run typecheck
+- pnpm run build:web
 "@
 }
 
-$prArgs = @("pr", "create", "--base", $Base, "--head", $branch, "--title", $Title, "--body", $Body)
+$prArgs = @('pr', 'create', '--base', $Base, '--head', $branch, '--title', $Title, '--body', $Body)
 if ($Draft) {
-  $prArgs += "--draft"
+  $prArgs += '--draft'
 }
 
 if ($NoPr) {
@@ -120,9 +148,11 @@ else {
   & gh @prArgs
   if ($LASTEXITCODE -ne 0) {
     Write-Host "PR create failed. Attempting to print existing PR URL for this branch..."
-    & gh pr view $branch --json url --jq ".url"
+    & gh pr view $branch --json url --jq '.url'
     if ($LASTEXITCODE -ne 0) {
       throw "Failed to create or locate pull request for branch '$branch'."
     }
   }
 }
+
+Release-SessionLock -RepoRoot $repoRoot

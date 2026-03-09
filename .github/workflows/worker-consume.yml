@@ -78,10 +78,14 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
       - id: resolve
         shell: bash
         run: |
@@ -104,20 +108,22 @@ jobs:
             echo "needs_playwright=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - run: npm ci --prefer-offline --no-audit
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
       - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
+          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-chromium-
       - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
-        run: npx playwright install chromium
+        run: pnpm exec playwright install chromium
       - shell: bash
         run: |
           RUN_ARGS="--types=${{ steps.resolve.outputs.job_types }}"
           if [ -n "${{ inputs.userId }}" ]; then
             RUN_ARGS="$RUN_ARGS --userId=${{ inputs.userId }}"
           fi
-          npm --workspace @cu12/worker run once -- $RUN_ARGS
+          pnpm --filter @cu12/worker run once -- $RUN_ARGS

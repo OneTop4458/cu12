@@ -19,6 +19,12 @@ const turbopackRoot = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typedRoutes: true,
+  // Type safety is enforced by the dedicated root pnpm run typecheck step.
+  // Skipping the duplicate build-time worker keeps linked worktrees and sandboxed
+  // sessions from failing on Windows process-fork restrictions.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   turbopack: {
     root: turbopackRoot,
   },

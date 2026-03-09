@@ -20,16 +20,22 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci --prefer-offline --no-audit
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run prisma:generate
       - id: dispatch
         run: |
           SUMMARY_JSON_WORKER="dispatch-summary.json"
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
-          npm --workspace @cu12/worker run dispatch:digest -- --min-interval-minutes=60 --summary-json="$SUMMARY_JSON_WORKER"
+          pnpm --filter @cu12/worker run dispatch:digest -- --min-interval-minutes=60 --summary-json="$SUMMARY_JSON_WORKER"
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           PENDING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingPendingCount ?? 0));" "$SUMMARY_JSON_ROOT")
