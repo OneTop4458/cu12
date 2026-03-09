@@ -8,7 +8,7 @@
     "build": "node ../../scripts/run-next-build.mjs build",
     "start": "next start",
     "lint": "eslint .",
-    "test:auth": "tsx --test test/**/*.test.ts",
+    "test:auth": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit --incremental false",
     "prisma:generate": "node ../../scripts/prisma-cli.mjs generate",
     "prisma:migrate": "node ../../scripts/prisma-cli.mjs migrate dev"
