@@ -97,8 +97,8 @@ function syncSavedCu12Id(shouldSave: boolean, cu12Id: string) {
   }
 }
 
-function toLoginErrorMessage(payload: ApiErrorResponse): string {
-  if (payload.errorCode === "LOCAL_AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
+export function toLoginErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
     return "ID 또는 비밀번호가 일치하지 않습니다.";
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
@@ -110,15 +110,18 @@ function toLoginErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "RATE_LIMITED") {
     return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
   }
+  if (payload.errorCode === "CU12_UNAVAILABLE") {
+    return payload.error ?? "Authentication service unavailable.";
+  }
+  if (payload.errorCode?.startsWith("INTERNAL_DB_") || payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Authentication failed.";
+  }
   return payload.error ?? "로그인 처리에 실패했습니다.";
 }
 
-function toInviteErrorMessage(payload: ApiErrorResponse): string {
-  if (payload.errorCode === "UNAPPROVED_ID") {
-    return "승인되지 않은 ID입니다. 운영자에게 계정 생성 권한을 문의해 주세요.";
-  }
-  if (payload.errorCode === "INVITE_CODE_INVALID") {
-    return "초대 코드가 유효하지 않습니다.";
+export function toInviteErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
+    return payload.error ?? "Invite verification failed.";
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
     return "계정이 비활성 상태입니다. 관리자에게 문의해 주세요.";
@@ -132,10 +135,13 @@ function toInviteErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
     return "인증 상태가 만료되었습니다. 다시 로그인해 주세요.";
   }
+  if (payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Invite verification failed.";
+  }
   return payload.error ?? "초대 코드 처리에 실패했습니다.";
 }
 
-function toConsentErrorMessage(payload: ApiErrorResponse): string {
+export function toConsentErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "POLICY_CONSENT_INCOMPLETE") {
     return "필수 약관 동의가 필요합니다.";
   }
@@ -147,6 +153,9 @@ function toConsentErrorMessage(payload: ApiErrorResponse): string {
   }
   if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
     return "동의 세션이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Policy consent failed.";
   }
   return payload.error ?? "약관 동의 처리에 실패했습니다.";
 }

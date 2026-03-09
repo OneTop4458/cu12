@@ -22,6 +22,10 @@ export interface VerifyCu12LoginResult {
   messageCode?: string;
 }
 
+export function isCu12UnavailableResult(result: VerifyCu12LoginResult): boolean {
+  return !result.ok && result.messageCode === "CU12_UNAVAILABLE";
+}
+
 function toUnivId(campus: Cu12Campus): "catholic" | "songsin" {
   return campus === "SONGSIN" ? "songsin" : "catholic";
 }

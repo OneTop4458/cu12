@@ -15,12 +15,15 @@ import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk } from "@/lib/http"
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
-import { writeAuditLog } from "@/server/audit-log";
-import { checkAuthThrottle, clearAuthFailures, recordAuthFailure } from "@/server/auth-rate-limit";
+import {
+  checkAuthThrottleBestEffort,
+  clearAuthFailuresBestEffort,
+  recordAuthFailureBestEffort,
+  writeAuditLogBestEffort,
+} from "@/server/auth-best-effort";
 import { upsertCu12Account } from "@/server/cu12-account";
-import { verifyCu12Login } from "@/server/cu12-login";
+import { isCu12UnavailableResult, verifyCu12Login } from "@/server/cu12-login";
 import { getPolicyConsentRequirement } from "@/server/policy";
-import type { WriteAuditLogInput } from "@/server/audit-log";
 
 const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
@@ -70,38 +73,6 @@ function accountDisabledError() {
   return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
 }
 
-async function safeCheckAuthThrottle(identifiers: Array<string | null | undefined>) {
-  try {
-    return await checkAuthThrottle("login", identifiers);
-  } catch {
-    return { blocked: false, retryAfterSeconds: 0 };
-  }
-}
-
-async function safeRecordAuthFailure(identifiers: Array<string | null | undefined>) {
-  try {
-    await recordAuthFailure("login", identifiers);
-  } catch {
-    // Ignore throttle persistence failures so auth flow stays available.
-  }
-}
-
-async function safeClearAuthFailures(identifiers: Array<string | null | undefined>) {
-  try {
-    await clearAuthFailures("login", identifiers);
-  } catch {
-    // Ignore throttle cleanup failures so auth flow stays available.
-  }
-}
-
-async function safeWriteAuditLog(input: WriteAuditLogInput) {
-  try {
-    await writeAuditLog(input);
-  } catch {
-    // Ignore audit persistence failures so auth flow stays available.
-  }
-}
-
 export async function POST(request: NextRequest) {
   if (!hasValidCsrfOrigin(request)) {
     return jsonError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
@@ -121,80 +92,48 @@ export async function POST(request: NextRequest) {
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
     const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `cu12:${body.cu12Id}`];
-    const throttle = await safeCheckAuthThrottle(throttleIdentifiers);
+    const throttle = await checkAuthThrottleBestEffort("login", throttleIdentifiers);
     if (throttle.blocked) {
       return rateLimitedLoginError();
     }
 
-    let localCandidate: {
-      id: string;
-      email: string;
-      role: "ADMIN" | "USER";
-      isActive: boolean;
-      withdrawnAt: Date | null;
-      isTestUser: boolean;
-      passwordHash: string;
-    } | null = null;
-    try {
-      localCandidate = await withWithdrawnAtFallback(
-        () =>
-          prisma.user.findUnique({
-            where: { email: body.cu12Id },
-            select: {
-              id: true,
-              email: true,
-              role: true,
-              isActive: true,
-              withdrawnAt: true,
-              isTestUser: true,
-              passwordHash: true,
-            },
-          }),
-        () =>
-          prisma.user.findUnique({
-            where: { email: body.cu12Id },
-            select: {
-              id: true,
-              email: true,
-              role: true,
-              isActive: true,
-              isTestUser: true,
-              passwordHash: true,
-            },
-          }),
-      );
-    } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2022") {
-        throw error;
-      }
-      const legacyCandidate = await prisma.user.findUnique({
-        where: { email: body.cu12Id },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          isActive: true,
-          passwordHash: true,
-        },
-      });
-      localCandidate = legacyCandidate
-        ? {
-          ...legacyCandidate,
-          withdrawnAt: null,
-          isTestUser: false,
-        }
-        : null;
-    }
+    const localCandidate = await withWithdrawnAtFallback(
+      () =>
+        prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+            withdrawnAt: true,
+            isTestUser: true,
+            passwordHash: true,
+          },
+        }),
+      () =>
+        prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+            isTestUser: true,
+            passwordHash: true,
+          },
+        }),
+    );
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
-        await safeRecordAuthFailure(throttleIdentifiers);
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return accountDisabledError();
       }
 
       const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
       if (!ok) {
-        await safeRecordAuthFailure(throttleIdentifiers);
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return authenticationFailedError();
       }
 
@@ -214,7 +153,7 @@ export async function POST(request: NextRequest) {
           rememberSession: sessionPolicy.rememberSession,
           firstLogin: false,
         });
-        await safeClearAuthFailures(throttleIdentifiers);
+        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
         return jsonOk({
           stage: "CONSENT_REQUIRED" as const,
           consentToken,
@@ -273,7 +212,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await safeWriteAuditLog({
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "INFO",
         actorUserId: localCandidate.id,
@@ -285,7 +224,7 @@ export async function POST(request: NextRequest) {
           loginIp,
         },
       });
-      await safeClearAuthFailures(throttleIdentifiers);
+      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
       return response;
     }
 
@@ -295,17 +234,25 @@ export async function POST(request: NextRequest) {
       campus,
     });
     if (!validation.ok) {
-      await safeRecordAuthFailure(throttleIdentifiers);
-      await safeWriteAuditLog({
+      const unavailable = isCu12UnavailableResult(validation);
+      if (!unavailable) {
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+      }
+      await writeAuditLogBestEffort({
         category: "AUTH",
-        severity: "WARN",
-        message: "CU12 login validation failed",
+        severity: unavailable ? "ERROR" : "WARN",
+        message: unavailable
+          ? "Authentication failed due to CU12 network failure"
+          : "CU12 login validation failed",
         meta: {
           cu12Id: body.cu12Id,
           campus,
           messageCode: validation.messageCode ?? null,
         },
       });
+      if (unavailable) {
+        return jsonError("Authentication service unavailable.", 503, "CU12_UNAVAILABLE");
+      }
       return authenticationFailedError();
     }
 
@@ -349,11 +296,11 @@ export async function POST(request: NextRequest) {
       );
 
       if (!found) {
-        await safeRecordAuthFailure(throttleIdentifiers);
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return authenticationFailedError();
       }
       if (!found.isActive || found.withdrawnAt !== null) {
-        await safeRecordAuthFailure(throttleIdentifiers);
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return accountDisabledError();
       }
 
@@ -370,7 +317,7 @@ export async function POST(request: NextRequest) {
       });
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
-        await safeRecordAuthFailure(throttleIdentifiers);
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return accountDisabledError();
       }
 
@@ -389,7 +336,7 @@ export async function POST(request: NextRequest) {
         nonce: randomUUID(),
       });
 
-      await safeWriteAuditLog({
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "INFO",
         message: "Login challenge issued for first-time CU12 user",
@@ -398,7 +345,7 @@ export async function POST(request: NextRequest) {
           campus,
         },
       });
-      await safeClearAuthFailures(throttleIdentifiers);
+      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
       return jsonOk({
         stage: "INVITE_REQUIRED" as const,
@@ -436,7 +383,7 @@ export async function POST(request: NextRequest) {
         rememberSession: sessionPolicy.rememberSession,
         firstLogin: false,
       });
-      await safeClearAuthFailures(throttleIdentifiers);
+      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
       return jsonOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
@@ -485,7 +432,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await safeWriteAuditLog({
+    await writeAuditLogBestEffort({
       category: "AUTH",
       severity: "INFO",
       actorUserId: user.id,
@@ -497,7 +444,7 @@ export async function POST(request: NextRequest) {
         loginIp,
       },
     });
-    await safeClearAuthFailures(throttleIdentifiers);
+    await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
     return response;
   } catch (error) {
@@ -510,7 +457,7 @@ export async function POST(request: NextRequest) {
     }
     if (isPrismaError(error)) {
       const code = prismaErrorCode(error);
-      await safeWriteAuditLog({
+      await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "ERROR",
         message: "Authentication failed due to database error",
@@ -530,7 +477,7 @@ export async function POST(request: NextRequest) {
         || message.includes("eai_again")
         || message.includes("network");
       if (networkFailure) {
-        await safeWriteAuditLog({
+        await writeAuditLogBestEffort({
           category: "AUTH",
           severity: "ERROR",
           message: "Authentication failed due to CU12 network failure",
@@ -541,7 +488,7 @@ export async function POST(request: NextRequest) {
         return jsonError("Authentication service unavailable.", 503, "CU12_UNAVAILABLE");
       }
     }
-    await safeWriteAuditLog({
+    await writeAuditLogBestEffort({
       category: "AUTH",
       severity: "ERROR",
       message: "Authentication failed due to server error",

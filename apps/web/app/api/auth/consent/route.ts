@@ -11,7 +11,7 @@ import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk, parseBody } from "
 import { prisma } from "@/lib/prisma";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
-import { writeAuditLog } from "@/server/audit-log";
+import { writeAuditLogBestEffort } from "@/server/auth-best-effort";
 import { PolicyError, recordUserPolicyConsent } from "@/server/policy";
 
 const BodySchema = z.object({
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await writeAuditLog({
+    await writeAuditLogBestEffort({
       category: "AUTH",
       severity: "INFO",
       actorUserId: challenge.userId,
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       return jsonError(error.message, 400, error.code);
     }
 
-    await writeAuditLog({
+    await writeAuditLogBestEffort({
       category: "AUTH",
       severity: "ERROR",
       message: "Policy consent failed due to server error",
