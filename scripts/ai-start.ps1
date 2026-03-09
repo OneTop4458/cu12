@@ -130,6 +130,84 @@ function Get-WorktreeRecords() {
   return $records
 }
 
+function Test-RefExists([string]$RefName) {
+  & git show-ref --verify --quiet $RefName
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Test-RefMergedIntoBase([string]$RefName, [string]$BaseRef) {
+  if (-not (Test-RefExists -RefName $RefName)) {
+    return $false
+  }
+
+  $refCommit = Get-CommandText -Command { git rev-parse $RefName } -ErrorMessage "Unable to resolve ref '$RefName'."
+  $baseCommit = Get-CommandText -Command { git rev-parse $BaseRef } -ErrorMessage "Unable to resolve ref '$BaseRef'."
+  if (-not $refCommit -or -not $baseCommit) {
+    return $false
+  }
+
+  if ($refCommit -eq $baseCommit) {
+    return $false
+  }
+
+  & git merge-base --is-ancestor $RefName $BaseRef
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Test-BranchMergedByGh([string]$Branch, [string]$Base) {
+  $ghCommand = Get-Command gh -ErrorAction SilentlyContinue
+  if ($null -eq $ghCommand) {
+    return $false
+  }
+
+  try {
+    $originUrl = Get-CommandText -Command { git remote get-url origin } -ErrorMessage "Unable to resolve remote "origin"."
+  }
+  catch {
+    return $false
+  }
+
+  if (-not $originUrl -or $originUrl -notmatch "github\.com[:/]" ) {
+    return $false
+  }
+
+  & $ghCommand.Source auth status *> $null
+  if ($LASTEXITCODE -ne 0) {
+    return $false
+  }
+
+  try {
+    $json = & $ghCommand.Source pr list --head $Branch --base $Base --state merged --json number --limit 1 2>$null
+  }
+  catch {
+    return $false
+  }
+
+  if ($LASTEXITCODE -ne 0 -or -not $json) {
+    return $false
+  }
+
+  try {
+    $prs = $json | ConvertFrom-Json
+  }
+  catch {
+    return $false
+  }
+
+  return (@($prs).Count -gt 0)
+}
+
+function Assert-CleanWorktree([string]$WorktreePath, [string]$Reason) {
+  $statusLines = @(& git -C $WorktreePath status --short)
+  if ($LASTEXITCODE -ne 0) {
+    throw "Unable to read git status for '$WorktreePath'."
+  }
+
+  if ($statusLines.Count -gt 0) {
+    throw "Current worktree has uncommitted changes. Commit or stash them before $Reason."
+  }
+}
+
 function Ensure-SessionLock([string]$WorktreePath, [string]$Branch, [string]$TaskSlug, [string]$SessionSource, [bool]$AllowForce) {
   $lockPath = Join-Path $WorktreePath ".codex-session.lock"
   $existingLock = Read-Lock -Path $lockPath
@@ -189,8 +267,12 @@ $taskSlug = Get-Slug -Value $Task -Fallback "task"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $useCurrentWorktree = (Test-Path (Join-Path $repoTopLevel '.git') -PathType Leaf) -and [bool]$env:CODEX_THREAD_ID
 
+$freshTaskBranch = "ai/$taskSlug-$timestamp"
+$startFreshTask = $NewTask.IsPresent
+$rolloverReason = ""
+
 if ($NewTask) {
-  $branch = "ai/$taskSlug-$timestamp"
+  $branch = $freshTaskBranch
   $safeDirName = ($branch -replace "[^A-Za-z0-9._-]", "-")
   $mode = if ($useCurrentWorktree) { "codex-task" } else { "task" }
 }
@@ -213,8 +295,31 @@ if ($LASTEXITCODE -ne 0) {
   throw "Base ref '$baseRef' does not exist."
 }
 
+if (-not $NewTask) {
+  $sessionBranch = $branch
+  $sessionBranchRef = "refs/heads/$sessionBranch"
+  $sessionBranchMerged = (Test-RefMergedIntoBase -RefName $sessionBranchRef -BaseRef $baseRef)
+  if (-not $sessionBranchMerged) {
+    $sessionBranchMerged = Test-BranchMergedByGh -Branch $sessionBranch -Base $Base
+  }
+
+  if ($sessionBranchMerged) {
+    $branch = $freshTaskBranch
+    $safeDirName = ($branch -replace "[^A-Za-z0-9._-]", "-")
+    $mode = if ($useCurrentWorktree) { "codex-task-rollover" } else { "task-rollover" }
+    $startFreshTask = $true
+    $rolloverReason = "session branch '$sessionBranch' is already merged into '$Base'"
+    Write-Host "==> Detected merged session branch '$sessionBranch'; start fresh task branch '$branch' from '$baseRef'"
+  }
+}
+
 if ($useCurrentWorktree) {
   $worktreePath = $repoTopLevel
+  if ($startFreshTask) {
+    $cleanReason = if ($rolloverReason) { "starting a fresh branch because $rolloverReason" } else { "starting a fresh task branch" }
+    Assert-CleanWorktree -WorktreePath $worktreePath -Reason $cleanReason
+  }
+
   $currentBranch = Get-CommandText -Command { git -C $worktreePath branch --show-current } -ErrorMessage "Unable to determine current branch for '$worktreePath'."
   $branchRef = "refs/heads/$branch"
   $worktreeOwner = Get-WorktreeRecords | Where-Object { $_.branch -eq $branchRef -and $_.path -ne $worktreePath } | Select-Object -First 1

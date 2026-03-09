@@ -71,11 +71,13 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 3. Every Codex session must start with `pnpm run ai:start -- --task "<task-slug>"`.
 4. In a Codex-linked worktree, `ai:start` must:
    - fetch latest `origin/main`
-   - create or reuse the current-worktree branch `ai/session-<session-id>`
-   - use `ai/<task>-<timestamp>` only with `--new-task`
+   - reuse the current-worktree branch `ai/session-<session-id>` while that session branch is still active
+   - automatically roll over to `ai/<task>-<timestamp>` when the session branch is already merged into the base branch
+   - allow `--new-task` to force a fresh `ai/<task>-<timestamp>` branch before merge when unrelated work should not share the session branch
    - write or refresh `.codex-session.lock`
 5. In this mode, `ai:start` must not create an additional repo-local worktree.
-6. Prefer a separate Codex session for unrelated work instead of nesting a worktree inside the current one.
+6. After a session branch PR is merged, re-run `pnpm run ai:start -- --task "<next-task>"`; merged session branches automatically roll to a fresh task branch.
+7. Prefer a separate Codex session for unrelated work instead of nesting a worktree inside the current one.
 
 ## Manual Fallback Worktree
 
