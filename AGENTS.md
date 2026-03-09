@@ -118,6 +118,7 @@ pnpm run build:web
    5. `pnpm run build:web` (for web scope changes)
 2. Do not commit or push if the above checks fail.
 3. For AI-assisted changes, run the validation sequence first, then commit and push in the same workflow.
+4. `AGENTS.md` is policy guidance, not a hard runtime guard. Enforced protections must live in scripts such as `ai:start` and `ai:ship`.
 
 ## AI Auto-PR Automation
 
@@ -135,7 +136,8 @@ pnpm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summar
 7. Controlled exceptions:
    - `--noPr`: push only, skip PR creation.
    - `--noPush --noPr`: local commit only.
-8. On success, `ai:ship` releases the current `.codex-session.lock` and prints the cleanup follow-up command.
+8. `ai:ship` must refuse to commit or push when the current branch already has a merged PR into the target base branch.
+9. On success, `ai:ship` releases the current `.codex-session.lock` and prints the cleanup follow-up command.
 
 ## Session Close and Cleanup
 
