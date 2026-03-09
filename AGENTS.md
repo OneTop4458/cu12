@@ -71,11 +71,13 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 3. Every Codex session must start with `pnpm run ai:start -- --task "<task-slug>"`.
 4. In a Codex-linked worktree, `ai:start` must:
    - fetch latest `origin/main`
-   - create or reuse the current-worktree branch `ai/session-<session-id>`
-   - use `ai/<task>-<timestamp>` only with `--new-task`
+   - reuse the current-worktree branch `ai/session-<session-id>` while that session branch is still active
+   - automatically roll over to `ai/<task>-<timestamp>` when the session branch is already merged into the base branch
+   - allow `--new-task` to force a fresh `ai/<task>-<timestamp>` branch before merge when unrelated work should not share the session branch
    - write or refresh `.codex-session.lock`
 5. In this mode, `ai:start` must not create an additional repo-local worktree.
-6. Prefer a separate Codex session for unrelated work instead of nesting a worktree inside the current one.
+6. After a session branch PR is merged, re-run `pnpm run ai:start -- --task "<next-task>"`; merged session branches automatically roll to a fresh task branch.
+7. Prefer a separate Codex session for unrelated work instead of nesting a worktree inside the current one.
 
 ## Manual Fallback Worktree
 
@@ -116,6 +118,7 @@ pnpm run build:web
    5. `pnpm run build:web` (for web scope changes)
 2. Do not commit or push if the above checks fail.
 3. For AI-assisted changes, run the validation sequence first, then commit and push in the same workflow.
+4. `AGENTS.md` is policy guidance, not a hard runtime guard. Enforced protections must live in scripts such as `ai:start` and `ai:ship`.
 
 ## AI Auto-PR Automation
 
@@ -133,7 +136,8 @@ pnpm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summar
 7. Controlled exceptions:
    - `--noPr`: push only, skip PR creation.
    - `--noPush --noPr`: local commit only.
-8. On success, `ai:ship` releases the current `.codex-session.lock` and prints the cleanup follow-up command.
+8. `ai:ship` must refuse to commit or push when the current branch already has a merged PR into the target base branch.
+9. On success, `ai:ship` releases the current `.codex-session.lock` and prints the cleanup follow-up command.
 
 ## Session Close and Cleanup
 

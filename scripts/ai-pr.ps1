@@ -62,6 +62,53 @@ function Release-SessionLock([string]$RepoRoot) {
   }
 }
 
+function Test-RemoteLooksLikeGitHub([string]$RemoteName) {
+  try {
+    $remoteUrl = Get-CommandText -Command { git remote get-url $RemoteName } -ErrorMessage "Unable to resolve remote '$RemoteName'."
+  }
+  catch {
+    return $false
+  }
+
+  if (-not $remoteUrl) {
+    return $false
+  }
+
+  return ($remoteUrl -match "github\.com[:/]")
+}
+
+function Test-BranchHasMergedPr([string]$Branch, [string]$Base) {
+  if (-not (Test-RemoteLooksLikeGitHub -RemoteName "origin")) {
+    return $false
+  }
+
+  try {
+    $json = & gh pr list --head $Branch --base $Base --state merged --json number --limit 1 2>$null
+  }
+  catch {
+    return $false
+  }
+
+  if ($LASTEXITCODE -ne 0 -or -not $json) {
+    return $false
+  }
+
+  try {
+    $prs = $json | ConvertFrom-Json
+  }
+  catch {
+    return $false
+  }
+
+  return (@($prs).Count -gt 0)
+}
+
+function Assert-BranchCanShip([string]$Branch, [string]$Base) {
+  if (Test-BranchHasMergedPr -Branch $Branch -Base $Base) {
+    throw "Current branch '$Branch' already has a merged PR into '$Base'. Start a fresh branch with pnpm run ai:start -- --task <next-task> before committing more changes."
+  }
+}
+
 $repoRoot = Get-CommandText -Command { git rev-parse --show-toplevel } -ErrorMessage "Not inside a git repository."
 if (-not $repoRoot) {
   throw "Not inside a git repository."
@@ -88,6 +135,7 @@ if ($LASTEXITCODE -ne 0) {
   throw "GitHub CLI (gh) is required."
 }
 Invoke-Checked "Verify GitHub CLI authentication" { gh auth status }
+Assert-BranchCanShip -Branch $branch -Base $Base
 
 if ($NoPush -and -not $NoPr) {
   throw "-NoPush cannot be used without -NoPr. PR creation requires a remote branch."
