@@ -99,6 +99,9 @@ importers:
       '@prisma/client':
         specifier: ^6.5.0
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
+      cheerio:
+        specifier: ^1.0.0
+        version: 1.2.0
       nodemailer:
         specifier: ^8.0.1
         version: 8.0.1
