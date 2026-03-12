@@ -6,6 +6,7 @@ import {
   type CourseNotice,
   type LearningTask,
 } from "@cu12/core";
+import { load } from "cheerio";
 import { getEnv } from "./env";
 import type { Cu12Credentials, SyncProgress, SyncSnapshotResult } from "./cu12-automation";
 
@@ -197,18 +198,21 @@ function normalizeWhitespace(value: string): string {
 function decodeHtmlEntities(value: string): string {
   return value
     .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, "&");
+}
+
+function loadHtmlFragment(rawHtml: string) {
+  const $ = load(rawHtml, null, false);
+  $("script, style, link").remove();
+  return $;
 }
 
 function stripTags(value: string): string {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ");
+  return loadHtmlFragment(value).root().text();
 }
 
 function cleanupNoticeBody(value: string): string {
@@ -249,33 +253,59 @@ function isLikelyNoticeBody(value: string): boolean {
 }
 
 function parseBodyFromNoticeDetailHtml(rawHtml: string, noticeSeq: string): string {
-  const cleaned = rawHtml
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<link[^>]*>/gi, " ");
+  const $ = loadHtmlFragment(rawHtml);
 
-  const scopedPatterns = [
-    new RegExp(`<[^>]*(?:id|class)=["'][^"']*notice[_-]?(?:txt|body|content)[_-]?${noticeSeq}[^"']*["'][^>]*>([\\s\\S]*?)<\\/[^>]+>`, "i"),
-    new RegExp(`<[^>]*(?:id|class)=["'][^"']*(?:notice[_-]?body|notice[_-]?content|class_notice_body|class_notice_content|editor_content|view_cont|notice_view|bbs_contents|bbs_view)[^"']*["'][^>]*>([\\s\\S]*?)<\\/[^>]+>`, "i"),
-    /<textarea[^>]*(?:name|id)=["'][^"']*notice[^"']*["'][^>]*>([\s\S]*?)<\/textarea>/i,
+  const scopedSelectors = [
+    `#notice_${noticeSeq}`,
+    `#notice_txt_${noticeSeq}`,
+    `#notice-content-${noticeSeq}`,
+    `#notice-content_${noticeSeq}`,
+    `#notice_body_${noticeSeq}`,
+    `.notice-content-${noticeSeq}`,
+    `.notice-content_${noticeSeq}`,
+    `.notice-body-${noticeSeq}`,
+    `.notice_body_${noticeSeq}`,
+    `.notice_${noticeSeq}`,
+    `#board_${noticeSeq}`,
+    ".class_notice_body",
+    ".class_notice_content",
+    ".editor_content",
+    ".view_cont",
+    ".notice_view",
+    ".bbs_contents",
+    ".bbs_view",
+    "textarea[name*='notice']",
+    "textarea[id*='notice']",
   ];
 
-  for (const pattern of scopedPatterns) {
-    const match = cleaned.match(pattern);
-    if (!match?.[1]) continue;
-    const body = cleanupNoticeBody(stripTags(match[1]));
+  for (const selector of scopedSelectors) {
+    const node = $(selector).first();
+    if (!node.length) continue;
+    const body = cleanupNoticeBody(normalizeWhitespace(node.text()));
     if (body) return body;
   }
 
-  const labelMatch = cleaned.match(
-    /(?:\uACF5\uC9C0\uB0B4\uC6A9|notice\s*content)\s*(?::|<\/[^>]+>)?\s*([\s\S]{20,})/i,
-  );
-  if (labelMatch?.[1]) {
-    const body = cleanupNoticeBody(stripTags(labelMatch[1]));
-    if (body) return body;
+  for (const element of $("tr, li, dl, div, article").toArray()) {
+    const container = $(element);
+    const labelText = normalizeWhitespace(container.text());
+    if (!labelText || !/(?:\uACF5\uC9C0\uB0B4\uC6A9|notice\s*content)/i.test(labelText)) continue;
+
+    const detailCandidates = [
+      container.find("td").first(),
+      container.find("dd").first(),
+      container.find("textarea").first(),
+      container.find(".class_notice_content, .class_notice_body, .editor_content, .view_cont, .notice_view, .bbs_contents, .bbs_view").first(),
+      container.next(),
+    ];
+
+    for (const candidate of detailCandidates) {
+      if (!candidate.length) continue;
+      const body = cleanupNoticeBody(normalizeWhitespace(candidate.text()));
+      if (body) return body;
+    }
   }
 
-  const fallback = cleanupNoticeBody(stripTags(cleaned));
+  const fallback = cleanupNoticeBody(normalizeWhitespace($.root().text()));
   return fallback.length >= 20 ? fallback : "";
 }
 
@@ -339,14 +369,15 @@ function isLikelyAttachmentUrl(url: string): boolean {
 }
 
 function extractAttachments(rawHtml: string, baseUrl: string): Array<{ name: string; url: string }> {
-  const matches = rawHtml.matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi);
   const dedup = new Map<string, { name: string; url: string }>();
+  const $ = loadHtmlFragment(rawHtml);
 
-  for (const match of matches) {
-    const rawHref = decodeHtmlEntities(match[2] ?? "").trim();
+  for (const element of $("a[href], a[data-href]").toArray()) {
+    const link = $(element);
+    const rawHref = decodeHtmlEntities(link.attr("href") ?? link.attr("data-href") ?? "").trim();
     if (!rawHref || /^javascript:/i.test(rawHref)) continue;
 
-    const name = normalizeWhitespace(stripTags(match[3] ?? ""));
+    const name = normalizeWhitespace(link.text());
     if (!name) continue;
 
     let absoluteUrl = rawHref;
