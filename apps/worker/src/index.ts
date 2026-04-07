@@ -233,8 +233,8 @@ function formatAutoLearnNoOpReason(reason: string | null | undefined): string | 
   if (reason === "NO_PENDING_VOD_TASKS") return "미완료 VOD 차시가 없습니다.";
   if (reason === "NO_AVAILABLE_VOD_TASKS") return "현재 학습 가능 시간대의 VOD 차시가 없습니다.";
   if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 남은 차시가 없습니다.";
-  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "?먮룞 泥섎━ 媛?ν븳 誘몄셿猷?媛뺤쓽/자료/퀴즈媛 ?놁뒿?덈떎.";
-  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "?꾩옱 ?숈뒿 媛??湲곌컙???덈뒗 媛뺤쓽/자료/퀴즈媛 ?놁뒿?덈떎.";
+  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 미완료 강의, 자료, 퀴즈가 없습니다.";
+  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능 기간에 있는 강의, 자료, 퀴즈가 없습니다.";
   return reason;
 }
 

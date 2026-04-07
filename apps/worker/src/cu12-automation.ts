@@ -247,7 +247,7 @@ function parseDateMsOrNull(value?: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function isWithinLearningWindow(task: LearningTask, nowMs: number): boolean {
+function isWithinLearningWindow(task: LearningTask, nowMs: number): boolean {
   const availableFromMs = parseDateMsOrNull(task.availableFrom);
   if (availableFromMs !== null && nowMs < availableFromMs) return false;
 
@@ -257,7 +257,7 @@ export function isWithinLearningWindow(task: LearningTask, nowMs: number): boole
   return true;
 }
 
-export function isAutoLearnableTask(task: LearningTask, nowMs: number): boolean {
+function isAutoLearnableTask(task: LearningTask, nowMs: number): boolean {
   if (task.state !== "PENDING") return false;
   if (!isSupportedAutoLearnActivityType(task.activityType)) return false;
   if (task.activityType === "VOD" && task.requiredSeconds > 0 && task.learnedSeconds >= task.requiredSeconds) {
@@ -266,7 +266,7 @@ export function isAutoLearnableTask(task: LearningTask, nowMs: number): boolean 
   return isWithinLearningWindow(task, nowMs);
 }
 
-export function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
+function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
   const lectureSeqs =
     input.mode === "ALL_COURSES"
       ? input.lectureSeqs
@@ -352,7 +352,7 @@ export function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
   return { planned, noOpReason };
 }
 
-export function interpretQuizTransition(
+function interpretQuizTransition(
   previous: QuizTransitionState,
   next: QuizTransitionState | null,
   isResultPage: boolean,
@@ -368,7 +368,7 @@ export function interpretQuizTransition(
   return "STALLED";
 }
 
-export function isTaskPendingInTaskList(task: LearningTask, tasks: LearningTask[]): boolean {
+function isTaskPendingInTaskList(task: LearningTask, tasks: LearningTask[]): boolean {
   return tasks.some((candidate) =>
     candidate.lectureSeq === task.lectureSeq
     && candidate.courseContentsSeq === task.courseContentsSeq

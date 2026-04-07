@@ -10,7 +10,6 @@
     "dispatch:sync": "tsx src/queue-dispatch.ts --type=SYNC",
     "dispatch:autolearn": "tsx src/queue-dispatch.ts --type=AUTOLEARN",
     "dispatch:digest": "tsx src/queue-dispatch.ts --type=MAIL_DIGEST",
-    "test:worker": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
