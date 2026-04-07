@@ -38,6 +38,7 @@ interface Summary {
 
 interface ActivityTypeCounts {
   VOD: number;
+  MATERIAL: number;
   QUIZ: number;
   ASSIGNMENT: number;
   ETC: number;
@@ -199,16 +200,22 @@ interface AutoProgress {
     mode: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
     totalTasks: number;
     completedTasks: number;
-    watchedSeconds: number;
+    elapsedSeconds: number;
+    watchedSeconds?: number;
     estimatedRemainingSeconds: number;
     current?: {
       lectureSeq: number;
       weekNo: number;
       lessonNo: number;
+      activityType?: "VOD" | "MATERIAL" | "QUIZ" | "ASSIGNMENT" | "ETC";
       remainingSeconds: number;
       elapsedSeconds?: number;
       courseTitle?: string;
       taskTitle?: string;
+      questionIndex?: number;
+      questionCount?: number;
+      attemptsUsed?: number;
+      attemptsLimit?: number;
     };
     noOpReason?: AutoLearnNoOpReason | null;
     plannedTaskCount?: number;
@@ -221,8 +228,8 @@ type AutoLearnNoOpReason =
   | "NO_ACTIVE_COURSES"
   | "LECTURE_NOT_FOUND"
   | "NO_PENDING_TASKS"
-  | "NO_PENDING_VOD_TASKS"
-  | "NO_AVAILABLE_VOD_TASKS"
+  | "NO_PENDING_SUPPORTED_TASKS"
+  | "NO_AVAILABLE_SUPPORTED_TASKS"
   | "NO_TASKS_AFTER_FILTER";
 
 interface AutoLearnPlannedTask {
@@ -233,7 +240,7 @@ interface AutoLearnPlannedTask {
   lessonNo: number;
   taskTitle: string;
   state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
-  activityType: "VOD" | "QUIZ" | "ASSIGNMENT" | "ETC";
+  activityType: "VOD" | "MATERIAL" | "QUIZ" | "ASSIGNMENT" | "ETC";
   requiredSeconds: number;
   learnedSeconds: number;
   availableFrom: string | null;
@@ -243,8 +250,10 @@ interface AutoLearnPlannedTask {
 
 interface AutoLearnResult {
   mode: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
-  watchedTaskCount: number;
-  watchedSeconds: number;
+  processedTaskCount: number;
+  elapsedSeconds: number;
+  watchedTaskCount?: number;
+  watchedSeconds?: number;
   lectureSeqs: number[];
   plannedTaskCount: number;
   truncated: boolean;
@@ -344,8 +353,8 @@ function parseAutoLearnNoOpReason(value: unknown): AutoLearnNoOpReason | null {
   if (value !== "NO_ACTIVE_COURSES"
     && value !== "LECTURE_NOT_FOUND"
     && value !== "NO_PENDING_TASKS"
-    && value !== "NO_PENDING_VOD_TASKS"
-    && value !== "NO_AVAILABLE_VOD_TASKS"
+    && value !== "NO_PENDING_SUPPORTED_TASKS"
+    && value !== "NO_AVAILABLE_SUPPORTED_TASKS"
     && value !== "NO_TASKS_AFTER_FILTER") {
     return null;
   }
@@ -360,7 +369,11 @@ function parseAutoLearnPlannedTask(value: unknown): AutoLearnPlannedTask | null 
   if (typeof maybe.lessonNo !== "number" || typeof maybe.taskTitle !== "string") return null;
   if (typeof maybe.requiredSeconds !== "number" || typeof maybe.learnedSeconds !== "number") return null;
   if (typeof maybe.remainingSeconds !== "number") return null;
-  if (maybe.activityType !== "VOD" && maybe.activityType !== "QUIZ" && maybe.activityType !== "ASSIGNMENT" && maybe.activityType !== "ETC") return null;
+  if (maybe.activityType !== "VOD"
+    && maybe.activityType !== "MATERIAL"
+    && maybe.activityType !== "QUIZ"
+    && maybe.activityType !== "ASSIGNMENT"
+    && maybe.activityType !== "ETC") return null;
   if (maybe.state !== "PENDING" && maybe.state !== "RUNNING" && maybe.state !== "COMPLETED" && maybe.state !== "FAILED") return null;
 
   return {
@@ -387,8 +400,8 @@ function parseAutoResult(value: unknown): AutoLearnResult | null {
     maybe.mode !== "SINGLE_NEXT"
     && maybe.mode !== "SINGLE_ALL"
     && maybe.mode !== "ALL_COURSES"
-    || typeof maybe.watchedTaskCount !== "number"
-    || typeof maybe.watchedSeconds !== "number"
+    || typeof (maybe.processedTaskCount ?? maybe.watchedTaskCount) !== "number"
+    || typeof (maybe.elapsedSeconds ?? maybe.watchedSeconds) !== "number"
     || typeof maybe.plannedTaskCount !== "number"
     || typeof maybe.truncated !== "boolean"
     || typeof maybe.estimatedTotalSeconds !== "number"
@@ -399,6 +412,8 @@ function parseAutoResult(value: unknown): AutoLearnResult | null {
 
   return {
     mode: maybe.mode,
+    processedTaskCount: maybe.processedTaskCount ?? maybe.watchedTaskCount ?? 0,
+    elapsedSeconds: maybe.elapsedSeconds ?? maybe.watchedSeconds ?? 0,
     watchedTaskCount: maybe.watchedTaskCount,
     watchedSeconds: maybe.watchedSeconds,
     lectureSeqs: maybe.lectureSeqs.filter((item): item is number => typeof item === "number"),
@@ -431,9 +446,9 @@ function formatAutoModeLabel(mode: AutoProgress["progress"]["mode"]): string {
 }
 
 function getAutoModeDescription(mode: AutoProgress["progress"]["mode"]): string {
-  if (mode === "SINGLE_NEXT") return "선택 강좌의 다음 미완료 VOD 1개를 자동 수강합니다.";
-  if (mode === "SINGLE_ALL") return "선택 강좌의 미완료 VOD를 처음부터 끝까지 자동 수강합니다.";
-  return "진행 중인 전체 강좌의 미완료 VOD를 순서대로 자동 수강합니다.";
+  if (mode === "SINGLE_NEXT") return "선택 강좌의 다음 미완료 강의/자료/퀴즈 1개를 자동 처리합니다.";
+  if (mode === "SINGLE_ALL") return "선택 강좌의 미완료 강의/자료/퀴즈를 순서대로 자동 처리합니다.";
+  return "진행 중인 전체 강좌의 미완료 강의/자료/퀴즈를 순서대로 자동 처리합니다.";
 }
 
 function formatAutoNoOpReason(reason: AutoLearnNoOpReason | null | undefined): string {
@@ -441,8 +456,8 @@ function formatAutoNoOpReason(reason: AutoLearnNoOpReason | null | undefined): s
   if (reason === "NO_ACTIVE_COURSES") return "진행 중인 과목이 없습니다.";
   if (reason === "LECTURE_NOT_FOUND") return "요청한 강좌가 진행 대상이 아니거나 비활성 상태입니다.";
   if (reason === "NO_PENDING_TASKS") return "현재 진행 대상 차시가 없습니다.";
-  if (reason === "NO_PENDING_VOD_TASKS") return "남은 차시가 VOD가 아닌 항목이거나 VOD 수강 대상이 없습니다.";
-  if (reason === "NO_AVAILABLE_VOD_TASKS") return "학습 가능 기간에 있는 VOD 미완료 차시가 없습니다.";
+  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 강의/자료/퀴즈가 없습니다.";
+  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "학습 가능 기간에 있는 강의/자료/퀴즈가 없습니다.";
   return "자동 수강 대상이 없습니다.";
 }
 
@@ -568,7 +583,7 @@ function getStatusMessageFromSyncState(state: SyncQueueState): string {
 }
 
 function formatTaskCountsByType(counts: ActivityTypeCounts): string {
-  return `영상 ${counts.VOD}개 / 과제 ${counts.ASSIGNMENT}개 / 시험 ${counts.QUIZ}개 / 기타 ${counts.ETC}개`;
+  return `영상 ${counts.VOD}개 / 자료 ${counts.MATERIAL}개 / 과제 ${counts.ASSIGNMENT}개 / 시험 ${counts.QUIZ}개 / 기타 ${counts.ETC}개`;
 }
 
 function getSyncQueueGuidance(state: SyncQueueState): string | null {
@@ -615,6 +630,7 @@ function formatPendingByType(summary: CourseWeekSummary | null): string {
   const parts: string[] = [];
   if (target.pendingTaskCount === 0) return "이번 주차 미완료 없음";
   parts.push(`영상 ${target.pendingTaskTypeCounts.VOD}개`);
+  parts.push(`자료 ${target.pendingTaskTypeCounts.MATERIAL}개`);
   parts.push(`과제 ${target.pendingTaskTypeCounts.ASSIGNMENT}개`);
   parts.push(`시험 ${target.pendingTaskTypeCounts.QUIZ}개`);
   parts.push(`기타 ${target.pendingTaskTypeCounts.ETC}개`);
@@ -809,17 +825,17 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     ? toRatio(syncProgress.progress.completedCourses, Math.max(1, syncProgress.progress.totalCourses))
     : 0;
   const autoProgressRatio = autoProgress
-    ? (autoProgress.progress.watchedSeconds + autoProgress.progress.estimatedRemainingSeconds > 0
+    ? (autoProgress.progress.elapsedSeconds + autoProgress.progress.estimatedRemainingSeconds > 0
       ? toRatio(
-        autoProgress.progress.watchedSeconds,
-        autoProgress.progress.watchedSeconds + Math.max(0, autoProgress.progress.estimatedRemainingSeconds),
+        autoProgress.progress.elapsedSeconds,
+        autoProgress.progress.elapsedSeconds + Math.max(0, autoProgress.progress.estimatedRemainingSeconds),
       )
       : toRatio(autoProgress.progress.completedTasks, Math.max(1, autoProgress.progress.totalTasks)))
     : autoResult
-      ? toRatio(autoResult.watchedTaskCount, Math.max(1, autoResult.plannedTaskCount))
+      ? toRatio(autoResult.processedTaskCount, Math.max(1, autoResult.plannedTaskCount))
     : 0;
   const autoEstimatedRemainingSeconds = autoProgress?.progress.estimatedRemainingSeconds
-    ?? (autoResult ? Math.max(0, autoResult.estimatedTotalSeconds - autoResult.watchedSeconds) : 0);
+    ?? (autoResult ? Math.max(0, autoResult.estimatedTotalSeconds - autoResult.elapsedSeconds) : 0);
   const syncProgressStatus = trackingSyncJob ? trackingDetail?.status : activeSyncJob?.status ?? null;
   const autoProgressStatus = trackingAutoLearn ? trackingDetail?.status : activeAutoJob?.status ?? null;
   const autoProgressUpdatedAtRaw = autoProgress?.heartbeatAt
@@ -834,8 +850,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     && autoProgressLagSeconds !== null
     && autoProgressLagSeconds > 180;
   const autoModeForDisplay = autoProgress?.progress.mode ?? autoResult?.mode ?? null;
-  const autoCompletedCount = autoProgress?.progress.completedTasks ?? autoResult?.watchedTaskCount ?? 0;
-  const autoWatchedSeconds = autoProgress?.progress.watchedSeconds ?? autoResult?.watchedSeconds ?? 0;
+  const autoCompletedCount = autoProgress?.progress.completedTasks ?? autoResult?.processedTaskCount ?? 0;
+  const autoWatchedSeconds = autoProgress?.progress.elapsedSeconds ?? autoResult?.elapsedSeconds ?? 0;
   const autoCurrentTitle = autoProgress?.progress.current
     ? autoProgress.progress.current.taskTitle?.trim()
       || autoProgress.progress.current.courseTitle?.trim()
@@ -1688,7 +1704,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     진행 신호가 지연 중입니다. 무진행 20분이면 자동으로 중단됩니다.
                   </p>
                 ) : null}
-                <p className="muted">누적 재생 시간: {formatSeconds(autoWatchedSeconds)}</p>
+                <p className="muted">누적 처리 시간: {formatSeconds(autoWatchedSeconds)}</p>
                 {autoPlannedCount === 0 ? (
                   <p className="muted" style={{ color: "var(--warn)" }}>
                     {formatAutoNoOpReason(autoNoOpReason)}

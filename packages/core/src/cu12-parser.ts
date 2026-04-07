@@ -706,7 +706,7 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
   return events;
 }
 
-export function parseTodoVodTasks(html: string, userId: string, lectureSeq: number): LearningTask[] {
+export function parseTodoTasks(html: string, userId: string, lectureSeq: number): LearningTask[] {
   const parseViewGoArgs = (source: string): { activityCode: string; courseContentsSeq: number; weekNo: number; lessonNo: number } | null => {
     const match = source.match(/viewGo\(([\s\S]*?)\)/i);
     if (!match?.[1]) {
@@ -770,14 +770,16 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
   const tasksBySeq = new Map<number, LearningTask>();
   const activityTypeByCode: Record<string, LearningTask["activityType"]> = {
     C01: "VOD",
-    C02: "ASSIGNMENT",
-    C03: "QUIZ",
+    C02: "QUIZ",
+    C03: "MATERIAL",
     C04: "ASSIGNMENT",
-    C05: "QUIZ",
+    C05: "ASSIGNMENT",
     C06: "ETC",
-    C10: "ASSIGNMENT",
+    C07: "ETC",
+    C08: "QUIZ",
+    C10: "QUIZ",
     C11: "QUIZ",
-    C12: "ASSIGNMENT",
+    C12: "ETC",
   };
 
   const candidates = $(
@@ -927,6 +929,7 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
     const activityType =
       (activityCode ? activityTypeByCode[activityCode] : undefined)
       ?? (/contents_vod|vod/i.test(`${pathHint} ${raw}`) ? "VOD" : undefined)
+      ?? (/contents_material|material|교안|강의 자료|강의자료|수업교안/i.test(`${pathHint} ${raw}`) ? "MATERIAL" : undefined)
       ?? (/contents_(?:quiz|test)|quiz|exam/i.test(`${pathHint} ${raw}`) ? "QUIZ" : undefined)
       ?? (/contents_(?:survey|assignment|report|discussion|board)/i.test(`${pathHint} ${raw}`) ? "ASSIGNMENT" : undefined)
       ?? "ETC";
@@ -1006,3 +1009,5 @@ export function parseTodoVodTasks(html: string, userId: string, lectureSeq: numb
 
   return Array.from(tasksBySeq.values());
 }
+
+export const parseTodoVodTasks = parseTodoTasks;

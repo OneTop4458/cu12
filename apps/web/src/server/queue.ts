@@ -57,6 +57,7 @@ export const TEST_USER_SYNC_BLOCKED_MESSAGE = "Test users do not support CU12 sy
 
 interface AutoLearnResultLike {
   mode?: unknown;
+  elapsedSeconds?: unknown;
   watchedSeconds?: unknown;
   truncated?: unknown;
   continuationQueued?: unknown;
@@ -484,11 +485,12 @@ export async function markJobSucceeded(jobId: string, workerId: string, result?:
       const resultPatch: Record<string, unknown> = { ...(result as AutoLearnResultLike) };
       const chainSegment = Math.max(1, toSafeInt(payload?.chainSegment, 1));
       const previousElapsed = toSafeInt(payload?.chainElapsedSeconds, 0);
-      const watchedSeconds = toSafeInt(resultPatch.watchedSeconds, 0);
-      const totalElapsed = previousElapsed + watchedSeconds;
+      const elapsedSeconds = toSafeInt(resultPatch.elapsedSeconds ?? resultPatch.watchedSeconds, 0);
+      const totalElapsed = previousElapsed + elapsedSeconds;
       const truncated = resultPatch.truncated === true;
       const chainLimitReached = truncated && totalElapsed >= chainMaxSeconds;
 
+      resultPatch.elapsedSeconds = elapsedSeconds;
       resultPatch.chainSegment = chainSegment;
       resultPatch.chainLimitReached = chainLimitReached;
       resultPatch.continuationQueued = false;

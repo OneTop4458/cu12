@@ -2,7 +2,7 @@ import {
   parseMyCourseHtml,
   parseNoticeListHtml,
   parseNotificationListHtml,
-  parseTodoVodTasks,
+  parseTodoTasks,
   type CourseNotice,
   type LearningTask,
 } from "@cu12/core";
@@ -747,7 +747,7 @@ export async function collectCu12SnapshotViaHttp(
 
     const taskResponse = await client.getText(`/el/class/todo_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`);
     client.assertAuthenticated(taskResponse);
-    tasks.push(...parseTodoVodTasks(taskResponse.text, userId, course.lectureSeq));
+    tasks.push(...parseTodoTasks(taskResponse.text, userId, course.lectureSeq));
     completedCourses += 1;
 
     await reportProgress({
