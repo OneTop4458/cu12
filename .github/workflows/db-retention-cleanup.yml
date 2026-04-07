@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "10 1 * * *"
   workflow_dispatch:
+    inputs:
+      userId:
+        description: "Target user id for focused cleanup"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,6 +19,7 @@ jobs:
     timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TARGET_USER_ID: ${{ inputs.userId }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -29,4 +35,52 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
-      - run: pnpm --filter @cu12/worker run cleanup:retention
+      - name: Cleanup legacy notices and notifications for one user
+        run: |
+          node <<'NODE'
+          const { PrismaClient } = require("@prisma/client");
+
+          async function main() {
+            const userId = (process.env.TARGET_USER_ID || "").trim();
+            if (!userId) {
+              throw new Error("TARGET_USER_ID is required.");
+            }
+
+            const prisma = new PrismaClient();
+
+            const bogusNoticeTitle = /^조회하지 않은 공지사항 수\d+$/;
+
+            const bogusNotices = await prisma.courseNotice.findMany({
+              where: { userId },
+              select: { id: true, title: true },
+            });
+
+            const bogusNoticeIds = bogusNotices
+              .filter((notice) => bogusNoticeTitle.test(notice.title))
+              .map((notice) => notice.id);
+
+            const deletedNotices = bogusNoticeIds.length > 0
+              ? await prisma.courseNotice.deleteMany({
+                  where: {
+                    userId,
+                    id: { in: bogusNoticeIds },
+                  },
+                })
+              : { count: 0 };
+
+            const deletedNotifications = await prisma.notificationEvent.deleteMany({
+              where: { userId },
+            });
+
+            await prisma.$disconnect();
+
+            console.log(`targetUserId=${userId}`);
+            console.log(`deletedBogusNotices=${deletedNotices.count}`);
+            console.log(`deletedNotifications=${deletedNotifications.count}`);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE

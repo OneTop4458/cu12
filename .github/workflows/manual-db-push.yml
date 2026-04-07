@@ -1,4 +1,4 @@
-name: DB Bootstrap
+name: Manual DB Push
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  bootstrap:
+  push-schema:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -27,5 +27,5 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
-      - name: Push Prisma schema
+      - name: Push Prisma schema directly
         run: pnpm exec prisma db push --schema prisma/schema.prisma --accept-data-loss

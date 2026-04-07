@@ -67,7 +67,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
       - name: Push Prisma schema (non-destructive by default)
-        run: pnpm run prisma:push
+        run: pnpm exec prisma db push --schema prisma/schema.prisma
 
   deploy:
     needs: db-sync
