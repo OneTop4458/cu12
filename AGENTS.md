@@ -68,7 +68,7 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 
 1. Package manager standard is `pnpm`.
 2. If `pnpm` is not on PATH yet, run `corepack enable pnpm` once on the machine.
-3. Every Codex session must start with `pnpm run ai:start -- --task "<task-slug>"`.
+3. Every Codex session must start with `pnpm run ai:start --task "<task-slug>"`.
 4. In a Codex-linked worktree, `ai:start` must:
    - fetch latest `origin/main`
    - reuse the current-worktree branch `ai/session-<session-id>` while that session branch is still active
@@ -76,12 +76,12 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
    - allow `--new-task` to force a fresh `ai/<task>-<timestamp>` branch before merge when unrelated work should not share the session branch
    - write or refresh `.codex-session.lock`
 5. In this mode, `ai:start` must not create an additional repo-local worktree.
-6. After a session branch PR is merged, re-run `pnpm run ai:start -- --task "<next-task>"`; merged session branches automatically roll to a fresh task branch.
+6. After a session branch PR is merged, re-run `pnpm run ai:start --task "<next-task>"`; merged session branches automatically roll to a fresh task branch.
 7. Prefer a separate Codex session for unrelated work instead of nesting a worktree inside the current one.
 
 ## Manual Fallback Worktree
 
-1. Use `pnpm run ai:worktree -- --task "<task-slug>"` only when you are outside the default Codex-linked flow and need an extra local worktree.
+1. Use `pnpm run ai:worktree --task "<task-slug>"` only when you are outside the default Codex-linked flow and need an extra local worktree.
 2. Outside Codex-linked mode, `pnpm run ai:start` may still create or attach repo-local `.worktrees/session-*` worktrees.
 3. Do not run multi-agent work directly in the primary checkout.
 4. `ai:ship` must not run from `main` or `develop`; use feature branches only.
@@ -126,7 +126,7 @@ pnpm run build:web
 2. After implementation, run:
 
 ```bash
-pnpm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summary"
+pnpm run ai:ship --commit "type(scope): summary" --title "type(scope): summary"
 ```
 
 3. `ai:ship` executes validation, then stages, commits, pushes, and opens a PR.
@@ -138,6 +138,12 @@ pnpm run ai:ship -- --commit "type(scope): summary" --title "type(scope): summar
    - `--noPush --noPr`: local commit only.
 8. `ai:ship` must refuse to commit or push when the current branch already has a merged PR into the target base branch.
 9. On success, `ai:ship` releases the current `.codex-session.lock` and prints the cleanup follow-up command.
+
+## Workflow Command Notes
+
+1. PowerShell-backed repo scripts expect named arguments directly (for example `pnpm run ai:start --task "..."`, not `pnpm run ai:start -- --task "..."`).
+2. GitHub Actions workflows that call Prisma in CI/CD must pass the schema path explicitly or use the repository wrapper scripts successfully.
+3. When repairing production, prefer workflow-based operations (`DB Bootstrap`, `Deploy Vercel`, targeted cleanup workflows) over ad-hoc manual DB changes.
 
 ## Session Close and Cleanup
 
