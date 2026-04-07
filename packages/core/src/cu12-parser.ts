@@ -1,4 +1,13 @@
 import { load } from "cheerio";
+import {
+  cleanupNoticeBody,
+  cleanupNotificationCategory,
+  cleanupNotificationMessage,
+  hasUsableNoticeBody,
+  hasUsableNotificationMessage,
+  scoreNoticeBodyQuality,
+  scoreNotificationMessageQuality,
+} from "./content-quality";
 import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "./types";
 
 function normalizeWhitespace(value: string): string {
@@ -246,6 +255,12 @@ function isMeaningfulNoticeTitle(title: string): boolean {
   return !new Set(["\uACF5\uC9C0", "\uC0AC\uD56D", "notice", "title"]).has(normalized);
 }
 
+function isMeaningfulNotificationSubject(subject: string): boolean {
+  const normalized = normalizeNoticeComparable(subject);
+  if (!normalized) return false;
+  return !new Set(["\uC54C\uB9BC", "\uACF5\uC9C0", "notification", "notice", "title"]).has(normalized);
+}
+
 function extractLabeledNoticeValue(infoText: string, labels: string[]): string | null {
   if (!infoText) return null;
   const escapedLabels = labels.map((label) => escapeRegExp(label));
@@ -333,22 +348,20 @@ function parseNoticeBodyCandidates(
     ...bodySelectors.map((selector) => $(selector)),
   ];
 
-  const cleanupBodyText = (value: string): string => {
-    const normalized = normalizeNoticeText(value);
-    if (!normalized) return "";
-
-    const labeledBody = normalized.match(/(?:\uACF5\uC9C0\uB0B4\uC6A9|\uB0B4\uC6A9)\s*[:：-]?\s*([\s\S]+)/i)?.[1];
-    const extracted = normalizeNoticeText(labeledBody ?? normalized);
-    const metaHeavy = /(?:\uB4F1\uB85D\uC77C|\uC791\uC131\uC77C)/.test(extracted) && /(?:\uC791\uC131\uC790|\uB4F1\uB85D\uC790|\uC870\uD68C\uC218)/.test(extracted);
-    if (metaHeavy && extracted.length < 220) return "";
-    return extracted;
-  };
-
   const candidateText = candidates
-    .map((item) => cleanupBodyText(item?.text() ?? ""))
-    .find((value) => value.length > 0);
+    .map((item) => cleanupNoticeBody(item?.text() ?? ""))
+    .map((value) => ({
+      value,
+      score: scoreNoticeBodyQuality(value),
+    }))
+    .filter((item) => item.value.length > 0)
+    .sort((a, b) => (b.score - a.score) || (b.value.length - a.value.length))[0];
 
-  return candidateText ?? "";
+  if (!candidateText || !hasUsableNoticeBody(candidateText.value)) {
+    return "";
+  }
+
+  return candidateText.value;
 }
 
 export function parseMyCourseHtml(html: string, userId: string, status: CourseState["status"] = "ACTIVE"): CourseState[] {
@@ -574,10 +587,9 @@ export function parseNoticeListHtml(html: string, userId: string, lectureSeq: nu
       || node.parent().find('.notice_new_icon, .new').length > 0
       || /\bnew\b/i.test(lineText);
 
-    const bodyText = normalizeNoticeText(
+    const bodyText =
       parseNoticeBodyCandidates($, node, noticeSeq)
-      || parseNoticeBodyCandidates($, node.closest('li, tr, .notice_item, .board_item').first(), noticeSeq),
-    );
+      || parseNoticeBodyCandidates($, node.closest('li, tr, .notice_item, .board_item').first(), noticeSeq);
 
     candidates.push({
       userId,
@@ -626,53 +638,61 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
     ].join(", "),
   ).toArray();
 
-  const stripUnreadSuffix = (value: string): string =>
-    normalizeNoticeText(value).replace(/\s*(미확인|읽지않음|not-read|not_checked|아직\s*읽지\s*않음)\s*$/i, "").trim();
-
   for (const rawItem of itemCandidates) {
     const item = $(rawItem);
     const lineText = normalizeNoticeText(item.text());
     if (!lineText) continue;
 
-    const subjectText = normalizeNoticeText(
+    const explicitSubjectText = normalizeNoticeText(
       item.find('.notification_subject, .notification_title, .subject, .course-title, .title').first().text(),
     ) || normalizeNoticeText(item.attr("data-course-title") ?? "");
-    const subject = subjectText || normalizeNoticeText(lineText.split(/\n|\s{2,}/)[0]) || "공지";
+    const fallbackSubject = normalizeNoticeText(lineText.split(/\n|\s{2,}/)[0]) || "알림";
+    const subject = isMeaningfulNotificationSubject(explicitSubjectText)
+      ? explicitSubjectText
+      : (explicitSubjectText || fallbackSubject);
 
-    const fullText = normalizeNoticeText(item.text());
-    const inlineText = normalizeNoticeText(
-      item.find('.notification_text, .notification_body, .message, .noti_txt, .cont, .description').first().text(),
-    );
-    const attributeText = normalizeNoticeText(
-      [
-        item.attr("data-message"),
-        item.attr("data-msg"),
-        item.attr("data-content"),
-        item.attr("title"),
-        item.attr("aria-label"),
-      ]
-        .filter((value): value is string => Boolean(value && value.trim()))
-        .join(" "),
-    );
-
-    const candidate = [inlineText, attributeText, fullText]
-      .map((value) => stripUnreadSuffix(value))
-      .filter((value) => value.length > 0)
-      .sort((a, b) => b.length - a.length)[0] ?? "";
-    const bracket = candidate.match(/^\s*\[(.*?)\]\s*(.*)$/);
-    const messageBody = stripUnreadSuffix(bracket?.[2] || candidate);
-    const withCategory = subject && messageBody.startsWith(subject)
-      ? stripUnreadSuffix(messageBody.slice(subject.length))
-      : messageBody;
-    const category = normalizeNoticeText(
-      bracket?.[1] || item.attr("data-category") || item.attr('class')?.match(/(\S*알림\S*|\S*공지\S*|notice[^\s]*)/)?.[1] || "알림",
-    );
-    const message = stripUnreadSuffix(withCategory) || "내용 없음";
+    const rawFullText = item.text();
+    const fullText = normalizeNoticeText(rawFullText);
+    const rawInlineText = item.find('.notification_text, .notification_body, .message, .noti_txt, .cont, .description').first().text();
+    const inlineText = normalizeNoticeText(rawInlineText);
+    const rawAttributeText = [
+      item.attr("data-message"),
+      item.attr("data-msg"),
+      item.attr("data-content"),
+      item.attr("title"),
+      item.attr("aria-label"),
+    ]
+      .filter((value): value is string => Boolean(value && value.trim()))
+      .join(" ");
+    const attributeText = normalizeNoticeText(rawAttributeText);
 
     const rawTime =
       normalizeNoticeText(item.find('.notification_day, .notification-day, .time, .date, .notification_time').text())
       || normalizeNoticeText(fullText.match(/(\d{4}\.\s*\d{1,2}\.\s*\d{1,2}(?:\s*(?:오전|오후|AM|PM)\s*\d{1,2}:\d{2}(?::\d{2})?)?)/)?.[1] ?? '');
     const occurredAt = toIsoDateTime(rawTime);
+
+    const bracketCandidate = [rawInlineText, rawAttributeText, rawFullText]
+      .map((value) => normalizeWhitespace(value))
+      .find((value) => /^\s*\[.*?\]/.test(value)) ?? "";
+    const bracket = bracketCandidate.match(/^\s*\[(.*?)\]\s*(.*)$/);
+    const rawCategory = cleanupNotificationCategory(
+      bracket?.[1]
+      || item.attr("data-category")
+      || item.find(".notification_category, .notification-label, .category, .badge, .label").first().text(),
+    );
+    const category = rawCategory || "알림";
+
+    const messageCandidate = [inlineText, attributeText, fullText]
+      .map((value) => cleanupNotificationMessage(value, { subject, category, rawTime }))
+      .map((value) => ({
+        value,
+        score: scoreNotificationMessageQuality(value, { subject, category }),
+      }))
+      .filter((entry) => entry.value.length > 0)
+      .sort((a, b) => (b.score - a.score) || (b.value.length - a.value.length))[0];
+    const message = messageCandidate && hasUsableNotificationMessage(messageCandidate.value, { subject, category })
+      ? messageCandidate.value
+      : "";
 
     const notifierSeq =
       item.attr('data-notifier-seq')
@@ -697,7 +717,7 @@ export function parseNotificationListHtml(html: string, userId: string): Notific
       category,
       message,
       occurredAt,
-      isCanceled: /취소|중단|동결|마감/.test(`${lineText} ${category}`),
+      isCanceled: /취소|중단|동결|마감/.test(`${lineText} ${category} ${message}`),
       isUnread: /미확인|아직|읽지않음|not_checked|not-read/.test(`${lineText} ${fullText} ${rawTime}`),
       syncedAt,
     });

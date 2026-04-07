@@ -20,6 +20,13 @@ import {
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import {
+  buildAutoLearnResultMail,
+  buildAutoLearnStartMail,
+  buildAutoLearnTerminalMail,
+  buildDigestMail,
+  buildSyncAlertMail,
+} from "./mail-content";
+import {
   getUserCu12Credentials,
   getUserMailPreference,
   markAccountConnected,
@@ -391,6 +398,7 @@ async function sendSyncAlertMail(
       category: string;
       message: string;
       occurredAt: string | null;
+      isCanceled: boolean;
     }>;
     deadlineTasks: Array<{
       lectureSeq: number;
@@ -447,128 +455,48 @@ async function sendSyncAlertMail(
     }
   }
 
-  const hasNoticeAlert = pref.alertOnNotice
-    && (summary.newNoticeCount > 0 || summary.newUnreadNotificationCount > 0);
-  const hasDeadlineAlert = pref.alertOnDeadline && deadlineAlerts.length > 0;
-
-  if (!hasNoticeAlert && !hasDeadlineAlert) {
+  const mailDocument = buildSyncAlertMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: new Date(),
+    newNotices: pref.alertOnNotice ? summary.newNotices : [],
+    newUnreadNotifications: pref.alertOnNotice ? summary.newUnreadNotifications : [],
+    deadlineAlerts: pref.alertOnDeadline ? deadlineAlerts : [],
+  });
+  if (!mailDocument) {
     return;
   }
 
-  const sections: string[] = [];
-
-  if (pref.alertOnNotice) {
-    const noticeSummary = `
-      <p style="margin:0;color:#111827;">신규 공지 <strong>${summary.newNoticeCount}</strong>건, 신규 미확인 알림 <strong>${summary.newUnreadNotificationCount}</strong>건입니다.</p>
-    `;
-
-    sections.push(
-      renderMailSection(
-        "공지/알림 요약",
-        noticeSummary,
-        { href: buildDashboardLink(DASHBOARD_SECTION_ID.NOTIFICATIONS), label: "공지/알림 열기" },
-      ),
-    );
-
-    if (summary.newNotices.length > 0) {
-      const noticeItems = summary.newNotices.map((notice) => `
-        <li style="margin:0 0 8px;">
-          <p style="margin:0 0 2px;"><strong>${escapeHtml(notice.title)}</strong></p>
-          <p style="margin:0 0 2px;color:#4b5563;">${escapeHtml(notice.courseTitle)} | 작성자 ${escapeHtml(notice.author ?? "-")} | 등록 ${escapeHtml(formatKoDateTime(notice.postedAt))}</p>
-          <p style="margin:0;color:#111827;">${escapeHtml(toSnippet(notice.bodyText, 160))}</p>
-        </li>
-      `);
-
-      sections.push(
-        renderMailSection(
-          "신규 공지",
-          renderMailList(noticeItems, 8),
-          { href: buildDashboardLink(DASHBOARD_SECTION_ID.NOTIFICATIONS), label: "전체 공지 보기" },
-        ),
-      );
-    }
-
-    if (summary.newUnreadNotifications.length > 0) {
-      const notificationItems = summary.newUnreadNotifications.map((event) => `
-        <li style="margin:0 0 8px;">
-          <p style="margin:0 0 2px;"><strong>${escapeHtml(event.courseTitle)}</strong> | ${escapeHtml(event.category)}</p>
-          <p style="margin:0 0 2px;color:#4b5563;">${escapeHtml(formatKoDateTime(event.occurredAt))}</p>
-          <p style="margin:0;color:#111827;">${escapeHtml(toSnippet(event.message, 140))}</p>
-        </li>
-      `);
-
-      sections.push(
-        renderMailSection(
-          "신규 미확인 알림",
-          renderMailList(notificationItems, 10),
-          { href: buildDashboardLink(DASHBOARD_SECTION_ID.NOTIFICATIONS), label: "알림 센터 열기" },
-        ),
-      );
-    }
-  }
-
-  if (hasDeadlineAlert) {
-    const deadlineItems = deadlineAlerts.map((task) => `
-      <li style="margin:0 0 8px;">
-        <p style="margin:0 0 2px;"><strong>${escapeHtml(task.courseTitle)}</strong> ${task.weekNo}주차 ${task.lessonNo}차시</p>
-        <p style="margin:0;color:#4b5563;">${task.daysLeft <= 0 ? "당일" : `D-${task.daysLeft}`} | 마감 ${escapeHtml(formatKoDateTime(task.dueAt))}</p>
-      </li>
-    `);
-
-    sections.push(
-      renderMailSection(
-        "임박 마감 차시",
-        renderMailList(deadlineItems, 10),
-        { href: buildDashboardLink(DASHBOARD_SECTION_ID.DEADLINES), label: "마감 목록 열기" },
-      ),
-    );
-  }
-
-  const subject = "[CU12] 동기화 알림";
-  const html = renderMailLayout({
-    title: "동기화 알림 리포트",
-    subtitle: "최근 동기화에서 감지된 신규 공지, 미확인 알림, 마감 임박 차시입니다.",
-    summaryRows: [
-      { label: "생성 시각", value: formatKoDateTime(new Date()) },
-      { label: "신규 공지", value: `${summary.newNoticeCount}건` },
-      { label: "신규 미확인 알림", value: `${summary.newUnreadNotificationCount}건` },
-      { label: "마감 임박 알림", value: `${deadlineAlerts.length}건` },
-    ],
-    sections,
-    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "대시보드 열기" },
-  });
-
   try {
-    const result = await sendMail(pref.email, subject, html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
     if (result.sent) {
-      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
         category: "MAIL",
         severity: "INFO",
         targetUserId: userId,
         message: "Sync alert mail sent",
-        meta: { to: pref.email, subject },
+        meta: { to: pref.email, subject: mailDocument.subject },
       });
       return;
     }
 
     const reason = result.reason ?? "UNKNOWN_REASON";
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Sync alert mail skipped",
-      meta: { to: pref.email, subject, reason },
+      meta: { to: pref.email, subject: mailDocument.subject, reason },
     });
   } catch (error) {
-    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "FAILED", errMessage(error));
     await writeAuditLog({
       category: "MAIL",
       severity: "ERROR",
       targetUserId: userId,
       message: "Sync alert mail failed",
-      meta: { to: pref.email, subject, error: errMessage(error) },
+      meta: { to: pref.email, subject: mailDocument.subject, error: errMessage(error) },
     });
   }
 }
@@ -595,113 +523,53 @@ async function sendAutoLearnResultMail(
   if (!pref || !pref.enabled || !pref.alertOnAutolearn) {
     return;
   }
-
-  const noOpReasonLabel = formatAutoLearnNoOpReason(payload.noOpReason);
-  const plannedRows = payload.planned ?? [];
-  const notes: string[] = [];
-
-  if (typeof payload.chainSegment === "number" && Number.isFinite(payload.chainSegment)) {
-    notes.push(`연속 실행 세그먼트: ${payload.chainSegment}`);
-  }
-  if (payload.truncated) {
-    notes.push("이번 실행은 청크 제한으로 분할 처리되었습니다.");
-  }
-  if (payload.continuationQueued) {
-    notes.push("다음 자동 수강 청크가 자동으로 예약되었습니다.");
-  }
-  if (payload.chainLimitReached) {
-    notes.push("연속 실행 한도에 도달하여 추가 예약이 중단되었습니다.");
-  }
-  if (noOpReasonLabel) {
-    notes.push(`실행 없음 사유: ${noOpReasonLabel}`);
-  }
-
-  const sections: string[] = [];
-
-  sections.push(
-    renderMailSection(
-      "실행 요약",
-      `
-        <p style="margin:0 0 6px;color:#111827;">모드: <strong>${escapeHtml(formatAutoLearnModeLabel(payload.mode))}</strong></p>
-        <p style="margin:0 0 6px;color:#111827;">완료 차시: <strong>${payload.watchedTaskCount}/${payload.plannedTaskCount}</strong> (${toPercent(payload.watchedTaskCount, Math.max(1, payload.plannedTaskCount))})</p>
-        <p style="margin:0 0 6px;color:#111827;">시청 시간: <strong>${escapeHtml(formatDuration(payload.watchedSeconds))}</strong></p>
-        <p style="margin:0;color:#111827;">예상 총 학습 시간: <strong>${escapeHtml(formatDuration(payload.estimatedTotalSeconds))}</strong></p>
-      `,
-      { href: buildDashboardLink(DASHBOARD_SECTION_ID.JOBS), label: "작업 상태 열기" },
-    ),
-  );
-
-  if (notes.length > 0) {
-    const noteItems = notes.map((note) => `<li style="margin:0 0 6px;color:#111827;">${escapeHtml(note)}</li>`);
-    sections.push(renderMailSection("참고 사항", renderMailList(noteItems, 8)));
-  }
-
-  if (plannedRows.length > 0) {
-    const plannedItems = plannedRows.map((row) => {
-      const remainingSeconds = Math.max(0, row.remainingSeconds);
-      return `
-        <li style="margin:0 0 8px;">
-          <p style="margin:0 0 2px;"><strong>${escapeHtml(row.courseTitle)}</strong> ${row.weekNo}주차 ${row.lessonNo}차시</p>
-          <p style="margin:0 0 2px;color:#4b5563;">${escapeHtml(row.taskTitle)} | 남은 학습 시간 ${escapeHtml(formatDuration(remainingSeconds))}</p>
-          <p style="margin:0;color:#4b5563;">학습 가능 ${escapeHtml(formatKoDateTime(row.availableFrom))} ~ 마감 ${escapeHtml(formatKoDateTime(row.dueAt))}</p>
-        </li>
-      `;
-    });
-
-    sections.push(
-      renderMailSection(
-        "계획 차시",
-        renderMailList(plannedItems, 12),
-        { href: buildDashboardLink(DASHBOARD_SECTION_ID.COURSES), label: "강좌 현황 열기" },
-      ),
-    );
-  }
-
-  const subject = "[CU12] 자동 수강 결과";
-  const html = renderMailLayout({
-    title: "자동 수강 결과",
-    subtitle: "최근 자동 수강 실행 결과 상세입니다.",
-    summaryRows: [
-      { label: "생성 시각", value: formatKoDateTime(new Date()) },
-      { label: "모드", value: formatAutoLearnModeLabel(payload.mode) },
-      { label: "완료 차시", value: `${payload.watchedTaskCount}/${payload.plannedTaskCount}` },
-      { label: "시청 시간", value: formatDuration(payload.watchedSeconds) },
-    ],
-    sections,
-    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "대시보드 열기" },
+  const mailDocument = buildAutoLearnResultMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: new Date(),
+    mode: payload.mode,
+    watchedTaskCount: payload.watchedTaskCount,
+    watchedSeconds: payload.watchedSeconds,
+    plannedTaskCount: payload.plannedTaskCount,
+    truncated: payload.truncated,
+    continuationQueued: payload.continuationQueued,
+    chainLimitReached: payload.chainLimitReached,
+    chainSegment: payload.chainSegment,
+    estimatedTotalSeconds: payload.estimatedTotalSeconds,
+    noOpReason: payload.noOpReason,
+    planned: payload.planned,
   });
 
   try {
-    const result = await sendMail(pref.email, subject, html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
     if (result.sent) {
-      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
         category: "MAIL",
         severity: "INFO",
         targetUserId: userId,
         message: "Autolearn result mail sent",
-        meta: { to: pref.email, subject },
+        meta: { to: pref.email, subject: mailDocument.subject },
       });
       return;
     }
 
     const reason = result.reason ?? "UNKNOWN_REASON";
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Autolearn result mail skipped",
-      meta: { to: pref.email, subject, reason },
+      meta: { to: pref.email, subject: mailDocument.subject, reason },
     });
   } catch (error) {
-    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "FAILED", errMessage(error));
     await writeAuditLog({
       category: "MAIL",
       severity: "ERROR",
       targetUserId: userId,
       message: "Autolearn result mail failed",
-      meta: { to: pref.email, subject, error: errMessage(error) },
+      meta: { to: pref.email, subject: mailDocument.subject, error: errMessage(error) },
     });
   }
 }
@@ -718,61 +586,45 @@ async function sendAutoLearnStartMail(
   if (!pref || !pref.enabled || !pref.alertOnAutolearn) {
     return;
   }
-
-  const segment = typeof payload.chainSegment === "number" && Number.isFinite(payload.chainSegment)
-    ? Math.max(1, Math.floor(payload.chainSegment))
-    : 1;
-  const subject = "[CU12] 자동 수강 시작";
-  const html = renderMailLayout({
-    title: "자동 수강 시작",
-    subtitle: "자동 수강 실행이 시작되었습니다.",
-    summaryRows: [
-      { label: "시작 시각", value: formatKoDateTime(new Date()) },
-      { label: "모드", value: formatAutoLearnModeLabel(payload.mode) },
-      { label: "대상", value: formatAutoLearnTarget(payload.mode, payload.lectureSeq) },
-      { label: "연속 실행 세그먼트", value: String(segment) },
-    ],
-    sections: [
-      renderMailSection(
-        "실행 시작",
-        `<p style="margin:0;color:#111827;">자동 수강 연속 실행 시작 시 1회 발송되는 알림입니다. 실행이 종료되면 결과 메일이 발송됩니다.</p>`,
-        { href: buildDashboardLink(DASHBOARD_SECTION_ID.JOBS), label: "작업 상태 열기" },
-      ),
-    ],
-    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "대시보드 열기" },
+  const mailDocument = buildAutoLearnStartMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: new Date(),
+    mode: payload.mode,
+    lectureSeq: payload.lectureSeq,
+    chainSegment: payload.chainSegment,
   });
 
   try {
-    const result = await sendMail(pref.email, subject, html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
     if (result.sent) {
-      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
         category: "MAIL",
         severity: "INFO",
         targetUserId: userId,
         message: "Autolearn start mail sent",
-        meta: { to: pref.email, subject },
+        meta: { to: pref.email, subject: mailDocument.subject },
       });
       return;
     }
 
     const reason = result.reason ?? "UNKNOWN_REASON";
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Autolearn start mail skipped",
-      meta: { to: pref.email, subject, reason },
+      meta: { to: pref.email, subject: mailDocument.subject, reason },
     });
   } catch (error) {
-    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "FAILED", errMessage(error));
     await writeAuditLog({
       category: "MAIL",
       severity: "ERROR",
       targetUserId: userId,
       message: "Autolearn start mail failed",
-      meta: { to: pref.email, subject, error: errMessage(error) },
+      meta: { to: pref.email, subject: mailDocument.subject, error: errMessage(error) },
     });
   }
 }
@@ -791,74 +643,47 @@ async function sendAutoLearnTerminalMail(
   if (!pref || !pref.enabled || !pref.alertOnAutolearn) {
     return;
   }
-
-  const segment = typeof payload.chainSegment === "number" && Number.isFinite(payload.chainSegment)
-    ? Math.max(1, Math.floor(payload.chainSegment))
-    : 1;
-  const statusLabel = formatAutoLearnTerminalStatus(payload.status);
-  const subject = `[CU12] 자동 수강 종료 (${statusLabel})`;
-  const sections: string[] = [
-    renderMailSection(
-      "실행 결과",
-      `<p style="margin:0;color:#111827;">자동 수강 실행이 <strong>${escapeHtml(statusLabel)}</strong> 상태로 종료되었습니다.</p>`,
-      { href: buildDashboardLink(DASHBOARD_SECTION_ID.JOBS), label: "작업 상태 열기" },
-    ),
-  ];
-
-  if (payload.reason && payload.reason.trim().length > 0) {
-    sections.push(
-      renderMailSection(
-        "사유",
-        `<p style="margin:0;color:#111827;">${escapeHtml(payload.reason)}</p>`,
-      ),
-    );
-  }
-
-  const html = renderMailLayout({
-    title: `자동 수강 ${statusLabel}`,
-    subtitle: "최근 자동 수강 실행의 최종 상태입니다.",
-    summaryRows: [
-      { label: "종료 시각", value: formatKoDateTime(new Date()) },
-      { label: "상태", value: statusLabel },
-      { label: "모드", value: formatAutoLearnModeLabel(payload.mode) },
-      { label: "대상", value: formatAutoLearnTarget(payload.mode, payload.lectureSeq) },
-      { label: "연속 실행 세그먼트", value: String(segment) },
-    ],
-    sections,
-    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "대시보드 열기" },
+  const mailDocument = buildAutoLearnTerminalMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: new Date(),
+    status: payload.status,
+    mode: payload.mode,
+    lectureSeq: payload.lectureSeq,
+    chainSegment: payload.chainSegment,
+    reason: payload.reason,
   });
 
   try {
-    const result = await sendMail(pref.email, subject, html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
     if (result.sent) {
-      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
         category: "MAIL",
         severity: "INFO",
         targetUserId: userId,
         message: "Autolearn end mail sent",
-        meta: { to: pref.email, subject, status: payload.status },
+        meta: { to: pref.email, subject: mailDocument.subject, status: payload.status },
       });
       return;
     }
 
     const reason = result.reason ?? "UNKNOWN_REASON";
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Autolearn end mail skipped",
-      meta: { to: pref.email, subject, status: payload.status, reason },
+      meta: { to: pref.email, subject: mailDocument.subject, status: payload.status, reason },
     });
   } catch (error) {
-    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "FAILED", errMessage(error));
     await writeAuditLog({
       category: "MAIL",
       severity: "ERROR",
       targetUserId: userId,
       message: "Autolearn end mail failed",
-      meta: { to: pref.email, subject, status: payload.status, error: errMessage(error) },
+      meta: { to: pref.email, subject: mailDocument.subject, status: payload.status, error: errMessage(error) },
     });
   }
 }
@@ -1207,6 +1032,7 @@ async function processMailDigest(userId: string) {
         occurredAt: true,
         createdAt: true,
         isUnread: true,
+        isCanceled: true,
       },
     }),
     prisma.learningTask.findMany({
@@ -1241,136 +1067,60 @@ async function processMailDigest(userId: string) {
     : [];
 
   const titleBySeq = new Map(titleRows.map((row) => [row.lectureSeq, row.title]));
-
-  const noticeItems = recentNotices.map((notice) => {
-    const courseTitle = titleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`;
-    return `
-      <li style="margin:0 0 8px;">
-        <p style="margin:0 0 2px;"><strong>${escapeHtml(notice.title)}</strong></p>
-        <p style="margin:0 0 2px;color:#4b5563;">${escapeHtml(courseTitle)} | 작성자 ${escapeHtml(notice.author ?? "-")} | 등록 ${escapeHtml(formatKoDateTime(notice.postedAt))} | 수집 ${escapeHtml(formatKoDateTime(notice.createdAt))}</p>
-        <p style="margin:0;color:#111827;">${escapeHtml(toSnippet(notice.bodyText, 180))}</p>
-      </li>
-    `;
+  const mailDocument = buildDigestMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: now,
+    activeCourseCount: summary._count._all,
+    avgProgress: summary._avg.progressPercent ?? 0,
+    unreadNoticeCount: unreadNotices,
+    unreadNotificationCount: unreadNotifications,
+    pendingTaskCount,
+    recentNotices: recentNotices.map((notice) => ({
+      ...notice,
+      courseTitle: titleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
+    })),
+    recentNotifications,
+    dueSoonTasks: dueSoonTasks.map((task) => ({
+      ...task,
+      courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+    })),
   });
-
-  const notificationItems = recentNotifications.map((event) => {
-    const occurredAt = event.occurredAt ?? event.createdAt;
-    const unreadLabel = event.isUnread ? "미확인" : "확인";
-    return `
-      <li style="margin:0 0 8px;">
-        <p style="margin:0 0 2px;"><strong>${escapeHtml(event.courseTitle)}</strong> | ${escapeHtml(event.category)} | ${escapeHtml(unreadLabel)}</p>
-        <p style="margin:0 0 2px;color:#4b5563;">${escapeHtml(formatKoDateTime(occurredAt))}</p>
-        <p style="margin:0;color:#111827;">${escapeHtml(toSnippet(event.message, 170))}</p>
-      </li>
-    `;
-  });
-
-  const deadlineItems = dueSoonTasks.map((task) => {
-    const courseTitle = titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`;
-    const dueAt = task.dueAt;
-    if (!dueAt) {
-      return `
-        <li style="margin:0 0 8px;">
-          <p style="margin:0 0 2px;"><strong>${escapeHtml(courseTitle)}</strong> ${task.weekNo}주차 ${task.lessonNo}차시</p>
-          <p style="margin:0;color:#4b5563;">마감일 정보가 없습니다.</p>
-        </li>
-      `;
-    }
-    const daysLeft = Math.ceil((dueAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
-    const ddayLabel = daysLeft <= 0 ? "당일" : `D-${daysLeft}`;
-    return `
-      <li style="margin:0 0 8px;">
-        <p style="margin:0 0 2px;"><strong>${escapeHtml(courseTitle)}</strong> ${task.weekNo}주차 ${task.lessonNo}차시</p>
-        <p style="margin:0;color:#4b5563;">${escapeHtml(ddayLabel)} | 마감 ${escapeHtml(formatKoDateTime(dueAt))}</p>
-      </li>
-    `;
-  });
-
-  const sections: string[] = [];
-  sections.push(
-    renderMailSection(
-      "24시간 요약",
-      `
-        <p style="margin:0 0 6px;color:#111827;">최근 24시간 신규 공지: <strong>${recentNotices.length}</strong>건</p>
-        <p style="margin:0 0 6px;color:#111827;">최근 24시간 신규 알림: <strong>${recentNotifications.length}</strong>건</p>
-        <p style="margin:0;color:#111827;">7일 이내 마감 차시: <strong>${dueSoonTasks.length}</strong>건</p>
-      `,
-      { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "대시보드 개요 열기" },
-    ),
-  );
-
-  sections.push(
-    renderMailSection(
-      "최근 공지",
-      renderMailList(noticeItems, 10),
-      { href: buildDashboardLink(DASHBOARD_SECTION_ID.NOTIFICATIONS), label: "공지 열기" },
-    ),
-  );
-
-  sections.push(
-    renderMailSection(
-      "최근 알림",
-      renderMailList(notificationItems, 10),
-      { href: buildDashboardLink(DASHBOARD_SECTION_ID.NOTIFICATIONS), label: "알림 열기" },
-    ),
-  );
-
-  sections.push(
-    renderMailSection(
-      "임박 마감 차시",
-      renderMailList(deadlineItems, 12),
-      { href: buildDashboardLink(DASHBOARD_SECTION_ID.DEADLINES), label: "마감 목록 열기" },
-    ),
-  );
-
-  const subject = "[CU12] 일일 학습 요약";
-  const html = renderMailLayout({
-    title: "일일 학습 요약",
-    subtitle: "최근 24시간 변경 사항과 임박 마감 차시입니다.",
-    summaryRows: [
-      { label: "생성 시각", value: formatKoDateTime(now) },
-      { label: "진행 중 강좌", value: `${summary._count._all}` },
-      { label: "평균 진도", value: `${Math.round(summary._avg.progressPercent ?? 0)}%` },
-      { label: "미확인 공지", value: `${unreadNotices}` },
-      { label: "미확인 알림", value: `${unreadNotifications}` },
-      { label: "미완료 차시", value: `${pendingTaskCount}` },
-    ],
-    sections,
-    primaryLink: { href: buildDashboardLink(DASHBOARD_SECTION_ID.OVERVIEW), label: "대시보드 열기" },
-  });
+  if (!mailDocument) {
+    return { type: "MAIL_DIGEST", userId, sent: false, reason: "NO_MEANINGFUL_CONTENT" };
+  }
 
   try {
-    const result = await sendMail(pref.email, subject, html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
     if (result.sent) {
-      await recordMailDelivery(userId, pref.email, subject, "SENT");
+      await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
         category: "MAIL",
         severity: "INFO",
         targetUserId: userId,
         message: "Digest mail sent",
-        meta: { to: pref.email, subject },
+        meta: { to: pref.email, subject: mailDocument.subject },
       });
       return { type: "MAIL_DIGEST", userId, sent: true };
     }
 
     const reason = result.reason ?? "UNKNOWN_REASON";
-    await recordMailDelivery(userId, pref.email, subject, "SKIPPED", reason);
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "SKIPPED", reason);
     await writeAuditLog({
       category: "MAIL",
       severity: "WARN",
       targetUserId: userId,
       message: "Digest mail skipped",
-      meta: { to: pref.email, subject, reason },
+      meta: { to: pref.email, subject: mailDocument.subject, reason },
     });
     return { type: "MAIL_DIGEST", userId, sent: false, reason };
   } catch (error) {
-    await recordMailDelivery(userId, pref.email, subject, "FAILED", errMessage(error));
+    await recordMailDelivery(userId, pref.email, mailDocument.subject, "FAILED", errMessage(error));
     await writeAuditLog({
       category: "MAIL",
       severity: "ERROR",
       targetUserId: userId,
       message: "Digest mail failed",
-      meta: { to: pref.email, subject, error: errMessage(error) },
+      meta: { to: pref.email, subject: mailDocument.subject, error: errMessage(error) },
     });
     throw error;
   }

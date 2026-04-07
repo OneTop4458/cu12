@@ -286,6 +286,7 @@ export interface PersistSnapshotResult {
     category: string;
     message: string;
     occurredAt: string | null;
+    isCanceled: boolean;
   }>;
   deadlineTasks: Array<{
     lectureSeq: number;
@@ -573,6 +574,7 @@ export async function persistSnapshot(
           category: event.category,
           message: event.message,
           occurredAt: event.occurredAt,
+          isCanceled: event.isCanceled,
         });
       }
     }
