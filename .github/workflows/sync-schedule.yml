@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "0 */2 * * *"
   workflow_dispatch:
+    inputs:
+      minIntervalMinutes:
+        description: "Minimum interval minutes between sync jobs"
+        required: false
+        default: "120"
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +22,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
       WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
+      MIN_INTERVAL_MINUTES: ${{ inputs.minIntervalMinutes }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -35,7 +42,8 @@ jobs:
         run: |
           SUMMARY_JSON_WORKER="dispatch-summary.json"
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
-          pnpm --filter @cu12/worker run dispatch:sync -- --min-interval-minutes=120 --summary-json="$SUMMARY_JSON_WORKER"
+          MIN_INTERVAL="${MIN_INTERVAL_MINUTES:-120}"
+          pnpm --filter @cu12/worker run dispatch:sync -- --min-interval-minutes="$MIN_INTERVAL" --summary-json="$SUMMARY_JSON_WORKER"
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           PENDING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingPendingCount ?? 0));" "$SUMMARY_JSON_ROOT")
