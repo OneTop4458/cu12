@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, RefreshCw, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
 
@@ -255,8 +256,14 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
   const [cleanupConfirmCode, setCleanupConfirmCode] = useState("");
 
   const parseJson = useCallback(async <T,>(response: Response): Promise<T> => {
-    const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
-    if (!response.ok) throw new Error(parseError(payload));
+    let payload: (T & ApiErrorPayload) | null = null;
+    try {
+      payload = await readJsonBody<T & ApiErrorPayload>(response);
+    } catch {
+      throw new Error("Server returned an invalid response.");
+    }
+    if (!response.ok) throw new Error(parseError(payload ?? { error: resolveClientResponseError(response, payload, "Request failed.") }));
+    if (!payload) throw new Error("Server returned an empty response.");
     return payload;
   }, []);
 
