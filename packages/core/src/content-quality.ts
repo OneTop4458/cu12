@@ -10,16 +10,20 @@ function normalizeComparable(value: string | null | undefined): string {
   return normalizeWhitespace(value ?? "").toLowerCase();
 }
 
+function countMatches(text: string, patterns: RegExp[]): number {
+  return patterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+}
+
 function stripDateTimeFragments(value: string): string {
   return value
-    .replace(/\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}(?:\s*(?:AM|PM|오전|오후))?(?:\s+\d{1,2}(?::\d{2}){0,2})?/gi, " ")
+    .replace(/\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}(?:\s*(?:AM|PM|\uC624\uC804|\uC624\uD6C4))?(?:\s+\d{1,2}(?::\d{2}){0,2})?/gi, " ")
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
 }
 
 export function cleanupNoticeBody(value: string): string {
   return normalizeWhitespace(value)
-    .replace(/^(?:공지내용\s*)+/i, "")
-    .replace(/^해당\s*공지사항을\s*열람할\s*수\s*없습니다\.?\s*/i, "")
+    .replace(/^(?:\uACF5\uC9C0\uB0B4\uC6A9\s*)+/i, "")
+    .replace(/^\uD574\uB2F9\s*\uACF5\uC9C0\uC0AC\uD56D\uC744\s*\uC5F4\uB78C\uD560\s*\uC218\s*\uC5C6\uC2B5\uB2C8\uB2E4\.?\s*/i, "")
     .trim();
 }
 
@@ -28,24 +32,46 @@ export function scoreNoticeBodyQuality(value: string): number {
   if (!text) return -2;
 
   let score = 0;
-  if (text.length >= 40) score += 2;
+  if (text.length >= 80) score += 3;
+  else if (text.length >= 40) score += 2;
   else if (text.length >= 15) score += 1;
   else score -= 1;
 
   const metaPatterns = [
-    /조회수/i,
-    /등록일/i,
-    /작성일/i,
-    /작성자/i,
-    /공지\s*사항/i,
+    /\uC870\uD68C\uC218/i,
+    /\uB4F1\uB85D\uC77C/i,
+    /\uC791\uC131\uC77C/i,
+    /\uC791\uC131\uC790/i,
+    /\uACF5\uC9C0\s*\uC0AC\uD56D/i,
   ];
-  const metaHits = metaPatterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+  const navigationPatterns = [
+    /\uBCF8\uBB38\uC73C\uB85C\s*\uC774\uB3D9/i,
+    /\uAC15\uC758\uC2E4\uBA54\uB274\uB85C\s*\uC774\uB3D9/i,
+    /\uAC00\uD1A8\uB9AD\uACF5\uC720\uB300\uD559\s*\uBA54\uC778\uD654\uBA74/i,
+    /\uB098\uC758\uACFC\uC815/i,
+    /\uC218\uAC15\uC2E0\uCCAD\uB0B4\uC5ED/i,
+    /\uC218\uAC15\uC2DC\uAC04\uD45C/i,
+    /\uACF5\uACB0\uC2E0\uCCAD/i,
+    /\uC774\uC218\uC99D\s*\uCD9C\uB825/i,
+    /\uD504\uB85C\uD544\s*\uC124\uC815/i,
+    /\uB85C\uADF8\uC544\uC6C3/i,
+    /\uC5B8\uC5B4\s*KOR\s*ENG/i,
+    /\uBA54\uB274\uB2EB\uAE30/i,
+    /\uBAA8\uBC14\uC77C\s*\uBA54\uB274/i,
+  ];
+  const metaHits = countMatches(text, metaPatterns);
+  const navigationHits = countMatches(text, navigationPatterns);
   const hasDate = /\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(text);
 
   if (metaHits >= 2 && text.length <= 220) score -= 3;
   if (hasDate && metaHits >= 1 && text.length <= 220) score -= 2;
-  if (/조회수/i.test(text) && text.length <= 260) score -= 3;
-  if (/^(?:공지|공지사항|사항|내용)$/i.test(text)) score -= 3;
+  if (/\uC870\uD68C\uC218/i.test(text) && text.length <= 260) score -= 3;
+  if (/^(?:\uACF5\uC9C0|\uACF5\uC9C0\uC0AC\uD56D|\uC0AC\uD56D|\uB0B4\uC6A9)$/i.test(text)) score -= 3;
+  if (navigationHits >= 2 && text.length <= 1200) score -= 8;
+  if (navigationHits >= 4) score -= 12;
+  if (/^(?:\uBCF8\uBB38\uC73C\uB85C\s*\uC774\uB3D9|\uAC15\uC758\uC2E4\uBA54\uB274\uB85C\s*\uC774\uB3D9)/i.test(text)) {
+    score -= 6;
+  }
 
   return score;
 }
@@ -55,7 +81,7 @@ export function hasUsableNoticeBody(value: string | null | undefined): boolean {
 }
 
 export function hasConfidentNoticeBody(value: string | null | undefined): boolean {
-  return scoreNoticeBodyQuality(value ?? "") >= 2;
+  return scoreNoticeBodyQuality(value ?? "") >= 3;
 }
 
 export function shouldResolveNoticeDetailBody(value: string | null | undefined): boolean {
@@ -71,8 +97,12 @@ export function selectPreferredNoticeBody(
 
   const currentScore = scoreNoticeBodyQuality(current);
   const candidateScore = scoreNoticeBodyQuality(candidate);
+  const currentConfident = hasConfidentNoticeBody(current);
 
   if (candidateScore > currentScore) {
+    return candidate;
+  }
+  if (candidateScore === currentScore && !currentConfident && candidate.length > 0) {
     return candidate;
   }
   if (candidateScore === currentScore && candidate.length > current.length) {
@@ -88,7 +118,7 @@ export function cleanupNotificationCategory(value: string | null | undefined): s
     .trim();
 
   if (!cleaned) return "";
-  if (!/[가-힣A-Za-z]/.test(cleaned)) return "";
+  if (!/[\uAC00-\uD7A3A-Za-z]/.test(cleaned)) return "";
 
   const comparable = normalizeComparable(cleaned);
   if (new Set(["notification", "notice", "content", "item", "list", "new"]).has(comparable)) {
@@ -110,7 +140,7 @@ function stripNotificationAffixes(
     for (const prefix of prefixes) {
       const cleanedPrefix = normalizeWhitespace(prefix ?? "");
       if (!cleanedPrefix) continue;
-      const pattern = new RegExp(`^(?:\\[${escapeRegExp(cleanedPrefix)}\\]|${escapeRegExp(cleanedPrefix)})\\s*(?:[|:·\\-]\\s*)?`, "i");
+      const pattern = new RegExp(`^(?:\\[${escapeRegExp(cleanedPrefix)}\\]|${escapeRegExp(cleanedPrefix)})\\s*(?:[|:\\u00b7\\-]\\s*)?`, "i");
       const next = current.replace(pattern, "").trim();
       if (next !== current) {
         current = next;
@@ -134,16 +164,16 @@ export function cleanupNotificationMessage(
   if (!current) return "";
 
   current = current
-    .replace(/(?:미확인|읽지않음|읽음|not-read|not_checked|checked|new)/gi, " ")
-    .replace(/(?:상세보기|바로가기|더보기|열기|이동|보기|go|open|view more|close)/gi, " ")
-    .replace(/^[\s|:·\-]+|[\s|:·\-]+$/g, " ")
+    .replace(/(?:\uBBF8\uD655\uC778|\uC77D\uC9C0\uC54A\uC74C|\uC77D\uC74C|not-read|not_checked|checked|new)/gi, " ")
+    .replace(/(?:\uC0C1\uC138\uBCF4\uAE30|\uBC14\uB85C\uAC00\uAE30|\uB354\uBCF4\uAE30|\uC5F4\uAE30|\uC774\uB3D9|\uBCF4\uAE30|go|open|view more|close)/gi, " ")
+    .replace(/^[\s|:\u00b7\-]+|[\s|:\u00b7\-]+$/g, " ")
     .trim();
 
   current = stripNotificationAffixes(current, [
     input?.subject ?? "",
     input?.category ?? "",
-    "알림",
-    "공지",
+    "\uC54C\uB9BC",
+    "\uACF5\uC9C0",
   ]);
 
   if (input?.rawTime) {
@@ -155,9 +185,9 @@ export function cleanupNotificationMessage(
 
   current = stripDateTimeFragments(current);
   current = current
-    .replace(/(?:미확인|읽지않음|읽음|not-read|not_checked|checked|new)/gi, " ")
-    .replace(/(?:상세보기|바로가기|더보기|열기|이동|보기|go|open|view more|close)/gi, " ")
-    .replace(/\s*[|:·\-]\s*/g, " ")
+    .replace(/(?:\uBBF8\uD655\uC778|\uC77D\uC9C0\uC54A\uC74C|\uC77D\uC74C|not-read|not_checked|checked|new)/gi, " ")
+    .replace(/(?:\uC0C1\uC138\uBCF4\uAE30|\uBC14\uB85C\uAC00\uAE30|\uB354\uBCF4\uAE30|\uC5F4\uAE30|\uC774\uB3D9|\uBCF4\uAE30|go|open|view more|close)/gi, " ")
+    .replace(/\s*[|:\u00b7\-]\s*/g, " ")
     .replace(/\(\s*\)/g, " ")
     .trim();
 
@@ -168,7 +198,7 @@ export function cleanupNotificationMessage(
   if (comparable === subjectComparable || comparable === categoryComparable) {
     return "";
   }
-  if (new Set(["알림", "공지", "내용 없음", "미확인", "읽지않음"]).has(current)) {
+  if (new Set(["\uC54C\uB9BC", "\uACF5\uC9C0", "\uB0B4\uC6A9 \uC5C6\uC74C", "\uBBF8\uD655\uC778", "\uC77D\uC9C0\uC54A\uC74C"]).has(current)) {
     return "";
   }
 
@@ -194,12 +224,12 @@ export function scoreNotificationMessageQuality(
   else if (text.length >= 12) score += 1;
   else score -= 1;
 
-  if (/[가-힣A-Za-z]/.test(text)) score += 1;
+  if (/[\uAC00-\uD7A3A-Za-z]/.test(text)) score += 1;
   if (/^\d+$/.test(text)) score -= 2;
-  if (!/[가-힣A-Za-z]/.test(text)) score -= 1;
+  if (!/[\uAC00-\uD7A3A-Za-z]/.test(text)) score -= 1;
   if (comparable === subjectComparable || comparable === categoryComparable) score -= 2;
-  if (/^(?:알림|공지|내용 없음|미확인|읽지않음)$/i.test(text)) score -= 3;
-  if (/^(?:상세보기|바로가기|더보기|열기|이동|보기|go|open|view more|close)$/i.test(text)) score -= 3;
+  if (/^(?:\uC54C\uB9BC|\uACF5\uC9C0|\uB0B4\uC6A9 \uC5C6\uC74C|\uBBF8\uD655\uC778|\uC77D\uC9C0\uC54A\uC74C)$/i.test(text)) score -= 3;
+  if (/^(?:\uC0C1\uC138\uBCF4\uAE30|\uBC14\uB85C\uAC00\uAE30|\uB354\uBCF4\uAE30|\uC5F4\uAE30|\uC774\uB3D9|\uBCF4\uAE30|go|open|view more|close)$/i.test(text)) score -= 3;
   if (/\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(text)) score -= 2;
 
   return score;

@@ -5,9 +5,14 @@ on:
     - cron: "10 1 * * *"
   workflow_dispatch:
     inputs:
+      cleanupMode:
+        description: "global_bogus_notices | user_repair"
+        required: false
+        default: "global_bogus_notices"
+        type: string
       userId:
         description: "Target user id for focused cleanup"
-        required: true
+        required: false
         type: string
 
 permissions:
@@ -19,6 +24,7 @@ jobs:
     timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CLEANUP_MODE: ${{ inputs.cleanupMode }}
       TARGET_USER_ID: ${{ inputs.userId }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -35,23 +41,26 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
-      - name: Cleanup legacy notices and notifications for one user
+      - name: Cleanup legacy notices and notifications
         run: |
           node <<'NODE'
           const { PrismaClient } = require("@prisma/client");
 
           async function main() {
+            const mode = (process.env.CLEANUP_MODE || "global_bogus_notices").trim();
             const userId = (process.env.TARGET_USER_ID || "").trim();
-            if (!userId) {
-              throw new Error("TARGET_USER_ID is required.");
+            if (!["global_bogus_notices", "user_repair"].includes(mode)) {
+              throw new Error(`Unsupported CLEANUP_MODE: ${mode}`);
+            }
+            if (mode === "user_repair" && !userId) {
+              throw new Error("TARGET_USER_ID is required for user_repair mode.");
             }
 
             const prisma = new PrismaClient();
-
-            const bogusNoticeTitle = /^조회하지 않은 공지사항 수\d+$/;
+            const bogusNoticeTitle = /^\uC870\uD68C\uD558\uC9C0 \uC54A\uC740 \uACF5\uC9C0\uC0AC\uD56D \uC218\d+$/;
 
             const bogusNotices = await prisma.courseNotice.findMany({
-              where: { userId },
+              where: mode === "user_repair" ? { userId } : {},
               select: { id: true, title: true },
             });
 
@@ -62,19 +71,22 @@ jobs:
             const deletedNotices = bogusNoticeIds.length > 0
               ? await prisma.courseNotice.deleteMany({
                   where: {
-                    userId,
+                    ...(mode === "user_repair" ? { userId } : {}),
                     id: { in: bogusNoticeIds },
                   },
                 })
               : { count: 0 };
 
-            const deletedNotifications = await prisma.notificationEvent.deleteMany({
-              where: { userId },
-            });
+            const deletedNotifications = mode === "user_repair"
+              ? await prisma.notificationEvent.deleteMany({
+                  where: { userId },
+                })
+              : { count: 0 };
 
             await prisma.$disconnect();
 
-            console.log(`targetUserId=${userId}`);
+            console.log(`cleanupMode=${mode}`);
+            console.log(`targetUserId=${userId || "ALL_USERS"}`);
             console.log(`deletedBogusNotices=${deletedNotices.count}`);
             console.log(`deletedNotifications=${deletedNotifications.count}`);
           }
