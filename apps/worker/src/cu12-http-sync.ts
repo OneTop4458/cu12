@@ -1,8 +1,13 @@
 import {
+  cleanupNoticeBody as cleanupSharedNoticeBody,
+  hasUsableNoticeBody as hasUsableSharedNoticeBody,
   parseMyCourseHtml,
   parseNoticeListHtml,
   parseNotificationListHtml,
   parseTodoTasks,
+  scoreNoticeBodyQuality as scoreSharedNoticeBodyQuality,
+  selectPreferredNoticeBody as selectPreferredSharedNoticeBody,
+  shouldResolveNoticeDetailBody as shouldResolveSharedNoticeDetailBody,
   type CourseNotice,
   type LearningTask,
 } from "@cu12/core";
@@ -216,40 +221,15 @@ function stripTags(value: string): string {
 }
 
 function cleanupNoticeBody(value: string): string {
-  return normalizeWhitespace(value)
-    .replace(/^(?:\uACF5\uC9C0\uB0B4\uC6A9\s*)+/i, "")
-    .replace(/^\uD574\uB2F9\s*\uACF5\uC9C0\uC0AC\uD56D\uC744\s*\uC5F4\uB78C\uD560\s*\uC218\s*\uC5C6\uC2B5\uB2C8\uB2E4\.?\s*/i, "")
-    .trim();
+  return cleanupSharedNoticeBody(normalizeWhitespace(value));
 }
 
 function scoreNoticeBody(value: string): number {
-  const text = normalizeWhitespace(value);
-  if (!text) return -1;
-
-  let score = 0;
-  if (text.length >= 40) score += 2;
-  else if (text.length >= 15) score += 1;
-  else score -= 1;
-
-  const metaPatterns = [
-    /\uC870\uD68C\uC218/i,
-    /\uB4F1\uB85D\uC77C/i,
-    /\uC791\uC131\uC77C/i,
-    /\uC791\uC131\uC790/i,
-    /\uACF5\uC9C0\s*\uC0AC\uD56D/i,
-  ];
-  const metaHits = metaPatterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
-  const hasDate = /\d{4}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}/.test(text);
-
-  if (metaHits >= 2 && text.length <= 220) score -= 3;
-  if (hasDate && metaHits >= 1 && text.length <= 220) score -= 2;
-  if (/\uC870\uD68C\uC218/i.test(text) && text.length <= 260) score -= 3;
-
-  return score;
+  return scoreSharedNoticeBodyQuality(cleanupNoticeBody(value));
 }
 
 function isLikelyNoticeBody(value: string): boolean {
-  return scoreNoticeBody(value) > 0;
+  return hasUsableSharedNoticeBody(cleanupNoticeBody(value));
 }
 
 function parseBodyFromNoticeDetailHtml(rawHtml: string, noticeSeq: string): string {
@@ -557,7 +537,7 @@ async function resolveNoticeBodyViaHttp(input: {
       input.lectureSeq,
       input.noticeSeq,
     );
-    const detailBody = parsedBody || parseBodyFromNoticeDetailHtml(response.text, input.noticeSeq);
+    const detailBody = cleanupNoticeBody(parsedBody || parseBodyFromNoticeDetailHtml(response.text, input.noticeSeq));
     if (!detailBody || !isLikelyNoticeBody(detailBody)) continue;
 
     let attachments = extractAttachments(response.text, env.CU12_BASE_URL);
@@ -606,13 +586,15 @@ function upsertNoticeBodies(
 ): CourseNotice[] {
   return notices.map((notice) => {
     const seq = notice.noticeSeq ? String(notice.noticeSeq) : "";
-    if (!seq || notice.bodyText.trim()) return notice;
+    if (!seq) return notice;
     const detail = detailBySeq.get(seq);
     if (!detail?.bodyText.trim()) return notice;
+    const preferredBody = selectPreferredSharedNoticeBody(notice.bodyText, detail.bodyText).trim();
+    if (!preferredBody || preferredBody === notice.bodyText.trim()) return notice;
 
     return {
       ...notice,
-      bodyText: composeNoticeBodyWithMeta(detail.bodyText, {
+      bodyText: composeNoticeBodyWithMeta(preferredBody, {
         postedAt: notice.postedAt,
         author: notice.author,
         viewCount: detail.viewCount,
@@ -702,7 +684,7 @@ export async function collectCu12SnapshotViaHttp(
     const missingBodyNoticeSeqs = Array.from(
       new Set(
         noticeList
-          .filter((notice) => !notice.bodyText?.trim() && notice.noticeSeq)
+          .filter((notice) => notice.noticeSeq && shouldResolveSharedNoticeDetailBody(notice.bodyText))
           .map((notice) => String(notice.noticeSeq)),
       ),
     );
