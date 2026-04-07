@@ -1,4 +1,4 @@
-import { CourseStatus } from "@prisma/client";
+import { CourseStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 interface ActivityTypeCounts {
@@ -16,6 +16,22 @@ interface CourseWeekSummary {
   pendingTaskCount: number;
   totalTaskTypeCounts: ActivityTypeCounts;
   pendingTaskTypeCounts: ActivityTypeCounts;
+}
+
+type LearningTaskActivityType = "VOD" | "MATERIAL" | "QUIZ" | "ASSIGNMENT" | "ETC";
+type LearningTaskState = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+
+interface LearningTaskRow {
+  lectureSeq: number;
+  courseContentsSeq: number;
+  weekNo: number;
+  lessonNo: number;
+  activityType: LearningTaskActivityType | string;
+  state: LearningTaskState | string;
+  requiredSeconds: number;
+  learnedSeconds: number;
+  availableFrom: Date | null;
+  dueAt: Date | null;
 }
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
@@ -76,6 +92,75 @@ function createActivityTypeCounts(): ActivityTypeCounts {
   };
 }
 
+function normalizeActivityType(value: string): LearningTaskActivityType {
+  if (value === "VOD" || value === "MATERIAL" || value === "QUIZ" || value === "ASSIGNMENT") {
+    return value;
+  }
+  return "ETC";
+}
+
+function normalizeLearningTaskRow(row: LearningTaskRow): LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState } {
+  const state = row.state === "RUNNING" || row.state === "COMPLETED" || row.state === "FAILED"
+    ? row.state
+    : "PENDING";
+
+  return {
+    ...row,
+    activityType: normalizeActivityType(row.activityType),
+    state,
+  };
+}
+
+async function fetchLearningTasksRaw(input: {
+  userId: string;
+  lectureSeq?: number;
+  dueAtGte?: Date;
+  dueAtLte?: Date;
+  limit?: number;
+  orderBy?: "dueAtAsc" | "lectureWeekLessonAsc";
+}): Promise<Array<LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState }>> {
+  const conditions: Prisma.Sql[] = [
+    Prisma.sql`"userId" = ${input.userId}`,
+  ];
+
+  if (typeof input.lectureSeq === "number") {
+    conditions.push(Prisma.sql`"lectureSeq" = ${input.lectureSeq}`);
+  }
+  if (input.dueAtGte) {
+    conditions.push(Prisma.sql`"dueAt" >= ${input.dueAtGte}`);
+  }
+  if (input.dueAtLte) {
+    conditions.push(Prisma.sql`"dueAt" <= ${input.dueAtLte}`);
+  }
+
+  const orderBy = input.orderBy === "lectureWeekLessonAsc"
+    ? Prisma.sql`ORDER BY "lectureSeq" ASC, "weekNo" ASC, "lessonNo" ASC`
+    : Prisma.sql`ORDER BY "dueAt" ASC`;
+  const limit = typeof input.limit === "number"
+    ? Prisma.sql`LIMIT ${Math.max(1, Math.floor(input.limit))}`
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<LearningTaskRow[]>(Prisma.sql`
+    SELECT
+      "lectureSeq",
+      "courseContentsSeq",
+      "weekNo",
+      "lessonNo",
+      "activityType"::text AS "activityType",
+      "state"::text AS "state",
+      "requiredSeconds",
+      "learnedSeconds",
+      "availableFrom",
+      "dueAt"
+    FROM "LearningTask"
+    WHERE ${Prisma.join(conditions, " AND ")}
+    ${orderBy}
+    ${limit}
+  `);
+
+  return rows.map(normalizeLearningTaskRow);
+}
+
 function mapNoticeCountsByLecture(
   rows: Array<{ lectureSeq: number; _count: { _all: number } }>,
 ): Map<number, number> {
@@ -85,22 +170,11 @@ function mapNoticeCountsByLecture(
 export async function getDashboardSummary(userId: string) {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
-  const upcomingWindowTasks = await prisma.learningTask.findMany({
-    where: {
-      userId,
-      dueAt: {
-        gte: now,
-        lte: soon,
-      },
-    },
-    select: {
-      dueAt: true,
-      state: true,
-      activityType: true,
-      requiredSeconds: true,
-      learnedSeconds: true,
-    },
-    orderBy: { dueAt: "asc" },
+  const upcomingWindowTasks = await fetchLearningTasksRaw({
+    userId,
+    dueAtGte: now,
+    dueAtLte: soon,
+    orderBy: "dueAtAsc",
   });
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
@@ -159,19 +233,9 @@ export async function getCourses(userId: string) {
       where: { userId },
       orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
     }),
-    prisma.learningTask.findMany({
-      where: { userId },
-      select: {
-        lectureSeq: true,
-        weekNo: true,
-        lessonNo: true,
-        state: true,
-        requiredSeconds: true,
-        learnedSeconds: true,
-        activityType: true,
-        availableFrom: true,
-        dueAt: true,
-      },
+    fetchLearningTasksRaw({
+      userId,
+      orderBy: "lectureWeekLessonAsc",
     }),
     prisma.courseNotice.groupBy({
       by: ["lectureSeq"],
@@ -375,27 +439,11 @@ export async function getCourses(userId: string) {
 
 export async function getUpcomingDeadlines(userId: string, limit = 30) {
   const now = new Date();
-  const tasksRaw = await prisma.learningTask.findMany({
-    where: {
-      userId,
-      dueAt: {
-        gte: now,
-      },
-    },
-    orderBy: { dueAt: "asc" },
-    take: Math.min(Math.max(limit, 1), 100),
-    select: {
-      lectureSeq: true,
-      courseContentsSeq: true,
-      weekNo: true,
-      lessonNo: true,
-      state: true,
-      activityType: true,
-      requiredSeconds: true,
-      learnedSeconds: true,
-      availableFrom: true,
-      dueAt: true,
-    },
+  const tasksRaw = await fetchLearningTasksRaw({
+    userId,
+    dueAtGte: now,
+    limit: Math.min(Math.max(limit, 1), 100),
+    orderBy: "dueAtAsc",
   });
   const tasks = tasksRaw
     .map((task) => ({
@@ -458,21 +506,10 @@ export async function getDashboardDiagnostics(
       },
       orderBy: { lectureSeq: "asc" },
     }),
-    prisma.learningTask.findMany({
-      where: { userId, ...lectureFilter },
-      select: {
-        lectureSeq: true,
-        courseContentsSeq: true,
-        weekNo: true,
-        lessonNo: true,
-        activityType: true,
-        state: true,
-        availableFrom: true,
-        dueAt: true,
-        requiredSeconds: true,
-        learnedSeconds: true,
-      },
-      orderBy: [{ lectureSeq: "asc" }, { weekNo: "asc" }, { lessonNo: "asc" }],
+    fetchLearningTasksRaw({
+      userId,
+      lectureSeq: options?.lectureSeq,
+      orderBy: "lectureWeekLessonAsc",
     }),
     prisma.courseNotice.count({
       where: { userId, ...lectureFilter },
