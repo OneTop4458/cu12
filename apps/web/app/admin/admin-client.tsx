@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
 import { toast } from "sonner";
+import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
@@ -288,9 +289,17 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       throw new Error("Unauthorized");
     }
 
-    const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
+    let payload: (T & ApiErrorPayload) | null = null;
+    try {
+      payload = await readJsonBody<T & ApiErrorPayload>(response);
+    } catch {
+      throw new Error("Server returned an invalid response.");
+    }
     if (!response.ok) {
-      throw new Error(parseError(payload));
+      throw new Error(parseError(payload ?? { error: resolveClientResponseError(response, payload, "Request failed.") }));
+    }
+    if (!payload) {
+      throw new Error("Server returned an empty response.");
     }
 
     return payload;

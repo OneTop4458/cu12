@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 
 type SessionExpiredReason = "session-timeout" | "session-expired";
 type Campus = "SONGSIM" | "SONGSIN";
@@ -273,12 +274,22 @@ export function LoginForm({
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as ApiErrorResponse;
-        setError(toLoginErrorMessage(payload));
+        let payload: ApiErrorResponse | null = null;
+        try {
+          payload = await readJsonBody<ApiErrorResponse>(response);
+        } catch {
+          setError("Server returned an invalid response.");
+          return;
+        }
+        setError(toLoginErrorMessage(payload ?? { error: resolveClientResponseError(response, payload, "Authentication failed.") }));
         return;
       }
 
-      const payload = (await response.json()) as LoginResponse;
+      const payload = await readJsonBody<LoginResponse>(response);
+      if (!payload) {
+        setError("Server returned an empty response.");
+        return;
+      }
       syncSavedCu12Id(saveCu12Id, cu12Id);
       if (payload.stage === "INVITE_REQUIRED") {
         clearConsentState();
@@ -327,10 +338,17 @@ export function LoginForm({
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as ApiErrorResponse;
-        const message = toInviteErrorMessage(payload);
+        let payload: ApiErrorResponse | null = null;
+        try {
+          payload = await readJsonBody<ApiErrorResponse>(response);
+        } catch {
+          setInviteError("Server returned an invalid response.");
+          return;
+        }
+        const safePayload = payload ?? { error: resolveClientResponseError(response, payload, "Invite verification failed.") };
+        const message = toInviteErrorMessage(safePayload);
         setInviteError(message);
-        if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
+        if (safePayload.errorCode === "LOGIN_CHALLENGE_INVALID") {
           setShowInviteModal(false);
           setChallengeToken(null);
           setError(message);
@@ -338,7 +356,11 @@ export function LoginForm({
         return;
       }
 
-      const payload = (await response.json()) as AuthenticatedResponse | ConsentRequiredResponse;
+      const payload = await readJsonBody<AuthenticatedResponse | ConsentRequiredResponse>(response);
+      if (!payload) {
+        setInviteError("Server returned an empty response.");
+        return;
+      }
       syncSavedCu12Id(saveCu12Id, cu12Id);
       if (payload.stage === "CONSENT_REQUIRED") {
         startConsentFlow(payload);
@@ -387,17 +409,28 @@ export function LoginForm({
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as ApiErrorResponse;
-        const message = toConsentErrorMessage(payload);
+        let payload: ApiErrorResponse | null = null;
+        try {
+          payload = await readJsonBody<ApiErrorResponse>(response);
+        } catch {
+          setConsentError("Server returned an invalid response.");
+          return;
+        }
+        const safePayload = payload ?? { error: resolveClientResponseError(response, payload, "Policy consent failed.") };
+        const message = toConsentErrorMessage(safePayload);
         setConsentError(message);
-        if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
+        if (safePayload.errorCode === "LOGIN_CHALLENGE_INVALID") {
           clearConsentState();
           setError(message);
         }
         return;
       }
 
-      const payload = (await response.json()) as AuthenticatedResponse;
+      const payload = await readJsonBody<AuthenticatedResponse>(response);
+      if (!payload) {
+        setConsentError("Server returned an empty response.");
+        return;
+      }
       syncSavedCu12Id(saveCu12Id, cu12Id);
       applySessionPolicy(payload.session);
       clearConsentState();

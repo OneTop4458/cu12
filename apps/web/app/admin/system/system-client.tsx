@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
 
@@ -177,9 +178,17 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
-    const payload = (await response.json().catch(() => ({}))) as unknown;
+    let payload: T | ApiErrorPayload | null = null;
+    try {
+      payload = await readJsonBody<T | ApiErrorPayload>(response);
+    } catch {
+      throw new Error("Server returned an invalid response.");
+    }
     if (!response.ok) {
-      throw new Error(parseError(payload));
+      throw new Error(parseError(payload ?? { error: resolveClientResponseError(response, payload as ApiErrorPayload | null, "Request failed.") }));
+    }
+    if (!payload) {
+      throw new Error("Server returned an empty response.");
     }
     return payload as T;
   }, []);

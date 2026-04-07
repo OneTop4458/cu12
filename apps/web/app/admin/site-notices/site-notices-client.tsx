@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
 
@@ -173,8 +174,14 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       router.push("/login" as Route);
       throw new Error("Unauthorized");
     }
-    const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
-    if (!response.ok) throw new Error(parseError(payload));
+    let payload: (T & ApiErrorPayload) | null = null;
+    try {
+      payload = await readJsonBody<T & ApiErrorPayload>(response);
+    } catch {
+      throw new Error("Server returned an invalid response.");
+    }
+    if (!response.ok) throw new Error(parseError(payload ?? { error: resolveClientResponseError(response, payload, "Request failed.") }));
+    if (!payload) throw new Error("Server returned an empty response.");
     return payload;
   }, [router]);
 

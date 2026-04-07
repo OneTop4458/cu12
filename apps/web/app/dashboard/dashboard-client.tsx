@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { RotateCw } from "lucide-react";
 import { toast } from "sonner";
+import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
 
@@ -886,8 +887,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       router.push("/login" as Route);
       throw new Error("Unauthorized");
     }
-    const payload = (await res.json()) as T & { error?: string };
-    if (!res.ok) throw new Error(payload.error ?? "요청 실패");
+    let payload: (T & { error?: string }) | null = null;
+    try {
+      payload = await readJsonBody<T & { error?: string }>(res);
+    } catch {
+      throw new Error("Server returned an invalid response.");
+    }
+    if (!res.ok) throw new Error(resolveClientResponseError(res, payload, "요청 실패"));
+    if (!payload) throw new Error("Server returned an empty response.");
     return payload;
   }, [router]);
 
