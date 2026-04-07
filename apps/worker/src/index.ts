@@ -16,7 +16,9 @@ import {
   type AutoLearnMode,
   type AutoLearnProgress,
   type SyncProgress,
+  type Cu12Credentials,
 } from "./cu12-automation";
+import { collectCyberCampusSnapshot, runCyberCampusAutoLearning } from "./cyber-campus-sync";
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import {
@@ -29,6 +31,8 @@ import {
 import {
   getUserCu12Credentials,
   getUserMailPreference,
+  getPortalSessionCookieState,
+  invalidatePortalSession,
   markAccountConnected,
   markAccountNeedsReauth,
   markTaskDeadlineAlerted,
@@ -380,9 +384,12 @@ async function reportSyncJobProgress(jobId: string, workerId: string, progress: 
 
 async function sendSyncAlertMail(
   userId: string,
+  provider: "CU12" | "CYBER_CAMPUS",
   summary: {
     newNoticeCount: number;
     newUnreadNotificationCount: number;
+    newMessageCount: number;
+    unreadMessageCount: number;
     newNotices: Array<{
       lectureSeq: number;
       noticeKey: string;
@@ -399,6 +406,12 @@ async function sendSyncAlertMail(
       message: string;
       occurredAt: string | null;
       isCanceled: boolean;
+    }>;
+    newMessages: Array<{
+      messageSeq: string;
+      title: string;
+      senderName: string | null;
+      sentAt: string | null;
     }>;
     deadlineTasks: Array<{
       lectureSeq: number;
@@ -436,6 +449,7 @@ async function sendSyncAlertMail(
 
       const inserted = await markTaskDeadlineAlerted(
         userId,
+        provider,
         {
           lectureSeq: task.lectureSeq,
           courseContentsSeq: task.courseContentsSeq,
@@ -700,57 +714,88 @@ async function processSync(
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
+  const cu12Creds: Cu12Credentials = {
+    cu12Id: creds.cu12Id,
+    cu12Password: creds.cu12Password,
+    campus: creds.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM",
+  };
 
   const shouldCancel = onCancelCheck ?? (async () => false);
   const startedAtMs = Date.now();
   let lastProgressLogKey = "";
   console.log(`${logPrefix} started job=${jobId} user=${userId}`);
   try {
-    const snapshot = await collectCu12SnapshotViaHttp(
-      userId,
-      creds,
-      shouldCancel,
-      async (progress) => {
-        await reportSyncJobProgress(jobId, workerId, progress);
-        const currentTitle = progress.current?.title ?? "-";
-        const currentSeq = progress.current?.lectureSeq ?? 0;
-        const key = [
-          progress.phase,
-          progress.completedCourses,
-          progress.totalCourses,
-          progress.noticeCount,
-          progress.taskCount,
-          progress.notificationCount,
-          currentSeq,
-        ].join(":");
-        if (key === lastProgressLogKey) return;
-        lastProgressLogKey = key;
-        console.log(
-          `${logPrefix} progress job=${jobId}`
-          + ` phase=${progress.phase}`
-          + ` courses=${progress.completedCourses}/${Math.max(1, progress.totalCourses)}`
-          + ` notices=${progress.noticeCount}`
-          + ` tasks=${progress.taskCount}`
-          + ` notifications=${progress.notificationCount}`
-          + ` elapsed=${Math.max(0, progress.elapsedSeconds ?? 0)}s`
-          + ` eta=${progress.estimatedRemainingSeconds == null ? "calc" : `${Math.max(0, progress.estimatedRemainingSeconds)}s`}`
-          + ` current=${currentTitle}(${currentSeq})`,
-        );
-      },
-    );
-    const persisted = await persistSnapshot(userId, snapshot);
+    const progressReporter = async (progress: SyncProgress) => {
+      await reportSyncJobProgress(jobId, workerId, progress);
+      const currentTitle = progress.current?.title ?? "-";
+      const currentSeq = progress.current?.lectureSeq ?? 0;
+      const key = [
+        progress.phase,
+        progress.completedCourses,
+        progress.totalCourses,
+        progress.noticeCount,
+        progress.taskCount,
+        progress.notificationCount,
+        currentSeq,
+      ].join(":");
+      if (key === lastProgressLogKey) return;
+      lastProgressLogKey = key;
+      console.log(
+        `${logPrefix} progress job=${jobId}`
+        + ` phase=${progress.phase}`
+        + ` courses=${progress.completedCourses}/${Math.max(1, progress.totalCourses)}`
+        + ` notices=${progress.noticeCount}`
+        + ` tasks=${progress.taskCount}`
+        + ` notifications=${progress.notificationCount}`
+        + ` elapsed=${Math.max(0, progress.elapsedSeconds ?? 0)}s`
+        + ` eta=${progress.estimatedRemainingSeconds == null ? "calc" : `${Math.max(0, progress.estimatedRemainingSeconds)}s`}`
+        + ` current=${currentTitle}(${currentSeq})`,
+      );
+    };
+    const snapshot = creds.provider === "CYBER_CAMPUS"
+      ? await (async () => {
+        const browser = await chromium.launch({ headless: getEnv().PLAYWRIGHT_HEADLESS });
+        try {
+          return await collectCyberCampusSnapshot(
+            browser,
+            userId,
+            {
+              cu12Id: creds.cu12Id,
+              cu12Password: creds.cu12Password,
+            },
+            shouldCancel,
+            progressReporter,
+          );
+        } finally {
+          await browser.close();
+        }
+      })()
+      : await collectCu12SnapshotViaHttp(
+        userId,
+        cu12Creds,
+        shouldCancel,
+        progressReporter,
+      );
+    const persisted = await persistSnapshot(userId, creds.provider, snapshot);
     await markAccountConnected(userId);
 
     const courseTitleBySeq = new Map(snapshot.courses.map((course) => [course.lectureSeq, course.title]));
+    const messageCount =
+      "messages" in snapshot && Array.isArray((snapshot as { messages?: unknown[] }).messages)
+        ? (snapshot as { messages: unknown[] }).messages.length
+        : 0;
 
-    await sendSyncAlertMail(userId, {
+    await sendSyncAlertMail(userId, creds.provider, {
       newNoticeCount: persisted.newNoticeCount,
       newUnreadNotificationCount: persisted.newUnreadNotificationCount,
+      newMessageCount: persisted.newMessageCount,
+      unreadMessageCount: persisted.unreadMessageCount,
       newNotices: persisted.newNotices.map((notice) => ({
         ...notice,
         courseTitle: courseTitleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
       })),
       newUnreadNotifications: persisted.newUnreadNotifications,
+      newMessages: persisted.newMessages,
       deadlineTasks: persisted.deadlineTasks.map((task) => ({
         ...task,
         courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
@@ -763,6 +808,7 @@ async function processSync(
       + ` notices=${snapshot.notices.length}`
       + ` tasks=${snapshot.tasks.length}`
       + ` notifications=${snapshot.notifications.length}`
+      + ` messages=${messageCount}`
       + ` elapsed=${Math.max(1, Math.floor((Date.now() - startedAtMs) / 1000))}s`,
     );
 
@@ -778,6 +824,7 @@ async function processSync(
         noticeCount: snapshot.notices.length,
         taskCount: snapshot.tasks.length,
         notificationCount: snapshot.notifications.length,
+        messageCount,
       },
     });
 
@@ -789,6 +836,7 @@ async function processSync(
       tasks: snapshot.tasks.length,
       newNoticeCount: persisted.newNoticeCount,
       newNotificationCount: persisted.newNotificationCount,
+      newMessageCount: persisted.newMessageCount,
       pendingTaskCount: persisted.pendingTaskCount,
       deadlineTaskCount: persisted.deadlineTasks.length,
     };
@@ -845,6 +893,20 @@ async function processAutolearn(
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
+  const cyberCampusSession = creds.provider === "CYBER_CAMPUS"
+    ? await getPortalSessionCookieState(userId, "CYBER_CAMPUS")
+    : null;
+  if (creds.provider === "CYBER_CAMPUS") {
+    const sessionExpired = cyberCampusSession?.expiresAt && cyberCampusSession.expiresAt.getTime() <= Date.now();
+    if (!cyberCampusSession || cyberCampusSession.status !== "ACTIVE" || sessionExpired || cyberCampusSession.cookieState.length === 0) {
+      throw new Error("CYBER_CAMPUS_SESSION_REQUIRED");
+    }
+  }
+  const cu12Creds: Cu12Credentials = {
+    cu12Id: creds.cu12Id,
+    cu12Password: creds.cu12Password,
+    campus: creds.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM",
+  };
 
   const env = getEnv();
   const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
@@ -867,52 +929,90 @@ async function processAutolearn(
     });
   }
   try {
-    const autoResult = await runAutoLearning(
-      browser,
-      userId,
-      creds,
-      {
-        mode,
-        lectureSeq,
-        quizAutoSolveEnabled: creds.quizAutoSolveEnabled,
-      },
-      async (progress) => {
-        const nowIso = progress.heartbeatAt ?? new Date().toISOString();
-        lastHeartbeatAt = nowIso;
-        lastHeartbeatAtMs = Date.parse(nowIso) || Date.now();
-        if (progress.phase === "RUNNING" && progress.current) {
-          const elapsed = progress.current.elapsedSeconds ?? 0;
-          const courseTitle = progress.current.courseTitle ?? `Course ${progress.current.lectureSeq}`;
-          const taskTitle = progress.current.taskTitle ?? "-";
-          console.log(
-            `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
-            + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
-            + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
+    const progressReporter = async (progress: AutoLearnProgress) => {
+      const nowIso = progress.heartbeatAt ?? new Date().toISOString();
+      lastHeartbeatAt = nowIso;
+      lastHeartbeatAtMs = Date.parse(nowIso) || Date.now();
+      if (progress.phase === "RUNNING" && progress.current) {
+        const elapsed = progress.current.elapsedSeconds ?? 0;
+        const courseTitle = progress.current.courseTitle ?? `Course ${progress.current.lectureSeq}`;
+        const taskTitle = progress.current.taskTitle ?? "-";
+        console.log(
+          `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
+          + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
+          + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
           + ` total=${progress.elapsedSeconds}s`
-            + ` course="${courseTitle}" task="${taskTitle}"`,
-          );
-        }
-        await reportJobProgress(jobId, workerId, progress);
-      },
-      async () => {
-        if (stallDetected) return true;
-        const externalCancel = onCancelCheck ? await onCancelCheck() : false;
-        if (externalCancel) return true;
-        const status = await getJobStatus(jobId);
-        return status === null || status === JobStatus.CANCELED;
-      },
-    );
+          + ` course="${courseTitle}" task="${taskTitle}"`,
+        );
+      }
+      await reportJobProgress(jobId, workerId, progress);
+    };
+    const cancelReporter = async () => {
+      if (stallDetected) return true;
+      const externalCancel = onCancelCheck ? await onCancelCheck() : false;
+      if (externalCancel) return true;
+      const status = await getJobStatus(jobId);
+      return status === null || status === JobStatus.CANCELED;
+    };
+    const autoResult = creds.provider === "CYBER_CAMPUS"
+      ? await runCyberCampusAutoLearning(
+        browser,
+        userId,
+        {
+          cu12Id: creds.cu12Id,
+          cu12Password: creds.cu12Password,
+        },
+        { mode, lectureSeq },
+        progressReporter,
+        cancelReporter,
+        {
+          cookieState: cyberCampusSession?.cookieState,
+          requireVerifiedSession: true,
+        },
+      )
+      : await runAutoLearning(
+        browser,
+        userId,
+        cu12Creds,
+        {
+          mode,
+          lectureSeq,
+          quizAutoSolveEnabled: creds.quizAutoSolveEnabled,
+        },
+        progressReporter,
+        cancelReporter,
+      );
     if (stallDetected) {
       throw new Error(AUTOLEARN_STALLED_ERROR);
     }
     clearInterval(stallWatchdog);
 
-    await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, processed=${autoResult.processedTaskCount}`);
+    await recordLearningRun(
+      userId,
+      creds.provider,
+      lectureSeq ?? null,
+      "SUCCESS",
+      `mode=${mode}, processed=${autoResult.processedTaskCount}`,
+    );
 
     // Refresh snapshots after playback updates.
     const shouldCancel = onCancelCheck ?? (async () => false);
-    const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
-    await persistSnapshot(userId, snapshot);
+    const snapshot = creds.provider === "CYBER_CAMPUS"
+      ? await collectCyberCampusSnapshot(
+        browser,
+        userId,
+        {
+          cu12Id: creds.cu12Id,
+          cu12Password: creds.cu12Password,
+        },
+        shouldCancel,
+        undefined,
+        {
+          cookieState: cyberCampusSession?.cookieState,
+        },
+      )
+      : await collectCu12Snapshot(browser, userId, cu12Creds, shouldCancel);
+    await persistSnapshot(userId, creds.provider, snapshot);
 
     await writeAuditLog({
       category: "WORKER",
@@ -950,7 +1050,15 @@ async function processAutolearn(
     const isStalled = message === AUTOLEARN_STALLED_ERROR;
 
     if (!isCancelled) {
-      await recordLearningRun(userId, lectureSeq ?? null, "FAILED", message);
+      if (
+        creds.provider === "CYBER_CAMPUS"
+        && (message === "CYBER_CAMPUS_SESSION_INVALID"
+          || message === "CYBER_CAMPUS_SESSION_REQUIRED"
+          || message === "CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED")
+      ) {
+        await invalidatePortalSession(userId, "CYBER_CAMPUS");
+      }
+      await recordLearningRun(userId, creds.provider, lectureSeq ?? null, "FAILED", message);
       await writeAuditLog({
         category: "WORKER",
         severity: "ERROR",

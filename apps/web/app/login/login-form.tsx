@@ -8,6 +8,7 @@ import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-r
 
 type SessionExpiredReason = "session-timeout" | "session-expired";
 type Campus = "SONGSIM" | "SONGSIN";
+type PortalProvider = "CU12" | "CYBER_CAMPUS";
 type PolicyType = "PRIVACY_POLICY" | "TERMS_OF_SERVICE";
 
 interface SessionPolicy {
@@ -20,6 +21,7 @@ interface AuthenticatedResponse {
   stage: "AUTHENTICATED";
   user: {
     userId: string;
+    provider?: PortalProvider;
     cu12Id: string;
     role: "ADMIN" | "USER";
   };
@@ -45,6 +47,7 @@ interface ConsentRequiredResponse {
   policies: PolicyDocumentResponse[];
   user: {
     userId: string;
+    provider?: PortalProvider;
     cu12Id: string;
     role: "ADMIN" | "USER";
   };
@@ -63,14 +66,19 @@ const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
   { value: "SONGSIM", label: "성심교정" },
   { value: "SONGSIN", label: "성신교정" },
 ];
+
+const PROVIDER_OPTIONS: Array<{ value: PortalProvider; label: string }> = [
+  { value: "CU12", label: "공유대 CU12" },
+  { value: "CYBER_CAMPUS", label: "사이버캠퍼스" },
+];
+
 const LAST_ACTIVITY_STORAGE_KEY = "cu12:last-activity-at";
 const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
 const LEGACY_IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
 const SAVED_CU12_ID_STORAGE_KEY = "cu12:saved-cu12-id";
 
 function applySessionPolicy(policy: SessionPolicy | undefined) {
-  if (typeof window === "undefined") return;
-  if (!policy) return;
+  if (typeof window === "undefined" || !policy) return;
   try {
     window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
     window.localStorage.removeItem(SESSION_EXPIRED_STATE_KEY);
@@ -100,24 +108,24 @@ function syncSavedCu12Id(shouldSave: boolean, cu12Id: string) {
 
 export function toLoginErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
-    return "ID 또는 비밀번호가 일치하지 않습니다.";
+    return "ID ?먮뒗 鍮꾨?踰덊샇媛 ?쇱튂?섏? ?딆뒿?덈떎.";
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
-    return "계정이 비활성 상태입니다. 관리자에게 문의해 주세요.";
+    return "怨꾩젙??鍮꾪솢???곹깭?낅땲?? 愿由ъ옄?먭쾶 臾몄쓽??二쇱꽭??";
   }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+    return "?꾩닔 ?쎄????꾩쭅 ?깅줉?섏? ?딆븯?듬땲?? 愿由ъ옄?먭쾶 臾몄쓽??二쇱꽭??";
   }
   if (payload.errorCode === "RATE_LIMITED") {
-    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+    return "?붿껌??留롮븘 ?좎떆 李⑤떒?섏뿀?듬땲?? ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??";
   }
-  if (payload.errorCode === "CU12_UNAVAILABLE") {
+  if (payload.errorCode === "CU12_UNAVAILABLE" || payload.errorCode === "PORTAL_UNAVAILABLE") {
     return payload.error ?? "Authentication service unavailable.";
   }
   if (payload.errorCode?.startsWith("INTERNAL_DB_") || payload.errorCode === "INTERNAL_ERROR") {
     return payload.error ?? "Authentication failed.";
   }
-  return payload.error ?? "로그인 처리에 실패했습니다.";
+  return payload.error ?? "濡쒓렇??泥섎━???ㅽ뙣?덉뒿?덈떎.";
 }
 
 export function toInviteErrorMessage(payload: ApiErrorResponse): string {
@@ -125,40 +133,40 @@ export function toInviteErrorMessage(payload: ApiErrorResponse): string {
     return payload.error ?? "Invite verification failed.";
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
-    return "계정이 비활성 상태입니다. 관리자에게 문의해 주세요.";
+    return "怨꾩젙??鍮꾪솢???곹깭?낅땲?? 愿由ъ옄?먭쾶 臾몄쓽??二쇱꽭??";
   }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+    return "?꾩닔 ?쎄????꾩쭅 ?깅줉?섏? ?딆븯?듬땲?? 愿由ъ옄?먭쾶 臾몄쓽??二쇱꽭??";
   }
   if (payload.errorCode === "RATE_LIMITED") {
-    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+    return "?붿껌??留롮븘 ?좎떆 李⑤떒?섏뿀?듬땲?? ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??";
   }
   if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-    return "인증 상태가 만료되었습니다. 다시 로그인해 주세요.";
+    return "?몄쬆 ?곹깭媛 留뚮즺?섏뿀?듬땲?? ?ㅼ떆 濡쒓렇?명빐 二쇱꽭??";
   }
   if (payload.errorCode === "INTERNAL_ERROR") {
     return payload.error ?? "Invite verification failed.";
   }
-  return payload.error ?? "초대 코드 처리에 실패했습니다.";
+  return payload.error ?? "珥덈? 肄붾뱶 泥섎━???ㅽ뙣?덉뒿?덈떎.";
 }
 
 export function toConsentErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "POLICY_CONSENT_INCOMPLETE") {
-    return "필수 약관 동의가 필요합니다.";
+    return "?꾩닔 ?쎄? ?숈쓽媛 ?꾩슂?⑸땲??";
   }
   if (payload.errorCode === "POLICY_VERSION_MISMATCH") {
-    return "약관이 갱신되었습니다. 다시 로그인 후 최신 약관에 동의해 주세요.";
+    return "?쎄???媛깆떊?섏뿀?듬땲?? ?ㅼ떆 濡쒓렇????理쒖떊 ?쎄????숈쓽??二쇱꽭??";
   }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+    return "?꾩닔 ?쎄????꾩쭅 ?깅줉?섏? ?딆븯?듬땲?? 愿由ъ옄?먭쾶 臾몄쓽??二쇱꽭??";
   }
   if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-    return "동의 세션이 만료되었습니다. 다시 로그인해 주세요.";
+    return "?숈쓽 ?몄뀡??留뚮즺?섏뿀?듬땲?? ?ㅼ떆 濡쒓렇?명빐 二쇱꽭??";
   }
   if (payload.errorCode === "INTERNAL_ERROR") {
     return payload.error ?? "Policy consent failed.";
   }
-  return payload.error ?? "약관 동의 처리에 실패했습니다.";
+  return payload.error ?? "?쎄? ?숈쓽 泥섎━???ㅽ뙣?덉뒿?덈떎.";
 }
 
 export function LoginForm({
@@ -167,6 +175,7 @@ export function LoginForm({
   sessionExpiredReason?: SessionExpiredReason;
 }) {
   const router = useRouter();
+  const [provider, setProvider] = useState<PortalProvider>("CU12");
   const [cu12Id, setCu12Id] = useState("");
   const [cu12Password, setCu12Password] = useState("");
   const [campus, setCampus] = useState<Campus>("SONGSIM");
@@ -233,7 +242,7 @@ export function LoginForm({
 
   function declineConsent() {
     clearConsentState();
-    setError("필수 약관에 동의해야 서비스를 이용할 수 있습니다. 로그인 후 동의해 주세요.");
+    setError("약관에 동의해야 서비스를 이용할 수 있습니다.");
   }
 
   function startConsentFlow(payload: ConsentRequiredResponse) {
@@ -266,6 +275,7 @@ export function LoginForm({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          provider,
           cu12Id,
           cu12Password,
           campus,
@@ -309,7 +319,7 @@ export function LoginForm({
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setError("로그인 요청 중 네트워크 오류가 발생했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -318,7 +328,7 @@ export function LoginForm({
   async function onSubmitInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!challengeToken) {
-      setInviteError("초대 코드 상태를 확인할 수 없습니다. 로그인 동작을 다시 시작해 주세요.");
+      setInviteError("초대 코드 상태를 확인할 수 없습니다. 다시 로그인해 주세요.");
       return;
     }
 
@@ -373,7 +383,7 @@ export function LoginForm({
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setInviteError("초대 코드 확인 중 오류가 발생했습니다.");
     } finally {
       setInviteSubmitting(false);
     }
@@ -382,7 +392,7 @@ export function LoginForm({
   async function onSubmitConsent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!consentToken) {
-      setConsentError("동의 세션을 확인할 수 없습니다. 다시 로그인해 주세요.");
+      setConsentError("약관 동의 세션이 없습니다. 다시 로그인해 주세요.");
       return;
     }
     if (!allPoliciesChecked) {
@@ -437,7 +447,7 @@ export function LoginForm({
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setConsentError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setConsentError("약관 동의 처리 중 오류가 발생했습니다.");
     } finally {
       setConsentSubmitting(false);
     }
@@ -448,28 +458,39 @@ export function LoginForm({
       {sessionExpiredReason ? (
         <div className="session-timeout-banner">
           {sessionExpiredReason === "session-timeout" ? (
-            <p>자동 로그아웃: 30분 이상 활동이 없어 세션이 만료되어 다시 로그인해야 합니다.</p>
+            <p>세션이 만료되어 다시 로그인해 주세요.</p>
           ) : (
-            <p>세션이 만료되어 자동으로 로그아웃되었습니다. 다시 로그인해 주세요.</p>
+            <p>로그인 상태가 종료되었습니다. 다시 로그인해 주세요.</p>
           )}
         </div>
       ) : null}
 
       <form onSubmit={onSubmit} className="form-stack">
         <label className="field">
-          <span>CU12 ID</span>
+          <span>Portal</span>
+          <select value={provider} onChange={(event) => setProvider(event.target.value as PortalProvider)}>
+            {PROVIDER_OPTIONS.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
+          <span>Account ID</span>
           <input
             value={cu12Id}
             onChange={(event) => setCu12Id(event.target.value)}
             autoComplete="username"
             required
             minLength={4}
-            placeholder="예: student1234"
+            placeholder="student1234"
           />
         </label>
 
         <label className="field">
-          <span>CU12 비밀번호</span>
+          <span>Password</span>
           <input
             type="password"
             value={cu12Password}
@@ -477,20 +498,22 @@ export function LoginForm({
             autoComplete="current-password"
             required
             minLength={4}
-            placeholder="비밀번호를 입력하세요"
+            placeholder="Password"
           />
         </label>
 
-        <label className="field">
-          <span>캠퍼스</span>
-          <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
-            {CAMPUS_OPTIONS.map((entry) => (
-              <option key={entry.value} value={entry.value}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {provider === "CU12" ? (
+          <label className="field">
+            <span>Campus</span>
+            <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
+              {CAMPUS_OPTIONS.map((entry) => (
+                <option key={entry.value} value={entry.value}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         <div className="login-options-row">
           <label className="check-field">
@@ -505,16 +528,18 @@ export function LoginForm({
                 }
               }}
             />
-            <span>아이디 저장</span>
+            <span>ID 저장</span>
           </label>
-          <a
-            className="btn ghost-btn login-reset-link"
-            href="https://www.cu12.ac.kr/el/member/pw_reset_form.acl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            비밀번호 초기화
-          </a>
+          {provider === "CU12" ? (
+            <a
+              className="btn ghost-btn login-reset-link"
+              href="https://www.cu12.ac.kr/el/member/pw_reset_form.acl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              비밀번호 초기화
+            </a>
+          ) : null}
         </div>
 
         {error ? <p className="error-text">{error}</p> : null}
@@ -526,15 +551,7 @@ export function LoginForm({
       </form>
 
       {showInviteModal ? (
-        <div
-          className="modal-overlay"
-          role="presentation"
-          onClick={() => {
-            if (!inviteSubmitting) {
-              setShowInviteModal(false);
-            }
-          }}
-        >
+        <div className="modal-overlay" role="presentation" onClick={() => !inviteSubmitting && setShowInviteModal(false)}>
           <section
             className="modal-card"
             role="dialog"
@@ -543,20 +560,18 @@ export function LoginForm({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>초대 코드 입력</h2>
-            <p className="muted">
-              초대 코드를 가지고 계시다면 8자리 이상의 코드를 그대로 입력하고 확인 버튼을 눌러 주세요.
-            </p>
+            <p className="muted">관리자가 발급한 초대 코드를 입력해 주세요.</p>
 
             <form onSubmit={onSubmitInvite} className="form-stack">
               <label className="field">
-                <span>초대 코드</span>
+                <span>Invite Code</span>
                 <input
                   value={inviteCode}
                   onChange={(event) => setInviteCode(event.target.value)}
                   required
                   minLength={8}
                   autoFocus
-                  placeholder="예: ABCD-1234"
+                  placeholder="ABCD-1234"
                 />
               </label>
 
@@ -590,9 +605,7 @@ export function LoginForm({
             onClick={(event) => event.stopPropagation()}
           >
             <h2>필수 약관 동의</h2>
-            <p className="muted">
-              서비스 이용을 위해서는 필수 약관 동의가 필요합니다.
-            </p>
+            <p className="muted">서비스 이용을 위해 필수 약관 동의가 필요합니다.</p>
 
             <form onSubmit={onSubmitConsent} className="form-stack top-gap">
               {consentPolicies.map((policy) => (
@@ -625,7 +638,7 @@ export function LoginForm({
                           [policy.type]: event.target.checked,
                         }))}
                     />
-                    <span>{policy.title}에 동의합니다. (필수)</span>
+                    <span>{policy.title} 동의 (필수)</span>
                   </label>
                 </article>
               ))}
@@ -642,7 +655,7 @@ export function LoginForm({
                   onClick={declineConsent}
                   disabled={consentSubmitting}
                 >
-                  동의 거부 (로그인 취소)
+                  동의 거부
                 </button>
               </div>
             </form>

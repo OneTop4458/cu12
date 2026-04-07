@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { getCurrentPortalProvider } from "@/server/current-provider";
 
 interface Params {
   params: Promise<{ noticeId: string }>;
@@ -11,10 +12,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!context) return jsonError("Unauthorized", 401);
 
   const { noticeId } = await params;
+  const provider = await getCurrentPortalProvider(context.effective.userId);
   const updated = await prisma.courseNotice.updateMany({
     where: {
       id: noticeId,
       userId: context.effective.userId,
+      provider,
     },
     data: {
       isRead: true,

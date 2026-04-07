@@ -8,6 +8,7 @@ const EnvSchema = z.object({
   WORKER_SHARED_TOKEN: z.string().min(32),
   WORKER_ID: z.string().optional(),
   CU12_BASE_URL: z.string().url().default("https://www.cu12.ac.kr"),
+  CYBER_CAMPUS_BASE_URL: z.string().url().default("https://e-cyber.catholic.ac.kr"),
   PLAYWRIGHT_HEADLESS: z.coerce.boolean().default(true),
   PLAYWRIGHT_USER_AGENT: z.string().optional(),
   PLAYWRIGHT_ACCEPT_LANGUAGE: z.string().default("ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"),

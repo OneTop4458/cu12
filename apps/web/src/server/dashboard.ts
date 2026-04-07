@@ -1,3 +1,4 @@
+import type { PortalProvider } from "@cu12/core";
 import { CourseStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
@@ -113,6 +114,7 @@ function normalizeLearningTaskRow(row: LearningTaskRow): LearningTaskRow & { act
 
 async function fetchLearningTasksRaw(input: {
   userId: string;
+  provider: PortalProvider;
   lectureSeq?: number;
   dueAtGte?: Date;
   dueAtLte?: Date;
@@ -121,6 +123,7 @@ async function fetchLearningTasksRaw(input: {
 }): Promise<Array<LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState }>> {
   const conditions: Prisma.Sql[] = [
     Prisma.sql`"userId" = ${input.userId}`,
+    Prisma.sql`"provider" = ${input.provider}`,
   ];
 
   if (typeof input.lectureSeq === "number") {
@@ -167,11 +170,12 @@ function mapNoticeCountsByLecture(
   return new Map(rows.map((row) => [row.lectureSeq, row._count._all]));
 }
 
-export async function getDashboardSummary(userId: string) {
+export async function getDashboardSummary(userId: string, provider: PortalProvider = "CU12") {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
   const upcomingWindowTasks = await fetchLearningTasksRaw({
     userId,
+    provider,
     dueAtGte: now,
     dueAtLte: soon,
     orderBy: "dueAtAsc",
@@ -179,12 +183,12 @@ export async function getDashboardSummary(userId: string) {
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
   const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync, recentSync, user] = await Promise.all([
-    prisma.courseSnapshot.count({ where: { userId, status: CourseStatus.ACTIVE } }),
+    prisma.courseSnapshot.count({ where: { userId, provider, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
-      where: { userId, status: CourseStatus.ACTIVE },
+      where: { userId, provider, status: CourseStatus.ACTIVE },
       _avg: { progressPercent: true },
     }),
-    prisma.courseNotice.count({ where: { userId, isRead: false } }),
+    prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
     prisma.jobQueue.findFirst({
       where: { userId, type: "SYNC", status: "SUCCEEDED" },
       orderBy: { finishedAt: "desc" },
@@ -224,27 +228,28 @@ export async function getDashboardSummary(userId: string) {
   };
 }
 
-export async function getCourses(userId: string) {
+export async function getCourses(userId: string, provider: PortalProvider = "CU12") {
   const now = new Date();
   const nowMs = now.getTime();
 
   const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
     prisma.courseSnapshot.findMany({
-      where: { userId },
+      where: { userId, provider },
       orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
     }),
     fetchLearningTasksRaw({
       userId,
+      provider,
       orderBy: "lectureWeekLessonAsc",
     }),
     prisma.courseNotice.groupBy({
       by: ["lectureSeq"],
-      where: { userId },
+      where: { userId, provider },
       _count: { _all: true },
     }),
     prisma.courseNotice.groupBy({
       by: ["lectureSeq"],
-      where: { userId, isRead: false },
+      where: { userId, provider, isRead: false },
       _count: { _all: true },
     }),
   ]);
@@ -437,10 +442,11 @@ export async function getCourses(userId: string) {
   });
 }
 
-export async function getUpcomingDeadlines(userId: string, limit = 30) {
+export async function getUpcomingDeadlines(userId: string, limit = 30, provider: PortalProvider = "CU12") {
   const now = new Date();
   const tasksRaw = await fetchLearningTasksRaw({
     userId,
+    provider,
     dueAtGte: now,
     limit: Math.min(Math.max(limit, 1), 100),
     orderBy: "dueAtAsc",
@@ -467,6 +473,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
     ? await prisma.courseSnapshot.findMany({
       where: {
         userId,
+        provider,
         lectureSeq: { in: seqs },
       },
       select: {
@@ -487,6 +494,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30) {
 
 export async function getDashboardDiagnostics(
   userId: string,
+  provider: PortalProvider = "CU12",
   options?: {
     lectureSeq?: number;
     sampleLimit?: number;
@@ -499,7 +507,7 @@ export async function getDashboardDiagnostics(
 
   const [courses, tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
     prisma.courseSnapshot.findMany({
-      where: { userId, ...lectureFilter },
+      where: { userId, provider, ...lectureFilter },
       select: {
         lectureSeq: true,
         title: true,
@@ -508,17 +516,18 @@ export async function getDashboardDiagnostics(
     }),
     fetchLearningTasksRaw({
       userId,
+      provider,
       lectureSeq: options?.lectureSeq,
       orderBy: "lectureWeekLessonAsc",
     }),
     prisma.courseNotice.count({
-      where: { userId, ...lectureFilter },
+      where: { userId, provider, ...lectureFilter },
     }),
     prisma.courseNotice.count({
-      where: { userId, ...lectureFilter, bodyText: "" },
+      where: { userId, provider, ...lectureFilter, bodyText: "" },
     }),
     prisma.courseNotice.findMany({
-      where: { userId, ...lectureFilter },
+      where: { userId, provider, ...lectureFilter },
       take: sampleLimit,
       orderBy: { updatedAt: "desc" },
       select: {
@@ -735,9 +744,9 @@ function dedupeNoticeRows(rows: CourseNoticeRow[]): CourseNoticeRow[] {
   return deduped;
 }
 
-export async function getNotices(userId: string, lectureSeq: number) {
+export async function getNotices(userId: string, lectureSeq: number, provider: PortalProvider = "CU12") {
   const rows = await prisma.courseNotice.findMany({
-    where: { userId, lectureSeq },
+    where: { userId, provider, lectureSeq },
     orderBy: [{ isRead: "asc" }, { postedAt: "desc" }],
   });
   return dedupeNoticeRows(rows);
@@ -745,6 +754,7 @@ export async function getNotices(userId: string, lectureSeq: number) {
 
 export async function getNotifications(
   userId: string,
+  provider: PortalProvider = "CU12",
   options?: {
     unreadOnly?: boolean;
     includeArchived?: boolean;
@@ -757,6 +767,7 @@ export async function getNotifications(
   return prisma.notificationEvent.findMany({
     where: {
       userId,
+      provider,
       ...(!historyOnly && !(options?.includeArchived ?? false) ? { isArchived: false } : {}),
       ...(options?.unreadOnly ? { isUnread: true } : {}),
       ...(historyOnly
@@ -770,5 +781,17 @@ export async function getNotifications(
     },
     orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
     take: options?.limit ?? 200,
+  });
+}
+
+export async function getMessages(
+  userId: string,
+  provider: PortalProvider = "CU12",
+  limit = 50,
+) {
+  return prisma.portalMessage.findMany({
+    where: { userId, provider },
+    orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+    take: Math.min(Math.max(limit, 1), 100),
   });
 }

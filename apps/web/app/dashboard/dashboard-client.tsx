@@ -106,6 +106,15 @@ interface Notification {
   isArchived?: boolean;
 }
 
+interface MessageItem {
+  id: string;
+  title: string;
+  senderName: string | null;
+  bodyText: string;
+  sentAt: string | null;
+  isRead: boolean;
+}
+
 interface SiteNotice {
   id: string;
   title: string;
@@ -183,8 +192,9 @@ interface MailPreference {
 }
 
 interface Account {
+  provider: "CU12" | "CYBER_CAMPUS";
   cu12Id: string;
-  campus: "SONGSIM" | "SONGSIN";
+  campus: "SONGSIM" | "SONGSIN" | null;
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
   autoLearnEnabled: boolean;
@@ -311,6 +321,7 @@ interface DashboardBootstrap {
   courses: Course[];
   deadlines: Deadline[];
   notifications: Notification[];
+  messages: MessageItem[];
   jobs: Job[];
   syncQueue?: DashboardSyncQueue;
   siteNotices: SiteNotice[];
@@ -676,6 +687,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
   const [deadlineLoading, setDeadlineLoading] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [messages, setMessages] = useState<MessageItem[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
   const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
   const [notificationHistoryLoading, setNotificationHistoryLoading] = useState(false);
@@ -940,6 +952,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setCourses(payload.courses);
       setDeadlines(payload.deadlines);
       setNotifications(payload.notifications);
+      setMessages(payload.messages ?? []);
       if (notificationHistoryOpen) {
         void loadNotificationHistory();
       }
@@ -1518,7 +1531,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               loading="lazy"
             />
             <div>
-              <p className="brand-kicker">CU12 자동화 · 학습 운영 대시보드</p>
+              <p className="brand-kicker">CUK Auto · Multi-Portal Dashboard</p>
               <h1>나의 학습 홈</h1>
             </div>
           </div>
@@ -1779,6 +1792,23 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             ) : null}
           </div>
         ) : null}
+      </section>
+
+      <section className="card" id="messages">
+        <h2>Inbox</h2>
+        <div className="notice-list">
+          {messages.length === 0 ? (
+            <p className="muted">표시할 받은쪽지가 없습니다.</p>
+          ) : messages.slice(0, 20).map((item) => (
+            <article key={item.id} className={`notification-item ${item.isRead ? "" : "is-unread"}`}>
+              <strong>{item.title}</strong>
+              <p className="muted">
+                {item.senderName ?? "-"} · {toDateTime(item.sentAt)}
+              </p>
+              <p className="notification-item-message">{item.bodyText || "본문 없음"}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="card" id="deadlines">

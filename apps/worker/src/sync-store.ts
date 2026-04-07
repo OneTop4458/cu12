@@ -1,4 +1,11 @@
-import type { CourseNotice, CourseState, LearningTask, NotificationEvent } from "@cu12/core";
+import type {
+  CourseNotice,
+  CourseState,
+  LearningTask,
+  NotificationEvent,
+  PortalMessage,
+  PortalProvider,
+} from "@cu12/core";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { decryptSecret } from "./secret";
@@ -190,12 +197,16 @@ function dedupeIncomingNotices(notices: CourseNotice[]): CourseNotice[] {
   return [...byFingerprint.values()];
 }
 
-async function cleanupDuplicateCourseNotices(userId: string, lectureSeqs: number[]): Promise<void> {
+async function cleanupDuplicateCourseNotices(
+  userId: string,
+  provider: PortalProvider,
+  lectureSeqs: number[],
+): Promise<void> {
   const targets = Array.from(new Set(lectureSeqs.filter((lectureSeq) => Number.isFinite(lectureSeq) && lectureSeq > 0)));
   if (targets.length === 0) return;
 
   const rows = await prisma.courseNotice.findMany({
-    where: { userId, lectureSeq: { in: targets } },
+    where: { userId, provider, lectureSeq: { in: targets } },
     select: {
       id: true,
       lectureSeq: true,
@@ -260,6 +271,7 @@ async function cleanupDuplicateCourseNotices(userId: string, lectureSeqs: number
         prisma.courseNotice.deleteMany({
           where: {
             userId,
+            provider,
             id: { in: duplicateIds },
           },
         }),
@@ -272,6 +284,8 @@ export interface PersistSnapshotResult {
   newNoticeCount: number;
   newNotificationCount: number;
   newUnreadNotificationCount: number;
+  newMessageCount: number;
+  unreadMessageCount: number;
   newNotices: Array<{
     lectureSeq: number;
     noticeKey: string;
@@ -287,6 +301,12 @@ export interface PersistSnapshotResult {
     message: string;
     occurredAt: string | null;
     isCanceled: boolean;
+  }>;
+  newMessages: Array<{
+    messageSeq: string;
+    title: string;
+    senderName: string | null;
+    sentAt: string | null;
   }>;
   deadlineTasks: Array<{
     lectureSeq: number;
@@ -309,21 +329,14 @@ export interface MailPreference {
 }
 
 export async function getUserCu12Credentials(userId: string) {
-  const account = await prisma.cu12Account.findUnique({
-    where: { userId },
-    select: {
-      cu12Id: true,
-      encryptedPassword: true,
-      campus: true,
-      quizAutoSolveEnabled: true,
-    },
-  });
+  const account = await prisma.cu12Account.findUnique({ where: { userId } });
   if (!account) return null;
 
   return {
+    provider: account.provider as PortalProvider,
     cu12Id: account.cu12Id,
     cu12Password: decryptSecret(account.encryptedPassword),
-    campus: (account.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM") as "SONGSIM" | "SONGSIN",
+    campus: account.campus === "SONGSIN" ? "SONGSIN" : account.campus === "SONGSIM" ? "SONGSIM" : null,
     quizAutoSolveEnabled: account.quizAutoSolveEnabled,
   };
 }
@@ -397,32 +410,45 @@ export async function markAccountConnected(userId: string) {
 
 export async function persistSnapshot(
   userId: string,
+  provider: PortalProvider,
   data: {
     courses: CourseState[];
     notices: CourseNotice[];
     notifications: NotificationEvent[];
     tasks: LearningTask[];
+    messages?: PortalMessage[];
   },
 ): Promise<PersistSnapshotResult> {
   const notices = dedupeIncomingNotices(data.notices);
   const noticeKeys = Array.from(new Set(notices.map((notice) => notice.noticeKey)));
   const notifications = data.notifications.filter((event) => event.notifierSeq.trim().length > 0);
   const notifierSeqs = Array.from(new Set(notifications.map((event) => event.notifierSeq)));
+  const messages = (data.messages ?? []).filter((event) => event.messageSeq.trim().length > 0);
+  const messageSeqs = Array.from(new Set(messages.map((event) => event.messageSeq)));
 
-  const [existingNoticeRows, existingNotificationRows] = await Promise.all([
+  const [existingNoticeRows, existingNotificationRows, existingMessageRows] = await Promise.all([
     noticeKeys.length > 0
       ? prisma.courseNotice.findMany({
-        where: { userId, noticeKey: { in: noticeKeys } },
+        where: { userId, provider, noticeKey: { in: noticeKeys } },
         select: { noticeKey: true },
       })
       : Promise.resolve([]),
     notifierSeqs.length > 0
       ? prisma.notificationEvent.findMany({
-        where: { userId, notifierSeq: { in: notifierSeqs } },
+        where: { userId, provider, notifierSeq: { in: notifierSeqs } },
         select: {
           notifierSeq: true,
           isUnread: true,
           isArchived: true,
+        },
+      })
+      : Promise.resolve([]),
+    messageSeqs.length > 0
+      ? prisma.portalMessage.findMany({
+        where: { userId, provider, messageSeq: { in: messageSeqs } },
+        select: {
+          messageSeq: true,
+          isRead: true,
         },
       })
       : Promise.resolve([]),
@@ -439,23 +465,29 @@ export async function persistSnapshot(
       },
     ]),
   );
+  const existingMessageSet = new Set(existingMessageRows.map((row) => row.messageSeq));
+  const existingMessageBySeq = new Map(existingMessageRows.map((row) => [row.messageSeq, row.isRead]));
 
   let newNoticeCount = 0;
   let newNotificationCount = 0;
   let newUnreadNotificationCount = 0;
+  let newMessageCount = 0;
   const newNotices: PersistSnapshotResult["newNotices"] = [];
   const newUnreadNotifications: PersistSnapshotResult["newUnreadNotifications"] = [];
+  const newMessages: PersistSnapshotResult["newMessages"] = [];
 
   for (const course of data.courses) {
     await runWithPrismaRetry(() =>
       prisma.courseSnapshot.upsert({
         where: {
-          userId_lectureSeq: {
+          userId_provider_lectureSeq: {
             userId,
+            provider,
             lectureSeq: course.lectureSeq,
           },
         },
         update: {
+          provider,
           title: course.title,
           instructor: course.instructor,
           progressPercent: course.progressPercent,
@@ -468,6 +500,7 @@ export async function persistSnapshot(
         },
         create: {
           userId,
+          provider,
           lectureSeq: course.lectureSeq,
           title: course.title,
           instructor: course.instructor,
@@ -490,13 +523,15 @@ export async function persistSnapshot(
     await runWithPrismaRetry(() =>
       prisma.courseNotice.upsert({
         where: {
-          userId_lectureSeq_noticeKey: {
+          userId_provider_lectureSeq_noticeKey: {
             userId,
+            provider,
             lectureSeq: notice.lectureSeq,
             noticeKey: notice.noticeKey,
           },
         },
         update: {
+          provider,
           title: notice.title,
           author: notice.author,
           postedAt: toDate(notice.postedAt),
@@ -506,6 +541,7 @@ export async function persistSnapshot(
         },
         create: {
           userId,
+          provider,
           lectureSeq: notice.lectureSeq,
           noticeKey: notice.noticeKey,
           title: notice.title,
@@ -532,7 +568,7 @@ export async function persistSnapshot(
     }
   }
 
-  await cleanupDuplicateCourseNotices(userId, data.courses.map((course) => course.lectureSeq));
+  await cleanupDuplicateCourseNotices(userId, provider, data.courses.map((course) => course.lectureSeq));
 
   for (const event of notifications) {
     const isNewRecord = !existingNotificationSet.has(event.notifierSeq);
@@ -543,12 +579,14 @@ export async function persistSnapshot(
     await runWithPrismaRetry(() =>
       prisma.notificationEvent.upsert({
         where: {
-          userId_notifierSeq: {
+          userId_provider_notifierSeq: {
             userId,
+            provider,
             notifierSeq: event.notifierSeq,
           },
         },
         update: {
+          provider,
           courseTitle: event.courseTitle,
           category: event.category,
           message: event.message,
@@ -560,6 +598,7 @@ export async function persistSnapshot(
         },
         create: {
           userId,
+          provider,
           notifierSeq: event.notifierSeq,
           courseTitle: event.courseTitle,
           category: event.category,
@@ -595,6 +634,58 @@ export async function persistSnapshot(
     });
   }
 
+  for (const event of messages) {
+    const isNewRecord = !existingMessageSet.has(event.messageSeq);
+    const existingIsRead = existingMessageBySeq.get(event.messageSeq);
+    const nextIsRead = existingIsRead === undefined ? event.isRead : existingIsRead && event.isRead;
+
+    await runWithPrismaRetry(() =>
+      prisma.portalMessage.upsert({
+        where: {
+          userId_provider_messageSeq: {
+            userId,
+            provider,
+            messageSeq: event.messageSeq,
+          },
+        },
+        update: {
+          title: event.title,
+          senderId: event.senderId ?? null,
+          senderName: event.senderName ?? null,
+          bodyText: event.bodyText,
+          sentAt: toDate(event.sentAt ?? null),
+          isRead: nextIsRead,
+          syncedAt: new Date(event.syncedAt),
+        },
+        create: {
+          userId,
+          provider,
+          messageSeq: event.messageSeq,
+          title: event.title,
+          senderId: event.senderId ?? null,
+          senderName: event.senderName ?? null,
+          bodyText: event.bodyText,
+          sentAt: toDate(event.sentAt ?? null),
+          isRead: event.isRead,
+          syncedAt: new Date(event.syncedAt),
+        },
+      }),
+    );
+
+    if (isNewRecord) {
+      newMessageCount += 1;
+      newMessages.push({
+        messageSeq: event.messageSeq,
+        title: event.title,
+        senderName: event.senderName ?? null,
+        sentAt: event.sentAt ?? null,
+      });
+    }
+
+    existingMessageSet.add(event.messageSeq);
+    existingMessageBySeq.set(event.messageSeq, nextIsRead);
+  }
+
   for (const task of data.tasks) {
     const availableFrom = toDate(task.availableFrom ?? null);
     const dueAt = toDate(task.dueAt ?? null);
@@ -626,17 +717,20 @@ export async function persistSnapshot(
     await runWithPrismaRetry(() =>
       prisma.learningTask.upsert({
         where: {
-          userId_lectureSeq_courseContentsSeq: {
+          userId_provider_lectureSeq_courseContentsSeq: {
             userId,
+            provider,
             lectureSeq: task.lectureSeq,
             courseContentsSeq: task.courseContentsSeq,
           },
         },
         update: {
+          provider,
           ...taskUpdate,
         },
         create: {
           userId,
+          provider,
           lectureSeq: task.lectureSeq,
           courseContentsSeq: task.courseContentsSeq,
           weekNo: task.weekNo,
@@ -696,8 +790,11 @@ export async function persistSnapshot(
     newNoticeCount,
     newNotificationCount,
     newUnreadNotificationCount,
+    newMessageCount,
+    unreadMessageCount: messages.filter((message) => !message.isRead).length,
     newNotices,
     newUnreadNotifications,
+    newMessages,
     deadlineTasks,
     pendingTaskCount,
   };
@@ -705,6 +802,7 @@ export async function persistSnapshot(
 
 export async function recordLearningRun(
   userId: string,
+  provider: PortalProvider,
   lectureSeq: number | null,
   status: "SUCCESS" | "FAILED",
   message?: string,
@@ -712,6 +810,7 @@ export async function recordLearningRun(
   await prisma.learningRun.create({
     data: {
       userId,
+      provider,
       lectureSeq: lectureSeq ?? 0,
       startedAt: new Date(),
       endedAt: new Date(),
@@ -742,6 +841,7 @@ export async function recordMailDelivery(
 
 export async function markTaskDeadlineAlerted(
   userId: string,
+  provider: PortalProvider,
   task: {
     lectureSeq: number;
     courseContentsSeq: number;
@@ -753,6 +853,7 @@ export async function markTaskDeadlineAlerted(
     await prisma.taskDeadlineAlert.create({
       data: {
         userId,
+        provider,
         lectureSeq: task.lectureSeq,
         courseContentsSeq: task.courseContentsSeq,
         thresholdDays,

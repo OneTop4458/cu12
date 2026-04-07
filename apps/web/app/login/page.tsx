@@ -41,28 +41,28 @@ export default async function LoginPage({
             alt="Catholic University logo"
             className="brand-wordmark"
           />
-          <p className="brand-kicker">Catholic University CU12 Automation</p>
-          <h1>가톨릭 공유대학 수강 지원 솔루션</h1>
+          <p className="brand-kicker">CUK Auto</p>
+          <h1>Multi-Portal Learning Automation</h1>
           <p className="muted">
-            CU12 로그인 페이지입니다.
+            CU12와 가톨릭대 사이버캠퍼스를 하나의 워크플로우로 연결합니다.
           </p>
           <p className="brand-mark">
-            Catholic University CU12 Automation
+            CUK Auto
           </p>
         </section>
 
         <section className="card auth-card brand-login">
           <div className="brand-ribbon" />
-          <p className="brand-kicker">Catholic University CU12 Automation</p>
-          <h1>로그인</h1>
-          <p className="muted">가톨릭 공유대학 아이디와 비밀번호를 입력해 로그인하세요.</p>
+          <p className="brand-kicker">CUK Auto</p>
+          <h1>Sign In</h1>
+          <p className="muted">포털을 선택하고 계정 정보를 입력해 로그인하세요.</p>
           {activeMaintenanceNotice ? (
             <section className="top-gap card">
-              <p className="error-text">시스템 점검 공지</p>
+              <p className="error-text">서비스 공지</p>
               <p className="muted">{activeMaintenanceNotice.title}</p>
               <p className="muted">{activeMaintenanceNotice.message}</p>
               <Link className="ghost-btn" href="/maintenance" style={{ alignSelf: "flex-start" }}>
-                점검 안내 보기
+                운영 안내 보기
               </Link>
             </section>
           ) : null}
@@ -79,10 +79,10 @@ export default async function LoginPage({
                   </li>
                 ))}
               </ul>
-            <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
-              전체 공지 보기
-            </Link>
-          </section>
+              <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
+                전체 공지 보기
+              </Link>
+            </section>
           ) : null}
           <LoginForm sessionExpiredReason={sessionExpiredReason} />
         </section>

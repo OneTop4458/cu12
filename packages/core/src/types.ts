@@ -1,8 +1,13 @@
+export type PortalProvider = "CU12" | "CYBER_CAMPUS";
+export type PortalCampus = "SONGSIM" | "SONGSIN";
+
 export type CourseStatus = "ACTIVE" | "UPCOMING" | "ENDED";
 
 export interface CourseState {
   userId: string;
+  provider?: PortalProvider;
   lectureSeq: number;
+  externalLectureId?: string | null;
   title: string;
   instructor: string | null;
   progressPercent: number;
@@ -16,7 +21,9 @@ export interface CourseState {
 
 export interface CourseNotice {
   userId: string;
+  provider?: PortalProvider;
   lectureSeq: number;
+  externalLectureId?: string | null;
   noticeKey: string;
   noticeSeq?: string;
   title: string;
@@ -29,6 +36,7 @@ export interface CourseNotice {
 
 export interface NotificationEvent {
   userId: string;
+  provider?: PortalProvider;
   notifierSeq: string;
   courseTitle: string;
   category: string;
@@ -41,7 +49,9 @@ export interface NotificationEvent {
 
 export interface LearningTask {
   userId: string;
+  provider?: PortalProvider;
   lectureSeq: number;
+  externalLectureId?: string | null;
   courseContentsSeq: number;
   weekNo: number;
   lessonNo: number;
@@ -54,11 +64,25 @@ export interface LearningTask {
   dueAt?: string | null;
 }
 
+export interface PortalMessage {
+  userId: string;
+  provider?: PortalProvider;
+  messageSeq: string;
+  title: string;
+  senderId?: string | null;
+  senderName?: string | null;
+  bodyText: string;
+  sentAt?: string | null;
+  isRead: boolean;
+  syncedAt: string;
+}
+
 export type QueueJobType = "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
 export type QueueJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 
 export interface QueuePayload {
   userId: string;
+  provider?: PortalProvider;
   lectureSeq?: number;
   autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
   courseContentsSeq?: number;
@@ -70,6 +94,13 @@ export interface QueuePayload {
 export interface Cu12Credentials {
   cu12Id: string;
   cu12Password: string;
-  campus: "SONGSIM" | "SONGSIN";
+  campus: PortalCampus;
+}
+
+export interface PortalCredentials {
+  provider: PortalProvider;
+  loginId: string;
+  password: string;
+  campus?: PortalCampus | null;
 }
 

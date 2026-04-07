@@ -1,11 +1,13 @@
-﻿import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import type { PortalCampus, PortalProvider } from "@cu12/core";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
 export interface Cu12AccountInput {
+  provider: PortalProvider;
   cu12Id: string;
   cu12Password: string;
-  campus: "SONGSIM" | "SONGSIN";
+  campus?: PortalCampus | null;
 }
 
 export interface AutomationSettingsInput {
@@ -16,6 +18,7 @@ export interface AutomationSettingsInput {
 }
 
 const automationSettingsSelect = {
+  provider: true,
   cu12Id: true,
   campus: true,
   accountStatus: true,
@@ -32,6 +35,7 @@ type Cu12AutomationSettingsRecord = Prisma.Cu12AccountGetPayload<{
 }>;
 
 const dashboardAccountSelect = {
+  provider: true,
   cu12Id: true,
   campus: true,
   accountStatus: true,
@@ -79,18 +83,22 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
   return prisma.cu12Account.upsert({
     where: { userId },
     update: {
+      provider: input.provider,
       cu12Id: input.cu12Id,
       encryptedPassword: encryptSecret(input.cu12Password),
-      campus: input.campus,
+      campus: input.provider === "CU12" ? (input.campus ?? "SONGSIM") : null,
+      ...(input.provider === "CYBER_CAMPUS" ? { autoLearnEnabled: false } : {}),
       accountStatus: "CONNECTED",
       statusReason: null,
       updatedAt: new Date(),
     },
     create: {
       userId,
+      provider: input.provider,
       cu12Id: input.cu12Id,
       encryptedPassword: encryptSecret(input.cu12Password),
-      campus: input.campus,
+      campus: input.provider === "CU12" ? (input.campus ?? "SONGSIM") : null,
+      autoLearnEnabled: input.provider === "CYBER_CAMPUS" ? false : true,
       accountStatus: "CONNECTED",
     },
   });
@@ -101,9 +109,10 @@ export async function getCu12Credentials(userId: string) {
   if (!account) return null;
 
   return {
+    provider: account.provider as PortalProvider,
     cu12Id: account.cu12Id,
     cu12Password: decryptSecret(account.encryptedPassword),
-    campus: account.campus,
+    campus: (account.campus ?? null) as PortalCampus | null,
   };
 }
 
@@ -121,6 +130,7 @@ export async function getAutomationSettingsAccount(userId: string): Promise<Cu12
     const fallback = await prisma.cu12Account.findUnique({
       where: { userId },
       select: {
+        provider: true,
         cu12Id: true,
         campus: true,
         accountStatus: true,
@@ -149,6 +159,7 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
     const fallback = await prisma.cu12Account.findUnique({
       where: { userId },
       select: {
+        provider: true,
         cu12Id: true,
         campus: true,
         accountStatus: true,
@@ -167,8 +178,16 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
 }
 
 export async function updateAutomationSettings(userId: string, input: AutomationSettingsInput) {
+  const current = await prisma.cu12Account.findUnique({
+    where: { userId },
+    select: { provider: true },
+  });
+  if (!current) {
+    throw new Error("Account not found");
+  }
+
   const data = {
-    autoLearnEnabled: input.autoLearnEnabled,
+    autoLearnEnabled: current.provider === "CYBER_CAMPUS" ? false : input.autoLearnEnabled,
     quizAutoSolveEnabled: input.quizAutoSolveEnabled,
     detectActivitiesEnabled: input.detectActivitiesEnabled,
     emailDigestEnabled: input.emailDigestEnabled,
@@ -188,11 +207,12 @@ export async function updateAutomationSettings(userId: string, input: Automation
     const fallback = await prisma.cu12Account.update({
       where: { userId },
       data: {
-        autoLearnEnabled: input.autoLearnEnabled,
+        autoLearnEnabled: current.provider === "CYBER_CAMPUS" ? false : input.autoLearnEnabled,
         detectActivitiesEnabled: input.detectActivitiesEnabled,
         emailDigestEnabled: input.emailDigestEnabled,
       },
       select: {
+        provider: true,
         cu12Id: true,
         campus: true,
         accountStatus: true,

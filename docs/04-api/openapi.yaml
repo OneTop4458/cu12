@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: CU12 Automation API
+  title: CUK Auto API
   version: 0.5.0
   description: >-
-    API contract for the CU12 Automation web application.
+    API contract for the CUK Auto web application.
     This document reflects the runtime behavior implemented in apps/web as of 2026-03-07.
 servers:
   - url: https://your-app.example.com

@@ -5,10 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth";
 import { generateToken } from "@/lib/token";
 import { upsertCu12Account } from "@/server/cu12-account";
-import { isCu12UnavailableResult, verifyCu12Login } from "@/server/cu12-login";
+import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-login";
+import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { writeAuditLog } from "@/server/audit-log";
 
 const CreateMemberSchema = z.object({
+  provider: z.enum(PORTAL_PROVIDER_VALUES).optional().default("CU12"),
   cu12Id: z.string().trim().min(4).max(80),
   cu12Password: z.string().min(4).max(120).optional(),
   localPassword: z.string().min(8).max(120).optional(),
@@ -53,6 +55,7 @@ export async function GET(request: NextRequest) {
       updatedAt: true,
       cu12Account: {
         select: {
+          provider: true,
           cu12Id: true,
           campus: true,
           accountStatus: true,
@@ -98,7 +101,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, CreateMemberSchema);
     const localPassword = body.localPassword?.trim();
-    const campus = body.campus ?? "SONGSIM";
+    const provider = normalizePortalProvider(body.provider);
+    const campus = provider === "CU12" ? (body.campus ?? "SONGSIM") : null;
     const role = body.role ?? "USER";
     const isActive = body.isActive ?? true;
     const isTestUser = body.isTestUser ?? false;
@@ -107,39 +111,46 @@ export async function POST(request: NextRequest) {
       return jsonError("localPassword is required for test users", 400, "VALIDATION_ERROR");
     }
     if (!isTestUser && !body.cu12Password) {
-      return jsonError("cu12Password is required for CU12 users", 400, "VALIDATION_ERROR");
+      return jsonError("portal password is required for managed accounts", 400, "VALIDATION_ERROR");
     }
 
     if (!isTestUser) {
-      const validation = await verifyCu12Login({
+      const validation = await verifyPortalLogin({
+        provider,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password ?? "",
         campus,
       });
       if (!validation.ok) {
-        const unavailable = isCu12UnavailableResult(validation);
+        const unavailable = isPortalUnavailableResult(validation);
         await writeAuditLog({
           category: "AUTH",
           severity: unavailable ? "ERROR" : "WARN",
           actorUserId: context.actor.userId,
           message: unavailable
-            ? "Admin member create failed due to CU12 service unavailability"
-            : "Admin member create failed due to CU12 verification",
+            ? "Admin member create failed due to portal service unavailability"
+            : "Admin member create failed due to portal verification",
           meta: {
+            provider,
             cu12Id: body.cu12Id,
             campus,
             messageCode: validation.messageCode ?? null,
           },
         });
         if (unavailable) {
-          return jsonError("CU12 authentication service unavailable.", 503, "CU12_UNAVAILABLE");
+          return jsonError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
         }
-        return jsonError("CU12 ID or password is invalid.", 401, "CU12_AUTH_FAILED");
+        return jsonError("Portal ID or password is invalid.", 401, "AUTH_FAILED");
       }
     }
 
     const existingAccount = await prisma.cu12Account.findUnique({
-      where: { cu12Id: body.cu12Id },
+      where: {
+        provider_cu12Id: {
+          provider,
+          cu12Id: body.cu12Id,
+        },
+      },
       select: { userId: true },
     });
     const existingUser = await prisma.user.findUnique({
@@ -184,7 +195,7 @@ export async function POST(request: NextRequest) {
       };
 
       if (isTestUser && localPassword) {
-        updateData.passwordHash = await hashPassword(localPassword!);
+        updateData.passwordHash = await hashPassword(localPassword);
       }
 
       await prisma.user.update({
@@ -195,6 +206,7 @@ export async function POST(request: NextRequest) {
 
     if (!isTestUser) {
       await upsertCu12Account(userId, {
+        provider,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password ?? "",
         campus,
@@ -213,6 +225,7 @@ export async function POST(request: NextRequest) {
         createdAt: true,
         cu12Account: {
           select: {
+            provider: true,
             cu12Id: true,
             campus: true,
             accountStatus: true,
@@ -230,6 +243,7 @@ export async function POST(request: NextRequest) {
       targetUserId: userId,
       message: created ? "Admin created member" : "Admin updated member",
       meta: {
+        provider,
         cu12Id: body.cu12Id,
         campus,
         role,

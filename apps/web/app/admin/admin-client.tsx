@@ -13,6 +13,7 @@ import { UserMenu } from "../../components/layout/user-menu";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
+type PortalProvider = "CU12" | "CYBER_CAMPUS";
 type InviteState = "ACTIVE" | "USED" | "EXPIRED" | "INACTIVE";
 
 interface AdminClientProps {
@@ -40,8 +41,9 @@ interface MailPreference {
 }
 
 interface Cu12Account {
+  provider: PortalProvider;
   cu12Id: string;
-  campus: CampusType;
+  campus: CampusType | null;
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
   quizAutoSolveEnabled?: boolean;
@@ -61,6 +63,7 @@ interface Member {
 
 interface Invite {
   id: string;
+  provider?: PortalProvider;
   cu12Id: string;
   role: RoleType;
   isActive: boolean;
@@ -129,6 +132,7 @@ interface LogPurgeResponse {
 
 interface InviteCreateResponse {
   inviteId: string;
+  provider?: PortalProvider;
   token: string;
   expiresAt: string;
 }
@@ -257,6 +261,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   const [newCu12Id, setNewCu12Id] = useState("");
   const [newName, setNewName] = useState("");
+  const [newProvider, setNewProvider] = useState<PortalProvider>("CU12");
   const [newCampus, setNewCampus] = useState<CampusType>("SONGSIM");
   const [newRole, setNewRole] = useState<RoleType>("USER");
   const [newIsTestUser, setNewIsTestUser] = useState(false);
@@ -268,6 +273,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
   const [inviteCu12Id, setInviteCu12Id] = useState("");
+  const [inviteProvider, setInviteProvider] = useState<PortalProvider>("CU12");
   const [inviteRole, setInviteRole] = useState<RoleType>("USER");
   const [inviteExpiresHours, setInviteExpiresHours] = useState(72);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
@@ -432,6 +438,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     setEditingMember(null);
     setNewCu12Id("");
     setNewName("");
+    setNewProvider("CU12");
     setNewCampus("SONGSIM");
     setNewRole("USER");
     setNewIsTestUser(false);
@@ -443,6 +450,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const startEditMember = useCallback((member: Member) => {
     setEditingMemberId(member.id);
     setEditingMember(member);
+    setNewProvider(member.cu12Account?.provider ?? "CU12");
     setNewCu12Id(member.cu12Account?.cu12Id ?? member.email);
     setNewName(member.name ?? "");
     setNewCampus(member.cu12Account?.campus ?? "SONGSIM");
@@ -504,11 +512,12 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         const payload = await fetchJson<MemberCreateResponse>("/api/admin/members", {
           method: "POST",
           body: JSON.stringify({
+            provider: newProvider,
             cu12Id: trimmedCu12Id,
             cu12Password: newCu12Password.trim(),
             localPassword: newIsTestUser ? newLocalPassword.trim() : undefined,
             name: newName.trim() || undefined,
-            campus: newCampus,
+            campus: newProvider === "CU12" ? newCampus : undefined,
             role: newRole,
             isTestUser: newIsTestUser,
             isActive: newIsActive,
@@ -626,6 +635,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       const payload = await fetchJson<InviteCreateResponse>("/api/auth/invite", {
         method: "POST",
         body: JSON.stringify({
+          provider: inviteProvider,
           cu12Id: inviteCu12Id.trim(),
           role: inviteRole,
           expiresHours: inviteExpiresHours,
@@ -835,7 +845,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       </header>
       <section className="card admin-hero">
         <div>
-          <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 관리자</p>
+          <p className="brand-kicker">CUK Auto Admin</p>
           <h1>운영 관리센터</h1>
           <p className="text-small muted">
             회원 {members.length}명, 초대 코드 {invites.length}개, 로그 {logPagination?.total ?? 0}건
@@ -877,7 +887,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         </div>
         <form className="form-grid top-gap" onSubmit={createMember}>
           <label className="field">
-            <span>CU12 ID</span>
+            <span>포털</span>
+            <select value={newProvider} onChange={(event) => setNewProvider(event.target.value as PortalProvider)}>
+              <option value="CU12">공유대 CU12</option>
+              <option value="CYBER_CAMPUS">사이버캠퍼스</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>계정 ID</span>
             <input
               value={newCu12Id}
               onChange={(event) => setNewCu12Id(event.target.value)}
@@ -901,7 +918,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <select
               value={newCampus}
               onChange={(event) => setNewCampus(event.target.value as CampusType)}
-              disabled={isEditMode}
+              disabled={isEditMode || newProvider !== "CU12"}
             >
               <option value="SONGSIM">성심교정</option>
               <option value="SONGSIN">성신교정</option>
@@ -1088,7 +1105,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         </div>
         <form className="form-grid top-gap" onSubmit={createInvite}>
           <label className="field">
-            <span>CU12 ID</span>
+            <span>포털</span>
+            <select value={inviteProvider} onChange={(event) => setInviteProvider(event.target.value as PortalProvider)}>
+              <option value="CU12">공유대 CU12</option>
+              <option value="CYBER_CAMPUS">사이버캠퍼스</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>계정 ID</span>
             <input
               value={inviteCu12Id}
               onChange={(event) => setInviteCu12Id(event.target.value)}
@@ -1137,7 +1161,8 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <table>
             <thead>
               <tr>
-                <th>CU12 ID</th>
+                <th>포털</th>
+                <th>계정 ID</th>
                 <th>역할</th>
                 <th>상태</th>
                 <th>생성일</th>
@@ -1150,12 +1175,13 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <tbody>
               {invites.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>발급된 초대 코드가 없습니다.</td>
+                  <td colSpan={9}>발급된 초대 코드가 없습니다.</td>
                 </tr>
               ) : (
                 invites.map((invite) => (
                   <tr key={invite.id}>
-                    <td data-label="CU12 ID">{invite.cu12Id}</td>
+                    <td data-label="포털">{invite.provider ?? "CU12"}</td>
+                    <td data-label="계정 ID">{invite.cu12Id}</td>
                     <td data-label="역할">{invite.role}</td>
                     <td data-label="상태">
                       <span className={`status-chip ${statusChipClassForInvite(invite.state)}`}>

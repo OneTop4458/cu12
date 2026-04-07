@@ -391,7 +391,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           <div className="topbar-brand">
             <img src="/brand/catholic/crest-mark.png" alt="Catholic University crest" loading="lazy" />
             <div>
-              <p className="brand-kicker">Catholic University CU12 Automation</p>
+              <p className="brand-kicker">CUK Auto</p>
               <h1>시스템 상태</h1>
             </div>
           </div>
