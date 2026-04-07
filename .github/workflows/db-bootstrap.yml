@@ -28,4 +28,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
       - name: Push Prisma schema
-        run: pnpm run prisma:push -- --accept-data-loss
+        run: pnpm exec prisma db push --schema prisma/schema.prisma --accept-data-loss
