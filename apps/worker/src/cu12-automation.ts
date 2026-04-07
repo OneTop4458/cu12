@@ -3,6 +3,8 @@ import {
   parseNoticeListHtml,
   parseNotificationListHtml,
   parseTodoTasks,
+  selectPreferredNoticeBody,
+  shouldResolveNoticeDetailBody,
   type CourseNotice,
   type CourseState,
   type LearningTask,
@@ -1162,14 +1164,14 @@ export async function collectCu12Snapshot(
         const bodyText = notice.noticeSeq ? bodiesByNoticeSeq.get(notice.noticeSeq) : undefined;
         return {
           ...notice,
-          bodyText: bodyText?.trim() ? bodyText : notice.bodyText,
+          bodyText: selectPreferredNoticeBody(notice.bodyText, bodyText),
         };
       });
 
       const missingBodyNoticeSeqs = Array.from(
         new Set(
           resolvedNotices
-            .filter((notice) => !notice.bodyText?.trim() && notice.noticeSeq)
+            .filter((notice) => notice.noticeSeq && shouldResolveNoticeDetailBody(notice.bodyText))
             .map((notice) => String(notice.noticeSeq)),
         ),
       );
@@ -1178,9 +1180,13 @@ export async function collectCu12Snapshot(
         const detailBodiesBySeq = await fetchNoticeBodiesFromDetailPages(page, course.lectureSeq, missingBodyNoticeSeqs);
         resolvedNotices = resolvedNotices.map((notice) => {
           const noticeSeq = notice.noticeSeq ? String(notice.noticeSeq) : "";
-          if (!noticeSeq || notice.bodyText?.trim()) return notice;
+          if (!noticeSeq) return notice;
           const detailBodyText = detailBodiesBySeq.get(noticeSeq);
-          return detailBodyText ? { ...notice, bodyText: detailBodyText } : notice;
+          if (!detailBodyText) return notice;
+          return {
+            ...notice,
+            bodyText: selectPreferredNoticeBody(notice.bodyText, detailBodyText),
+          };
         });
       }
 
