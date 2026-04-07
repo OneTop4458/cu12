@@ -27,6 +27,10 @@
 10. Worker `--once` handoff dispatches follow-up consume run when pending AUTOLEARN jobs remain.
 11. User-scoped consume run (`--userId`) claims only that user's jobs.
 12. Centralized dispatch enforces parallel cap and returns `SKIPPED_CAPACITY` when full.
+13. Parser maps CU12 `C03` links to `MATERIAL` and `C02` links to `QUIZ`.
+14. AUTOLEARN planner includes pending material and quiz tasks in lecture order.
+15. Material execution verifies completion by refreshed todo/snapshot state instead of calling hidden attend endpoints directly.
+16. Quiz retry logic re-prompts only while attempts remain and stops with a terminal failure when attempts are exhausted.
 
 ## Dashboard Data
 
@@ -46,3 +50,5 @@
 1. New environment bootstrap -> admin first login -> invite issuance -> user first login.
 2. User sync request -> queue -> worker consume -> dashboard update.
 3. User auto-learning request -> queue -> worker consume -> learning log update.
+4. User auto-learning request processes pending material activity to completion.
+5. User auto-learning request solves a pending quiz and clears it from the todo list.

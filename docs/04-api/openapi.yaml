@@ -2775,9 +2775,11 @@ components:
 
     DashboardActivityTypeCounts:
       type: object
-      required: [VOD, QUIZ, ASSIGNMENT, ETC]
+      required: [VOD, MATERIAL, QUIZ, ASSIGNMENT, ETC]
       properties:
         VOD:
+          type: integer
+        MATERIAL:
           type: integer
         QUIZ:
           type: integer
@@ -2822,7 +2824,7 @@ components:
           type: integer
         activityType:
           type: string
-          enum: [VOD, QUIZ, ASSIGNMENT, ETC]
+          enum: [VOD, MATERIAL, QUIZ, ASSIGNMENT, ETC]
         requiredSeconds:
           type: integer
         learnedSeconds:
@@ -3128,7 +3130,7 @@ components:
           type: integer
         activityType:
           type: string
-          enum: [VOD, QUIZ, ASSIGNMENT, ETC]
+          enum: [VOD, MATERIAL, QUIZ, ASSIGNMENT, ETC]
         availableFrom:
           type: string
           format: date-time
@@ -3480,8 +3482,8 @@ components:
           NO_ACTIVE_COURSES,
           LECTURE_NOT_FOUND,
           NO_PENDING_TASKS,
-          NO_PENDING_VOD_TASKS,
-          NO_AVAILABLE_VOD_TASKS,
+          NO_PENDING_SUPPORTED_TASKS,
+          NO_AVAILABLE_SUPPORTED_TASKS,
           NO_TASKS_AFTER_FILTER,
         ]
 
@@ -3521,7 +3523,7 @@ components:
           enum: [PENDING, RUNNING, COMPLETED, FAILED]
         activityType:
           type: string
-          enum: [VOD, QUIZ, ASSIGNMENT, ETC]
+          enum: [VOD, MATERIAL, QUIZ, ASSIGNMENT, ETC]
         requiredSeconds:
           type: integer
         learnedSeconds:
@@ -3555,7 +3557,7 @@ components:
         progress:
           type: object
           required:
-            [phase, mode, totalTasks, completedTasks, watchedSeconds, estimatedRemainingSeconds]
+            [phase, mode, totalTasks, completedTasks, elapsedSeconds, estimatedRemainingSeconds]
           properties:
             phase:
               type: string
@@ -3567,7 +3569,7 @@ components:
               type: integer
             completedTasks:
               type: integer
-            watchedSeconds:
+            elapsedSeconds:
               type: integer
             estimatedRemainingSeconds:
               type: integer
@@ -3585,6 +3587,9 @@ components:
                   type: integer
                 lessonNo:
                   type: integer
+                activityType:
+                  type: string
+                  enum: [VOD, MATERIAL, QUIZ, ASSIGNMENT, ETC]
                 remainingSeconds:
                   type: integer
                 elapsedSeconds:
@@ -3595,6 +3600,18 @@ components:
                   nullable: true
                 taskTitle:
                   type: string
+                  nullable: true
+                questionIndex:
+                  type: integer
+                  nullable: true
+                questionCount:
+                  type: integer
+                  nullable: true
+                attemptsUsed:
+                  type: integer
+                  nullable: true
+                attemptsLimit:
+                  type: integer
                   nullable: true
             noOpReason:
               allOf:
@@ -3615,8 +3632,8 @@ components:
         [
           type,
           mode,
-          watchedTaskCount,
-          watchedSeconds,
+          processedTaskCount,
+          elapsedSeconds,
           lectureSeqs,
           plannedTaskCount,
           truncated,
@@ -3629,9 +3646,9 @@ components:
         mode:
           type: string
           enum: [SINGLE_NEXT, SINGLE_ALL, ALL_COURSES]
-        watchedTaskCount:
+        processedTaskCount:
           type: integer
-        watchedSeconds:
+        elapsedSeconds:
           type: integer
         lectureSeqs:
           type: array

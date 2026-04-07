@@ -590,7 +590,7 @@ export async function persistSnapshot(
     const taskUpdate: {
       weekNo: number;
       lessonNo: number;
-      activityType: "VOD" | "QUIZ" | "ASSIGNMENT" | "ETC";
+      activityType: "VOD" | "MATERIAL" | "QUIZ" | "ASSIGNMENT" | "ETC";
       requiredSeconds: number;
       learnedSeconds: number;
       state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";

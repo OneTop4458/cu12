@@ -46,7 +46,7 @@ export interface LearningTask {
   weekNo: number;
   lessonNo: number;
   taskTitle?: string;
-  activityType: "VOD" | "QUIZ" | "ASSIGNMENT" | "ETC";
+  activityType: "VOD" | "MATERIAL" | "QUIZ" | "ASSIGNMENT" | "ETC";
   requiredSeconds: number;
   learnedSeconds: number;
   state: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";

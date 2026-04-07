@@ -233,6 +233,8 @@ function formatAutoLearnNoOpReason(reason: string | null | undefined): string | 
   if (reason === "NO_PENDING_VOD_TASKS") return "미완료 VOD 차시가 없습니다.";
   if (reason === "NO_AVAILABLE_VOD_TASKS") return "현재 학습 가능 시간대의 VOD 차시가 없습니다.";
   if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 남은 차시가 없습니다.";
+  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 미완료 강의, 자료, 퀴즈가 없습니다.";
+  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능 기간에 있는 강의, 자료, 퀴즈가 없습니다.";
   return reason;
 }
 
@@ -269,8 +271,8 @@ function toChainSegment(raw: unknown, fallback = 1): number {
 interface AutoLearnJobResultPayload {
   type: "AUTOLEARN";
   mode: AutoLearnMode;
-  watchedTaskCount: number;
-  watchedSeconds: number;
+  processedTaskCount: number;
+  elapsedSeconds: number;
   plannedTaskCount: number;
   noOpReason?: string | null;
   planned?: AutoLearnPlannedTask[];
@@ -284,8 +286,8 @@ function isAutoLearnJobResultPayload(value: unknown): value is AutoLearnJobResul
   const record = value as Record<string, unknown>;
   if (record.type !== "AUTOLEARN") return false;
   if (record.mode !== "SINGLE_NEXT" && record.mode !== "SINGLE_ALL" && record.mode !== "ALL_COURSES") return false;
-  return typeof record.watchedTaskCount === "number"
-    && typeof record.watchedSeconds === "number"
+  return typeof record.processedTaskCount === "number"
+    && typeof record.elapsedSeconds === "number"
     && typeof record.plannedTaskCount === "number"
     && typeof record.truncated === "boolean"
     && typeof record.estimatedTotalSeconds === "number";
@@ -575,6 +577,8 @@ async function sendAutoLearnResultMail(
   userId: string,
   payload: {
     mode: AutoLearnMode;
+    processedTaskCount: number;
+    elapsedSeconds: number;
     watchedTaskCount: number;
     watchedSeconds: number;
     plannedTaskCount: number;
@@ -1055,7 +1059,7 @@ async function processAutolearn(
             `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
             + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
             + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
-            + ` watched=${progress.watchedSeconds}s`
+          + ` total=${progress.elapsedSeconds}s`
             + ` course="${courseTitle}" task="${taskTitle}"`,
           );
         }
@@ -1074,7 +1078,7 @@ async function processAutolearn(
     }
     clearInterval(stallWatchdog);
 
-    await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, watched=${autoResult.watchedTaskCount}`);
+    await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, processed=${autoResult.processedTaskCount}`);
 
     // Refresh snapshots after playback updates.
     const shouldCancel = onCancelCheck ?? (async () => false);
@@ -1089,7 +1093,7 @@ async function processAutolearn(
       meta: {
         jobId,
         mode: autoResult.mode,
-        watchedTaskCount: autoResult.watchedTaskCount,
+          processedTaskCount: autoResult.processedTaskCount,
         noOpReason: autoResult.noOpReason,
         plannedTaskCount: autoResult.plannedTaskCount,
       },
@@ -1098,8 +1102,8 @@ async function processAutolearn(
     return {
       type: "AUTOLEARN",
       mode: autoResult.mode,
-      watchedTaskCount: autoResult.watchedTaskCount,
-      watchedSeconds: autoResult.watchedSeconds,
+      processedTaskCount: autoResult.processedTaskCount,
+      elapsedSeconds: autoResult.elapsedSeconds,
       plannedTaskCount: autoResult.plannedTaskCount,
       noOpReason: autoResult.noOpReason,
       planned: autoResult.planned,
@@ -1451,8 +1455,10 @@ async function main() {
             if (!continuationQueued) {
               await sendAutoLearnResultMail(job.payload.userId, {
                 mode: result.mode,
-                watchedTaskCount: result.watchedTaskCount,
-                watchedSeconds: result.watchedSeconds,
+                processedTaskCount: result.processedTaskCount,
+                elapsedSeconds: result.elapsedSeconds,
+                watchedTaskCount: result.processedTaskCount,
+                watchedSeconds: result.elapsedSeconds,
                 plannedTaskCount: result.plannedTaskCount,
                 truncated: result.truncated,
                 continuationQueued,

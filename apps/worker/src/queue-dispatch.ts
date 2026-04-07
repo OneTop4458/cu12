@@ -84,8 +84,7 @@ async function resolveAutoLearnWindowEligibleUserIds(userIds: string[]): Promise
     where: {
       userId: { in: userIds },
       state: "PENDING",
-      activityType: "VOD",
-      requiredSeconds: { gt: 0 },
+      activityType: { in: ["VOD", "MATERIAL", "QUIZ"] },
       AND: [
         {
           OR: [
@@ -103,6 +102,7 @@ async function resolveAutoLearnWindowEligibleUserIds(userIds: string[]): Promise
     },
     select: {
       userId: true,
+      activityType: true,
       requiredSeconds: true,
       learnedSeconds: true,
     },
@@ -110,7 +110,7 @@ async function resolveAutoLearnWindowEligibleUserIds(userIds: string[]): Promise
 
   const eligible = new Set<string>();
   for (const task of tasks) {
-    if (task.learnedSeconds < task.requiredSeconds) {
+    if (task.activityType !== "VOD" || task.learnedSeconds < task.requiredSeconds) {
       eligible.add(task.userId);
     }
   }

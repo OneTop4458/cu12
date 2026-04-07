@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 interface ActivityTypeCounts {
   VOD: number;
+  MATERIAL: number;
   QUIZ: number;
   ASSIGNMENT: number;
   ETC: number;
@@ -68,6 +69,7 @@ function daysUntil(target: Date, now: Date): number {
 function createActivityTypeCounts(): ActivityTypeCounts {
   return {
     VOD: 0,
+    MATERIAL: 0,
     QUIZ: 0,
     ASSIGNMENT: 0,
     ETC: 0,
