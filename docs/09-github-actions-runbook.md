@@ -107,6 +107,7 @@ node -e "const c=require('node:crypto');const code='replace-with-invite-code';co
 - `WORKER_SHARED_TOKEN`
 - `WEB_INTERNAL_BASE_URL`
 - `CU12_BASE_URL`
+- `OPENAI_API_KEY`
 - `GITHUB_TOKEN` (or PAT for workflow dispatch when required)
 - `VERCEL_TOKEN`
 - `VERCEL_ORG_ID`
@@ -143,7 +144,7 @@ node -e "const c=require('node:crypto');const code='replace-with-invite-code';co
 
 ### Worker env validation failed
 
-1. Verify `APP_MASTER_KEY`, `WORKER_SHARED_TOKEN`, `DATABASE_URL`.
+1. Verify `APP_MASTER_KEY`, `WORKER_SHARED_TOKEN`, `DATABASE_URL`, and `OPENAI_API_KEY` when quiz auto-solve is expected.
 2. Ensure values are aligned across GitHub and Vercel.
 3. Redeploy web app and rerun worker.
 
