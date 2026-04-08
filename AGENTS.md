@@ -48,7 +48,7 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 2. Never commit secrets or sensitive values (passwords, tokens, cookies, private keys, internal-only credentials, real invite codes).
 3. Never print secrets in CI logs, PR comments, or automation script output.
 4. `main` must be updated only through pull requests. Direct push to `main` is prohibited.
-5. Every AI/operator task must start from latest `origin/main` using an isolated branch.
+5. Every AI/operator task must start by fetching `origin/main`, updating the task/session branch onto the latest `origin/main`, and then working from that isolated branch.
 6. Branch protection baseline for `main`:
    - required status checks: `test`, `secret-scan`
    - required approving reviews: `0`
@@ -71,6 +71,8 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 3. Every Codex session must start with `pnpm run ai:start --task "<task-slug>"`.
 4. In a Codex-linked worktree, `ai:start` must:
    - fetch latest `origin/main`
+   - rebase any reused clean `ai/*` session/task branch onto the fetched `origin/main` before work begins
+   - stop immediately if the current worktree is dirty or the rebase hits conflicts
    - reuse the current-worktree branch `ai/session-<session-id>` while that session branch is still active
    - automatically roll over to `ai/<task>-<timestamp>` when the session branch is already merged into the base branch
    - allow `--new-task` to force a fresh `ai/<task>-<timestamp>` branch before merge when unrelated work should not share the session branch

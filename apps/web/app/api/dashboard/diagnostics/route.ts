@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { getDashboardDiagnostics } from "@/server/dashboard";
-import { getCurrentPortalProvider } from "@/server/current-provider";
+import { resolveRequestPortalProvider } from "@/server/request-provider";
 
 function parsePositiveInt(value: string | null): number | null {
   if (value === null) return null;
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (sampleLimitRaw !== null && sampleLimitParsed === null) {
     return jsonError("Invalid sampleLimit", 400);
   }
-  const provider = await getCurrentPortalProvider(context.effective.userId);
+  const provider = await resolveRequestPortalProvider(request, context.effective.userId);
 
   const diagnostics = await getDashboardDiagnostics(context.effective.userId, provider, {
     lectureSeq: lectureSeq ?? undefined,

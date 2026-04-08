@@ -1,3 +1,4 @@
+import type { PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
@@ -361,6 +362,154 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
   const staleJobIds: string[] = [];
 
   for (const row of rows) {
+    if (row.status === JobStatus.RUNNING) {
+      const startedAtStale = !row.startedAt
+        || now.getTime() - row.startedAt.getTime() >= MANUAL_RUNNING_REDISPATCH_MS;
+      const heartbeatAt = row.workerId ? heartbeatByWorkerId.get(row.workerId) : null;
+      const heartbeatStale = !heartbeatAt || heartbeatAt.getTime() < workerHeartbeatCutoffMs;
+      const isRunningStale = startedAtStale && heartbeatStale;
+
+      if (isRunningStale) {
+        runningStaleCount += 1;
+        staleJobIds.push(row.id);
+      } else {
+        runningFresh = true;
+      }
+
+      runningCount += 1;
+      continue;
+    }
+
+    const pendingAnchor = row.runAfter ?? row.createdAt;
+    const isPendingStale = now.getTime() - pendingAnchor.getTime() >= MANUAL_PENDING_REDISPATCH_MS;
+
+    if (isPendingStale) {
+      pendingStaleCount += 1;
+      staleJobIds.push(row.id);
+    } else {
+      pendingFresh = true;
+    }
+
+    pendingCount += 1;
+  }
+
+  if (runningFresh) {
+    return {
+      state: "RUNNING",
+      staleJobIds: [],
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  if (pendingFresh) {
+    return {
+      state: runningStaleCount > 0 ? "RUNNING_STALE" : "PENDING",
+      staleJobIds,
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  if (runningStaleCount > 0) {
+    return {
+      state: "RUNNING_STALE",
+      staleJobIds,
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  if (pendingStaleCount > 0) {
+    return {
+      state: "PENDING_STALE",
+      staleJobIds,
+      runningCount,
+      runningStaleCount,
+      pendingCount,
+      pendingStaleCount,
+    };
+  }
+
+  return {
+    state: "IDLE",
+    staleJobIds: [],
+    runningCount,
+    runningStaleCount,
+    pendingCount,
+    pendingStaleCount,
+  };
+}
+
+function getSyncJobProvider(payload: Prisma.JsonValue | null): PortalProvider | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const provider = (payload as Record<string, unknown>).provider;
+  return provider === "CYBER_CAMPUS" ? "CYBER_CAMPUS" : provider === "CU12" ? "CU12" : null;
+}
+
+export async function getSyncQueueSummaryForUserByProvider(
+  userId: string,
+  provider: PortalProvider,
+  now = new Date(),
+): Promise<SyncQueueSummary> {
+  const rows = await prisma.jobQueue.findMany({
+    where: {
+      userId,
+      type: { in: [...SYNC_JOB_TYPES] },
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+    },
+    select: {
+      id: true,
+      status: true,
+      runAfter: true,
+      createdAt: true,
+      startedAt: true,
+      workerId: true,
+      payload: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const filteredRows = rows
+    .filter((row) => getSyncJobProvider(row.payload) === provider)
+    .map(({ payload: _payload, ...row }) => row);
+
+  const runningWorkerIds = Array.from(
+    new Set(
+      filteredRows
+        .filter((row) => row.status === JobStatus.RUNNING && typeof row.workerId === "string" && row.workerId.length > 0)
+        .map((row) => row.workerId as string),
+    ),
+  );
+  const heartbeats = runningWorkerIds.length === 0
+    ? []
+    : await prisma.workerHeartbeat.findMany({
+      where: {
+        workerId: { in: runningWorkerIds },
+      },
+      select: {
+        workerId: true,
+        lastSeenAt: true,
+      },
+    });
+  const heartbeatByWorkerId = new Map(heartbeats.map((row) => [row.workerId, row.lastSeenAt]));
+  const workerHeartbeatCutoffMs = now.getTime() - STALE_WORKER_TIMEOUT_MS;
+
+  let runningCount = 0;
+  let runningFresh = false;
+  let runningStaleCount = 0;
+  let pendingCount = 0;
+  let pendingFresh = false;
+  let pendingStaleCount = 0;
+  const staleJobIds: string[] = [];
+
+  for (const row of filteredRows) {
     if (row.status === JobStatus.RUNNING) {
       const startedAtStale = !row.startedAt
         || now.getTime() - row.startedAt.getTime() >= MANUAL_RUNNING_REDISPATCH_MS;

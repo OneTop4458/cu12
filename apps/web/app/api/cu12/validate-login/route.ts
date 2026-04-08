@@ -1,18 +1,17 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
 import {
-  enqueueJob,
   ensureSyncAllowedForUser,
   TEST_USER_SYNC_BLOCKED_ERROR_CODE,
   TEST_USER_SYNC_BLOCKED_MESSAGE,
 } from "@/server/queue";
-import { getCurrentPortalProvider } from "@/server/current-provider";
+import { buildSyncDispatchNotice, queueSyncJobsForUser } from "@/server/sync-job-dispatch";
 
 export async function POST(request: NextRequest) {
   const session = await requireUser(request);
   if (!session) return jsonError("Unauthorized", 401);
+
   const syncGate = await ensureSyncAllowedForUser(session.userId);
   if (!syncGate.allowed) {
     return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
@@ -22,6 +21,7 @@ export async function POST(request: NextRequest) {
     where: { userId: session.userId },
     select: {
       id: true,
+      campus: true,
       accountStatus: true,
     },
   });
@@ -29,21 +29,24 @@ export async function POST(request: NextRequest) {
     return jsonError("CU12 account is not connected", 400);
   }
 
-  const provider = await getCurrentPortalProvider(session.userId);
-  const { job } = await enqueueJob({
+  const queued = await queueSyncJobsForUser({
     userId: session.userId,
-    type: "SYNC",
-    payload: { userId: session.userId, provider, reason: "validate_login" },
-    idempotencyKey: `sync:${session.userId}:${provider}:validate-login`,
+    campus: account.campus,
+    reason: "validate-login",
   });
+  const first = queued.results[0] ?? null;
 
-  const dispatch = await dispatchWorkerRun("sync", session.userId);
   return jsonOk({
-    queued: true,
-    provider,
-    jobId: job.id,
+    queued: queued.results.length > 0,
+    providers: queued.providers,
+    results: queued.results,
+    provider: first?.provider ?? null,
+    jobId: first?.jobId ?? null,
     accountStatus: account.accountStatus,
-    dispatched: dispatch.dispatched,
-    dispatchError: dispatch.error,
+    dispatched: queued.dispatch.dispatched,
+    dispatchState: queued.dispatch.state,
+    dispatchError: queued.dispatch.error,
+    dispatchErrorCode: queued.dispatch.errorCode,
+    notice: buildSyncDispatchNotice(queued),
   });
 }

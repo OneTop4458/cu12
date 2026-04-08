@@ -150,7 +150,7 @@ function serializeApproval(row: CyberCampusApprovalRow | null): CyberCampusAppro
 
 async function resolveCyberCampusCredentials(userId: string) {
   const creds = await getCu12Credentials(userId);
-  if (!creds || creds.provider !== "CYBER_CAMPUS") {
+  if (!creds) {
     throw new Error("사이버캠퍼스 계정이 연결되어 있지 않습니다.");
   }
   return creds;

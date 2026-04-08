@@ -25,6 +25,8 @@ interface SessionContext {
   impersonating: boolean;
 }
 
+type PortalProvider = "CU12" | "CYBER_CAMPUS";
+
 interface Summary {
   activeCourseCount: number;
   avgProgress: number;
@@ -55,6 +57,7 @@ interface CourseWeekSummary {
 }
 
 interface Course {
+  provider: PortalProvider;
   lectureSeq: number;
   title: string;
   instructor: string | null;
@@ -75,6 +78,7 @@ interface Course {
 }
 
 interface CourseDetailPayload {
+  provider: PortalProvider;
   lectureSeq: number;
   taskTypeCounts: ActivityTypeCounts;
   pendingTaskTypeCounts: ActivityTypeCounts;
@@ -82,6 +86,7 @@ interface CourseDetailPayload {
 }
 
 interface Deadline {
+  provider: PortalProvider;
   lectureSeq: number;
   courseContentsSeq: number;
   weekNo: number;
@@ -95,6 +100,7 @@ interface Deadline {
 }
 
 interface Notice {
+  provider: PortalProvider;
   id: string;
   title: string;
   author: string | null;
@@ -104,6 +110,7 @@ interface Notice {
 }
 
 interface Notification {
+  provider: PortalProvider;
   id: string;
   courseTitle: string;
   message: string;
@@ -114,6 +121,7 @@ interface Notification {
 }
 
 interface MessageItem {
+  provider: PortalProvider;
   id: string;
   title: string;
   senderName: string | null;
@@ -157,11 +165,21 @@ interface DashboardSyncQueue {
   pendingStaleCount: number;
 }
 
-interface JobDispatch {
+interface SyncJobResult {
+  provider: PortalProvider;
   jobId: string;
+  status: "PENDING" | "RUNNING";
+  deduplicated: boolean;
+}
+
+interface JobDispatch {
+  provider?: PortalProvider | null;
+  providers?: PortalProvider[];
+  results?: SyncJobResult[];
+  jobId: string | null;
   deduplicated: boolean;
   dispatched?: boolean;
-  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE" | "NOT_APPLICABLE";
+  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE" | "SKIPPED_CAPACITY" | "SKIPPED_NO_PENDING" | "NOT_APPLICABLE";
   dispatchError?: string;
   dispatchErrorCode?: string | null;
   notice?: string;
@@ -358,10 +376,49 @@ const SYNC_PENDING_STALE_MS = 5 * 60 * 1000;
 const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 const COURSE_DEADLINE_URGENT_DAYS = 7;
 
+function getProviderLabel(provider: PortalProvider): string {
+  return provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "CU12";
+}
+
+function getProviderShortLabel(provider: PortalProvider): string {
+  return provider === "CYBER_CAMPUS" ? "사캠" : "CU12";
+}
+
+function getCourseKey(provider: PortalProvider, lectureSeq: number): string {
+  return `${provider}:${lectureSeq}`;
+}
+
+function createEmptySummary(): Summary {
+  return {
+    activeCourseCount: 0,
+    avgProgress: 0,
+    unreadNoticeCount: 0,
+    urgentTaskCount: 0,
+    nextDeadlineAt: null,
+    lastSyncAt: null,
+    nextAutoSyncAt: null,
+    autoSyncIntervalHours: 2,
+    initialSyncRequired: false,
+  };
+}
+
+function createEmptySyncQueue(): DashboardSyncQueue {
+  return {
+    state: "IDLE",
+    staleJobIds: [],
+    runningCount: 0,
+    runningStaleCount: 0,
+    pendingCount: 0,
+    pendingStaleCount: 0,
+  };
+}
+
 interface DashboardBootstrap {
   context: SessionContext;
   summary: Summary;
+  providerSummaries: Record<PortalProvider, Summary>;
   syncQueue?: DashboardSyncQueue;
+  providerSyncQueues: Record<PortalProvider, DashboardSyncQueue>;
   siteNotices: SiteNotice[];
   maintenanceNotice: SiteNotice | null;
   account: Account | null;
@@ -371,12 +428,16 @@ interface DashboardBootstrap {
 
 interface DashboardStatusPayload {
   summary: Summary;
+  providerSummaries: Record<PortalProvider, Summary>;
   jobs: Job[];
   syncQueue?: DashboardSyncQueue;
+  providerSyncQueues: Record<PortalProvider, DashboardSyncQueue>;
   siteNotices: SiteNotice[];
   maintenanceNotice: SiteNotice | null;
   cyberCampus: CyberCampusState;
 }
+
+const PORTAL_PROVIDERS: PortalProvider[] = ["CU12", "CYBER_CAMPUS"];
 
 function toDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("ko-KR") : "-";
@@ -745,6 +806,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   const [context, setContext] = useState<SessionContext | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [providerSummaries, setProviderSummaries] = useState<Record<PortalProvider, Summary>>({
+    CU12: createEmptySummary(),
+    CYBER_CAMPUS: createEmptySummary(),
+  });
   const [courses, setCourses] = useState<Course[]>([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
@@ -777,18 +842,24 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   });
 
   const [mode, setMode] = useState<"SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES">("ALL_COURSES");
+  const [autoLearnProvider, setAutoLearnProvider] = useState<PortalProvider>("CU12");
+  const currentProviderDraft = autoLearnProvider;
+  const setCurrentProviderDraft = setAutoLearnProvider;
   const [lectureSeq, setLectureSeq] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<"SYNC" | "AUTOLEARN" | null>(null);
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [mailSaving, setMailSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMailSetupRequired, setIsMailSetupRequired] = useState(false);
-  const [currentProviderDraft, setCurrentProviderDraft] = useState<"CU12" | "CYBER_CAMPUS">("CU12");
 
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
   const [bootstrapSyncing, setBootstrapSyncing] = useState(false);
   const [syncQueueSummary, setSyncQueueSummary] = useState<DashboardSyncQueue | null>(null);
+  const [providerSyncQueues, setProviderSyncQueues] = useState<Record<PortalProvider, DashboardSyncQueue>>({
+    CU12: createEmptySyncQueue(),
+    CYBER_CAMPUS: createEmptySyncQueue(),
+  });
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [syncQueueCleanupSubmitting, setSyncQueueCleanupSubmitting] = useState(false);
   const [notificationClearing, setNotificationClearing] = useState(false);
@@ -802,10 +873,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
   const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
-  const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<number>>(() => new Set());
+  const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<string>>(() => new Set());
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
-  const [expandedCourseIds, setExpandedCourseIds] = useState<Set<number>>(() => new Set());
+  const [expandedCourseIds, setExpandedCourseIds] = useState<Set<string>>(() => new Set());
 
   const dedupedSiteNotices = useMemo(() => {
     const seen = new Set<string>();
@@ -829,8 +900,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => analyzeSyncQueueState(jobs, Date.now(), syncQueueSummary ?? undefined),
     [jobs, syncQueueSummary],
   );
-  const isCyberCampusProvider = account?.provider === "CYBER_CAMPUS";
-  const draftIsCyberCampusProvider = currentProviderDraft === "CYBER_CAMPUS";
+  const isCyberCampusProvider = autoLearnProvider === "CYBER_CAMPUS";
+  const draftIsCyberCampusProvider = isCyberCampusProvider;
   const cyberCampusSession = cyberCampus.session;
   const activeCyberCampusApproval = cyberCampus.approval;
   const syncQueueState = syncQueueAnalysis.state;
@@ -860,8 +931,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   );
   const canCancelActiveSync = Boolean(activeSyncJob);
   const selectedAutoCourse = useMemo(
-    () => (lectureSeq ? courses.find((course) => course.lectureSeq === lectureSeq) ?? null : null),
-    [courses, lectureSeq],
+    () => (lectureSeq ? courses.find((course) => course.provider === autoLearnProvider && course.lectureSeq === lectureSeq) ?? null : null),
+    [autoLearnProvider, courses, lectureSeq],
   );
   const canExecuteAutoLearn = mode === "ALL_COURSES" || Boolean(selectedAutoCourse);
   const autoConfirmTarget = mode === "ALL_COURSES"
@@ -869,6 +940,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : selectedAutoCourse
       ? `${selectedAutoCourse.title} (${selectedAutoCourse.lectureSeq})`
       : "강좌 선택 필요";
+  const providerCourses = useMemo(
+    () => ({
+      CU12: courses.filter((course) => course.provider === "CU12"),
+      CYBER_CAMPUS: courses.filter((course) => course.provider === "CYBER_CAMPUS"),
+    }),
+    [courses],
+  );
   const deadlineD7Items = useMemo(
     () => deadlines.filter((item) => item.daysLeft !== null && item.daysLeft >= 0 && item.daysLeft <= 7),
     [deadlines],
@@ -1006,10 +1084,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const loadNotificationHistory = useCallback(async () => {
     setNotificationHistoryLoading(true);
     try {
-      const payload = await fetchJson<{ notifications: Notification[] }>(
-        "/api/dashboard/notifications?historyOnly=1&includeArchived=1&limit=80",
+      const payloads = await Promise.all(
+        PORTAL_PROVIDERS.map((provider) =>
+          fetchJson<{ notifications: Notification[] }>(
+            `/api/dashboard/notifications?provider=${provider}&historyOnly=1&includeArchived=1&limit=80`,
+          )),
       );
-      setNotificationHistory(payload.notifications);
+      setNotificationHistory(payloads.flatMap((payload) => payload.notifications));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1029,15 +1110,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const loadCourses = useCallback(async () => {
     setCoursesLoading(true);
     try {
-      const payload = await fetchJson<{ courses: Course[] }>("/api/dashboard/courses");
+      const payloads = await Promise.all(
+        PORTAL_PROVIDERS.map((provider) =>
+          fetchJson<{ courses: Course[] }>(`/api/dashboard/courses?provider=${provider}`)),
+      );
+      const nextCourses = payloads.flatMap((payload) => payload.courses);
       setCourses((prev) =>
-        payload.courses.map((course) => {
-          const existing = prev.find((entry) => entry.lectureSeq === course.lectureSeq);
+        nextCourses.map((course) => {
+          const courseKey = getCourseKey(course.provider, course.lectureSeq);
+          const existing = prev.find((entry) => entry.provider === course.provider && entry.lectureSeq === course.lectureSeq);
           if (!existing) {
             return course;
           }
 
-          if (!expandedCourseIds.has(course.lectureSeq) || existing.weekSummaries.length === 0) {
+          if (!expandedCourseIds.has(courseKey) || existing.weekSummaries.length === 0) {
             return course;
           }
 
@@ -1049,19 +1135,22 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           };
         }),
       );
-      setLectureSeq((prev) => prev ?? payload.courses[0]?.lectureSeq ?? null);
+      setLectureSeq((prev) => prev ?? nextCourses.find((course) => course.provider === autoLearnProvider)?.lectureSeq ?? nextCourses[0]?.lectureSeq ?? null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setCoursesLoading(false);
     }
-  }, [expandedCourseIds, fetchJson]);
+  }, [autoLearnProvider, expandedCourseIds, fetchJson]);
 
   const loadDeadlines = useCallback(async (limit = 30) => {
     setDeadlinesLoading(true);
     try {
-      const payload = await fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?limit=${limit}`);
-      setDeadlines(payload.deadlines);
+      const payloads = await Promise.all(
+        PORTAL_PROVIDERS.map((provider) =>
+          fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=${limit}`)),
+      );
+      setDeadlines(payloads.flatMap((payload) => payload.deadlines));
       setAllDeadlines(null);
     } catch (err) {
       setError((err as Error).message);
@@ -1073,8 +1162,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const loadNotifications = useCallback(async () => {
     setNotificationsLoading(true);
     try {
-      const payload = await fetchJson<{ notifications: Notification[] }>("/api/dashboard/notifications?unreadOnly=1&limit=40");
-      setNotifications(payload.notifications);
+      const payloads = await Promise.all(
+        PORTAL_PROVIDERS.map((provider) =>
+          fetchJson<{ notifications: Notification[] }>(`/api/dashboard/notifications?provider=${provider}&unreadOnly=1&limit=40`)),
+      );
+      setNotifications(payloads.flatMap((payload) => payload.notifications));
       if (notificationHistoryOpen) {
         void loadNotificationHistory();
       }
@@ -1088,8 +1180,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const loadMessages = useCallback(async () => {
     setMessagesLoading(true);
     try {
-      const payload = await fetchJson<{ messages: MessageItem[] }>("/api/dashboard/messages?limit=20");
-      setMessages(payload.messages);
+      const payloads = await Promise.all(
+        PORTAL_PROVIDERS.map((provider) =>
+          fetchJson<{ messages: MessageItem[] }>(`/api/dashboard/messages?provider=${provider}&limit=20`)),
+      );
+      setMessages(payloads.flatMap((payload) => payload.messages));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1109,17 +1204,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }, [fetchJson]);
 
-  const loadCourseDetail = useCallback(async (lectureSeqValue: number) => {
+  const loadCourseDetail = useCallback(async (lectureSeqValue: number, provider: PortalProvider) => {
+    const courseKey = getCourseKey(provider, lectureSeqValue);
     setCourseDetailLoadingIds((prev) => {
       const next = new Set(prev);
-      next.add(lectureSeqValue);
+      next.add(courseKey);
       return next;
     });
     try {
-      const payload = await fetchJson<{ detail: CourseDetailPayload }>(`/api/dashboard/courses/${lectureSeqValue}/detail`);
+      const payload = await fetchJson<{ detail: CourseDetailPayload }>(`/api/dashboard/courses/${lectureSeqValue}/detail?provider=${provider}`);
       setCourses((prev) =>
         prev.map((course) =>
-          course.lectureSeq === lectureSeqValue
+          course.provider === provider && course.lectureSeq === lectureSeqValue
             ? {
               ...course,
               taskTypeCounts: payload.detail.taskTypeCounts,
@@ -1134,7 +1230,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     } finally {
       setCourseDetailLoadingIds((prev) => {
         const next = new Set(prev);
-        next.delete(lectureSeqValue);
+        next.delete(courseKey);
         return next;
       });
     }
@@ -1157,9 +1253,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     try {
       const payload = await fetchJson<DashboardStatusPayload>("/api/dashboard/status?jobsLimit=20");
       setSummary(payload.summary);
+      setProviderSummaries(payload.providerSummaries);
       setJobs(payload.jobs);
       setJobsLoading(false);
       setSyncQueueSummary(payload.syncQueue ?? null);
+      setProviderSyncQueues(payload.providerSyncQueues);
       setSiteNotices(payload.siteNotices);
       setCyberCampus(payload.cyberCampus ?? {
         session: {
@@ -1195,10 +1293,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       const payload = await fetchJson<DashboardBootstrap>("/api/dashboard/bootstrap?jobsLimit=20");
       setContext(payload.context);
       setSummary(payload.summary);
+      setProviderSummaries(payload.providerSummaries);
       setSyncQueueSummary(payload.syncQueue ?? null);
+      setProviderSyncQueues(payload.providerSyncQueues);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
-      setCurrentProviderDraft(payload.account?.provider ?? "CU12");
+      setAutoLearnProvider(payload.account?.provider ?? "CU12");
       setCyberCampus(payload.cyberCampus ?? {
         session: {
           available: false,
@@ -1296,9 +1396,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   useEffect(() => {
     const missingExpandedDetails = courses.filter(
       (course) =>
-        expandedCourseIds.has(course.lectureSeq)
+        expandedCourseIds.has(getCourseKey(course.provider, course.lectureSeq))
         && course.weekSummaries.length === 0
-        && !courseDetailLoadingIds.has(course.lectureSeq),
+        && !courseDetailLoadingIds.has(getCourseKey(course.provider, course.lectureSeq)),
     );
 
     if (missingExpandedDetails.length === 0) {
@@ -1306,7 +1406,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
 
     missingExpandedDetails.forEach((course) => {
-      void loadCourseDetail(course.lectureSeq);
+      void loadCourseDetail(course.lectureSeq, course.provider);
     });
   }, [courseDetailLoadingIds, courses, expandedCourseIds, loadCourseDetail]);
 
@@ -1319,6 +1419,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }, 5000);
     return () => clearTimeout(timer);
   }, [approvalModalOpen, activeCyberCampusApproval, approvalSubmitting]);
+
+  useEffect(() => {
+    if (mode === "ALL_COURSES") return;
+    if (selectedAutoCourse) return;
+    setLectureSeq(providerCourses[autoLearnProvider][0]?.lectureSeq ?? null);
+  }, [autoLearnProvider, mode, providerCourses, selectedAutoCourse]);
 
   useEffect(() => {
     if (!summary || loading) return;
@@ -1520,9 +1626,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     const load = async () => {
       setDeadlineLoading(true);
       try {
-        const payload = await fetchJson<{ deadlines: Deadline[] }>("/api/dashboard/deadlines?limit=100");
+        const payloads = await Promise.all(
+          PORTAL_PROVIDERS.map((provider) =>
+            fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=100`)),
+        );
         if (!cancelled) {
-          setAllDeadlines(payload.deadlines);
+          setAllDeadlines(payloads.flatMap((payload) => payload.deadlines));
         }
       } catch (err) {
         if (!cancelled) {
@@ -1574,7 +1683,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
-  async function runAction(action: "SYNC" | "AUTOLEARN", silent = false) {
+  async function runAction(action: "SYNC" | "AUTOLEARN", silent = false, providers?: PortalProvider[]) {
     setActionSubmitting(true);
     setConfirm(null);
     setTrackingDetail(null);
@@ -1584,19 +1693,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       const payload = await fetchJson<JobDispatch>(
         action === "SYNC" ? "/api/jobs/sync-now" : "/api/jobs/autolearn-request",
         action === "SYNC"
-          ? { method: "POST" }
+          ? {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ providers }),
+          }
           : {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ mode, lectureSeq: mode === "ALL_COURSES" ? undefined : lectureSeq }),
+            body: JSON.stringify({
+              provider: autoLearnProvider,
+              mode,
+              lectureSeq: mode === "ALL_COURSES" ? undefined : lectureSeq,
+            }),
           },
       );
-      setTrackingJobId(payload.jobId);
-      try {
-        const detail = await fetchJson<JobDetail>(`/api/jobs/${payload.jobId}`);
-        setTrackingDetail(detail);
-      } catch {
-        // Ignore hydration failure. Polling will continue.
+      if (payload.jobId) {
+        setTrackingJobId(payload.jobId);
+        try {
+          const detail = await fetchJson<JobDetail>(`/api/jobs/${payload.jobId}`);
+          setTrackingDetail(detail);
+        } catch {
+          // Ignore hydration failure. Polling will continue.
+        }
       }
       if (action === "AUTOLEARN" && payload.approvalRequired && payload.approval) {
         setCyberCampus((prev) => ({
@@ -1803,7 +1922,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setActiveNotification(item);
     if (!item.isUnread) return;
     try {
-      await fetchJson(`/api/dashboard/notifications/${item.id}/read`, { method: "PATCH" });
+      await fetchJson(`/api/dashboard/notifications/${item.id}/read?provider=${item.provider}`, { method: "PATCH" });
       setNotifications((prev) => prev.filter((row) => row.id !== item.id));
       if (notificationHistoryOpen) {
         void loadNotificationHistory();
@@ -1819,13 +1938,24 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
     const uniqueIds = Array.from(new Set(ids));
     const targetIds = new Set(uniqueIds);
+    const idsByProvider = {
+      CU12: notifications.filter((item) => item.provider === "CU12" && targetIds.has(item.id)).map((item) => item.id),
+      CYBER_CAMPUS: notifications.filter((item) => item.provider === "CYBER_CAMPUS" && targetIds.has(item.id)).map((item) => item.id),
+    } satisfies Record<PortalProvider, string[]>;
 
     try {
-      const payload = await fetchJson<{ deletedCount: number }>("/api/dashboard/notifications", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ids: uniqueIds }),
-      });
+      const payloads = await Promise.all(
+        PORTAL_PROVIDERS
+          .filter((provider) => idsByProvider[provider].length > 0)
+          .map((provider) =>
+            fetchJson<{ deletedCount: number }>(`/api/dashboard/notifications?provider=${provider}`, {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ ids: idsByProvider[provider] }),
+            })),
+      );
+      const deletedCount = payloads.reduce((sum, payload) => sum + payload.deletedCount, 0);
+      const payload = { deletedCount };
 
       setNotifications((prev) => prev.filter((item) => !targetIds.has(item.id)));
       setActiveNotification((prev) => (prev && targetIds.has(prev.id) ? null : prev));
@@ -1846,7 +1976,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setNoticeLoading(true);
     setBlockingMessage("공지 목록을 불러오는 중...");
     try {
-      const payload = await fetchJson<{ notices: Notice[] }>(`/api/dashboard/courses/${course.lectureSeq}/notices`);
+      const payload = await fetchJson<{ notices: Notice[] }>(`/api/dashboard/courses/${course.lectureSeq}/notices?provider=${course.provider}`);
       setNotices(payload.notices);
       setActiveNotice(payload.notices[0] ?? null);
     } catch (err) {
@@ -1857,32 +1987,33 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
-  async function markNoticeRead(noticeId: string) {
-    await fetchJson(`/api/dashboard/notices/${noticeId}/read`, { method: "PATCH" });
-    setNotices((prev) => prev.map((item) => (item.id === noticeId ? { ...item, isRead: true } : item)));
+  async function markNoticeRead(notice: Notice) {
+    await fetchJson(`/api/dashboard/notices/${notice.id}/read?provider=${notice.provider}`, { method: "PATCH" });
+    setNotices((prev) => prev.map((item) => (item.id === notice.id ? { ...item, isRead: true } : item)));
   }
 
-  function toggleCourseExpanded(lectureSeqValue: number) {
-    const isExpanded = expandedCourseIds.has(lectureSeqValue);
-    const targetCourse = courses.find((course) => course.lectureSeq === lectureSeqValue);
+  function toggleCourseExpanded(lectureSeqValue: number, provider: PortalProvider) {
+    const courseKey = getCourseKey(provider, lectureSeqValue);
+    const isExpanded = expandedCourseIds.has(courseKey);
+    const targetCourse = courses.find((course) => course.provider === provider && course.lectureSeq === lectureSeqValue);
     setExpandedCourseIds((prev) => {
       const next = new Set(prev);
-      if (next.has(lectureSeqValue)) {
-        next.delete(lectureSeqValue);
+      if (next.has(courseKey)) {
+        next.delete(courseKey);
       } else {
-        next.add(lectureSeqValue);
+        next.add(courseKey);
       }
       return next;
     });
     if (!isExpanded && targetCourse && targetCourse.weekSummaries.length === 0) {
-      void loadCourseDetail(lectureSeqValue);
+      void loadCourseDetail(lectureSeqValue, provider);
     }
   }
 
   async function saveMail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!mailDraft) return;
-    if (currentProviderDraft === "CU12" && !account?.campus) {
+    if (false) {
       setError("CU12 교정 정보가 아직 확인되지 않았습니다. CU12로 먼저 로그인해 교정 정보를 확인한 뒤 서비스를 전환해 주세요.");
       return;
     }
@@ -1899,7 +2030,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            currentProvider: currentProviderDraft,
             autoLearnEnabled: autoLearnEnabledDraft,
             quizAutoSolveEnabled: quizAutoSolveEnabledDraft,
           }),
@@ -1962,10 +2092,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               showHistory={notificationHistoryOpen}
               historyLoading={notificationHistoryLoading}
               onToggleHistory={toggleNotificationHistory}
-              onOpen={setActiveNotification}
+              onOpen={(item) => setActiveNotification(item as Notification)}
               onMarkRead={(item) => {
                 if (item.isUnread) {
-                  void markNotificationRead(item);
+                  void markNotificationRead(item as Notification);
                 }
               }}
               onClearVisible={(ids) => {
@@ -1999,6 +2129,23 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </article>
       </section>
 
+      <section className="grid-kpi">
+        {PORTAL_PROVIDERS.map((provider) => (
+          <article key={provider} className="card">
+            <h2>{getProviderLabel(provider)}</h2>
+            <p className="metric">{providerSummaries[provider]?.activeCourseCount ?? 0}</p>
+            <p className="muted text-small">
+              진행률 {Math.round(providerSummaries[provider]?.avgProgress ?? 0)}%
+              {" / "}
+              미확인 공지 {providerSummaries[provider]?.unreadNoticeCount ?? 0}
+            </p>
+            <p className="muted text-small">
+              최근 동기화 {toDateTimeWithFallback(providerSummaries[provider]?.lastSyncAt ?? null, "기록 없음")}
+            </p>
+          </article>
+        ))}
+      </section>
+
       <section className="card" id="sync">
         <h2>학습 데이터 동기화</h2>
         <div className="sync-overview top-gap">
@@ -2008,11 +2155,31 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             일정 주기로 자동 동기화 됩니다. 최신 데이터를 원하면 아래에서 수동 동기화를 실행하세요.
           </p>
         </div>
+        <div className="form-grid top-gap">
+          {PORTAL_PROVIDERS.map((provider) => (
+            <div key={provider} className="pill-note">
+              <p><strong>{getProviderLabel(provider)}</strong></p>
+              <p className="muted">큐 상태: {providerSyncQueues[provider]?.state ?? "IDLE"}</p>
+              <p className="muted">마지막 동기화: {toDateTimeWithFallback(providerSummaries[provider]?.lastSyncAt ?? null, "기록 없음")}</p>
+            </div>
+          ))}
+        </div>
         {jobsLoading && jobs.length === 0 ? (
           <p className="muted">작업 상태를 불러오는 중입니다.</p>
         ) : null}
         <div className="button-row">
           <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
+          {PORTAL_PROVIDERS.map((provider) => (
+            <button
+              key={provider}
+              type="button"
+              className="ghost-btn"
+              onClick={() => void runAction("SYNC", false, [provider])}
+              disabled={actionSubmitting}
+            >
+              {getProviderShortLabel(provider)} 동기화
+            </button>
+          ))}
         </div>
         {syncInProgress ? (
           <>
@@ -2114,6 +2281,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
         <div className="form-grid top-gap">
           <label className="field">
+            <span>서비스</span>
+            <select value={autoLearnProvider} onChange={(event) => setAutoLearnProvider(event.target.value as PortalProvider)}>
+              <option value="CU12">CU12</option>
+              <option value="CYBER_CAMPUS">사이버캠퍼스</option>
+            </select>
+          </label>
+          <label className="field">
             <span>모드</span>
             <select value={mode} onChange={(event) => setMode(event.target.value as "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES")}>
               <option value="ALL_COURSES">전체 강좌</option>
@@ -2125,7 +2299,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <span>대상 강좌</span>
             <select value={lectureSeq ?? ""} onChange={(event) => setLectureSeq(Number(event.target.value))} disabled={mode === "ALL_COURSES"}>
               <option value="">강좌 선택</option>
-              {courses.map((course) => <option key={course.lectureSeq} value={course.lectureSeq}>{course.title}</option>)}
+              {providerCourses[autoLearnProvider].map((course) => (
+                <option key={getCourseKey(course.provider, course.lectureSeq)} value={course.lectureSeq}>{course.title}</option>
+              ))}
             </select>
           </label>
         </div>
@@ -2231,7 +2407,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <p className="muted">표시할 받은쪽지가 없습니다.</p>
           ) : messages.slice(0, 20).map((item) => (
             <article key={item.id} className={`notification-item ${item.isRead ? "" : "is-unread"}`}>
-              <strong>{item.title}</strong>
+              <strong>[{getProviderShortLabel(item.provider)}] {item.title}</strong>
               <p className="muted">
                 {item.senderName ?? "-"} · {toDateTime(item.sentAt)}
               </p>
@@ -2315,8 +2491,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             const currentWeekSummary = findCurrentWeekSummary(course);
             const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
             const sortedWeekSummaries = [...course.weekSummaries].sort((a, b) => a.weekNo - b.weekNo);
-            const isExpanded = expandedCourseIds.has(course.lectureSeq);
-            const isCourseDetailLoading = courseDetailLoadingIds.has(course.lectureSeq);
+            const courseKey = getCourseKey(course.provider, course.lectureSeq);
+            const isExpanded = expandedCourseIds.has(courseKey);
+            const isCourseDetailLoading = courseDetailLoadingIds.has(courseKey);
             const isAutoLearningThisCourse = autoProgress?.progress.phase === "RUNNING"
               && autoProgress.progress.current?.lectureSeq === course.lectureSeq;
             const learnedSecondsForUi =
@@ -2335,10 +2512,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             const isDueSoon = isCourseDeadlineUrgent(course);
 
             return (
-              <article key={course.lectureSeq} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>
+              <article key={courseKey} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>
                 <div className="course-overview">
                   <div className="course-overview-main">
-                    <h3 className="course-title">{course.title}</h3>
+                    <h3 className="course-title">[{getProviderShortLabel(course.provider)}] {course.title}</h3>
                     <p className="muted">담당 교수: {course.instructor ?? "-"}</p>
                     <div className="progress-track course-progress-track">
                       <div className="progress-value" style={{ width: `${Math.max(2, taskProgressRatio * 100)}%` }} />
@@ -2363,7 +2540,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     <p className="muted">미확인 공지: {course.unreadNoticeCount}개 / 전체 {course.noticeCount}개</p>
                   </div>
                   <div className="course-overview-actions">
-                    <button className="ghost-btn" type="button" onClick={() => toggleCourseExpanded(course.lectureSeq)}>
+                    <button className="ghost-btn" type="button" onClick={() => toggleCourseExpanded(course.lectureSeq, course.provider)}>
                       {isExpanded ? "상세 닫기" : "상세 보기"}
                     </button>
                     <button className="ghost-btn" type="button" onClick={() => void openNotices(course)}>
@@ -2645,7 +2822,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <div className="notice-layout">
               <div className="notice-list">
                 {notices.map((notice) => (
-                  <button key={notice.id} className={`notification-item ${notice.isRead ? "" : "is-unread"}`} onClick={() => { setActiveNotice(notice); void markNoticeRead(notice.id); }}>
+                  <button key={notice.id} className={`notification-item ${notice.isRead ? "" : "is-unread"}`} onClick={() => { setActiveNotice(notice); void markNoticeRead(notice); }}>
                     {notice.title}
                   </button>
                 ))}

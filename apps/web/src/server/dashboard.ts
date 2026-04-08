@@ -1,4 +1,4 @@
-import type { PortalProvider } from "@cu12/core";
+import { PORTAL_PROVIDERS, type PortalProvider } from "@cu12/core";
 import { CourseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
@@ -37,6 +37,25 @@ interface LearningTaskRow {
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
 const AUTO_SYNC_MIN_INTERVAL_MINUTES = AUTO_SYNC_INTERVAL_HOURS * 60;
+
+export interface DashboardSummary {
+  activeCourseCount: number;
+  avgProgress: number;
+  unreadNoticeCount: number;
+  upcomingDeadlines: number;
+  urgentTaskCount: number;
+  nextDeadlineAt: Date | null;
+  lastSyncAt: Date | null;
+  nextAutoSyncAt: Date;
+  autoSyncIntervalHours: number;
+  initialSyncRequired: boolean;
+}
+
+function getJobPayloadProvider(payload: unknown): PortalProvider | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const provider = (payload as { provider?: unknown }).provider;
+  return provider === "CYBER_CAMPUS" ? "CYBER_CAMPUS" : provider === "CU12" ? "CU12" : null;
+}
 
 function isTaskCompletedByProgress(task: { state: string; activityType: string; requiredSeconds: number; learnedSeconds: number }): boolean {
   if (task.state === "COMPLETED") return true;
@@ -170,7 +189,44 @@ function mapNoticeCountsByLecture(
   return new Map(rows.map((row) => [row.lectureSeq, row._count._all]));
 }
 
-export async function getDashboardSummary(userId: string, provider: PortalProvider = "CU12") {
+export function combineDashboardSummaries(
+  byProvider: Record<PortalProvider, DashboardSummary>,
+): DashboardSummary {
+  const summaries = PORTAL_PROVIDERS.map((provider) => byProvider[provider]);
+  const activeCourseCount = summaries.reduce((sum, item) => sum + item.activeCourseCount, 0);
+  const weightedProgress = summaries.reduce((sum, item) => sum + (item.avgProgress * item.activeCourseCount), 0);
+  const nextDeadlineAt = summaries
+    .map((item) => item.nextDeadlineAt)
+    .filter((value): value is Date => value instanceof Date)
+    .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+  const lastSyncAt = summaries
+    .map((item) => item.lastSyncAt)
+    .filter((value): value is Date => value instanceof Date)
+    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+  const nextAutoSyncAt = summaries
+    .map((item) => item.nextAutoSyncAt)
+    .sort((a, b) => a.getTime() - b.getTime())[0] ?? getNextScheduledSyncAt(new Date());
+
+  return {
+    activeCourseCount,
+    avgProgress: activeCourseCount > 0 ? weightedProgress / activeCourseCount : 0,
+    unreadNoticeCount: summaries.reduce((sum, item) => sum + item.unreadNoticeCount, 0),
+    upcomingDeadlines: summaries.reduce((sum, item) => sum + item.upcomingDeadlines, 0),
+    urgentTaskCount: summaries.reduce((sum, item) => sum + item.urgentTaskCount, 0),
+    nextDeadlineAt,
+    lastSyncAt,
+    nextAutoSyncAt,
+    autoSyncIntervalHours: AUTO_SYNC_INTERVAL_HOURS,
+    initialSyncRequired: summaries.some((item) => item.initialSyncRequired),
+  };
+}
+
+export async function getDashboardSummaries(userId: string): Promise<Record<PortalProvider, DashboardSummary>> {
+  const entries = await Promise.all(PORTAL_PROVIDERS.map(async (provider) => [provider, await getDashboardSummary(userId, provider)] as const));
+  return Object.fromEntries(entries) as Record<PortalProvider, DashboardSummary>;
+}
+
+export async function getDashboardSummary(userId: string, provider: PortalProvider = "CU12"): Promise<DashboardSummary> {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
   const upcomingWindowTasks = await fetchLearningTasksRaw({
@@ -182,19 +238,14 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
   });
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, lastSync, recentSync, user] = await Promise.all([
+  const [activeCourseCount, progressAgg, unreadNoticeCount, syncJobs, user] = await Promise.all([
     prisma.courseSnapshot.count({ where: { userId, provider, status: CourseStatus.ACTIVE } }),
     prisma.courseSnapshot.aggregate({
       where: { userId, provider, status: CourseStatus.ACTIVE },
       _avg: { progressPercent: true },
     }),
     prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
-    prisma.jobQueue.findFirst({
-      where: { userId, type: "SYNC", status: "SUCCEEDED" },
-      orderBy: { finishedAt: "desc" },
-      select: { finishedAt: true },
-    }),
-    prisma.jobQueue.findFirst({
+    prisma.jobQueue.findMany({
       where: {
         userId,
         type: "SYNC",
@@ -203,7 +254,7 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
         },
       },
       orderBy: { createdAt: "desc" },
-      select: { createdAt: true },
+      select: { status: true, createdAt: true, finishedAt: true, payload: true },
     }),
     prisma.user.findUnique({
       where: { id: userId },
@@ -211,6 +262,11 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
     }),
   ]);
 
+  const providerSyncJobs = syncJobs.filter((job) => getJobPayloadProvider(job.payload) === provider);
+  const lastSync = providerSyncJobs
+    .filter((job) => job.status === "SUCCEEDED" && job.finishedAt)
+    .sort((a, b) => (b.finishedAt?.getTime() ?? 0) - (a.finishedAt?.getTime() ?? 0))[0] ?? null;
+  const recentSync = providerSyncJobs[0] ?? null;
   const nextAutoSyncAt = getNextAutoSyncAt(now, recentSync?.createdAt ?? null);
   const nextDeadlineTask = upcomingPendingTasks[0] ?? null;
 

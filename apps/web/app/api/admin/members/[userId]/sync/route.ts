@@ -3,13 +3,12 @@ import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import {
-  enqueueJob,
   cancelBlockedSyncJobsForTestUsers,
   TEST_USER_SYNC_BLOCKED_ERROR_CODE,
   TEST_USER_SYNC_BLOCKED_MESSAGE,
 } from "@/server/queue";
-import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 import { writeAuditLog } from "@/server/audit-log";
+import { buildSyncDispatchNotice, queueSyncJobsForUser } from "@/server/sync-job-dispatch";
 
 interface Params {
   params: Promise<{ userId: string }>;
@@ -40,6 +39,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           select: {
             provider: true,
             cu12Id: true,
+            campus: true,
           },
         },
       },
@@ -62,33 +62,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       return jsonError("Target user has no CU12 account", 409, "MEMBER_NO_CU12");
     }
 
-    const { job, deduplicated } = await enqueueJob({
+    const queued = await queueSyncJobsForUser({
       userId: user.id,
-      type: "SYNC",
-      payload: {
-        userId,
-        provider: user.cu12Account.provider,
-        reason: "admin_sync_request",
-      },
-      idempotencyKey: `sync:${user.id}:${user.cu12Account.provider}:admin`,
+      campus: user.cu12Account.campus,
+      reason: "admin",
       runAfter,
     });
-
-    const { dispatch } = await dispatchManualJob(user.id, "sync", {
-      deduplicated,
-      status: job.status,
-      createdAt: job.createdAt,
-      runAfter: job.runAfter,
-      startedAt: job.startedAt,
-    });
-
-    const notice = deduplicated
-      ? dispatch.state === "SKIPPED_DUPLICATE"
-        ? "동기화 작업이 이미 진행 중입니다. 현재 작업 완료 후 다시 요청해 주세요."
-        : "동기화 요청이 중복이었지만 오래된 요청은 새로 요청하도록 처리했습니다."
-      : dispatch.dispatched
-        ? "동기화 실행을 요청했습니다."
-        : "동기화 요청은 저장되었지만 실행 트리거 전송이 실패했습니다. 잠시 후 다시 시도해 주세요.";
+    const first = queued.results[0] ?? null;
+    const notice = buildSyncDispatchNotice(queued);
 
     await writeAuditLog({
       category: "JOB",
@@ -97,26 +78,27 @@ export async function POST(request: NextRequest, { params }: Params) {
       targetUserId: user.id,
       message: "Admin requested immediate sync",
       meta: {
-        jobId: job.id,
-        provider: user.cu12Account.provider,
-        deduplicated,
+        providers: queued.providers,
+        results: queued.results,
         userId,
         cu12Id: user.cu12Account.cu12Id,
-        dispatched: dispatch.dispatched,
-        dispatchState: dispatch.state,
-        dispatchErrorCode: dispatch.errorCode,
+        dispatched: queued.dispatch.dispatched,
+        dispatchState: queued.dispatch.state,
+        dispatchErrorCode: queued.dispatch.errorCode,
       },
     });
 
     return jsonOk({
-      provider: user.cu12Account.provider,
-      jobId: job.id,
-      status: job.status,
-      deduplicated,
-      dispatched: dispatch.dispatched,
-      dispatchState: dispatch.state,
-      dispatchError: dispatch.error ?? null,
-      dispatchErrorCode: dispatch.errorCode,
+      provider: first?.provider ?? null,
+      providers: queued.providers,
+      results: queued.results,
+      jobId: first?.jobId ?? null,
+      status: first?.status ?? null,
+      deduplicated: first?.deduplicated ?? false,
+      dispatched: queued.dispatch.dispatched,
+      dispatchState: queued.dispatch.state,
+      dispatchError: queued.dispatch.error ?? null,
+      dispatchErrorCode: queued.dispatch.errorCode,
       notice,
     });
   } catch (error) {

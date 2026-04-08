@@ -1,15 +1,14 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
-import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
 import {
-  enqueueJob,
   ensureSyncAllowedForUser,
   TEST_USER_SYNC_BLOCKED_ERROR_CODE,
   TEST_USER_SYNC_BLOCKED_MESSAGE,
 } from "@/server/queue";
 import { getAutomationSettingsAccount, upsertCu12Account } from "@/server/cu12-account";
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
+import { buildSyncDispatchNotice, queueSyncJobsForUser } from "@/server/sync-job-dispatch";
 
 const PostSchema = z.object({
   provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
@@ -23,13 +22,13 @@ export async function GET(request: NextRequest) {
   if (!context) return jsonError("Unauthorized", 401);
 
   const account = await getAutomationSettingsAccount(context.effective.userId);
-
   return jsonOk({ account });
 }
 
 export async function POST(request: NextRequest) {
   const context = await requireAuthContext(request);
   if (!context) return jsonError("Unauthorized", 401);
+
   const syncGate = await ensureSyncAllowedForUser(context.effective.userId);
   if (!syncGate.allowed) {
     return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
@@ -49,26 +48,24 @@ export async function POST(request: NextRequest) {
       cu12Password: body.cu12Password,
       campus,
     });
-    const provider = account.provider;
-
-    const { job } = await enqueueJob({
+    const queued = await queueSyncJobsForUser({
       userId: context.effective.userId,
-      type: "SYNC",
-      payload: {
-        userId: context.effective.userId,
-        provider,
-        reason: "account_connected",
-      },
-      idempotencyKey: `sync:${context.effective.userId}:${provider}:account-connected`,
+      campus: account.campus,
+      reason: "account-connected",
     });
+    const first = queued.results[0] ?? null;
 
-    const dispatch = await dispatchWorkerRun("sync", context.effective.userId);
     return jsonOk({
       connected: true,
-      provider,
-      queuedJobId: job.id,
-      dispatched: dispatch.dispatched,
-      dispatchError: dispatch.error,
+      provider: account.provider,
+      providers: queued.providers,
+      results: queued.results,
+      queuedJobId: first?.jobId ?? null,
+      dispatched: queued.dispatch.dispatched,
+      dispatchState: queued.dispatch.state,
+      dispatchError: queued.dispatch.error,
+      dispatchErrorCode: queued.dispatch.errorCode,
+      notice: buildSyncDispatchNotice(queued),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

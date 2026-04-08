@@ -3,7 +3,7 @@ import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { getNotifications } from "@/server/dashboard";
-import { getCurrentPortalProvider } from "@/server/current-provider";
+import { resolveRequestPortalProvider } from "@/server/request-provider";
 
 const DeleteNotificationsSchema = z.object({
   ids: z.array(z.string().trim().min(1)).min(1).max(50),
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const historyOnly = url.searchParams.get("historyOnly") === "1";
   const limitRaw = Number(url.searchParams.get("limit") ?? 50);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
-  const provider = await getCurrentPortalProvider(context.effective.userId);
+  const provider = await resolveRequestPortalProvider(request, context.effective.userId);
 
   const notifications = await getNotifications(context.effective.userId, provider, {
     unreadOnly,
@@ -27,7 +27,12 @@ export async function GET(request: NextRequest) {
     historyOnly,
     limit,
   });
-  return jsonOk({ notifications });
+  return jsonOk({
+    notifications: notifications.map((notification) => ({
+      ...notification,
+      provider,
+    })),
+  });
 }
 
 export async function DELETE(request: NextRequest) {
@@ -37,7 +42,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const payload = await parseBody(request, DeleteNotificationsSchema);
     const ids = Array.from(new Set(payload.ids));
-    const provider = await getCurrentPortalProvider(context.effective.userId);
+    const provider = await resolveRequestPortalProvider(request, context.effective.userId);
 
     const result = await prisma.notificationEvent.updateMany({
       where: {
