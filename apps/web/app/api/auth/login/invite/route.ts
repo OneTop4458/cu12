@@ -47,7 +47,6 @@ function accountDisabledError() {
 async function consumeInviteToken(
   tx: Prisma.TransactionClient,
   inviteId: string,
-  provider: "CU12" | "CYBER_CAMPUS",
   cu12Id: string,
   usedByUserId: string,
 ): Promise<boolean> {
@@ -55,7 +54,6 @@ async function consumeInviteToken(
   const consumed = await tx.inviteToken.updateMany({
     where: {
       id: inviteId,
-      provider,
       cu12Id,
       isActive: true,
       usedAt: null,
@@ -94,7 +92,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const provider = challenge.provider;
-    const throttleIdentifiers = [ipThrottleIdentifier, `portal:${provider}:${challenge.cu12Id}`];
+    const throttleIdentifiers = [ipThrottleIdentifier, `portal:${challenge.cu12Id}`];
     const challengeThrottle = await checkAuthThrottleBestEffort("invite", throttleIdentifiers);
     if (challengeThrottle.blocked) {
       return rateLimitedInviteError();
@@ -106,7 +104,7 @@ export async function POST(request: NextRequest) {
 
     if (!invite) {
       const hasInvite = await prisma.inviteToken.findFirst({
-        where: { provider, cu12Id: challenge.cu12Id },
+        where: { cu12Id: challenge.cu12Id },
         select: { id: true },
       });
 
@@ -182,7 +180,7 @@ export async function POST(request: NextRequest) {
       return inviteVerificationFailedError();
     }
 
-    if (invite.provider !== provider || invite.cu12Id !== challenge.cu12Id) {
+    if (invite.cu12Id !== challenge.cu12Id) {
       await recordAuthFailureBestEffort("invite", throttleIdentifiers);
       await writeAuditLogBestEffort({
         category: "AUTH",
@@ -192,19 +190,13 @@ export async function POST(request: NextRequest) {
           provider,
           cu12Id: challenge.cu12Id,
           inviteCu12Id: invite.cu12Id,
-          inviteProvider: invite.provider,
         },
       });
       return inviteVerificationFailedError();
     }
 
     const existingAccount = await prisma.cu12Account.findUnique({
-      where: {
-        provider_cu12Id: {
-          provider,
-          cu12Id: challenge.cu12Id,
-        },
-      },
+      where: { cu12Id: challenge.cu12Id },
       select: { userId: true },
     });
 
@@ -242,7 +234,7 @@ export async function POST(request: NextRequest) {
       }
 
       const consumed = await prisma.$transaction((tx) =>
-        consumeInviteToken(tx, invite.id, provider, challenge.cu12Id, found.id),
+        consumeInviteToken(tx, invite.id, challenge.cu12Id, found.id),
       );
       if (!consumed) {
         await recordAuthFailureBestEffort("invite", throttleIdentifiers);
@@ -279,7 +271,7 @@ export async function POST(request: NextRequest) {
             },
           });
 
-          const consumed = await consumeInviteToken(tx, invite.id, provider, challenge.cu12Id, created.id);
+          const consumed = await consumeInviteToken(tx, invite.id, challenge.cu12Id, created.id);
           if (!consumed) {
             throw new Error(INVITE_CONSUME_RACE_ERROR);
           }
@@ -312,7 +304,7 @@ export async function POST(request: NextRequest) {
     }
 
     await upsertCu12Account(user.id, {
-      provider,
+      currentProvider: provider,
       cu12Id: challenge.cu12Id,
       cu12Password,
       campus: challenge.campus,

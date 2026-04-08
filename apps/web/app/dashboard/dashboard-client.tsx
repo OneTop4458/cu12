@@ -766,6 +766,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [mailSaving, setMailSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMailSetupRequired, setIsMailSetupRequired] = useState(false);
+  const [currentProviderDraft, setCurrentProviderDraft] = useState<"CU12" | "CYBER_CAMPUS">("CU12");
 
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
@@ -811,6 +812,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     [jobs, syncQueueSummary],
   );
   const isCyberCampusProvider = account?.provider === "CYBER_CAMPUS";
+  const draftIsCyberCampusProvider = currentProviderDraft === "CYBER_CAMPUS";
   const cyberCampusSession = cyberCampus.session;
   const activeCyberCampusApproval = cyberCampus.approval;
   const syncQueueState = syncQueueAnalysis.state;
@@ -1031,6 +1033,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setSyncQueueSummary(payload.syncQueue ?? null);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
+      setCurrentProviderDraft(payload.account?.provider ?? "CU12");
       setCyberCampus(payload.cyberCampus ?? {
         session: {
           available: false,
@@ -1700,16 +1703,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(mailDraft),
       });
-      if (account?.provider === "CU12") {
+      if (account) {
         await fetchJson("/api/cu12/automation", {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
+            currentProvider: currentProviderDraft,
             autoLearnEnabled: autoLearnEnabledDraft,
             quizAutoSolveEnabled: quizAutoSolveEnabledDraft,
           }),
         });
       }
+      await refreshAll(true);
       setIsMailSetupRequired(false);
       setSettingsOpen(false);
       setMessage("설정을 저장했습니다.");
@@ -2326,11 +2331,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <div className="table-wrap">
               <table>
                 <tbody>
-                  <tr><th>포털</th><td>{account?.provider ?? "-"}</td></tr>
-                  <tr><th>CU12 아이디</th><td>{account?.cu12Id ?? "-"}</td></tr>
-                  <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
+                  <tr><th>현재 서비스</th><td>{account ? (account.provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "CU12") : "-"}</td></tr>
+                  <tr><th>통합 포털 ID</th><td>{account?.cu12Id ?? "-"}</td></tr>
+                  <tr><th>CU12 교정 설정</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
-                  <tr><th>정기 자동 수강</th><td>{account ? (isCyberCampusProvider ? "지원 안 함" : (autoLearnEnabledDraft ? "사용" : "사용 안 함")) : "-"}</td></tr>
+                  <tr><th>CU12 정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>퀴즈 자동 풀이</th><td>{account ? (quizAutoSolveEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   {isCyberCampusProvider ? <tr><th>사캠 세션</th><td>{formatCyberCampusSessionStatus(cyberCampusSession)} / {toDateTime(cyberCampusSession.expiresAt)}</td></tr> : null}
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
@@ -2342,6 +2347,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </div>
             {mailDraft ? (
               <form onSubmit={saveMail} className="form-stack top-gap">
+                <label className="field">
+                  <span>현재 서비스</span>
+                  <select
+                    value={currentProviderDraft}
+                    onChange={(event) => setCurrentProviderDraft(event.target.value as "CU12" | "CYBER_CAMPUS")}
+                    disabled={!account}
+                  >
+                    <option value="CU12">CU12</option>
+                    <option value="CYBER_CAMPUS">사이버캠퍼스</option>
+                  </select>
+                </label>
+                <p className="muted text-small">
+                  통합 포털 계정은 하나로 유지되며, 이 설정은 대시보드와 동기화가 우선 표시할 현재 서비스만 바꿉니다.
+                </p>
                 <label className="check-field">
                   <input
                     type="checkbox"
@@ -2369,26 +2388,26 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     type="checkbox"
                     checked={autoLearnEnabledDraft}
                     onChange={(event) => setAutoLearnEnabledDraft(event.target.checked)}
-                    disabled={!account || isCyberCampusProvider}
+                    disabled={!account}
                   />
-                  <span>{isCyberCampusProvider ? "사이버캠퍼스는 수동 요청만 지원" : "신규 강의 감지 시 자동 수강 사용"}</span>
+                  <span>CU12 신규 강의 감지 시 정기 자동 수강 사용</span>
                 </label>
-                {isCyberCampusProvider ? (
+                {draftIsCyberCampusProvider ? (
                   <p className="muted text-small">
-                    사이버캠퍼스는 2차 인증이 필요하므로 정기 스케줄 자동 수강을 지원하지 않습니다. 대시보드에서 수동으로 요청해 주세요.
+                    현재 서비스를 사이버캠퍼스로 두면 대시보드와 동기화는 사이버캠퍼스 기준으로 표시됩니다. 사이버캠퍼스 자동 수강은 2차 인증이 필요하므로 수동 요청만 지원합니다.
                   </p>
                 ) : (
                   <>
                     <p className="muted text-small">
-                      이 설정을 켜면 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
+                      이 설정을 켜면 CU12에서 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
                     </p>
                     <p className="muted text-small">
-                      해당 옵션이 비활성화된 경우 대시보드에서 사용자가 수동으로 요청한 경우에만 자동 수강이 동작합니다.
+                      해당 옵션이 비활성화된 경우 CU12 자동 수강은 대시보드에서 사용자가 수동으로 요청한 경우에만 동작합니다.
                     </p>
                   </>
                 )}
                 {!account ? (
-                  <p className="muted text-small">CU12 계정 연결 후 자동 수강 예약 설정을 사용할 수 있습니다.</p>
+                  <p className="muted text-small">통합 포털 계정 연결 후 서비스 설정과 자동 수강 예약을 사용할 수 있습니다.</p>
                 ) : null}
                 {isMailSetupRequired ? (
                   <p className="error-text" style={{ marginBottom: "4px" }}>

@@ -10,7 +10,7 @@ import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal
 import { writeAuditLog } from "@/server/audit-log";
 
 const CreateMemberSchema = z.object({
-  provider: z.enum(PORTAL_PROVIDER_VALUES).optional().default("CU12"),
+  provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
   cu12Id: z.string().trim().min(4).max(80),
   cu12Password: z.string().min(4).max(120).optional(),
   localPassword: z.string().min(8).max(120).optional(),
@@ -101,11 +101,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, CreateMemberSchema);
     const localPassword = body.localPassword?.trim();
-    const provider = normalizePortalProvider(body.provider);
-    const campus = provider === "CU12" ? (body.campus ?? "SONGSIM") : null;
+    const currentProvider = body.provider ? normalizePortalProvider(body.provider) : undefined;
+    const campus = body.campus ?? "SONGSIM";
     const role = body.role ?? "USER";
     const isActive = body.isActive ?? true;
     const isTestUser = body.isTestUser ?? false;
+    let verifiedProvider: "CU12" | "CYBER_CAMPUS" | undefined;
 
     if (isTestUser && !localPassword) {
       return jsonError("localPassword is required for test users", 400, "VALIDATION_ERROR");
@@ -116,11 +117,11 @@ export async function POST(request: NextRequest) {
 
     if (!isTestUser) {
       const validation = await verifyPortalLogin({
-        provider,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password ?? "",
         campus,
       });
+      verifiedProvider = validation.verifiedProvider;
       if (!validation.ok) {
         const unavailable = isPortalUnavailableResult(validation);
         await writeAuditLog({
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
             ? "Admin member create failed due to portal service unavailability"
             : "Admin member create failed due to portal verification",
           meta: {
-            provider,
+            provider: currentProvider ?? validation.verifiedProvider ?? null,
             cu12Id: body.cu12Id,
             campus,
             messageCode: validation.messageCode ?? null,
@@ -145,12 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     const existingAccount = await prisma.cu12Account.findUnique({
-      where: {
-        provider_cu12Id: {
-          provider,
-          cu12Id: body.cu12Id,
-        },
-      },
+      where: { cu12Id: body.cu12Id },
       select: { userId: true },
     });
     const existingUser = await prisma.user.findUnique({
@@ -206,7 +202,7 @@ export async function POST(request: NextRequest) {
 
     if (!isTestUser) {
       await upsertCu12Account(userId, {
-        provider,
+        currentProvider: currentProvider ?? verifiedProvider,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password ?? "",
         campus,
@@ -243,7 +239,7 @@ export async function POST(request: NextRequest) {
       targetUserId: userId,
       message: created ? "Admin created member" : "Admin updated member",
       meta: {
-        provider,
+        provider: currentProvider ?? verifiedProvider ?? null,
         cu12Id: body.cu12Id,
         campus,
         role,

@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
+import { PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { updateAutomationSettings } from "@/server/cu12-account";
 
 const BodySchema = z.object({
+  currentProvider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
   autoLearnEnabled: z.boolean().optional(),
   quizAutoSolveEnabled: z.boolean().optional(),
   detectActivitiesEnabled: z.boolean().optional(),
@@ -19,6 +21,7 @@ export async function PATCH(request: NextRequest) {
     const account = await updateAutomationSettings(context.effective.userId, body);
     return jsonOk({
       updated: true,
+      currentProvider: account.provider,
       autoLearnEnabled: account.autoLearnEnabled,
       quizAutoSolveEnabled: account.quizAutoSolveEnabled,
       detectActivitiesEnabled: account.detectActivitiesEnabled,

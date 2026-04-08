@@ -38,6 +38,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         isTestUser: true,
         cu12Account: {
           select: {
+            provider: true,
             cu12Id: true,
           },
         },
@@ -66,9 +67,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       type: "SYNC",
       payload: {
         userId,
+        provider: user.cu12Account.provider,
         reason: "admin_sync_request",
       },
-      idempotencyKey: `sync:${user.id}:admin`,
+      idempotencyKey: `sync:${user.id}:${user.cu12Account.provider}:admin`,
       runAfter,
     });
 
@@ -96,6 +98,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       message: "Admin requested immediate sync",
       meta: {
         jobId: job.id,
+        provider: user.cu12Account.provider,
         deduplicated,
         userId,
         cu12Id: user.cu12Account.cu12Id,
@@ -106,6 +109,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     return jsonOk({
+      provider: user.cu12Account.provider,
       jobId: job.id,
       status: job.status,
       deduplicated,

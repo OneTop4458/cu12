@@ -5,10 +5,7 @@ import { jsonError, jsonOk, parseBody, requireAdminActor, requireUser } from "@/
 import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
-import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
-
 const BodySchema = z.object({
-  provider: z.enum(PORTAL_PROVIDER_VALUES).optional().default("CU12"),
   cu12Id: z.string().trim().min(4).max(80),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
   expiresHours: z.number().int().min(1).max(24 * 30).default(72),
@@ -64,13 +61,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    const provider = normalizePortalProvider(body.provider);
     const expiresHours = body.expiresHours ?? 72;
     const plainToken = generateToken(24);
 
     const invite = await prisma.inviteToken.create({
       data: {
-        provider,
+        provider: "CU12",
         cu12Id: body.cu12Id,
         role: body.role,
         isActive: body.isActive,
@@ -82,7 +78,6 @@ export async function POST(request: NextRequest) {
 
     return jsonOk({
       inviteId: invite.id,
-      provider: invite.provider,
       token: plainToken,
       expiresAt: invite.expiresAt,
     });

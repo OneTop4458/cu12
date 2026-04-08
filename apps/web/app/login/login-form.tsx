@@ -84,11 +84,10 @@ const COPY = {
   consentSessionInvalid: "\uB3D9\uC758 \uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
   sessionExpiredTitle: "\uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5B4 \uB85C\uADF8\uC544\uC6C3 \uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   sessionExpiredContent: "\uAC1C\uC778\uC815\uBCF4 \uBCF4\uD638 \uBC0F \uBCF4\uC548 \uAC15\uD654\uB97C \uC704\uD55C \uC790\uB3D9 \uB85C\uADF8\uC544\uC6C3 \uC815\uCC45\uC5D0 \uB530\uB77C \uC138\uC158\uC774 \uC885\uB8CC \uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
-  intro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694. \uC11C\uBE44\uC2A4 \uC120\uD0DD\uC740 \uC811\uC18D \uB300\uC0C1\uB9CC \uAD6C\uBD84\uD558\uBA70 \uACC4\uC815\uC740 \uACF5\uD1B5\uC73C\uB85C \uC5F0\uB3D9\uB429\uB2C8\uB2E4.",
-  serviceLabel: "\uC774\uC6A9 \uC11C\uBE44\uC2A4",
+  intro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD1B5\uD569 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694. \uB85C\uADF8\uC778 \uD6C4 \uB300\uC2DC\uBCF4\uB4DC\uC5D0\uC11C CU12\uC640 \uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC911 \uD604\uC7AC \uC11C\uBE44\uC2A4\uB97C \uC804\uD658\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   accountIdLabel: "\uD3EC\uD138 \uACC4\uC815 ID",
   passwordLabel: "\uBE44\uBC00\uBC88\uD638",
-  campusLabel: "\uAD50\uC815 \uC120\uD0DD (CU12 \uC804\uC6A9)",
+  campusLabel: "CU12 \uAD50\uC815 \uC124\uC815",
   saveId: "ID \uC800\uC7A5",
   resetPassword: "\uBE44\uBC00\uBC88\uD638 \uCD08\uAE30\uD654",
   submit: "\uB85C\uADF8\uC778",
@@ -119,11 +118,6 @@ const COPY = {
 const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
   { value: "SONGSIM", label: COPY.campusSongsim },
   { value: "SONGSIN", label: COPY.campusSongsin },
-];
-
-const PROVIDER_OPTIONS: Array<{ value: PortalProvider; label: string }> = [
-  { value: "CU12", label: "CU12" },
-  { value: "CYBER_CAMPUS", label: COPY.cyberCampus },
 ];
 
 function applySessionPolicy(policy: SessionPolicy | undefined) {
@@ -228,7 +222,6 @@ export function LoginForm({
   sessionExpiredReason?: SessionExpiredReason;
 }) {
   const router = useRouter();
-  const [provider, setProvider] = useState<PortalProvider>("CU12");
   const [cu12Id, setCu12Id] = useState("");
   const [cu12Password, setCu12Password] = useState("");
   const [campus, setCampus] = useState<Campus>("SONGSIM");
@@ -328,7 +321,6 @@ export function LoginForm({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          provider,
           cu12Id,
           cu12Password,
           campus,
@@ -523,17 +515,6 @@ export function LoginForm({
         <p className="muted">{COPY.intro}</p>
 
         <label className="field">
-          <span>{COPY.serviceLabel}</span>
-          <select value={provider} onChange={(event) => setProvider(event.target.value as PortalProvider)}>
-            {PROVIDER_OPTIONS.map((entry) => (
-              <option key={entry.value} value={entry.value}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
           <span>{COPY.accountIdLabel}</span>
           <input
             value={cu12Id}
@@ -558,18 +539,16 @@ export function LoginForm({
           />
         </label>
 
-        {provider === "CU12" ? (
-          <label className="field">
-            <span>{COPY.campusLabel}</span>
-            <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
-              {CAMPUS_OPTIONS.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        <label className="field">
+          <span>{COPY.campusLabel}</span>
+          <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
+            {CAMPUS_OPTIONS.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="login-options-row">
           <label className="check-field">
@@ -586,16 +565,14 @@ export function LoginForm({
             />
             <span>{COPY.saveId}</span>
           </label>
-          {provider === "CU12" ? (
-            <a
-              className="btn ghost-btn login-reset-link"
-              href="https://www.cu12.ac.kr/el/member/pw_reset_form.acl"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {COPY.resetPassword}
-            </a>
-          ) : null}
+          <a
+            className="btn ghost-btn login-reset-link"
+            href="https://www.cu12.ac.kr/el/member/pw_reset_form.acl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {COPY.resetPassword}
+          </a>
         </div>
 
         {error ? <p className="error-text">{error}</p> : null}

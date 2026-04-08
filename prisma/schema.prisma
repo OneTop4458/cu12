@@ -172,8 +172,8 @@ model Cu12Account {
   updatedAt              DateTime      @updatedAt
   user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([provider, cu12Id])
-  @@index([provider, userId])
+  @@unique([cu12Id])
+  @@index([provider])
 }
 
 model JobQueue {

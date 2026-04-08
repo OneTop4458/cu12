@@ -4,13 +4,15 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
 export interface Cu12AccountInput {
-  provider: PortalProvider;
+  provider?: PortalProvider;
+  currentProvider?: PortalProvider;
   cu12Id: string;
   cu12Password: string;
   campus?: PortalCampus | null;
 }
 
 export interface AutomationSettingsInput {
+  currentProvider?: PortalProvider;
   autoLearnEnabled?: boolean;
   quizAutoSolveEnabled?: boolean;
   detectActivitiesEnabled?: boolean;
@@ -80,25 +82,39 @@ function withQuizDefault<T extends { quizAutoSolveEnabled?: boolean }>(record: O
 }
 
 export async function upsertCu12Account(userId: string, input: Cu12AccountInput) {
-  return prisma.cu12Account.upsert({
+  const existing = await prisma.cu12Account.findUnique({
     where: { userId },
-    update: {
-      provider: input.provider,
-      cu12Id: input.cu12Id,
-      encryptedPassword: encryptSecret(input.cu12Password),
-      campus: input.provider === "CU12" ? (input.campus ?? "SONGSIM") : null,
-      ...(input.provider === "CYBER_CAMPUS" ? { autoLearnEnabled: false } : {}),
-      accountStatus: "CONNECTED",
-      statusReason: null,
-      updatedAt: new Date(),
+    select: {
+      provider: true,
+      campus: true,
     },
-    create: {
+  });
+
+  const currentProvider = input.currentProvider ?? input.provider ?? (existing?.provider as PortalProvider | undefined) ?? "CU12";
+  const campus = input.campus ?? (existing?.campus as PortalCampus | null | undefined) ?? "SONGSIM";
+
+  if (existing) {
+    return prisma.cu12Account.update({
+      where: { userId },
+      data: {
+        provider: currentProvider,
+        cu12Id: input.cu12Id,
+        encryptedPassword: encryptSecret(input.cu12Password),
+        campus,
+        accountStatus: "CONNECTED",
+        statusReason: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  return prisma.cu12Account.create({
+    data: {
       userId,
-      provider: input.provider,
+      provider: currentProvider,
       cu12Id: input.cu12Id,
       encryptedPassword: encryptSecret(input.cu12Password),
-      campus: input.provider === "CU12" ? (input.campus ?? "SONGSIM") : null,
-      autoLearnEnabled: input.provider === "CYBER_CAMPUS" ? false : true,
+      campus,
       accountStatus: "CONNECTED",
     },
   });
@@ -178,16 +194,14 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
 }
 
 export async function updateAutomationSettings(userId: string, input: AutomationSettingsInput) {
-  const current = await prisma.cu12Account.findUnique({
-    where: { userId },
-    select: { provider: true },
-  });
+  const current = await prisma.cu12Account.findUnique({ where: { userId }, select: { provider: true } });
   if (!current) {
     throw new Error("Account not found");
   }
 
   const data = {
-    autoLearnEnabled: current.provider === "CYBER_CAMPUS" ? false : input.autoLearnEnabled,
+    provider: input.currentProvider,
+    autoLearnEnabled: input.autoLearnEnabled,
     quizAutoSolveEnabled: input.quizAutoSolveEnabled,
     detectActivitiesEnabled: input.detectActivitiesEnabled,
     emailDigestEnabled: input.emailDigestEnabled,
@@ -207,7 +221,8 @@ export async function updateAutomationSettings(userId: string, input: Automation
     const fallback = await prisma.cu12Account.update({
       where: { userId },
       data: {
-        autoLearnEnabled: current.provider === "CYBER_CAMPUS" ? false : input.autoLearnEnabled,
+        provider: input.currentProvider ?? current.provider,
+        autoLearnEnabled: input.autoLearnEnabled,
         detectActivitiesEnabled: input.detectActivitiesEnabled,
         emailDigestEnabled: input.emailDigestEnabled,
       },
@@ -225,6 +240,16 @@ export async function updateAutomationSettings(userId: string, input: Automation
     });
     return withQuizDefault<Cu12AutomationSettingsRecord>(fallback);
   }
+}
+
+export async function setCurrentPortalProvider(userId: string, provider: PortalProvider) {
+  return prisma.cu12Account.update({
+    where: { userId },
+    data: {
+      provider,
+      updatedAt: new Date(),
+    },
+  });
 }
 
 export async function markCu12Status(userId: string, accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR", reason?: string) {

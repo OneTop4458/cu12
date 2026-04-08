@@ -712,6 +712,9 @@ async function processSync(
   userId: string,
   jobType: "SYNC" | "NOTICE_SCAN",
   onCancelCheck?: CancelCheck,
+  options?: {
+    provider?: PortalProvider;
+  },
 ) {
   const resultType: "SYNC" | "NOTICE_SCAN" = jobType === "NOTICE_SCAN" ? "NOTICE_SCAN" : "SYNC";
   const logPrefix = `[${resultType}]`;
@@ -719,6 +722,7 @@ async function processSync(
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
+  const targetProvider = options?.provider ?? creds.provider;
   const cu12Creds: Cu12Credentials = {
     cu12Id: creds.cu12Id,
     cu12Password: creds.cu12Password,
@@ -757,7 +761,7 @@ async function processSync(
         + ` current=${currentTitle}(${currentSeq})`,
       );
     };
-    const snapshot = creds.provider === "CYBER_CAMPUS"
+    const snapshot = targetProvider === "CYBER_CAMPUS"
       ? await (async () => {
         const browser = await chromium.launch({ headless: getEnv().PLAYWRIGHT_HEADLESS });
         try {
@@ -781,7 +785,7 @@ async function processSync(
         shouldCancel,
         progressReporter,
       );
-    const persisted = await persistSnapshot(userId, creds.provider, snapshot);
+    const persisted = await persistSnapshot(userId, targetProvider, snapshot);
     await markAccountConnected(userId);
 
     const courseTitleBySeq = new Map(snapshot.courses.map((course) => [course.lectureSeq, course.title]));
@@ -790,7 +794,7 @@ async function processSync(
         ? (snapshot as { messages: unknown[] }).messages.length
         : 0;
 
-    await sendSyncAlertMail(userId, creds.provider, {
+    await sendSyncAlertMail(userId, targetProvider, {
       newNoticeCount: persisted.newNoticeCount,
       newUnreadNotificationCount: persisted.newUnreadNotificationCount,
       newMessageCount: persisted.newMessageCount,
@@ -1303,7 +1307,21 @@ async function main() {
               const status = await getJobStatus(job.id);
               return status === null || status === JobStatus.CANCELED;
             };
-            result = await processSync(job.id, workerId, job.payload.userId, job.type, shouldCancel);
+            result = await processSync(
+              job.id,
+              workerId,
+              job.payload.userId,
+              job.type,
+              shouldCancel,
+              {
+                provider:
+                  job.payload.provider === "CYBER_CAMPUS"
+                    ? "CYBER_CAMPUS"
+                    : job.payload.provider === "CU12"
+                      ? "CU12"
+                      : undefined,
+              },
+            );
           } else if (job.type === JobType.AUTOLEARN) {
             const shouldCancel = async () => {
               const status = await getJobStatus(job.id);

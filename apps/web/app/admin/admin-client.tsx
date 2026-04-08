@@ -261,7 +261,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   const [newCu12Id, setNewCu12Id] = useState("");
   const [newName, setNewName] = useState("");
-  const [newProvider, setNewProvider] = useState<PortalProvider>("CU12");
   const [newCampus, setNewCampus] = useState<CampusType>("SONGSIM");
   const [newRole, setNewRole] = useState<RoleType>("USER");
   const [newIsTestUser, setNewIsTestUser] = useState(false);
@@ -273,7 +272,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
   const [inviteCu12Id, setInviteCu12Id] = useState("");
-  const [inviteProvider, setInviteProvider] = useState<PortalProvider>("CU12");
   const [inviteRole, setInviteRole] = useState<RoleType>("USER");
   const [inviteExpiresHours, setInviteExpiresHours] = useState(72);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
@@ -438,7 +436,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     setEditingMember(null);
     setNewCu12Id("");
     setNewName("");
-    setNewProvider("CU12");
     setNewCampus("SONGSIM");
     setNewRole("USER");
     setNewIsTestUser(false);
@@ -450,7 +447,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const startEditMember = useCallback((member: Member) => {
     setEditingMemberId(member.id);
     setEditingMember(member);
-    setNewProvider(member.cu12Account?.provider ?? "CU12");
     setNewCu12Id(member.cu12Account?.cu12Id ?? member.email);
     setNewName(member.name ?? "");
     setNewCampus(member.cu12Account?.campus ?? "SONGSIM");
@@ -512,12 +508,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         const payload = await fetchJson<MemberCreateResponse>("/api/admin/members", {
           method: "POST",
           body: JSON.stringify({
-            provider: newProvider,
             cu12Id: trimmedCu12Id,
             cu12Password: newCu12Password.trim(),
             localPassword: newIsTestUser ? newLocalPassword.trim() : undefined,
             name: newName.trim() || undefined,
-            campus: newProvider === "CU12" ? newCampus : undefined,
+            campus: newCampus,
             role: newRole,
             isTestUser: newIsTestUser,
             isActive: newIsActive,
@@ -539,7 +534,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     memberSubmitting,
     newCu12Id,
     newName,
-    newProvider,
     newCampus,
     newRole,
     newIsTestUser,
@@ -558,7 +552,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const syncMember = useCallback((member: Member) => {
     if (!member.cu12Account?.cu12Id || memberSyncBusyId === member.id) {
       if (!member.cu12Account?.cu12Id) {
-        setError("CU12 연동 계정이 없는 사용자는 동기화 할 수 없습니다.");
+        setError("통합 포털 계정이 연결되지 않은 사용자는 동기화할 수 없습니다.");
       }
       return;
     }
@@ -636,7 +630,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       const payload = await fetchJson<InviteCreateResponse>("/api/auth/invite", {
         method: "POST",
         body: JSON.stringify({
-          provider: inviteProvider,
           cu12Id: inviteCu12Id.trim(),
           role: inviteRole,
           expiresHours: inviteExpiresHours,
@@ -888,14 +881,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         </div>
         <form className="form-grid top-gap" onSubmit={createMember}>
           <label className="field">
-            <span>포털</span>
-            <select value={newProvider} onChange={(event) => setNewProvider(event.target.value as PortalProvider)}>
-              <option value="CU12">CU12</option>
-              <option value="CYBER_CAMPUS">사이버캠퍼스</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>계정 ID</span>
+            <span>통합 포털 ID</span>
             <input
               value={newCu12Id}
               onChange={(event) => setNewCu12Id(event.target.value)}
@@ -915,17 +901,17 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             />
           </label>
           <label className="field">
-            <span>캠퍼스</span>
+            <span>CU12 교정 설정</span>
             <select
               value={newCampus}
               onChange={(event) => setNewCampus(event.target.value as CampusType)}
-              disabled={isEditMode || newProvider !== "CU12"}
+              disabled={isEditMode}
             >
               <option value="SONGSIM">성심교정</option>
               <option value="SONGSIN">성신교정</option>
             </select>
             {isEditMode ? (
-              <p className="muted text-small">캠퍼스는 등록 후 별도 API에서 별도 수정하세요.</p>
+              <p className="muted text-small">CU12 교정 설정은 등록 후 별도 API에서 수정하세요.</p>
             ) : null}
           </label>
           <label className="field">
@@ -969,10 +955,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           ) : (
             <>
               {isEditMode ? (
-                <p className="muted">CU12 비밀번호는 이 화면에서 수정할 수 없습니다.</p>
+                <p className="muted">통합 포털 비밀번호는 이 화면에서 수정할 수 없습니다.</p>
               ) : (
                 <label className="field">
-                  <span>CU12 비밀번호</span>
+                  <span>통합 포털 비밀번호</span>
                   <input
                     type="password"
                     value={newCu12Password}
@@ -1102,18 +1088,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       <section className="card">
         <div className="table-toolbar">
           <h2>초대 코드 관리</h2>
-          <span className="text-small muted">회원 등록 전에 초대 코드를 발급해 초대 기반 등록을 허용할 수 있습니다.</span>
+          <span className="text-small muted">통합 포털 계정 승인을 위한 초대 코드를 발급합니다.</span>
         </div>
         <form className="form-grid top-gap" onSubmit={createInvite}>
           <label className="field">
-            <span>포털</span>
-            <select value={inviteProvider} onChange={(event) => setInviteProvider(event.target.value as PortalProvider)}>
-              <option value="CU12">CU12</option>
-              <option value="CYBER_CAMPUS">사이버캠퍼스</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>계정 ID</span>
+            <span>통합 포털 ID</span>
             <input
               value={inviteCu12Id}
               onChange={(event) => setInviteCu12Id(event.target.value)}
@@ -1162,7 +1141,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <table>
             <thead>
               <tr>
-                <th>포털</th>
                 <th>계정 ID</th>
                 <th>역할</th>
                 <th>상태</th>
@@ -1176,12 +1154,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <tbody>
               {invites.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>발급된 초대 코드가 없습니다.</td>
+                  <td colSpan={8}>발급된 초대 코드가 없습니다.</td>
                 </tr>
               ) : (
                 invites.map((invite) => (
                   <tr key={invite.id}>
-                    <td data-label="포털">{invite.provider ?? "CU12"}</td>
                     <td data-label="계정 ID">{invite.cu12Id}</td>
                     <td data-label="역할">{invite.role}</td>
                     <td data-label="상태">

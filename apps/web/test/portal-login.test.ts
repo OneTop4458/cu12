@@ -112,7 +112,44 @@ test("verifyPortalLogin preserves Cyber Campus auth failure results", async () =
     ok: false,
     message: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uACC4\uC815 \uC815\uBCF4\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
     messageCode: "AUTH_FAILED",
+    verifiedProvider: "CYBER_CAMPUS",
   });
+});
+
+test("verifyPortalLogin falls back to Cyber Campus when no provider hint is given", async () => {
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push(`${init?.method ?? "GET"} ${url}`);
+    if (url.includes("configured-cu12.example")) {
+      return new Response(JSON.stringify({ isError: true, message: "Invalid CU12 credentials" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.endsWith("/ilos/main/member/login_form.acl")) {
+      return makeResponse("<form><input id='usr_id'><input id='usr_pwd'><button id='login_btn'></button></form>", {
+        url,
+      });
+    }
+    return makeResponse("<a href='/ilos/lo/logout.acl'>logout</a>", {
+      url: "https://e-cyber.example/ilos/main/main_form.acl",
+    });
+  }) as typeof fetch;
+
+  const result = await verifyPortalLogin({
+    cu12Id: "student1",
+    cu12Password: "password",
+    campus: "SONGSIM",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.verifiedProvider, "CYBER_CAMPUS");
+  assert.deepEqual(calls, [
+    "POST https://configured-cu12.example/el/lo/hak_login_proc.acl",
+    "GET https://e-cyber.example/ilos/main/member/login_form.acl",
+    "POST https://e-cyber.example/ilos/lo/login.acl",
+  ]);
 });
 
 test("isPortalUnavailableResult recognizes Cyber Campus unavailable result", () => {

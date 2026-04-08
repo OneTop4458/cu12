@@ -12,7 +12,7 @@ import { getAutomationSettingsAccount, upsertCu12Account } from "@/server/cu12-a
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 
 const PostSchema = z.object({
-  provider: z.enum(PORTAL_PROVIDER_VALUES).optional().default("CU12"),
+  provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
   cu12Id: z.string().min(4).max(80),
   cu12Password: z.string().min(4).max(120),
   campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
@@ -37,15 +37,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, PostSchema);
-    const provider = normalizePortalProvider(body.provider);
-    const campus = provider === "CU12" ? (body.campus ?? "SONGSIM") : null;
+    const currentProvider = body.provider ? normalizePortalProvider(body.provider) : undefined;
+    const campus = body.campus ?? "SONGSIM";
 
-    await upsertCu12Account(context.effective.userId, {
-      provider,
+    const account = await upsertCu12Account(context.effective.userId, {
+      currentProvider,
       cu12Id: body.cu12Id,
       cu12Password: body.cu12Password,
       campus,
     });
+    const provider = account.provider;
 
     const { job } = await enqueueJob({
       userId: context.effective.userId,
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
     const dispatch = await dispatchWorkerRun("sync", context.effective.userId);
     return jsonOk({
       connected: true,
+      provider,
       queuedJobId: job.id,
       dispatched: dispatch.dispatched,
       dispatchError: dispatch.error,

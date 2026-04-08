@@ -75,9 +75,10 @@ paths:
   /api/auth/login:
     post:
       tags: [Auth]
-      summary: Step 1 login with CU12 credentials
+      summary: Step 1 login with the Catholic University portal account
       description: >-
-        Verifies CU12 credentials in real time.
+        Verifies the shared Catholic University portal credential in real time.
+        The same credential is reused across CU12 and Cyber Campus.
         Returns AUTHENTICATED for mapped users, INVITE_REQUIRED for first-login users,
         or CONSENT_REQUIRED when required policies must be accepted.
         Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
@@ -524,7 +525,7 @@ paths:
   /api/cu12/account:
     get:
       tags: [CU12]
-      summary: Get CU12 account mapping for effective user
+      summary: Get the shared portal credential mapping for the effective user
       security:
         - cookieAuth: []
       responses:
@@ -544,7 +545,7 @@ paths:
           description: Unauthorized
     post:
       tags: [CU12]
-      summary: Connect/update CU12 credentials and queue sync
+      summary: Connect/update the shared portal credential and queue sync for the current service
       security:
         - cookieAuth: []
       requestBody:
@@ -596,7 +597,7 @@ paths:
   /api/cu12/automation:
     patch:
       tags: [CU12]
-      summary: Update CU12 automation flags
+      summary: Update automation flags and the current dashboard service
       security:
         - cookieAuth: []
       requestBody:
@@ -606,6 +607,9 @@ paths:
             schema:
               type: object
               properties:
+                currentProvider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
                 autoLearnEnabled:
                   type: boolean
                 quizAutoSolveEnabled:
@@ -2019,7 +2023,7 @@ paths:
           description: Member list
     post:
       tags: [Admin]
-      summary: Create or update a member from CU12 credentials or local credentials
+      summary: Create or update a member from a shared portal credential or local test credentials
       security:
         - cookieAuth: []
       requestBody:
@@ -2789,6 +2793,7 @@ components:
       type: object
       required:
         [
+          provider,
           cu12Id,
           campus,
           accountStatus,
@@ -2799,6 +2804,10 @@ components:
           updatedAt,
         ]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
+          description: Current dashboard/service scope for the shared portal credential.
         cu12Id:
           type: string
         campus:
@@ -3294,6 +3303,7 @@ components:
             provider:
               type: string
               enum: [CU12, CYBER_CAMPUS]
+              description: Current dashboard/service scope for the shared portal credential.
             cu12Id:
               type: string
             campus:
@@ -3599,6 +3609,7 @@ components:
         provider:
           type: string
           enum: [CU12, CYBER_CAMPUS]
+          description: Service target selected for the queued job.
         jobId:
           type: string
         status:
