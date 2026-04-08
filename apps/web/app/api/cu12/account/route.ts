@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
-import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun } from "@/server/github-actions-dispatch";
 import {
   enqueueJob,
@@ -9,7 +8,7 @@ import {
   TEST_USER_SYNC_BLOCKED_ERROR_CODE,
   TEST_USER_SYNC_BLOCKED_MESSAGE,
 } from "@/server/queue";
-import { upsertCu12Account } from "@/server/cu12-account";
+import { getAutomationSettingsAccount, upsertCu12Account } from "@/server/cu12-account";
 
 const PostSchema = z.object({
   cu12Id: z.string().min(4).max(80),
@@ -21,20 +20,7 @@ export async function GET(request: NextRequest) {
   const context = await requireAuthContext(request);
   if (!context) return jsonError("Unauthorized", 401);
 
-  const account = await prisma.cu12Account.findUnique({
-    where: { userId: context.effective.userId },
-    select: {
-      cu12Id: true,
-      campus: true,
-      accountStatus: true,
-      statusReason: true,
-      autoLearnEnabled: true,
-      quizAutoSolveEnabled: true,
-      detectActivitiesEnabled: true,
-      emailDigestEnabled: true,
-      updatedAt: true,
-    },
-  });
+  const account = await getAutomationSettingsAccount(context.effective.userId);
 
   return jsonOk({ account });
 }

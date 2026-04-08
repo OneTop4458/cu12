@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { getDashboardAccount } from "@/server/cu12-account";
 import { getCourses, getDashboardSummary, getNotifications, getUpcomingDeadlines } from "@/server/dashboard";
 import { getSyncQueueSummaryForUser, listJobsForUser } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
@@ -77,23 +78,7 @@ export async function GET(request: NextRequest) {
     listJobsForUser(userId, jobsLimit),
     getSyncQueueSummaryForUser(userId),
     listSiteNotices(undefined, false),
-    prisma.cu12Account.findUnique({
-      where: { userId },
-      select: {
-        cu12Id: true,
-        campus: true,
-        accountStatus: true,
-        statusReason: true,
-        autoLearnEnabled: true,
-        quizAutoSolveEnabled: true,
-        user: {
-          select: {
-            lastLoginAt: true,
-            lastLoginIp: true,
-          },
-        },
-      },
-    }),
+    getDashboardAccount(userId),
     resolveMailPreference(userId),
   ]);
 
