@@ -139,7 +139,6 @@ async function fetchText(
 
 function mergeCourses(
   base: ReturnType<typeof parseCyberCampusMainCoursesHtml>,
-  notifications: ReturnType<typeof parseCyberCampusNotificationListHtml>,
   tasks: ReturnType<typeof parseCyberCampusTodoListHtml>,
   userId: string,
 ) {
@@ -155,26 +154,6 @@ function mergeCourses(
       lectureSeq: task.lectureSeq,
       externalLectureId: task.externalLectureId ?? null,
       title: task.taskTitle ?? `Course ${task.lectureSeq}`,
-      instructor: null,
-      progressPercent: 0,
-      remainDays: null,
-      recentLearnedAt: null,
-      periodStart: null,
-      periodEnd: null,
-      status: "ACTIVE",
-      syncedAt: new Date().toISOString(),
-    });
-  }
-
-  for (const event of notifications) {
-    const rawCourseKey = event.notifierSeq.match(/^\d+$/) ? "" : "";
-    const lectureSeq = 0;
-    if (lectureSeq <= 0 || seen.has(lectureSeq)) continue;
-    seen.set(lectureSeq, {
-      userId,
-      lectureSeq,
-      externalLectureId: rawCourseKey || null,
-      title: event.courseTitle,
       instructor: null,
       progressPercent: 0,
       remainDays: null,
@@ -267,7 +246,7 @@ export async function collectCyberCampusSnapshot(
     const notices = parseCyberCampusCommunityNoticeListHtml(mainHtml, userId);
     const notifications = parseCyberCampusNotificationListHtml(notificationHtml, userId);
     const tasks = parseCyberCampusTodoListHtml(todoHtml, userId);
-    const courses = mergeCourses(baseCourses, notifications, tasks, userId);
+    const courses = mergeCourses(baseCourses, tasks, userId);
     const messages = await collectMessages(page, userId);
 
     await reportProgress({
@@ -388,7 +367,7 @@ export async function runCyberCampusAutoLearning(
     }
 
     const lectureSeqs: number[] = [];
-    let processedTaskCount = 0;
+    const attemptedKeys: Array<{ lectureSeq: number; courseContentsSeq: number }> = [];
 
     for (const plannedTask of plannedBase) {
       if (await shouldCancel()) {
@@ -426,7 +405,10 @@ export async function runCyberCampusAutoLearning(
         throw new Error("CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED");
       }
 
-      processedTaskCount += 1;
+      attemptedKeys.push({
+        lectureSeq: plannedTask.lectureSeq,
+        courseContentsSeq: plannedTask.courseContentsSeq,
+      });
       if (!lectureSeqs.includes(plannedTask.lectureSeq)) {
         lectureSeqs.push(plannedTask.lectureSeq);
       }
@@ -436,7 +418,7 @@ export async function runCyberCampusAutoLearning(
           phase: "RUNNING",
           mode: options.mode,
           totalTasks: planned.length,
-          completedTasks: processedTaskCount,
+          completedTasks: attemptedKeys.length,
           elapsedSeconds: 0,
           estimatedRemainingSeconds: 0,
           current: {
@@ -456,10 +438,26 @@ export async function runCyberCampusAutoLearning(
       }
     }
 
+    const refreshedTodoHtml = await fetchText(
+      page,
+      "/ilos/mp/todo_list.acl",
+      { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
+    );
+    const remainingTasks = parseCyberCampusTodoListHtml(refreshedTodoHtml, userId)
+      .filter((task) => task.activityType === "VOD");
+    const remainingKeys = new Set(
+      remainingTasks.map((task) => `${task.lectureSeq}:${task.courseContentsSeq}`),
+    );
+    const confirmedCompleted = attemptedKeys.filter((task) => !remainingKeys.has(`${task.lectureSeq}:${task.courseContentsSeq}`));
+
+    if (confirmedCompleted.length === 0) {
+      throw new Error("CYBER_CAMPUS_LEARNING_NOT_CONFIRMED");
+    }
+
     return {
       mode: options.mode,
       lectureSeqs,
-      processedTaskCount,
+      processedTaskCount: confirmedCompleted.length,
       elapsedSeconds: 0,
       plannedTaskCount: planned.length,
       truncated: false,

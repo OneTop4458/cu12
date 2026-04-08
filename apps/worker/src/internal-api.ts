@@ -6,6 +6,7 @@ interface ClaimedJob {
   type: JobType;
   payload: {
     userId: string;
+    provider?: "CU12" | "CYBER_CAMPUS";
     lectureSeq?: number;
     autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
     reason?: string;

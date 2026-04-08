@@ -347,17 +347,21 @@ export interface PortalSessionCookieState {
 }
 
 function decodePortalSessionCookieState(payload: string): PortalSessionCookieState[] {
-  const raw = JSON.parse(decryptSecret(payload)) as unknown;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const name = (item as { name?: unknown }).name;
-      const value = (item as { value?: unknown }).value;
-      if (typeof name !== "string" || typeof value !== "string") return null;
-      return { name, value };
-    })
-    .filter((item): item is PortalSessionCookieState => item !== null);
+  try {
+    const raw = JSON.parse(decryptSecret(payload)) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const name = (item as { name?: unknown }).name;
+        const value = (item as { value?: unknown }).value;
+        if (typeof name !== "string" || typeof value !== "string") return null;
+        return { name, value };
+      })
+      .filter((item): item is PortalSessionCookieState => item !== null);
+  } catch {
+    return [];
+  }
 }
 
 export async function getPortalSessionCookieState(userId: string, provider: PortalProvider) {
@@ -691,7 +695,7 @@ export async function persistSnapshot(
   for (const event of messages) {
     const isNewRecord = !existingMessageSet.has(event.messageSeq);
     const existingIsRead = existingMessageBySeq.get(event.messageSeq);
-    const nextIsRead = existingIsRead === undefined ? event.isRead : existingIsRead && event.isRead;
+    const nextIsRead = existingIsRead === undefined ? event.isRead : existingIsRead || event.isRead;
 
     await runWithPrismaRetry(() =>
       prisma.portalMessage.upsert({
@@ -839,13 +843,20 @@ export async function persistSnapshot(
     }));
 
   const pendingTaskCount = data.tasks.filter((task) => task.state === "PENDING").length;
+  const unreadMessageCount = await prisma.portalMessage.count({
+    where: {
+      userId,
+      provider,
+      isRead: false,
+    },
+  });
 
   return {
     newNoticeCount,
     newNotificationCount,
     newUnreadNotificationCount,
     newMessageCount,
-    unreadMessageCount: messages.filter((message) => !message.isRead).length,
+    unreadMessageCount,
     newNotices,
     newUnreadNotifications,
     newMessages,

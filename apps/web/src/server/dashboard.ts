@@ -442,7 +442,7 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
   });
 }
 
-export async function getUpcomingDeadlines(userId: string, limit = 30, provider: PortalProvider = "CU12") {
+export async function getUpcomingDeadlines(userId: string, limit = 30, provider: PortalProvider) {
   const now = new Date();
   const tasksRaw = await fetchLearningTasksRaw({
     userId,

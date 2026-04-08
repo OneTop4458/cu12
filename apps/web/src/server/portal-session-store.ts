@@ -8,17 +8,21 @@ function encodeCookieState(cookieState: CookieStateEntry[]): string {
 }
 
 function decodeCookieState(payload: string): CookieStateEntry[] {
-  const raw = JSON.parse(decryptSecret(payload)) as unknown;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const name = (item as { name?: unknown }).name;
-      const value = (item as { value?: unknown }).value;
-      if (typeof name !== "string" || typeof value !== "string") return null;
-      return { name, value };
-    })
-    .filter((item): item is CookieStateEntry => item !== null);
+  try {
+    const raw = JSON.parse(decryptSecret(payload)) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const name = (item as { name?: unknown }).name;
+        const value = (item as { value?: unknown }).value;
+        if (typeof name !== "string" || typeof value !== "string") return null;
+        return { name, value };
+      })
+      .filter((item): item is CookieStateEntry => item !== null);
+  } catch {
+    return [];
+  }
 }
 
 export async function getPortalSession(userId: string, provider: PortalProvider) {

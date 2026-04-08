@@ -1,3 +1,4 @@
+import type { PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import {
@@ -50,6 +51,10 @@ function sleep(ms: number) {
 function errMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function formatProviderName(provider: PortalProvider): string {
+  return provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "CU12";
 }
 
 function daysUntil(target: Date, now: Date): number {
@@ -887,16 +892,23 @@ async function processAutolearn(
   options?: {
     chainSegment?: number;
     sendStartMail?: boolean;
+    provider?: PortalProvider;
   },
 ) {
   const creds = await getUserCu12Credentials(userId);
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
-  const cyberCampusSession = creds.provider === "CYBER_CAMPUS"
+  const targetProvider = options?.provider ?? creds.provider;
+  if (creds.provider !== targetProvider) {
+    throw new Error(
+      `자동 수강 요청 서비스(${formatProviderName(targetProvider)})와 현재 연결된 서비스(${formatProviderName(creds.provider)})가 달라 작업을 시작할 수 없습니다. 계정 연결 상태를 다시 확인해 주세요.`,
+    );
+  }
+  const cyberCampusSession = targetProvider === "CYBER_CAMPUS"
     ? await getPortalSessionCookieState(userId, "CYBER_CAMPUS")
     : null;
-  if (creds.provider === "CYBER_CAMPUS") {
+  if (targetProvider === "CYBER_CAMPUS") {
     const sessionExpired = cyberCampusSession?.expiresAt && cyberCampusSession.expiresAt.getTime() <= Date.now();
     if (!cyberCampusSession || cyberCampusSession.status !== "ACTIVE" || sessionExpired || cyberCampusSession.cookieState.length === 0) {
       throw new Error("CYBER_CAMPUS_SESSION_REQUIRED");
@@ -954,7 +966,7 @@ async function processAutolearn(
       const status = await getJobStatus(jobId);
       return status === null || status === JobStatus.CANCELED;
     };
-    const autoResult = creds.provider === "CYBER_CAMPUS"
+    const autoResult = targetProvider === "CYBER_CAMPUS"
       ? await runCyberCampusAutoLearning(
         browser,
         userId,
@@ -989,7 +1001,7 @@ async function processAutolearn(
 
     await recordLearningRun(
       userId,
-      creds.provider,
+      targetProvider,
       lectureSeq ?? null,
       "SUCCESS",
       `mode=${mode}, processed=${autoResult.processedTaskCount}`,
@@ -997,7 +1009,7 @@ async function processAutolearn(
 
     // Refresh snapshots after playback updates.
     const shouldCancel = onCancelCheck ?? (async () => false);
-    const snapshot = creds.provider === "CYBER_CAMPUS"
+    const snapshot = targetProvider === "CYBER_CAMPUS"
       ? await collectCyberCampusSnapshot(
         browser,
         userId,
@@ -1012,7 +1024,7 @@ async function processAutolearn(
         },
       )
       : await collectCu12Snapshot(browser, userId, cu12Creds, shouldCancel);
-    await persistSnapshot(userId, creds.provider, snapshot);
+    await persistSnapshot(userId, targetProvider, snapshot);
 
     await writeAuditLog({
       category: "WORKER",
@@ -1051,14 +1063,14 @@ async function processAutolearn(
 
     if (!isCancelled) {
       if (
-        creds.provider === "CYBER_CAMPUS"
+        targetProvider === "CYBER_CAMPUS"
         && (message === "CYBER_CAMPUS_SESSION_INVALID"
           || message === "CYBER_CAMPUS_SESSION_REQUIRED"
           || message === "CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED")
       ) {
         await invalidatePortalSession(userId, "CYBER_CAMPUS");
       }
-      await recordLearningRun(userId, creds.provider, lectureSeq ?? null, "FAILED", message);
+      await recordLearningRun(userId, targetProvider, lectureSeq ?? null, "FAILED", message);
       await writeAuditLog({
         category: "WORKER",
         severity: "ERROR",
@@ -1300,6 +1312,12 @@ async function main() {
               {
                 chainSegment,
                 sendStartMail: shouldSendStartMail,
+                provider:
+                  job.payload.provider === "CYBER_CAMPUS"
+                    ? "CYBER_CAMPUS"
+                    : job.payload.provider === "CU12"
+                      ? "CU12"
+                      : undefined,
               },
             );
           } else {

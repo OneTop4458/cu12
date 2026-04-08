@@ -94,6 +94,7 @@ const COPY = {
   submit: "\uB85C\uADF8\uC778",
   submitting: "\uCC98\uB9AC \uC911...",
   networkLogin: "\uB85C\uADF8\uC778 \uC694\uCCAD \uC911 \uB124\uD2B8\uC6CC\uD06C \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  loginUnavailable: "\uB85C\uADF8\uC778 \uC11C\uBE44\uC2A4\uC5D0 \uC77C\uC2DC\uC801\uC73C\uB85C \uC811\uC18D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyResponse: "\uC11C\uBC84 \uC751\uB2F5\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.",
   invalidResponse: "\uC11C\uBC84 \uC751\uB2F5\uC744 \uD574\uC11D\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
   inviteTitle: "\uCD08\uB300 \uCF54\uB4DC \uC785\uB825",
@@ -103,6 +104,7 @@ const COPY = {
   close: "\uB2EB\uAE30",
   inviteNetwork: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
   inviteSessionMissing: "\uCD08\uB300 \uCF54\uB4DC \uC778\uC99D \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
+  inviteVerificationFailed: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   consentTitle: "\uD544\uC218 \uC57D\uAD00 \uB3D9\uC758",
   consentIntro: "\uC11C\uBE44\uC2A4 \uC774\uC6A9\uC744 \uC704\uD574 \uD544\uC218 \uC57D\uAD00\uC5D0 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
   consentRequired: "\uD544\uC218)",
@@ -111,6 +113,7 @@ const COPY = {
   consentDeclineMessage: "\uD544\uC218 \uC57D\uAD00\uC5D0 \uB3D9\uC758\uD574\uC57C \uC11C\uBE44\uC2A4\uB97C \uC774\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   consentSessionMissing: "\uC57D\uAD00 \uB3D9\uC758 \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
   consentNetwork: "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  consentFailed: "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
 } as const;
 
 const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
@@ -165,18 +168,22 @@ export function toLoginErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "RATE_LIMITED") {
     return COPY.rateLimited;
   }
-  if (payload.errorCode === "CU12_UNAVAILABLE" || payload.errorCode === "PORTAL_UNAVAILABLE") {
-    return payload.error ?? "Authentication service unavailable.";
+  if (
+    payload.errorCode === "CU12_UNAVAILABLE"
+    || payload.errorCode === "CYBER_CAMPUS_UNAVAILABLE"
+    || payload.errorCode === "PORTAL_UNAVAILABLE"
+  ) {
+    return payload.error ?? COPY.loginUnavailable;
   }
   if (payload.errorCode?.startsWith("INTERNAL_DB_") || payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? "Authentication failed.";
+    return payload.error ?? COPY.loginFallback;
   }
   return payload.error ?? COPY.loginFallback;
 }
 
 export function toInviteErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
-    return payload.error ?? "Invite verification failed.";
+    return payload.error ?? COPY.inviteVerificationFailed;
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
     return COPY.accountDisabled;
@@ -191,7 +198,7 @@ export function toInviteErrorMessage(payload: ApiErrorResponse): string {
     return COPY.challengeInvalid;
   }
   if (payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? "Invite verification failed.";
+    return payload.error ?? COPY.inviteVerificationFailed;
   }
   return payload.error ?? COPY.inviteFallback;
 }
@@ -210,7 +217,7 @@ export function toConsentErrorMessage(payload: ApiErrorResponse): string {
     return COPY.consentSessionInvalid;
   }
   if (payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? "Policy consent failed.";
+    return payload.error ?? COPY.consentFailed;
   }
   return payload.error ?? COPY.consentFallback;
 }

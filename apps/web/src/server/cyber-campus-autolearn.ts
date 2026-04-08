@@ -151,7 +151,7 @@ function serializeApproval(row: CyberCampusApprovalRow | null): CyberCampusAppro
 async function resolveCyberCampusCredentials(userId: string) {
   const creds = await getCu12Credentials(userId);
   if (!creds || creds.provider !== "CYBER_CAMPUS") {
-    throw new Error("Cyber Campus account is not configured for this user.");
+    throw new Error("사이버캠퍼스 계정이 연결되어 있지 않습니다.");
   }
   return creds;
 }
@@ -216,7 +216,7 @@ async function resolveActiveApproval(userId: string): Promise<CyberCampusApprova
       userId,
       status: "CANCELED",
       canceledAt: new Date(),
-      errorMessage: "Approval session is no longer attached to a blocked auto-learn job.",
+      errorMessage: "승인 세션에 연결된 자동 수강 작업을 찾을 수 없습니다.",
     });
     return null;
   }
@@ -432,12 +432,12 @@ export async function startCyberCampusApproval(input: {
 }): Promise<CyberCampusApprovalSummary> {
   const approval = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!approval) {
-    throw new Error("Cyber Campus approval session not found.");
+    throw new Error("\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC2B9\uC778 \uC138\uC158\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
   const expired = await expireApprovalIfNeeded(approval);
   if (expired) {
-    throw new Error("Cyber Campus approval session expired.");
+    throw new Error("사이버캠퍼스 승인 세션이 만료되었습니다.");
   }
 
   if (approval.status === "COMPLETED") {
@@ -463,7 +463,7 @@ export async function startCyberCampusApproval(input: {
     && method.param === (input.param ?? method.param)
   ));
   if (!selectedMethod) {
-    throw new Error("Selected Cyber Campus secondary-auth method is invalid.");
+    throw new Error("선택한 사이버캠퍼스 2차 인증 수단이 유효하지 않습니다.");
   }
 
   const client = new CyberCampusSessionClient({ cookieState: approval.cookieState });
@@ -490,7 +490,7 @@ export async function startCyberCampusApproval(input: {
 
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
-    throw new Error("Cyber Campus approval session disappeared during update.");
+    throw new Error("사이버캠퍼스 승인 세션 갱신 중 상태가 변경되었습니다.");
   }
 
   return serializeApproval({
@@ -517,16 +517,16 @@ export async function confirmCyberCampusApproval(input: {
 }): Promise<ConfirmCyberCampusApprovalResult> {
   const approval = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!approval) {
-    throw new Error("Cyber Campus approval session not found.");
+    throw new Error("사이버캠퍼스 승인 세션을 찾을 수 없습니다.");
   }
 
   const expired = await expireApprovalIfNeeded(approval);
   if (expired) {
-    throw new Error("Cyber Campus approval session expired.");
+    throw new Error("사이버캠퍼스 승인 세션이 만료되었습니다.");
   }
 
   if (!approval.authSeq || approval.selectedWay === null || approval.selectedParam === null) {
-    throw new Error("Cyber Campus approval method has not been started.");
+    throw new Error("사이버캠퍼스 2차 인증 요청이 아직 시작되지 않았습니다.");
   }
 
   const client = new CyberCampusSessionClient({ cookieState: approval.cookieState });
@@ -548,7 +548,7 @@ export async function confirmCyberCampusApproval(input: {
 
     const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
     if (!refreshed) {
-      throw new Error("Cyber Campus approval session disappeared during update.");
+      throw new Error("사이버캠퍼스 승인 세션 갱신 중 상태가 변경되었습니다.");
     }
 
     return {
@@ -609,7 +609,7 @@ export async function confirmCyberCampusApproval(input: {
   const dispatch = await dispatchWorkerRun("autolearn", input.userId);
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
-    throw new Error("Cyber Campus approval session disappeared during completion.");
+    throw new Error("사이버캠퍼스 승인 세션 완료 처리 중 상태가 변경되었습니다.");
   }
 
   return {
@@ -640,7 +640,7 @@ export async function cancelCyberCampusApproval(input: {
 }): Promise<CyberCampusApprovalSummary> {
   const approval = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!approval) {
-    throw new Error("Cyber Campus approval session not found.");
+    throw new Error("사이버캠퍼스 승인 세션을 찾을 수 없습니다.");
   }
 
   await updatePortalApprovalSessionState({
@@ -648,7 +648,7 @@ export async function cancelCyberCampusApproval(input: {
     userId: input.userId,
     status: "CANCELED",
     canceledAt: new Date(),
-    errorMessage: "Secondary authentication canceled by user.",
+    errorMessage: "사용자가 2차 인증을 취소했습니다.",
   });
 
   await prisma.jobQueue.updateMany({
@@ -666,7 +666,7 @@ export async function cancelCyberCampusApproval(input: {
 
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
-    throw new Error("Cyber Campus approval session disappeared during cancellation.");
+    throw new Error("사이버캠퍼스 승인 세션 취소 처리 중 상태가 변경되었습니다.");
   }
 
   return serializeApproval({
