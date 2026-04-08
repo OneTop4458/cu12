@@ -30,7 +30,7 @@ export async function verifyPortalLogin(input: VerifyPortalLoginInput): Promise<
   const explicitProvider = input.provider ?? input.providerHint;
   const providers: PortalProvider[] = explicitProvider
     ? [normalizePortalProvider(explicitProvider)]
-    : ["CU12", "CYBER_CAMPUS"];
+    : ["CU12"];
 
   let authFailure: VerifyPortalLoginResult | null = null;
   let unavailable: VerifyPortalLoginResult | null = null;
