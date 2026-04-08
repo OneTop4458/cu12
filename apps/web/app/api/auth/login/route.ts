@@ -178,10 +178,10 @@ export async function POST(request: NextRequest) {
       ),
     ]);
 
-    const storedProviderHint = existingAccount?.provider
+    const storedCurrentProvider = existingAccount?.provider
       ? normalizePortalProvider(existingAccount.provider)
       : undefined;
-    const resolvedProviderHint = explicitProviderHint ?? storedProviderHint;
+    const resolvedCurrentProvider = explicitProviderHint ?? storedCurrentProvider;
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
           policies: consent.policies,
           user: {
             userId: localCandidate.id,
-            provider: resolvedProviderHint ?? undefined,
+            provider: resolvedCurrentProvider ?? undefined,
             cu12Id: body.cu12Id,
             role: localCandidate.role,
           },
@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
         stage: "AUTHENTICATED" as const,
         user: {
           userId: localCandidate.id,
-          provider: resolvedProviderHint ?? undefined,
+          provider: resolvedCurrentProvider ?? undefined,
           cu12Id: body.cu12Id,
           role: localCandidate.role,
         },
@@ -277,7 +277,7 @@ export async function POST(request: NextRequest) {
 
       scheduleAuthSuccessSideEffects({
         userId: localCandidate.id,
-        provider: resolvedProviderHint ?? null,
+        provider: resolvedCurrentProvider ?? null,
         message: "User authenticated using local credentials",
         cu12Id: body.cu12Id,
         campus,
@@ -288,7 +288,7 @@ export async function POST(request: NextRequest) {
 
     const validation = await timing.measure("external-portal", () =>
       verifyPortalLogin({
-        providerHint: resolvedProviderHint,
+        providerHint: explicitProviderHint,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password,
         campus,
@@ -307,7 +307,7 @@ export async function POST(request: NextRequest) {
           ? "Authentication failed due to portal network failure"
           : "Portal login validation failed",
         meta: {
-          provider: resolvedProviderHint ?? validation.verifiedProvider ?? null,
+          provider: explicitProviderHint ?? validation.verifiedProvider ?? storedCurrentProvider ?? null,
           cu12Id: body.cu12Id,
           campus,
           messageCode: validation.messageCode ?? null,
@@ -319,7 +319,8 @@ export async function POST(request: NextRequest) {
       return timedError("Authentication failed.", 401, "AUTH_FAILED");
     }
 
-    const verifiedProvider = validation.verifiedProvider ?? resolvedProviderHint ?? "CU12";
+    const verifiedProvider = validation.verifiedProvider ?? explicitProviderHint ?? "CU12";
+    const currentProvider = resolvedCurrentProvider ?? verifiedProvider;
     const verifiedCampus = verifiedProvider === "CU12" ? campus : undefined;
     const existingUserByEmail = await timing.measure("portal-user", () =>
       withWithdrawnAtFallback(
@@ -379,7 +380,7 @@ export async function POST(request: NextRequest) {
 
       await timing.measure("account-upsert", () =>
         upsertCu12Account(user!.id, {
-          currentProvider: verifiedProvider,
+          currentProvider,
           cu12Id: body.cu12Id,
           cu12Password: body.cu12Password,
           campus: verifiedCampus,
@@ -394,7 +395,7 @@ export async function POST(request: NextRequest) {
       user = existingUserByEmail;
       await timing.measure("account-upsert", () =>
         upsertCu12Account(user!.id, {
-          currentProvider: verifiedProvider,
+          currentProvider,
           cu12Id: body.cu12Id,
           cu12Password: body.cu12Password,
           campus: verifiedCampus,
@@ -464,7 +465,7 @@ export async function POST(request: NextRequest) {
         policies: consent.policies,
         user: {
           userId: user.id,
-          provider: verifiedProvider,
+          provider: currentProvider,
           cu12Id: body.cu12Id,
           role: user.role,
         },
@@ -500,7 +501,7 @@ export async function POST(request: NextRequest) {
       stage: "AUTHENTICATED" as const,
       user: {
         userId: user.id,
-        provider: verifiedProvider,
+        provider: currentProvider,
         cu12Id: body.cu12Id,
         role: user.role,
       },
@@ -517,7 +518,7 @@ export async function POST(request: NextRequest) {
 
     scheduleAuthSuccessSideEffects({
       userId: user.id,
-      provider: verifiedProvider,
+      provider: currentProvider,
       message: "User authenticated with portal credentials",
       cu12Id: body.cu12Id,
       campus,
