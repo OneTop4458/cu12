@@ -9,7 +9,7 @@ import {
 test("toLoginErrorMessage maps AUTH_FAILED to the credential mismatch copy", () => {
   assert.equal(
     toLoginErrorMessage({ errorCode: "AUTH_FAILED" }),
-    "ID 또는 비밀번호가 일치하지 않습니다.",
+    "ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
   );
 });
 

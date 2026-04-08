@@ -265,12 +265,9 @@ export function SessionActivityGuard() {
       role="status"
       aria-live="polite"
       className={`session-warning-bar ${warningMode ? "is-warning" : "is-active"}`}
-    >
-      <div className="session-warning-copy">
-        <div className="session-warning-title">자동 로그아웃</div>
-        <div className="session-warning-sub">
-          남은 시간 {formatRemaining(remainingSeconds * 1000)} / {formatRemaining(getIdleTimeoutMs())}
-        </div>
+    >{"\uC138\uC158 \uC5F0\uC7A5"}<div className="session-warning-copy">
+        <div className="session-warning-title">{"\uC790\uB3D9 \uB85C\uADF8\uC544\uC6C3"}</div>
+        <div className="session-warning-sub">{`\uB0A8\uC740 \uC2DC\uAC04 ${formatRemaining(remainingSeconds * 1000)} / ${formatRemaining(getIdleTimeoutMs())}`}</div>
       </div>
       <div className="session-warning-progress-wrap">
         <div
@@ -285,7 +282,7 @@ export function SessionActivityGuard() {
         }}
         className="session-warning-button"
       >
-        세션 연장
+        {"\uC138\uC158 \uC5F0\uC7A5"}
       </button>
     </div>
   );

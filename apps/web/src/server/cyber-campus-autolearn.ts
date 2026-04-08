@@ -313,7 +313,7 @@ export async function requestCyberCampusAutoLearn(
       jobId: activeApproval.jobId,
       status: "BLOCKED",
       approval: serializeApproval(activeApproval)!,
-      notice: "사이버캠퍼스 자동 수강은 2차 인증이 완료될 때까지 대기 중입니다.",
+      notice: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15\uC740 2\uCC28 \uC778\uC99D\uC774 \uC644\uB8CC\uB420 \uB54C\uAE4C\uC9C0 \uB300\uAE30 \uC911\uC785\uB2C8\uB2E4.",
     };
   }
 
@@ -329,8 +329,8 @@ export async function requestCyberCampusAutoLearn(
       dispatchError: queued.dispatch.error,
       dispatchErrorCode: queued.dispatch.errorCode,
       notice: queued.deduplicated
-        ? "사이버캠퍼스 자동 수강 요청이 이미 있어 현재 작업 뒤에 이어서 진행됩니다."
-        : "기존 인증 세션을 재사용해 사이버캠퍼스 자동 수강 요청을 접수했습니다.",
+        ? "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC774 \uC774\uBBF8 \uC788\uC5B4 \uD604\uC7AC \uC791\uC5C5 \uB4A4\uC5D0 \uC774\uC5B4\uC11C \uC9C4\uD589\uB429\uB2C8\uB2E4."
+        : "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC744 \uC811\uC218\uD588\uC2B5\uB2C8\uB2E4.",
     };
   }
 
@@ -341,8 +341,8 @@ export async function requestCyberCampusAutoLearn(
     cu12Password: creds.cu12Password,
   });
   if (!authenticated) {
-    await markCu12Status(input.userId, "NEEDS_REAUTH", "Cyber Campus login failed.");
-    throw new Error("Cyber Campus login failed. Reconnect the account and try again.");
+    await markCu12Status(input.userId, "NEEDS_REAUTH", "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    throw new Error("\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uACC4\uC815 \uC5F0\uACB0 \uC0C1\uD0DC\uB97C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
   }
 
   const secondary = await client.checkSecondaryAuth();
@@ -365,14 +365,14 @@ export async function requestCyberCampusAutoLearn(
       dispatchError: queued.dispatch.error,
       dispatchErrorCode: queued.dispatch.errorCode,
       notice: queued.deduplicated
-        ? "사이버캠퍼스 자동 수강 요청이 이미 있어 현재 작업 뒤에 이어서 진행됩니다."
-        : "사이버캠퍼스 자동 수강 요청을 접수했습니다.",
+        ? "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC774 \uC774\uBBF8 \uC788\uC5B4 \uD604\uC7AC \uC791\uC5C5 \uB4A4\uC5D0 \uC774\uC5B4\uC11C \uC9C4\uD589\uB429\uB2C8\uB2E4."
+        : "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC744 \uC811\uC218\uD588\uC2B5\uB2C8\uB2E4.",
     };
   }
 
   const wayInfo = await client.getSecondaryAuthWayInfo();
   if (wayInfo.methods.length === 0) {
-    throw new Error("No Cyber Campus secondary-auth methods are available for this account.");
+    throw new Error("\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4\uC5D0\uC11C \uC0AC\uC6A9 \uAC00\uB2A5\uD55C 2\uCC28 \uC778\uC99D \uC218\uB2E8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
   const blockedJob = await prisma.jobQueue.create({
@@ -420,7 +420,7 @@ export async function requestCyberCampusAutoLearn(
       completedAt: approval.completedAt,
       canceledAt: approval.canceledAt,
     })!,
-    notice: secondary.message ?? "사이버캠퍼스 자동 수강을 시작하려면 2차 인증이 필요합니다.",
+    notice: secondary.message ?? "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15\uC744 \uC2DC\uC791\uD558\uB824\uBA74 2\uCC28 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
   };
 }
 
