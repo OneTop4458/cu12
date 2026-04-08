@@ -28,6 +28,7 @@ jobs:
               { name: "infra", color: "FBCA04", description: "workflow/config changes" },
               { name: "dependencies", color: "0366D6", description: "dependency updates" },
               { name: "bot", color: "5319E7", description: "automated maintenance changes" },
+              { name: "automerge", color: "1D976C", description: "explicit opt-in for PR auto-merge" },
               { name: "major-update", color: "D93F0B", description: "manual review required for semver-major updates" }
             ];
 
