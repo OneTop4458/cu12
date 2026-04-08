@@ -1695,6 +1695,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   async function saveMail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!mailDraft) return;
+    if (currentProviderDraft === "CU12" && !account?.campus) {
+      setError("CU12 교정 정보가 아직 확인되지 않았습니다. CU12로 먼저 로그인해 교정 정보를 확인한 뒤 서비스를 전환해 주세요.");
+      return;
+    }
     setMailSaving(true);
     setBlockingMessage("설정 저장 중...");
     try {

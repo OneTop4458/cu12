@@ -479,6 +479,8 @@ async function sendSyncAlertMail(
     generatedAt: new Date(),
     newNotices: pref.alertOnNotice ? summary.newNotices : [],
     newUnreadNotifications: pref.alertOnNotice ? summary.newUnreadNotifications : [],
+    newMessages: pref.alertOnNotice ? summary.newMessages : [],
+    unreadMessageCount: summary.unreadMessageCount,
     deadlineAlerts: pref.alertOnDeadline ? deadlineAlerts : [],
   });
   if (!mailDocument) {
@@ -723,10 +725,14 @@ async function processSync(
     throw new Error("CU12 account is not configured for this user");
   }
   const targetProvider = options?.provider ?? creds.provider;
+  const cu12Campus = creds.campus === "SONGSIN" ? "SONGSIN" : creds.campus === "SONGSIM" ? "SONGSIM" : null;
+  if (targetProvider === "CU12" && !cu12Campus) {
+    throw new Error("CU12_CAMPUS_REQUIRED");
+  }
   const cu12Creds: Cu12Credentials = {
     cu12Id: creds.cu12Id,
     cu12Password: creds.cu12Password,
-    campus: creds.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM",
+    campus: cu12Campus ?? "SONGSIM",
   };
 
   const shouldCancel = onCancelCheck ?? (async () => false);
@@ -904,10 +910,14 @@ async function processAutolearn(
     throw new Error("CU12 account is not configured for this user");
   }
   const targetProvider = options?.provider ?? creds.provider;
+  const cu12Campus = creds.campus === "SONGSIN" ? "SONGSIN" : creds.campus === "SONGSIM" ? "SONGSIM" : null;
   if (creds.provider !== targetProvider) {
     throw new Error(
       `자동 수강 요청 서비스(${formatProviderName(targetProvider)})와 현재 연결된 서비스(${formatProviderName(creds.provider)})가 달라 작업을 시작할 수 없습니다. 계정 연결 상태를 다시 확인해 주세요.`,
     );
+  }
+  if (targetProvider === "CU12" && !cu12Campus) {
+    throw new Error("CU12_CAMPUS_REQUIRED");
   }
   const cyberCampusSession = targetProvider === "CYBER_CAMPUS"
     ? await getPortalSessionCookieState(userId, "CYBER_CAMPUS")
@@ -921,7 +931,7 @@ async function processAutolearn(
   const cu12Creds: Cu12Credentials = {
     cu12Id: creds.cu12Id,
     cu12Password: creds.cu12Password,
-    campus: creds.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM",
+    campus: cu12Campus ?? "SONGSIM",
   };
 
   const env = getEnv();
@@ -1132,9 +1142,11 @@ async function processMailDigest(userId: string) {
     summary,
     unreadNotices,
     unreadNotifications,
+    unreadMessages,
     pendingTaskCount,
     recentNotices,
     recentNotifications,
+    recentMessages,
     dueSoonTasks,
   ] = await Promise.all([
     prisma.courseSnapshot.aggregate({
@@ -1144,6 +1156,7 @@ async function processMailDigest(userId: string) {
     }),
     prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
     prisma.notificationEvent.count({ where: { userId, provider, isUnread: true } }),
+    prisma.portalMessage.count({ where: { userId, provider, isRead: false } }),
     prisma.learningTask.count({ where: { userId, provider, state: "PENDING" } }),
     prisma.courseNotice.findMany({
       where: { userId, provider, createdAt: { gte: last24h } },
@@ -1170,6 +1183,18 @@ async function processMailDigest(userId: string) {
         createdAt: true,
         isUnread: true,
         isCanceled: true,
+      },
+    }),
+    prisma.portalMessage.findMany({
+      where: { userId, provider, createdAt: { gte: last24h } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        title: true,
+        senderName: true,
+        sentAt: true,
+        createdAt: true,
+        isRead: true,
       },
     }),
     prisma.learningTask.findMany({
@@ -1212,12 +1237,14 @@ async function processMailDigest(userId: string) {
     avgProgress: summary._avg.progressPercent ?? 0,
     unreadNoticeCount: unreadNotices,
     unreadNotificationCount: unreadNotifications,
+    unreadMessageCount: unreadMessages,
     pendingTaskCount,
     recentNotices: recentNotices.map((notice) => ({
       ...notice,
       courseTitle: titleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
     })),
     recentNotifications,
+    recentMessages,
     dueSoonTasks: dueSoonTasks.map((task) => ({
       ...task,
       courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,

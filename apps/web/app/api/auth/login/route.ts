@@ -264,6 +264,7 @@ export async function POST(request: NextRequest) {
       }
       return authenticationFailedError();
     }
+    const verifiedCampus = validation.verifiedProvider === "CU12" ? campus : undefined;
 
     const existingAccount = await prisma.cu12Account.findUnique({
       where: { cu12Id: body.cu12Id },
@@ -322,7 +323,7 @@ export async function POST(request: NextRequest) {
       await upsertCu12Account(user.id, {
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password,
-        campus,
+        campus: verifiedCampus,
       });
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
@@ -336,13 +337,13 @@ export async function POST(request: NextRequest) {
         currentProvider: validation.verifiedProvider ?? providerHint,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password,
-        campus,
+        campus: verifiedCampus,
       });
     } else {
       const challengeToken = await signLoginChallengeToken({
         provider: validation.verifiedProvider ?? providerHint ?? "CU12",
         cu12Id: body.cu12Id,
-        campus,
+        campus: validation.verifiedProvider === "CU12" ? campus : null,
         encryptedCu12Password: encryptSecret(body.cu12Password),
         nonce: randomUUID(),
       });

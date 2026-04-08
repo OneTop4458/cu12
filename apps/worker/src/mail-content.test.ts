@@ -30,6 +30,14 @@ test("sync alert hides low-confidence snippets but keeps meaningful headers", ()
         isCanceled: false,
       },
     ],
+    newMessages: [
+      {
+        title: "스터디 일정 안내",
+        senderName: "학습지원팀",
+        sentAt: "2026-04-07T09:30:00+09:00",
+      },
+    ],
+    unreadMessageCount: 3,
     deadlineAlerts: [],
   });
 
@@ -37,6 +45,8 @@ test("sync alert hides low-confidence snippets but keeps meaningful headers", ()
   assert.match(mail.html, /중간고사 안내/);
   assert.match(mail.html, /컴퓨터개론/);
   assert.match(mail.html, /자료구조/);
+  assert.match(mail.html, /스터디 일정 안내/);
+  assert.match(mail.html, /학습지원팀/);
   assert.doesNotMatch(mail.html, /조회수 14/);
   assert.doesNotMatch(mail.html, /상세보기/);
 });
@@ -49,9 +59,19 @@ test("digest omits empty notice and notification sections", () => {
     avgProgress: 72,
     unreadNoticeCount: 0,
     unreadNotificationCount: 0,
+    unreadMessageCount: 2,
     pendingTaskCount: 2,
     recentNotices: [],
     recentNotifications: [],
+    recentMessages: [
+      {
+        title: "프로젝트 대상 공유",
+        senderName: "교수님",
+        sentAt: "2026-04-07T19:20:00+09:00",
+        createdAt: "2026-04-07T19:21:00+09:00",
+        isRead: false,
+      },
+    ],
     dueSoonTasks: [
       {
         lectureSeq: 501,
@@ -65,6 +85,7 @@ test("digest omits empty notice and notification sections", () => {
 
   assert.ok(mail);
   assert.match(mail.html, /임박 마감 차시/);
+  assert.match(mail.html, /프로젝트 대상 공유/);
   assert.doesNotMatch(mail.html, /최근 공지/);
   assert.doesNotMatch(mail.html, /최근 알림/);
 });
@@ -77,6 +98,7 @@ test("digest skips when no meaningful content remains after filtering", () => {
     avgProgress: 60,
     unreadNoticeCount: 0,
     unreadNotificationCount: 0,
+    unreadMessageCount: 0,
     pendingTaskCount: 0,
     recentNotices: [],
     recentNotifications: [
@@ -90,6 +112,7 @@ test("digest skips when no meaningful content remains after filtering", () => {
         isCanceled: false,
       },
     ],
+    recentMessages: [],
     dueSoonTasks: [],
   });
 

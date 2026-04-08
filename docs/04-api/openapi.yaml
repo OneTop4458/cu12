@@ -2812,6 +2812,7 @@ components:
           type: string
         campus:
           $ref: "#/components/schemas/Campus"
+          nullable: true
         accountStatus:
           type: string
           enum: [CONNECTED, NEEDS_REAUTH, ERROR]
@@ -3308,6 +3309,7 @@ components:
               type: string
             campus:
               $ref: "#/components/schemas/Campus"
+              nullable: true
             accountStatus:
               type: string
               enum: [CONNECTED, NEEDS_REAUTH, ERROR]

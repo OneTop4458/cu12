@@ -144,6 +144,7 @@ export async function POST(request: NextRequest) {
         return jsonError("Portal ID or password is invalid.", 401, "AUTH_FAILED");
       }
     }
+    const verifiedCampus = verifiedProvider === "CU12" ? campus : undefined;
 
     const existingAccount = await prisma.cu12Account.findUnique({
       where: { cu12Id: body.cu12Id },
@@ -205,7 +206,7 @@ export async function POST(request: NextRequest) {
         currentProvider: currentProvider ?? verifiedProvider,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password ?? "",
-        campus,
+        campus: verifiedCampus,
       });
     }
 

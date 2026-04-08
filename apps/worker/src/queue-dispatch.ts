@@ -189,6 +189,7 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
           is: {
             accountStatus: "CONNECTED",
             autoLearnEnabled: true,
+            campus: { not: null },
           },
         },
       },

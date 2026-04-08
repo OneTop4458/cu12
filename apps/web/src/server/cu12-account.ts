@@ -91,7 +91,9 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
   });
 
   const currentProvider = input.currentProvider ?? input.provider ?? (existing?.provider as PortalProvider | undefined) ?? "CU12";
-  const campus = input.campus ?? (existing?.campus as PortalCampus | null | undefined) ?? "SONGSIM";
+  const campus = input.campus !== undefined
+    ? input.campus
+    : (existing?.campus as PortalCampus | null | undefined) ?? null;
 
   if (existing) {
     return prisma.cu12Account.update({
