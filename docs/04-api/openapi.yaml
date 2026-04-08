@@ -2954,8 +2954,11 @@ components:
 
     DashboardMessageItem:
       type: object
-      required: [id, title, senderName, bodyText, sentAt, isRead]
+      required: [provider, id, title, senderName, bodyText, sentAt, isRead]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
         id:
           type: string
         title:
@@ -3085,6 +3088,7 @@ components:
       type: object
       required:
         [
+          provider,
           lectureSeq,
           title,
           instructor,
@@ -3104,6 +3108,9 @@ components:
           deadlineLabel,
         ]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
         lectureSeq:
           type: integer
         title:
@@ -3150,8 +3157,11 @@ components:
 
     DashboardCourseDetail:
       type: object
-      required: [lectureSeq, taskTypeCounts, pendingTaskTypeCounts, weekSummaries]
+      required: [provider, lectureSeq, taskTypeCounts, pendingTaskTypeCounts, weekSummaries]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
         lectureSeq:
           type: integer
         taskTypeCounts:
@@ -3167,6 +3177,7 @@ components:
       type: object
       required:
         [
+          provider,
           lectureSeq,
           courseContentsSeq,
           weekNo,
@@ -3178,6 +3189,9 @@ components:
           daysLeft,
         ]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
         lectureSeq:
           type: integer
         courseContentsSeq:
@@ -3204,8 +3218,11 @@ components:
 
     DashboardNotice:
       type: object
-      required: [id, lectureSeq, title, author, postedAt, bodyText, isRead]
+      required: [provider, id, lectureSeq, title, author, postedAt, bodyText, isRead]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
         id:
           type: string
         lectureSeq:
@@ -3226,8 +3243,11 @@ components:
 
     DashboardNotification:
       type: object
-      required: [id, courseTitle, category, message, occurredAt, createdAt, isUnread, isCanceled, isArchived]
+      required: [provider, id, courseTitle, category, message, occurredAt, createdAt, isUnread, isCanceled, isArchived]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
         id:
           type: string
         courseTitle:
@@ -3385,16 +3405,38 @@ components:
           type: string
           nullable: true
 
+    DashboardProviderSummaryMap:
+      type: object
+      required: [CU12, CYBER_CAMPUS]
+      properties:
+        CU12:
+          $ref: "#/components/schemas/DashboardSummary"
+        CYBER_CAMPUS:
+          $ref: "#/components/schemas/DashboardSummary"
+
+    DashboardProviderSyncQueueMap:
+      type: object
+      required: [CU12, CYBER_CAMPUS]
+      properties:
+        CU12:
+          $ref: "#/components/schemas/DashboardSyncQueue"
+        CYBER_CAMPUS:
+          $ref: "#/components/schemas/DashboardSyncQueue"
+
     DashboardBootstrapResponse:
       type: object
-      required: [context, summary, syncQueue, siteNotices, maintenanceNotice, account, cyberCampus, preference]
+      required: [context, summary, providerSummaries, syncQueue, providerSyncQueues, siteNotices, maintenanceNotice, account, cyberCampus, preference]
       properties:
         context:
           $ref: "#/components/schemas/SessionContext"
         summary:
           $ref: "#/components/schemas/DashboardSummary"
+        providerSummaries:
+          $ref: "#/components/schemas/DashboardProviderSummaryMap"
         syncQueue:
           $ref: "#/components/schemas/DashboardSyncQueue"
+        providerSyncQueues:
+          $ref: "#/components/schemas/DashboardProviderSyncQueueMap"
         siteNotices:
           type: array
           items:
@@ -3441,16 +3483,20 @@ components:
 
     DashboardStatusResponse:
       type: object
-      required: [summary, jobs, syncQueue, siteNotices, maintenanceNotice, cyberCampus]
+      required: [summary, providerSummaries, jobs, syncQueue, providerSyncQueues, siteNotices, maintenanceNotice, cyberCampus]
       properties:
         summary:
           $ref: "#/components/schemas/DashboardSummary"
+        providerSummaries:
+          $ref: "#/components/schemas/DashboardProviderSummaryMap"
         jobs:
           type: array
           items:
             $ref: "#/components/schemas/DashboardJob"
         syncQueue:
           $ref: "#/components/schemas/DashboardSyncQueue"
+        providerSyncQueues:
+          $ref: "#/components/schemas/DashboardProviderSyncQueueMap"
         siteNotices:
           type: array
           items:
@@ -3722,10 +3768,27 @@ components:
           type: string
           format: date-time
 
+    SyncDispatchJobResult:
+      type: object
+      required: [provider, jobId, status, deduplicated]
+      properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, RUNNING]
+        deduplicated:
+          type: boolean
+
     JobDispatchResponse:
       type: object
       required:
         [
+          providers,
+          results,
           provider,
           jobId,
           status,
@@ -3738,22 +3801,34 @@ components:
           approval,
         ]
       properties:
+        providers:
+          type: array
+          items:
+            type: string
+            enum: [CU12, CYBER_CAMPUS]
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncDispatchJobResult"
         provider:
           type: string
           enum: [CU12, CYBER_CAMPUS]
           description: Service target selected for the queued job.
+          nullable: true
         jobId:
           type: string
+          nullable: true
         status:
           type: string
           enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          nullable: true
         deduplicated:
           type: boolean
         dispatched:
           type: boolean
         dispatchState:
           type: string
-          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE, NOT_APPLICABLE]
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE, SKIPPED_CAPACITY, SKIPPED_NO_PENDING, NOT_APPLICABLE]
         dispatchError:
           type: string
           nullable: true

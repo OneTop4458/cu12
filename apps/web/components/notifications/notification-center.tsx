@@ -4,6 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { Bell } from "lucide-react";
 
 interface DashboardNotification {
+  provider?: "CU12" | "CYBER_CAMPUS";
   id: string;
   courseTitle: string;
   message: string;

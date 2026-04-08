@@ -911,11 +911,6 @@ async function processAutolearn(
   }
   const targetProvider = options?.provider ?? creds.provider;
   const cu12Campus = creds.campus === "SONGSIN" ? "SONGSIN" : creds.campus === "SONGSIM" ? "SONGSIM" : null;
-  if (creds.provider !== targetProvider) {
-    throw new Error(
-      `자동 수강 요청 서비스(${formatProviderName(targetProvider)})와 현재 연결된 서비스(${formatProviderName(creds.provider)})가 달라 작업을 시작할 수 없습니다. 계정 연결 상태를 다시 확인해 주세요.`,
-    );
-  }
   if (targetProvider === "CU12" && !cu12Campus) {
     throw new Error("CU12_CAMPUS_REQUIRED");
   }
@@ -1125,15 +1120,6 @@ async function processMailDigest(userId: string) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
   }
 
-  const provider = (
-    await prisma.cu12Account.findUnique({
-      where: { userId },
-      select: { provider: true },
-    })
-  )?.provider === "CYBER_CAMPUS"
-    ? "CYBER_CAMPUS"
-    : "CU12";
-
   const now = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const dueSoonUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1150,19 +1136,20 @@ async function processMailDigest(userId: string) {
     dueSoonTasks,
   ] = await Promise.all([
     prisma.courseSnapshot.aggregate({
-      where: { userId, provider, status: "ACTIVE" },
+      where: { userId, status: "ACTIVE" },
       _count: { _all: true },
       _avg: { progressPercent: true },
     }),
-    prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
-    prisma.notificationEvent.count({ where: { userId, provider, isUnread: true } }),
-    prisma.portalMessage.count({ where: { userId, provider, isRead: false } }),
-    prisma.learningTask.count({ where: { userId, provider, state: "PENDING" } }),
+    prisma.courseNotice.count({ where: { userId, isRead: false } }),
+    prisma.notificationEvent.count({ where: { userId, isUnread: true } }),
+    prisma.portalMessage.count({ where: { userId, isRead: false } }),
+    prisma.learningTask.count({ where: { userId, state: "PENDING" } }),
     prisma.courseNotice.findMany({
-      where: { userId, provider, createdAt: { gte: last24h } },
+      where: { userId, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 40,
       select: {
+        provider: true,
         lectureSeq: true,
         title: true,
         author: true,
@@ -1172,10 +1159,11 @@ async function processMailDigest(userId: string) {
       },
     }),
     prisma.notificationEvent.findMany({
-      where: { userId, provider, createdAt: { gte: last24h } },
+      where: { userId, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 40,
       select: {
+        provider: true,
         courseTitle: true,
         category: true,
         message: true,
@@ -1186,10 +1174,11 @@ async function processMailDigest(userId: string) {
       },
     }),
     prisma.portalMessage.findMany({
-      where: { userId, provider, createdAt: { gte: last24h } },
+      where: { userId, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 40,
       select: {
+        provider: true,
         title: true,
         senderName: true,
         sentAt: true,
@@ -1200,13 +1189,13 @@ async function processMailDigest(userId: string) {
     prisma.learningTask.findMany({
       where: {
         userId,
-        provider,
         state: "PENDING",
         dueAt: { gte: now, lte: dueSoonUntil },
       },
       orderBy: { dueAt: "asc" },
-      take: 12,
+      take: 24,
       select: {
+        provider: true,
         lectureSeq: true,
         weekNo: true,
         lessonNo: true,
@@ -1224,7 +1213,7 @@ async function processMailDigest(userId: string) {
 
   const titleRows = lectureSeqs.length > 0
     ? await prisma.courseSnapshot.findMany({
-      where: { userId, provider, lectureSeq: { in: lectureSeqs } },
+      where: { userId, lectureSeq: { in: lectureSeqs } },
       select: { lectureSeq: true, title: true },
     })
     : [];

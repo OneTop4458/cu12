@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { resolveSyncProviders } from "@cu12/core";
 import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "./env";
 import { prisma } from "./prisma";
@@ -143,7 +144,14 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
           ? { isTestUser: false }
           : {}),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        cu12Account: {
+          select: {
+            campus: true,
+          },
+        },
+      },
     });
   }
 
@@ -179,7 +187,10 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
         const targetHour = toDigestHour(subscription?.digestHour, 8);
         return accountDigestEnabled && enabled && digestEnabled && targetHour === digestHour;
       })
-      .map((user) => ({ id: user.id }));
+      .map((user) => ({
+        id: user.id,
+        cu12Account: null,
+      }));
   }
 
   if (type === JobType.AUTOLEARN) {
@@ -204,7 +215,10 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
     });
 
     if (!autoLearnEligibleWindowOnly) {
-      return users.map((user) => ({ id: user.id }));
+      return users.map((user) => ({
+        id: user.id,
+        cu12Account: user.cu12Account,
+      }));
     }
 
     const eligibleUserIds = await resolveAutoLearnWindowEligibleUserIds(
@@ -213,7 +227,12 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
         quizAutoSolveEnabled: user.cu12Account?.quizAutoSolveEnabled ?? true,
       })),
     );
-    return users.filter((user) => eligibleUserIds.has(user.id)).map((user) => ({ id: user.id }));
+    return users
+      .filter((user) => eligibleUserIds.has(user.id))
+      .map((user) => ({
+        id: user.id,
+        cu12Account: user.cu12Account,
+      }));
   }
 
   return prisma.user.findMany({
@@ -225,7 +244,14 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
         },
       },
     },
-    select: { id: true },
+    select: {
+      id: true,
+      cu12Account: {
+        select: {
+          campus: true,
+        },
+      },
+    },
   });
 }
 
@@ -262,62 +288,83 @@ async function main() {
   };
 
   for (const user of users) {
-    const key = `${type.toLowerCase()}:${user.id}:scheduled`;
-    const existing = await prisma.jobQueue.findFirst({
-      where: {
-        userId: user.id,
-        type,
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
-        idempotencyKey: key,
-      },
-      select: {
-        id: true,
-        status: true,
-      },
-    });
+    const userCampus = user.cu12Account && "campus" in user.cu12Account
+      ? user.cu12Account.campus
+      : null;
+    const providers = type === JobType.AUTOLEARN
+      ? ["CU12"]
+      : type === JobType.SYNC || type === JobType.NOTICE_SCAN
+        ? resolveSyncProviders(userCampus)
+        : [undefined];
 
-    if (existing) {
-      summary.skippedExistingCount += 1;
-      if (existing.status === JobStatus.PENDING) {
-        summary.skippedExistingPendingCount += 1;
-      } else if (existing.status === JobStatus.RUNNING) {
-        summary.skippedExistingRunningCount += 1;
-      }
-      continue;
-    }
-
-    if (minIntervalMinutes > 0) {
-      const recent = await prisma.jobQueue.findFirst({
+    for (const provider of providers) {
+      const key = provider
+        ? `${type.toLowerCase()}:${user.id}:${provider}:scheduled`
+        : `${type.toLowerCase()}:${user.id}:scheduled`;
+      const existing = await prisma.jobQueue.findFirst({
         where: {
           userId: user.id,
           type,
-          status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.SUCCEEDED] },
-          createdAt: { gte: cutoff },
+          status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+          idempotencyKey: key,
         },
-        select: { id: true },
+        select: {
+          id: true,
+          status: true,
+        },
       });
 
-      if (recent) {
-        summary.skippedIntervalCount += 1;
+      if (existing) {
+        summary.skippedExistingCount += 1;
+        if (existing.status === JobStatus.PENDING) {
+          summary.skippedExistingPendingCount += 1;
+        } else if (existing.status === JobStatus.RUNNING) {
+          summary.skippedExistingRunningCount += 1;
+        }
         continue;
       }
-    }
 
-    await prisma.jobQueue.create({
-      data: {
-        userId: user.id,
-        type,
-        status: JobStatus.PENDING,
-        payload: {
+      if (minIntervalMinutes > 0) {
+        const recent = await prisma.jobQueue.findFirst({
+          where: {
+            userId: user.id,
+            type,
+            status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.SUCCEEDED] },
+            createdAt: { gte: cutoff },
+            ...(provider
+              ? {
+                payload: {
+                  path: ["provider"],
+                  equals: provider,
+                },
+              }
+              : {}),
+          },
+          select: { id: true },
+        });
+
+        if (recent) {
+          summary.skippedIntervalCount += 1;
+          continue;
+        }
+      }
+
+      await prisma.jobQueue.create({
+        data: {
           userId: user.id,
-          provider: type === JobType.AUTOLEARN ? "CU12" : undefined,
-          reason: "scheduled_dispatch",
+          type,
+          status: JobStatus.PENDING,
+          payload: {
+            userId: user.id,
+            provider: provider ?? (type === JobType.AUTOLEARN ? "CU12" : undefined),
+            reason: "scheduled_dispatch",
+          },
+          idempotencyKey: key,
+          runAfter: new Date(),
         },
-        idempotencyKey: key,
-        runAfter: new Date(),
-      },
-    });
-    summary.createdCount += 1;
+      });
+      summary.createdCount += 1;
+    }
   }
 
   if (summaryJson) {

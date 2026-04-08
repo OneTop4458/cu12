@@ -1,14 +1,19 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
+import { getDashboardAccount } from "@/server/cu12-account";
+import { PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import {
-  enqueueJob,
   ensureSyncAllowedForUser,
   TEST_USER_SYNC_BLOCKED_ERROR_CODE,
   TEST_USER_SYNC_BLOCKED_MESSAGE,
 } from "@/server/queue";
-import { getCurrentPortalProvider } from "@/server/current-provider";
-import { dispatchManualJob } from "@/server/manual-dispatch-policy";
+import { buildSyncDispatchNotice, queueSyncJobsForUser } from "@/server/sync-job-dispatch";
+
+const BodySchema = z.object({
+  providers: z.array(z.enum(PORTAL_PROVIDER_VALUES)).max(2).optional(),
+});
 
 export async function POST(request: NextRequest) {
   const context = await requireAuthContext(request);
@@ -30,28 +35,25 @@ export async function POST(request: NextRequest) {
     return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
   }
 
-  const provider = await getCurrentPortalProvider(userId);
-  const { job, deduplicated } = await enqueueJob({
-    userId,
-    type: "SYNC",
-    payload: { userId, provider, reason: "manual_sync" },
-    idempotencyKey: `sync:${userId}:${provider}:manual`,
-  });
+  const body = await request.json().catch(() => ({}));
+  const parsed = BodySchema.safeParse(body);
+  if (!parsed.success) {
+    return jsonError(parsed.error.issues.map((issue) => issue.message).join(", "), 400, "VALIDATION_ERROR");
+  }
 
-  const { dispatch } = await dispatchManualJob(userId, "sync", {
-    deduplicated,
-    status: job.status,
-    createdAt: job.createdAt,
-    runAfter: job.runAfter,
-    startedAt: job.startedAt,
+  const account = await getDashboardAccount(userId);
+  if (!account) {
+    return jsonError("CU12 account is not connected", 400, "ACCOUNT_NOT_CONNECTED");
+  }
+
+  const queued = await queueSyncJobsForUser({
+    userId,
+    campus: account.campus,
+    requestedProviders: parsed.data.providers,
+    reason: "manual",
   });
-  const notice = deduplicated
-    ? dispatch.state === "SKIPPED_DUPLICATE"
-      ? "동기화 작업이 이미 진행 중입니다. 현재 작업 완료 후 다시 요청해 주세요."
-      : "동기화 요청이 중복이었지만 오래된 작업은 새로 요청하도록 처리했습니다."
-    : dispatch.dispatched
-      ? "동기화 실행을 요청했습니다."
-      : "동기화 요청은 저장되었지만 실행 트리거 전송이 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  const notice = buildSyncDispatchNotice(queued);
+  const first = queued.results[0] ?? null;
 
   await writeAuditLog({
     category: "JOB",
@@ -60,24 +62,24 @@ export async function POST(request: NextRequest) {
     targetUserId: userId,
     message: "SYNC job requested",
     meta: {
-      provider,
-      jobId: job.id,
-      deduplicated,
-      dispatched: dispatch.dispatched,
-      dispatchState: dispatch.state,
-      dispatchErrorCode: dispatch.errorCode,
+      providers: queued.providers,
+      results: queued.results,
+      dispatched: queued.dispatch.dispatched,
+      dispatchState: queued.dispatch.state,
+      dispatchErrorCode: queued.dispatch.errorCode,
     },
   });
 
   return jsonOk({
-    provider,
-    jobId: job.id,
-    status: job.status,
-    deduplicated,
-    dispatched: dispatch.dispatched,
-    dispatchState: dispatch.state,
-    dispatchError: dispatch.error,
-    dispatchErrorCode: dispatch.errorCode,
+    providers: queued.providers,
+    results: queued.results,
+    jobId: first?.jobId ?? null,
+    status: first?.status ?? null,
+    deduplicated: first?.deduplicated ?? false,
+    dispatched: queued.dispatch.dispatched,
+    dispatchState: queued.dispatch.state,
+    dispatchError: queued.dispatch.error,
+    dispatchErrorCode: queued.dispatch.errorCode,
     notice,
   });
 }

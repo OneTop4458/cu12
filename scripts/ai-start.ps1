@@ -208,6 +208,13 @@ function Assert-CleanWorktree([string]$WorktreePath, [string]$Reason) {
   }
 }
 
+function Rebase-BranchOntoBase([string]$WorktreePath, [string]$Branch, [string]$BaseRef) {
+  Assert-CleanWorktree -WorktreePath $WorktreePath -Reason "rebasing '$Branch' onto '$BaseRef'"
+  Invoke-Checked "Rebase '$Branch' onto '$BaseRef'" {
+    git -C $WorktreePath rebase $BaseRef
+  }
+}
+
 function Ensure-SessionLock([string]$WorktreePath, [string]$Branch, [string]$TaskSlug, [string]$SessionSource, [bool]$AllowForce) {
   $lockPath = Join-Path $WorktreePath ".codex-session.lock"
   $existingLock = Read-Lock -Path $lockPath
@@ -334,16 +341,19 @@ if ($useCurrentWorktree) {
 
   if ($currentBranch -eq $branch) {
     Write-Host "==> Reuse current linked worktree '$worktreePath' on branch '$branch'"
+    Rebase-BranchOntoBase -WorktreePath $worktreePath -Branch $branch -BaseRef $baseRef
   }
   elseif ($localBranchExists) {
     Invoke-Checked "Switch current linked worktree '$worktreePath' to local branch '$branch'" {
       git -C $worktreePath switch $branch
     }
+    Rebase-BranchOntoBase -WorktreePath $worktreePath -Branch $branch -BaseRef $baseRef
   }
   elseif ($remoteBranchExists) {
     Invoke-Checked "Switch current linked worktree '$worktreePath' to remote branch '$branch'" {
       git -C $worktreePath switch --track -c $branch "origin/$branch"
     }
+    Rebase-BranchOntoBase -WorktreePath $worktreePath -Branch $branch -BaseRef $baseRef
   }
   else {
     Invoke-Checked "Create branch '$branch' in current linked worktree '$worktreePath' from '$baseRef'" {
@@ -386,11 +396,13 @@ else {
         throw "Session worktree '$worktreePath' is on '$currentBranch', expected '$branch'."
       }
       Write-Host "==> Reuse existing session worktree '$worktreePath' on branch '$branch'"
+      Rebase-BranchOntoBase -WorktreePath $worktreePath -Branch $branch -BaseRef $baseRef
     }
     elseif ($branchExists) {
       Invoke-Checked "Attach existing session branch '$branch' to '$worktreePath'" {
         git worktree add $worktreePath $branch
       }
+      Rebase-BranchOntoBase -WorktreePath $worktreePath -Branch $branch -BaseRef $baseRef
     }
     else {
       Invoke-Checked "Create session worktree '$worktreePath' on branch '$branch' from '$baseRef'" {

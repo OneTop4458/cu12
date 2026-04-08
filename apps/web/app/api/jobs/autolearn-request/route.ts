@@ -3,11 +3,13 @@ import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
 import { requestCyberCampusAutoLearn } from "@/server/cyber-campus-autolearn";
-import { getCurrentPortalProvider } from "@/server/current-provider";
+import { getDashboardAccount } from "@/server/cu12-account";
+import { PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 import { enqueueJob } from "@/server/queue";
 
 const BodySchema = z.object({
+  provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
   mode: z.enum(["SINGLE_NEXT", "SINGLE_ALL", "ALL_COURSES"]).default("ALL_COURSES"),
   lectureSeq: z.number().int().positive().optional(),
   reason: z.string().max(200).optional(),
@@ -26,7 +28,11 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = context.effective.userId;
-    const provider = await getCurrentPortalProvider(userId);
+    const account = await getDashboardAccount(userId);
+    if (!account) {
+      return jsonError("CU12 account is not connected", 400, "ACCOUNT_NOT_CONNECTED");
+    }
+    const provider = body.provider ?? account.provider;
 
     if (provider === "CYBER_CAMPUS") {
       const result = await requestCyberCampusAutoLearn({

@@ -5,8 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { getDashboardAccount } from "@/server/cu12-account";
 import { getCyberCampusApprovalState } from "@/server/cyber-campus-autolearn";
-import { getDashboardSummary } from "@/server/dashboard";
-import { getSyncQueueSummaryForUser } from "@/server/queue";
+import { combineDashboardSummaries, getDashboardSummaries } from "@/server/dashboard";
+import { getSyncQueueSummaryForUser, getSyncQueueSummaryForUserByProvider } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
 
 function parseLimit(value: string | null, fallback: number, max: number): number {
@@ -74,27 +74,19 @@ export async function GET(request: NextRequest) {
   void parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
   const userId = context.effective.userId;
   const account = await timing.measure("account", () => getDashboardAccount(userId));
-  const provider = account?.provider ?? "CU12";
 
-  const [summary, syncQueue, siteNotices, preference, cyberCampus] = await Promise.all([
-    timing.measure("summary", () => getDashboardSummary(userId, provider)),
+  const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues] = await Promise.all([
+    timing.measure("summary", () => getDashboardSummaries(userId)),
     timing.measure("sync-queue", () => getSyncQueueSummaryForUser(userId)),
     timing.measure("site-notices", () => listSiteNotices(undefined, false)),
     timing.measure("mail-pref", () => resolveMailPreference(userId)),
-    timing.measure("cyber-campus", () =>
-      provider === "CYBER_CAMPUS"
-        ? getCyberCampusApprovalState(userId)
-        : Promise.resolve({
-          session: {
-            available: false,
-            status: null,
-            expiresAt: null,
-            lastVerifiedAt: null,
-          },
-          approval: null,
-        }),
-    ),
+    timing.measure("cyber-campus", () => getCyberCampusApprovalState(userId)),
+    timing.measure("provider-sync-queue", async () => ({
+      CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
+      CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
+    })),
   ]);
+  const summary = combineDashboardSummaries(providerSummaries);
 
   if (!preference) {
     return jsonError("User not found", 404);
@@ -109,7 +101,9 @@ export async function GET(request: NextRequest) {
         impersonating: context.impersonating,
       },
       summary,
+      providerSummaries,
       syncQueue,
+      providerSyncQueues,
       siteNotices,
       maintenanceNotice,
       account: account
