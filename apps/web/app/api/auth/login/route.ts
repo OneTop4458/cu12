@@ -13,6 +13,7 @@ import {
 import { encryptSecret } from "@/lib/crypto";
 import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 import {
@@ -63,21 +64,59 @@ function prismaErrorCode(error: unknown): string {
   return "UNKNOWN";
 }
 
-function rateLimitedLoginError() {
-  return jsonError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
+function runInBackground(work: () => Promise<unknown>) {
+  void work().catch(() => undefined);
 }
 
-function authenticationFailedError() {
-  return jsonError("Authentication failed.", 401, "AUTH_FAILED");
+function attachTiming(response: Response, timing: ServerTiming): Response {
+  return applyServerTimingHeader(response, timing);
 }
 
-function accountDisabledError() {
-  return jsonError("Account is disabled.", 401, "ACCOUNT_DISABLED");
+function scheduleAuthSuccessSideEffects(input: {
+  userId: string;
+  provider: string | null;
+  message: string;
+  cu12Id: string;
+  campus: "SONGSIM" | "SONGSIN";
+  loginIp: string | null;
+  throttleIdentifiers: Array<string | null>;
+}) {
+  runInBackground(async () => {
+    await Promise.allSettled([
+      prisma.user.update({
+        where: { id: input.userId },
+        data: {
+          lastLoginAt: new Date(),
+          lastLoginIp: input.loginIp,
+        },
+      }),
+      writeAuditLogBestEffort({
+        category: "AUTH",
+        severity: "INFO",
+        actorUserId: input.userId,
+        targetUserId: input.userId,
+        message: input.message,
+        meta: {
+          provider: input.provider,
+          cu12Id: input.cu12Id,
+          campus: input.campus,
+          loginIp: input.loginIp,
+        },
+      }),
+      clearAuthFailuresBestEffort("login", input.throttleIdentifiers),
+    ]);
+  });
 }
 
 export async function POST(request: NextRequest) {
+  const timing = new ServerTiming();
+  const timedError = (message: string, status = 400, errorCode?: string) =>
+    attachTiming(jsonError(message, status, errorCode), timing);
+  const timedOk = <T>(data: T, init?: ResponseInit) =>
+    attachTiming(jsonOk(data, init), timing);
+
   if (!hasValidCsrfOrigin(request)) {
-    return jsonError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
+    return timedError("Forbidden", 403, "CSRF_ORIGIN_INVALID");
   }
 
   try {
@@ -86,85 +125,108 @@ export async function POST(request: NextRequest) {
       body = BodySchema.parse(await request.json());
     } catch (error) {
       if (error instanceof SyntaxError) {
-        return jsonError("Invalid request body.", 400, "VALIDATION_ERROR");
+        return timedError("Invalid request body.", 400, "VALIDATION_ERROR");
       }
       throw error;
     }
 
-    const providerHint = body.provider ? normalizePortalProvider(body.provider) : undefined;
+    const explicitProviderHint = body.provider ? normalizePortalProvider(body.provider) : undefined;
     const campus = body.campus ?? "SONGSIM";
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
     const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `portal:${body.cu12Id}`];
-    const throttle = await checkAuthThrottleBestEffort("login", throttleIdentifiers);
+    const throttle = await timing.measure("auth-throttle", () =>
+      checkAuthThrottleBestEffort("login", throttleIdentifiers),
+    );
     if (throttle.blocked) {
-      return rateLimitedLoginError();
+      return timedError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
     }
 
-    const localCandidate = await withWithdrawnAtFallback(
-      () =>
-        prisma.user.findUnique({
-          where: { email: body.cu12Id },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-            withdrawnAt: true,
-            isTestUser: true,
-            passwordHash: true,
-          },
+    const [existingAccount, localCandidate] = await Promise.all([
+      timing.measure("provider-detect", () =>
+        prisma.cu12Account.findUnique({
+          where: { cu12Id: body.cu12Id },
+          select: { userId: true, provider: true },
         }),
-      () =>
-        prisma.user.findUnique({
-          where: { email: body.cu12Id },
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-            isTestUser: true,
-            passwordHash: true,
-          },
-        }),
-    );
+      ),
+      timing.measure("local-user", () =>
+        withWithdrawnAtFallback(
+          () =>
+            prisma.user.findUnique({
+              where: { email: body.cu12Id },
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                isActive: true,
+                withdrawnAt: true,
+                isTestUser: true,
+                passwordHash: true,
+              },
+            }),
+          () =>
+            prisma.user.findUnique({
+              where: { email: body.cu12Id },
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                isActive: true,
+                isTestUser: true,
+                passwordHash: true,
+              },
+            }),
+        ),
+      ),
+    ]);
+
+    const storedProviderHint = existingAccount?.provider
+      ? normalizePortalProvider(existingAccount.provider)
+      : undefined;
+    const resolvedProviderHint = storedProviderHint ?? explicitProviderHint;
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
-        return accountDisabledError();
+        return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
       }
 
-      const ok = await verifyPassword(body.cu12Password, localCandidate.passwordHash);
-      if (!ok) {
+      const passwordValid = await timing.measure("password", () =>
+        verifyPassword(body.cu12Password, localCandidate.passwordHash),
+      );
+      if (!passwordValid) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
-        return authenticationFailedError();
+        return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
 
-      const consent = await getPolicyConsentRequirement(localCandidate.id);
+      const consent = await timing.measure("policy", () =>
+        getPolicyConsentRequirement(localCandidate.id),
+      );
       if (!consent.configured && localCandidate.role !== "ADMIN") {
-        return jsonError(
+        return timedError(
           "Required policy documents are not configured by an administrator.",
           503,
           "POLICY_NOT_CONFIGURED",
         );
       }
       if (consent.configured && consent.required) {
-        const consentToken = await signPolicyConsentChallengeToken({
-          userId: localCandidate.id,
-          email: body.cu12Id,
-          role: localCandidate.role,
-          rememberSession: sessionPolicy.rememberSession,
-          firstLogin: false,
-        });
-        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
-        return jsonOk({
+        const consentToken = await timing.measure("session", () =>
+          signPolicyConsentChallengeToken({
+            userId: localCandidate.id,
+            email: body.cu12Id,
+            role: localCandidate.role,
+            rememberSession: sessionPolicy.rememberSession,
+            firstLogin: false,
+          }),
+        );
+        runInBackground(() => clearAuthFailuresBestEffort("login", throttleIdentifiers));
+        return timedOk({
           stage: "CONSENT_REQUIRED" as const,
           consentToken,
           policies: consent.policies,
           user: {
             userId: localCandidate.id,
-            provider: providerHint ?? undefined,
+            provider: resolvedProviderHint ?? undefined,
             cu12Id: body.cu12Id,
             role: localCandidate.role,
           },
@@ -177,26 +239,30 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const sessionToken = await signSessionToken(
-        {
-          userId: localCandidate.id,
-          email: body.cu12Id,
-          role: localCandidate.role,
-        },
-        {
-          maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
-        },
+      const [sessionToken, idleSessionToken] = await timing.measure("session", () =>
+        Promise.all([
+          signSessionToken(
+            {
+              userId: localCandidate.id,
+              email: body.cu12Id,
+              role: localCandidate.role,
+            },
+            {
+              maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+            },
+          ),
+          signIdleSessionToken(localCandidate.id, {
+            rememberSession: sessionPolicy.rememberSession,
+            maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+          }),
+        ]),
       );
-      const idleSessionToken = await signIdleSessionToken(localCandidate.id, {
-        rememberSession: sessionPolicy.rememberSession,
-        maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
-      });
 
       const response = jsonOk({
         stage: "AUTHENTICATED" as const,
         user: {
           userId: localCandidate.id,
-          provider: providerHint ?? undefined,
+          provider: resolvedProviderHint ?? undefined,
           cu12Id: body.cu12Id,
           role: localCandidate.role,
         },
@@ -210,37 +276,27 @@ export async function POST(request: NextRequest) {
       setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
       setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
-      await prisma.user.update({
-        where: { id: localCandidate.id },
-        data: {
-          lastLoginAt: new Date(),
-          lastLoginIp: loginIp,
-        },
-      });
-
-      await writeAuditLogBestEffort({
-        category: "AUTH",
-        severity: "INFO",
-        actorUserId: localCandidate.id,
-        targetUserId: localCandidate.id,
+      scheduleAuthSuccessSideEffects({
+        userId: localCandidate.id,
+        provider: resolvedProviderHint ?? null,
         message: "User authenticated using local credentials",
-        meta: {
-          provider: providerHint ?? null,
-          cu12Id: body.cu12Id,
-          campus,
-          loginIp,
-        },
+        cu12Id: body.cu12Id,
+        campus,
+        loginIp,
+        throttleIdentifiers,
       });
-      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
-      return response;
+      return attachTiming(response, timing);
     }
 
-    const validation = await verifyPortalLogin({
-      providerHint,
-      cu12Id: body.cu12Id,
-      cu12Password: body.cu12Password,
-      campus,
-    });
+    const validation = await timing.measure("external-portal", () =>
+      verifyPortalLogin({
+        providerHint: resolvedProviderHint,
+        cu12Id: body.cu12Id,
+        cu12Password: body.cu12Password,
+        campus,
+      }),
+    );
+
     if (!validation.ok) {
       const unavailable = isPortalUnavailableResult(validation);
       if (!unavailable) {
@@ -253,34 +309,33 @@ export async function POST(request: NextRequest) {
           ? "Authentication failed due to portal network failure"
           : "Portal login validation failed",
         meta: {
-          provider: providerHint ?? validation.verifiedProvider ?? null,
+          provider: resolvedProviderHint ?? validation.verifiedProvider ?? null,
           cu12Id: body.cu12Id,
           campus,
           messageCode: validation.messageCode ?? null,
         },
       });
       if (unavailable) {
-        return jsonError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
+        return timedError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
       }
-      return authenticationFailedError();
+      return timedError("Authentication failed.", 401, "AUTH_FAILED");
     }
-    const verifiedCampus = validation.verifiedProvider === "CU12" ? campus : undefined;
 
-    const existingAccount = await prisma.cu12Account.findUnique({
-      where: { cu12Id: body.cu12Id },
-      select: { userId: true },
-    });
-    const existingUserByEmail = await withWithdrawnAtFallback(
-      () =>
-        prisma.user.findUnique({
-          where: { email: body.cu12Id },
-          select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-        }),
-      () =>
-        prisma.user.findUnique({
-          where: { email: body.cu12Id },
-          select: { id: true, email: true, role: true, isActive: true },
-        }),
+    const verifiedProvider = validation.verifiedProvider ?? resolvedProviderHint ?? "CU12";
+    const verifiedCampus = verifiedProvider === "CU12" ? campus : undefined;
+    const existingUserByEmail = await timing.measure("portal-user", () =>
+      withWithdrawnAtFallback(
+        () =>
+          prisma.user.findUnique({
+            where: { email: body.cu12Id },
+            select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+          }),
+        () =>
+          prisma.user.findUnique({
+            where: { email: body.cu12Id },
+            select: { id: true, email: true, role: true, isActive: true },
+          }),
+      ),
     );
 
     let user:
@@ -292,119 +347,126 @@ export async function POST(request: NextRequest) {
       | undefined;
 
     if (existingAccount) {
-      const found = await withWithdrawnAtFallback(
-        () =>
-          prisma.user.findUnique({
-            where: { id: existingAccount.userId },
-            select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-          }),
-        () =>
-          prisma.user.findUnique({
-            where: { id: existingAccount.userId },
-            select: { id: true, email: true, role: true, isActive: true },
-          }),
+      const found = await timing.measure("account-user", () =>
+        withWithdrawnAtFallback(
+          () =>
+            prisma.user.findUnique({
+              where: { id: existingAccount.userId },
+              select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+            }),
+          () =>
+            prisma.user.findUnique({
+              where: { id: existingAccount.userId },
+              select: { id: true, email: true, role: true, isActive: true },
+            }),
+        ),
       );
 
       if (!found) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
-        return authenticationFailedError();
+        return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
       if (!found.isActive || found.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
-        return accountDisabledError();
+        return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
       }
 
-      user = await prisma.user.update({
-        where: { id: found.id },
-        data: { email: body.cu12Id },
-        select: { id: true, email: true, role: true },
-      });
+      user = await timing.measure("account-link", () =>
+        prisma.user.update({
+          where: { id: found.id },
+          data: { email: body.cu12Id },
+          select: { id: true, email: true, role: true },
+        }),
+      );
 
-      await upsertCu12Account(user.id, {
-        currentProvider: validation.verifiedProvider ?? providerHint,
-        cu12Id: body.cu12Id,
-        cu12Password: body.cu12Password,
-        campus: verifiedCampus,
-      });
+      await timing.measure("account-upsert", () =>
+        upsertCu12Account(user!.id, {
+          currentProvider: verifiedProvider,
+          cu12Id: body.cu12Id,
+          cu12Password: body.cu12Password,
+          campus: verifiedCampus,
+        }),
+      );
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
-        return accountDisabledError();
+        return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
       }
 
       user = existingUserByEmail;
-
-      await upsertCu12Account(user.id, {
-        currentProvider: validation.verifiedProvider ?? providerHint,
-        cu12Id: body.cu12Id,
-        cu12Password: body.cu12Password,
-        campus: verifiedCampus,
-      });
-    } else {
-      const challengeToken = await signLoginChallengeToken({
-        provider: validation.verifiedProvider ?? providerHint ?? "CU12",
-        cu12Id: body.cu12Id,
-        campus: validation.verifiedProvider === "CU12" ? campus : null,
-        encryptedCu12Password: encryptSecret(body.cu12Password),
-        nonce: randomUUID(),
-      });
-
-      await writeAuditLogBestEffort({
-        category: "AUTH",
-        severity: "INFO",
-        message: "Login challenge issued for first-time portal user",
-        meta: {
-          provider: validation.verifiedProvider ?? providerHint ?? null,
+      await timing.measure("account-upsert", () =>
+        upsertCu12Account(user!.id, {
+          currentProvider: verifiedProvider,
           cu12Id: body.cu12Id,
-          campus,
-        },
-      });
-      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+          cu12Password: body.cu12Password,
+          campus: verifiedCampus,
+        }),
+      );
+    } else {
+      const challengeToken = await timing.measure("session", () =>
+        signLoginChallengeToken({
+          provider: verifiedProvider,
+          cu12Id: body.cu12Id,
+          campus: verifiedProvider === "CU12" ? campus : null,
+          encryptedCu12Password: encryptSecret(body.cu12Password),
+          nonce: randomUUID(),
+        }),
+      );
 
-      return jsonOk({
+      runInBackground(async () => {
+        await Promise.allSettled([
+          writeAuditLogBestEffort({
+            category: "AUTH",
+            severity: "INFO",
+            message: "Login challenge issued for first-time portal user",
+            meta: {
+              provider: verifiedProvider,
+              cu12Id: body.cu12Id,
+              campus,
+            },
+          }),
+          clearAuthFailuresBestEffort("login", throttleIdentifiers),
+        ]);
+      });
+
+      return timedOk({
         stage: "INVITE_REQUIRED" as const,
         challengeToken,
       });
     }
 
     if (!user) {
-      return jsonError("Failed to resolve user.", 500, "INTERNAL_ERROR");
+      return timedError("Failed to resolve user.", 500, "INTERNAL_ERROR");
     }
 
-    const sessionToken = await signSessionToken(
-      {
-        userId: user.id,
-        email: body.cu12Id,
-        role: user.role,
-      },
-      {
-        maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
-      },
+    const consent = await timing.measure("policy", () =>
+      getPolicyConsentRequirement(user.id),
     );
-    const consent = await getPolicyConsentRequirement(user.id);
     if (!consent.configured && user.role !== "ADMIN") {
-      return jsonError(
+      return timedError(
         "Required policy documents are not configured by an administrator.",
         503,
         "POLICY_NOT_CONFIGURED",
       );
     }
     if (consent.configured && consent.required) {
-      const consentToken = await signPolicyConsentChallengeToken({
-        userId: user.id,
-        email: body.cu12Id,
-        role: user.role,
-        rememberSession: sessionPolicy.rememberSession,
-        firstLogin: false,
-      });
-      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
-      return jsonOk({
+      const consentToken = await timing.measure("session", () =>
+        signPolicyConsentChallengeToken({
+          userId: user.id,
+          email: body.cu12Id,
+          role: user.role,
+          rememberSession: sessionPolicy.rememberSession,
+          firstLogin: false,
+        }),
+      );
+      runInBackground(() => clearAuthFailuresBestEffort("login", throttleIdentifiers));
+      return timedOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
         policies: consent.policies,
         user: {
           userId: user.id,
-          provider: validation.verifiedProvider ?? providerHint ?? undefined,
+          provider: verifiedProvider,
           cu12Id: body.cu12Id,
           role: user.role,
         },
@@ -417,16 +479,30 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const idleSessionToken = await signIdleSessionToken(user.id, {
-      rememberSession: sessionPolicy.rememberSession,
-      maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
-    });
+    const [sessionToken, idleSessionToken] = await timing.measure("session", () =>
+      Promise.all([
+        signSessionToken(
+          {
+            userId: user.id,
+            email: body.cu12Id,
+            role: user.role,
+          },
+          {
+            maxAgeSeconds: sessionPolicy.sessionMaxAgeSeconds,
+          },
+        ),
+        signIdleSessionToken(user.id, {
+          rememberSession: sessionPolicy.rememberSession,
+          maxAgeSeconds: sessionPolicy.idleSessionMaxAgeSeconds,
+        }),
+      ]),
+    );
 
     const response = jsonOk({
       stage: "AUTHENTICATED" as const,
       user: {
         userId: user.id,
-        provider: validation.verifiedProvider ?? providerHint ?? undefined,
+        provider: verifiedProvider,
         cu12Id: body.cu12Id,
         role: user.role,
       },
@@ -440,33 +516,20 @@ export async function POST(request: NextRequest) {
     setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
     setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastLoginAt: new Date(),
-        lastLoginIp: loginIp,
-      },
-    });
-
-    await writeAuditLogBestEffort({
-      category: "AUTH",
-      severity: "INFO",
-      actorUserId: user.id,
-      targetUserId: user.id,
+    scheduleAuthSuccessSideEffects({
+      userId: user.id,
+      provider: verifiedProvider,
       message: "User authenticated with portal credentials",
-      meta: {
-        provider: validation.verifiedProvider ?? providerHint ?? null,
-        cu12Id: body.cu12Id,
-        campus,
-        loginIp,
-      },
+      cu12Id: body.cu12Id,
+      campus,
+      loginIp,
+      throttleIdentifiers,
     });
-    await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
-    return response;
+    return attachTiming(response, timing);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return jsonError(
+      return timedError(
         error.issues.map((it) => it.message).join(", "),
         400,
         "VALIDATION_ERROR",
@@ -478,11 +541,9 @@ export async function POST(request: NextRequest) {
         category: "AUTH",
         severity: "ERROR",
         message: "Authentication failed due to database error",
-        meta: {
-          code,
-        },
+        meta: { code },
       });
-      return jsonError("Authentication failed.", 500, `INTERNAL_DB_${code}`);
+      return timedError("Authentication failed.", 500, `INTERNAL_DB_${code}`);
     }
     if (error instanceof Error) {
       const message = error.message.toLowerCase();
@@ -502,7 +563,7 @@ export async function POST(request: NextRequest) {
             error: error.message,
           },
         });
-        return jsonError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
+        return timedError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
       }
     }
     await writeAuditLogBestEffort({
@@ -513,6 +574,6 @@ export async function POST(request: NextRequest) {
         error: error instanceof Error ? error.message : String(error),
       },
     });
-    return jsonError("Authentication failed.", 500, "INTERNAL_ERROR");
+    return timedError("Authentication failed.", 500, "INTERNAL_ERROR");
   }
 }

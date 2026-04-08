@@ -2,6 +2,7 @@ import type { PortalCampus, PortalProvider } from "@cu12/core";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { invalidateCachedAuthState, primeCachedCurrentProvider } from "@/server/auth-state-cache";
 
 export interface Cu12AccountInput {
   provider?: PortalProvider;
@@ -96,7 +97,7 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
     : (existing?.campus as PortalCampus | null | undefined) ?? null;
 
   if (existing) {
-    return prisma.cu12Account.update({
+    const updated = await prisma.cu12Account.update({
       where: { userId },
       data: {
         provider: currentProvider,
@@ -108,9 +109,11 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
         updatedAt: new Date(),
       },
     });
+    primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
+    return updated;
   }
 
-  return prisma.cu12Account.create({
+  const created = await prisma.cu12Account.create({
     data: {
       userId,
       provider: currentProvider,
@@ -120,6 +123,8 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
       accountStatus: "CONNECTED",
     },
   });
+  primeCachedCurrentProvider(userId, created.provider as PortalProvider);
+  return created;
 }
 
 export async function getCu12Credentials(userId: string) {
@@ -210,11 +215,13 @@ export async function updateAutomationSettings(userId: string, input: Automation
   };
 
   try {
-    return await prisma.cu12Account.update({
+    const updated = await prisma.cu12Account.update({
       where: { userId },
       data,
       select: automationSettingsSelect,
     });
+    primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
+    return updated;
   } catch (error) {
     if (!isMissingQuizAutoSolveEnabledColumnError(error)) {
       throw error;
@@ -240,22 +247,26 @@ export async function updateAutomationSettings(userId: string, input: Automation
         updatedAt: true,
       },
     });
-    return withQuizDefault<Cu12AutomationSettingsRecord>(fallback);
+    const next = withQuizDefault<Cu12AutomationSettingsRecord>(fallback);
+    primeCachedCurrentProvider(userId, next.provider as PortalProvider);
+    return next;
   }
 }
 
 export async function setCurrentPortalProvider(userId: string, provider: PortalProvider) {
-  return prisma.cu12Account.update({
+  const updated = await prisma.cu12Account.update({
     where: { userId },
     data: {
       provider,
       updatedAt: new Date(),
     },
   });
+  primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
+  return updated;
 }
 
 export async function markCu12Status(userId: string, accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR", reason?: string) {
-  return prisma.cu12Account.update({
+  const updated = await prisma.cu12Account.update({
     where: { userId },
     data: {
       accountStatus,
@@ -263,4 +274,6 @@ export async function markCu12Status(userId: string, accountStatus: "CONNECTED" 
       updatedAt: new Date(),
     },
   });
+  invalidateCachedAuthState(userId);
+  return updated;
 }

@@ -65,13 +65,20 @@ interface Course {
   currentWeekNo: number | null;
   totalRequiredSeconds: number;
   totalLearnedSeconds: number;
-  taskTypeCounts: ActivityTypeCounts;
-  pendingTaskTypeCounts: ActivityTypeCounts;
+  taskTypeCounts: ActivityTypeCounts | null;
+  pendingTaskTypeCounts: ActivityTypeCounts | null;
   weekSummaries: CourseWeekSummary[];
   noticeCount: number;
   unreadNoticeCount: number;
   nextPendingTask: { weekNo: number; lessonNo: number; dueAt: string | null; availableFrom: string | null } | null;
   deadlineLabel: string;
+}
+
+interface CourseDetailPayload {
+  lectureSeq: number;
+  taskTypeCounts: ActivityTypeCounts;
+  pendingTaskTypeCounts: ActivityTypeCounts;
+  weekSummaries: CourseWeekSummary[];
 }
 
 interface Deadline {
@@ -354,17 +361,21 @@ const COURSE_DEADLINE_URGENT_DAYS = 7;
 interface DashboardBootstrap {
   context: SessionContext;
   summary: Summary;
-  courses: Course[];
-  deadlines: Deadline[];
-  notifications: Notification[];
-  messages: MessageItem[];
-  jobs: Job[];
   syncQueue?: DashboardSyncQueue;
   siteNotices: SiteNotice[];
   maintenanceNotice: SiteNotice | null;
   account: Account | null;
   cyberCampus: CyberCampusState;
   preference: MailPreference;
+}
+
+interface DashboardStatusPayload {
+  summary: Summary;
+  jobs: Job[];
+  syncQueue?: DashboardSyncQueue;
+  siteNotices: SiteNotice[];
+  maintenanceNotice: SiteNotice | null;
+  cyberCampus: CyberCampusState;
 }
 
 function toDateTime(value: string | null): string {
@@ -647,7 +658,8 @@ function getStatusMessageFromSyncState(state: SyncQueueState): string {
   return "";
 }
 
-function formatTaskCountsByType(counts: ActivityTypeCounts): string {
+function formatTaskCountsByType(counts: ActivityTypeCounts | null | undefined): string {
+  if (!counts) return "상세 집계를 불러오는 중입니다.";
   return `영상 ${counts.VOD}개 / 자료 ${counts.MATERIAL}개 / 과제 ${counts.ASSIGNMENT}개 / 시험 ${counts.QUIZ}개 / 기타 ${counts.ETC}개`;
 }
 
@@ -734,16 +746,21 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [context, setContext] = useState<SessionContext | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [deadlinesLoading, setDeadlinesLoading] = useState(true);
   const [allDeadlines, setAllDeadlines] = useState<Deadline[] | null>(null);
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
   const [deadlineLoading, setDeadlineLoading] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
   const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
   const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
   const [notificationHistoryLoading, setNotificationHistoryLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
   const [autoLearnEnabledDraft, setAutoLearnEnabledDraft] = useState(true);
@@ -785,6 +802,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
   const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
+  const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<number>>(() => new Set());
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedCourseIds, setExpandedCourseIds] = useState<Set<number>>(() => new Set());
@@ -1008,6 +1026,143 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     });
   }, [loadNotificationHistory]);
 
+  const loadCourses = useCallback(async () => {
+    setCoursesLoading(true);
+    try {
+      const payload = await fetchJson<{ courses: Course[] }>("/api/dashboard/courses");
+      setCourses(payload.courses);
+      setLectureSeq((prev) => prev ?? payload.courses[0]?.lectureSeq ?? null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCoursesLoading(false);
+    }
+  }, [fetchJson]);
+
+  const loadDeadlines = useCallback(async (limit = 30) => {
+    setDeadlinesLoading(true);
+    try {
+      const payload = await fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?limit=${limit}`);
+      setDeadlines(payload.deadlines);
+      setAllDeadlines(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeadlinesLoading(false);
+    }
+  }, [fetchJson]);
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+    try {
+      const payload = await fetchJson<{ notifications: Notification[] }>("/api/dashboard/notifications?unreadOnly=1&limit=40");
+      setNotifications(payload.notifications);
+      if (notificationHistoryOpen) {
+        void loadNotificationHistory();
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [fetchJson, notificationHistoryOpen, loadNotificationHistory]);
+
+  const loadMessages = useCallback(async () => {
+    setMessagesLoading(true);
+    try {
+      const payload = await fetchJson<{ messages: MessageItem[] }>("/api/dashboard/messages?limit=20");
+      setMessages(payload.messages);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setMessagesLoading(false);
+    }
+  }, [fetchJson]);
+
+  const loadJobs = useCallback(async () => {
+    setJobsLoading(true);
+    try {
+      const payload = await fetchJson<{ jobs: Job[] }>("/api/jobs?limit=20");
+      setJobs(payload.jobs);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setJobsLoading(false);
+    }
+  }, [fetchJson]);
+
+  const loadCourseDetail = useCallback(async (lectureSeqValue: number) => {
+    setCourseDetailLoadingIds((prev) => {
+      const next = new Set(prev);
+      next.add(lectureSeqValue);
+      return next;
+    });
+    try {
+      const payload = await fetchJson<{ detail: CourseDetailPayload }>(`/api/dashboard/courses/${lectureSeqValue}/detail`);
+      setCourses((prev) =>
+        prev.map((course) =>
+          course.lectureSeq === lectureSeqValue
+            ? {
+              ...course,
+              taskTypeCounts: payload.detail.taskTypeCounts,
+              pendingTaskTypeCounts: payload.detail.pendingTaskTypeCounts,
+              weekSummaries: payload.detail.weekSummaries,
+            }
+            : course,
+        ),
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCourseDetailLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(lectureSeqValue);
+        return next;
+      });
+    }
+  }, [fetchJson]);
+
+  const refreshCollections = useCallback(async () => {
+    await Promise.all([
+      loadCourses(),
+      loadDeadlines(30),
+      loadNotifications(),
+      loadMessages(),
+      loadJobs(),
+    ]);
+  }, [loadCourses, loadDeadlines, loadNotifications, loadMessages, loadJobs]);
+
+  const refreshStatus = useCallback(async (silent = true) => {
+    if (silent) {
+      setRefreshing(true);
+    }
+    try {
+      const payload = await fetchJson<DashboardStatusPayload>("/api/dashboard/status?jobsLimit=20");
+      setSummary(payload.summary);
+      setJobs(payload.jobs);
+      setJobsLoading(false);
+      setSyncQueueSummary(payload.syncQueue ?? null);
+      setSiteNotices(payload.siteNotices);
+      setCyberCampus(payload.cyberCampus ?? {
+        session: {
+          available: false,
+          status: null,
+          expiresAt: null,
+          lastVerifiedAt: null,
+        },
+        approval: null,
+      });
+    } catch (err) {
+      if ((err as Error).message !== "Unauthorized") {
+        setError((err as Error).message);
+      }
+    } finally {
+      if (silent) {
+        setRefreshing(false);
+      }
+    }
+  }, [fetchJson]);
+
   const refreshAll = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else {
@@ -1019,17 +1174,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setError(null);
 
     try {
-      const payload = await fetchJson<DashboardBootstrap>("/api/dashboard/bootstrap?deadlinesLimit=20&notificationsLimit=40&jobsLimit=20");
+      const payload = await fetchJson<DashboardBootstrap>("/api/dashboard/bootstrap?jobsLimit=20");
       setContext(payload.context);
       setSummary(payload.summary);
-      setCourses(payload.courses);
-      setDeadlines(payload.deadlines);
-      setNotifications(payload.notifications);
-      setMessages(payload.messages ?? []);
-      if (notificationHistoryOpen) {
-        void loadNotificationHistory();
-      }
-      setJobs(payload.jobs);
       setSyncQueueSummary(payload.syncQueue ?? null);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
@@ -1051,7 +1198,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (requiresMailSetup) {
         setSettingsOpen(true);
       }
-      if (!lectureSeq && payload.courses.length > 0) setLectureSeq(payload.courses[0].lectureSeq);
+      void refreshCollections();
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
     } finally {
@@ -1059,7 +1206,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setRefreshing(false);
       if (!bootstrapSyncing) setBlockingMessage(null);
     }
-  }, [fetchJson, lectureSeq, bootstrapSyncing, notificationHistoryOpen, loadNotificationHistory]);
+  }, [fetchJson, bootstrapSyncing, refreshCollections]);
 
   useEffect(() => {
     void refreshAll(false);
@@ -1095,7 +1242,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             : POLL_ACTIVE_MS;
       timeoutId = setTimeout(() => {
         if (!document.hidden) {
-          void refreshAll(true);
+          void refreshStatus(true);
         }
         scheduleNext();
       }, nextMs);
@@ -1104,7 +1251,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         touch();
-        void refreshAll(true);
+        void refreshStatus(true);
       }
     };
 
@@ -1115,7 +1262,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       interactionEvents.forEach((eventName) => document.removeEventListener(eventName, touch));
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshAll, hasActiveJobs, trackingJobId]);
+  }, [refreshStatus, hasActiveJobs, trackingJobId]);
 
   useEffect(() => {
     if (trackingJobId) return;
@@ -1315,7 +1462,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           POLL_TRACKING_ERROR_BASE_MS * consecutiveFailureCount,
         );
         if (consecutiveFailureCount >= 3) {
-          await refreshAll(true);
+          await refreshStatus(true);
           consecutiveFailureCount = 0;
         }
       }
@@ -1329,7 +1476,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       stopped = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [trackingJobId, fetchJson, refreshAll]);
+  }, [trackingJobId, fetchJson, refreshAll, refreshStatus]);
 
   useEffect(() => {
     if (deadlineFilter !== "ALL" || allDeadlines || deadlineLoading) return;
@@ -1381,7 +1528,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       } else {
         setMessage("정리할 동기화 요청이 없습니다.");
       }
-      await refreshAll(true);
+      await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1424,7 +1571,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         setApprovalCode("");
         setApprovalModalOpen(true);
         setMessage(payload.notice ?? "사이버캠퍼스 자동 수강은 2차 인증을 완료한 뒤 시작됩니다.");
-        await refreshAll(true);
+        await refreshStatus(true);
         return;
       }
       if (action === "AUTOLEARN") {
@@ -1447,7 +1594,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           setMessage(baseMessage);
         }
       }
-      await refreshAll(true);
+      await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
       setBootstrapSyncing(false);
@@ -1476,7 +1623,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       }));
       setApprovalCode("");
       setApprovalModalOpen(true);
-      await refreshAll(true);
+      await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1530,7 +1677,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         setMessage("2차 인증이 완료되어 자동 수강 작업이 다시 시작되었습니다.");
       }
 
-      await refreshAll(true);
+      await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1552,7 +1699,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setApprovalModalOpen(false);
       setApprovalCode("");
       setMessage("사이버캠퍼스 2차 인증 요청을 취소했습니다.");
-      await refreshAll(true);
+      await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1577,7 +1724,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       } else {
         setMessage(`현재 상태: ${payload.status}`);
       }
-      await refreshAll(true);
+      await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1681,6 +1828,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }
 
   function toggleCourseExpanded(lectureSeqValue: number) {
+    const isExpanded = expandedCourseIds.has(lectureSeqValue);
+    const targetCourse = courses.find((course) => course.lectureSeq === lectureSeqValue);
     setExpandedCourseIds((prev) => {
       const next = new Set(prev);
       if (next.has(lectureSeqValue)) {
@@ -1690,6 +1839,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       }
       return next;
     });
+    if (!isExpanded && targetCourse && targetCourse.weekSummaries.length === 0) {
+      void loadCourseDetail(lectureSeqValue);
+    }
   }
 
   async function saveMail(event: FormEvent<HTMLFormElement>) {
@@ -1821,6 +1973,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             일정 주기로 자동 동기화 됩니다. 최신 데이터를 원하면 아래에서 수동 동기화를 실행하세요.
           </p>
         </div>
+        {jobsLoading && jobs.length === 0 ? (
+          <p className="muted">작업 상태를 불러오는 중입니다.</p>
+        ) : null}
         <div className="button-row">
           <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
         </div>
@@ -2035,7 +2190,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       <section className="card" id="messages">
         <h2>Inbox</h2>
         <div className="notice-list">
-          {messages.length === 0 ? (
+          {messagesLoading && messages.length === 0 ? (
+            <p className="muted">받은 쪽지를 불러오는 중입니다.</p>
+          ) : messages.length === 0 ? (
             <p className="muted">표시할 받은쪽지가 없습니다.</p>
           ) : messages.slice(0, 20).map((item) => (
             <article key={item.id} className={`notification-item ${item.isRead ? "" : "is-unread"}`}>
@@ -2076,6 +2233,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         {deadlineFilter === "ALL" && deadlineLoading ? (
           <p className="muted">전체 마감 차시를 불러오는 중...</p>
         ) : null}
+        {deadlinesLoading && displayedDeadlines.length === 0 ? (
+          <p className="muted">마감 차시를 불러오는 중입니다.</p>
+        ) : null}
         {showCurrentWeekPendingHint ? (
           <div className="top-gap">
             <p className="muted">
@@ -2113,11 +2273,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       <section className="card" id="courses">
         <h2>강좌 현황</h2>
         <div className="course-grid">
+          {coursesLoading && courses.length === 0 ? (
+            <p className="muted">강좌 정보를 불러오는 중입니다.</p>
+          ) : null}
           {courses.map((course) => {
             const currentWeekSummary = findCurrentWeekSummary(course);
             const currentWeekPendingLabel = formatPendingByType(currentWeekSummary);
             const sortedWeekSummaries = [...course.weekSummaries].sort((a, b) => a.weekNo - b.weekNo);
             const isExpanded = expandedCourseIds.has(course.lectureSeq);
+            const isCourseDetailLoading = courseDetailLoadingIds.has(course.lectureSeq);
             const isAutoLearningThisCourse = autoProgress?.progress.phase === "RUNNING"
               && autoProgress.progress.current?.lectureSeq === course.lectureSeq;
             const learnedSecondsForUi =
@@ -2174,6 +2338,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </div>
                 {isExpanded ? (
                   <div className="course-detail-grid">
+                    {isCourseDetailLoading && course.weekSummaries.length === 0 ? (
+                      <p className="muted">상세 주차 정보를 불러오는 중입니다.</p>
+                    ) : null}
                     <p className="muted">{formatCourseWeekProgress(course)}</p>
                     <p className="muted">{formatCourseWeekHealth(course)}</p>
                     <p className="muted">현재주차 미완료: {currentWeekPendingLabel}</p>

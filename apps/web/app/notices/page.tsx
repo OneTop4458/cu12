@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { SiteNoticeType } from "@prisma/client";
-import { listSiteNotices } from "@/server/site-notice";
-
-export const dynamic = "force-dynamic";
+import { listPublicSiteNotices } from "@/server/site-notice";
 
 function formatRange(startAt: string | null, endAt: string | null) {
   const start = startAt ? new Date(startAt).toLocaleString("ko-KR") : "-";
@@ -11,7 +9,7 @@ function formatRange(startAt: string | null, endAt: string | null) {
 }
 
 export default async function NoticesPage() {
-  const notices = await listSiteNotices(SiteNoticeType.BROADCAST, false);
+  const notices = await listPublicSiteNotices(SiteNoticeType.BROADCAST);
 
   return (
     <main className="dashboard-main page-shell">

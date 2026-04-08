@@ -938,11 +938,34 @@ paths:
             maximum: 100
       responses:
         "200":
-          description: Combined dashboard data used by initial page load and refresh
+          description: Lightweight dashboard bootstrap payload for initial page load
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardBootstrapResponse"
+        "401":
+          description: Unauthorized
+
+  /api/dashboard/status:
+    get:
+      tags: [Dashboard]
+      summary: Lightweight dashboard status payload for polling
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: jobsLimit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: Status payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStatusResponse"
         "401":
           description: Unauthorized
 
@@ -965,6 +988,36 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/DashboardCourse"
+
+  /api/dashboard/courses/{lectureSeq}/detail:
+    get:
+      tags: [Dashboard]
+      summary: Detailed week/task breakdown for one course
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: lectureSeq
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Course detail payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [detail]
+                properties:
+                  detail:
+                    $ref: "#/components/schemas/DashboardCourseDetail"
+        "400":
+          description: Invalid lecture sequence
+        "401":
+          description: Unauthorized
+        "404":
+          description: Course not found
 
   /api/dashboard/diagnostics:
     get:
@@ -1142,6 +1195,35 @@ paths:
                 properties:
                   deletedCount:
                     type: integer
+
+  /api/dashboard/messages:
+    get:
+      tags: [Dashboard]
+      summary: Recent inbox messages for effective user
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Message list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [messages]
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DashboardMessageItem"
+        "401":
+          description: Unauthorized
 
   /api/dashboard/notifications/{notificationId}/read:
     patch:
@@ -2870,6 +2952,26 @@ components:
           format: date-time
           nullable: true
 
+    DashboardMessageItem:
+      type: object
+      required: [id, title, senderName, bodyText, sentAt, isRead]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        senderName:
+          type: string
+          nullable: true
+        bodyText:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        isRead:
+          type: boolean
+
     DashboardSummary:
       type: object
       required:
@@ -3026,8 +3128,10 @@ components:
           nullable: true
         taskTypeCounts:
           $ref: "#/components/schemas/DashboardActivityTypeCounts"
+          nullable: true
         pendingTaskTypeCounts:
           $ref: "#/components/schemas/DashboardActivityTypeCounts"
+          nullable: true
         weekSummaries:
           type: array
           items:
@@ -3043,6 +3147,21 @@ components:
         deadlineLabel:
           type: string
           description: Deadline label shown by the dashboard client for the selected pending task window.
+
+    DashboardCourseDetail:
+      type: object
+      required: [lectureSeq, taskTypeCounts, pendingTaskTypeCounts, weekSummaries]
+      properties:
+        lectureSeq:
+          type: integer
+        taskTypeCounts:
+          $ref: "#/components/schemas/DashboardActivityTypeCounts"
+        pendingTaskTypeCounts:
+          $ref: "#/components/schemas/DashboardActivityTypeCounts"
+        weekSummaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardCourseWeekSummary"
 
     DashboardDeadline:
       type: object
@@ -3268,28 +3387,12 @@ components:
 
     DashboardBootstrapResponse:
       type: object
-      required: [context, summary, courses, deadlines, notifications, jobs, syncQueue, siteNotices, maintenanceNotice, account, cyberCampus, preference]
+      required: [context, summary, syncQueue, siteNotices, maintenanceNotice, account, cyberCampus, preference]
       properties:
         context:
           $ref: "#/components/schemas/SessionContext"
         summary:
           $ref: "#/components/schemas/DashboardSummary"
-        courses:
-          type: array
-          items:
-            $ref: "#/components/schemas/DashboardCourse"
-        deadlines:
-          type: array
-          items:
-            $ref: "#/components/schemas/DashboardDeadline"
-        notifications:
-          type: array
-          items:
-            $ref: "#/components/schemas/DashboardNotification"
-        jobs:
-          type: array
-          items:
-            $ref: "#/components/schemas/DashboardJob"
         syncQueue:
           $ref: "#/components/schemas/DashboardSyncQueue"
         siteNotices:
@@ -3335,6 +3438,29 @@ components:
           $ref: "#/components/schemas/CyberCampusState"
         preference:
           $ref: "#/components/schemas/MailPreference"
+
+    DashboardStatusResponse:
+      type: object
+      required: [summary, jobs, syncQueue, siteNotices, maintenanceNotice, cyberCampus]
+      properties:
+        summary:
+          $ref: "#/components/schemas/DashboardSummary"
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardJob"
+        syncQueue:
+          $ref: "#/components/schemas/DashboardSyncQueue"
+        siteNotices:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteNotice"
+        maintenanceNotice:
+          allOf:
+            - $ref: "#/components/schemas/SiteNotice"
+          nullable: true
+        cyberCampus:
+          $ref: "#/components/schemas/CyberCampusState"
 
     DashboardSyncQueue:
       type: object

@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
+import { revalidateTag } from "next/cache";
 import { PolicyDocumentType } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
 import {
+  PUBLIC_ACTIVE_POLICIES_TAG,
   getPolicyProfileForAdmin,
   listPoliciesForAdmin,
   REQUIRED_POLICY_TYPES,
@@ -90,6 +92,8 @@ export async function PUT(request: NextRequest) {
         profileUpdated: Boolean(body.profile),
       },
     });
+
+    revalidateTag(PUBLIC_ACTIVE_POLICIES_TAG, "max");
 
     return jsonOk({
       updated: true,
