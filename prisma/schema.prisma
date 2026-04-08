@@ -64,9 +64,24 @@ enum JobType {
 
 enum JobStatus {
   PENDING
+  BLOCKED
   RUNNING
   SUCCEEDED
   FAILED
+  CANCELED
+}
+
+enum PortalSessionStatus {
+  ACTIVE
+  EXPIRED
+  INVALID
+}
+
+enum PortalApprovalStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  EXPIRED
   CANCELED
 }
 
@@ -107,6 +122,8 @@ model User {
   courseNotices  CourseNotice[]
   notifications  NotificationEvent[]
   portalMessages PortalMessage[]
+  portalSessions PortalSession[]
+  portalApprovalSessions PortalApprovalSession[]
   learningTasks  LearningTask[]
   learningRuns   LearningRun[]
   mailSubs       MailSubscription[]
@@ -335,6 +352,47 @@ model NotificationEvent {
 
   @@unique([userId, provider, notifierSeq])
   @@index([userId, provider, occurredAt])
+}
+
+model PortalSession {
+  id                   String              @id @default(cuid())
+  userId               String
+  provider             PortalProvider
+  encryptedCookieState String
+  status               PortalSessionStatus @default(ACTIVE)
+  lastVerifiedAt       DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([provider, status, expiresAt])
+}
+
+model PortalApprovalSession {
+  id                   String               @id @default(cuid())
+  userId               String
+  jobId                String               @unique
+  provider             PortalProvider
+  status               PortalApprovalStatus @default(PENDING)
+  encryptedCookieState String
+  methods              Json?
+  selectedWay          Int?
+  selectedParam        String?
+  selectedTarget       String?
+  authSeq              String?
+  requestCode          String?
+  displayCode          String?
+  errorMessage         String?
+  expiresAt            DateTime
+  completedAt          DateTime?
+  canceledAt           DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider, status, expiresAt])
 }
 
 model PortalMessage {

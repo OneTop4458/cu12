@@ -539,6 +539,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     memberSubmitting,
     newCu12Id,
     newName,
+    newProvider,
     newCampus,
     newRole,
     newIsTestUser,

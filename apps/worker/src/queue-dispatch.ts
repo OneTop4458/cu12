@@ -186,6 +186,7 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
       where: {
         cu12Account: {
           is: {
+            provider: "CU12",
             accountStatus: "CONNECTED",
             autoLearnEnabled: true,
           },

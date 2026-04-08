@@ -106,7 +106,26 @@ function syncSavedCu12Id(shouldSave: boolean, cu12Id: string) {
   }
 }
 
-export function toLoginErrorMessage(payload: ApiErrorResponse): string {
+function legacyToLoginErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
+    return "ID 또는 비밀번호가 일치하지 않습니다.";
+  }
+  if (payload.errorCode === "ACCOUNT_DISABLED") {
+    return "계정이 비활성화되었습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
+    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "RATE_LIMITED") {
+    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (payload.errorCode === "CU12_UNAVAILABLE" || payload.errorCode === "PORTAL_UNAVAILABLE") {
+    return payload.error ?? "Authentication service unavailable.";
+  }
+  if (payload.errorCode?.startsWith("INTERNAL_DB_") || payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Authentication failed.";
+  }
+  return payload.error ?? "로그인 처리 중 오류가 발생했습니다.";
   if (payload.errorCode === "AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
     return "ID ?먮뒗 鍮꾨?踰덊샇媛 ?쇱튂?섏? ?딆뒿?덈떎.";
   }
@@ -128,7 +147,26 @@ export function toLoginErrorMessage(payload: ApiErrorResponse): string {
   return payload.error ?? "濡쒓렇??泥섎━???ㅽ뙣?덉뒿?덈떎.";
 }
 
-export function toInviteErrorMessage(payload: ApiErrorResponse): string {
+function legacyToInviteErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
+    return payload.error ?? "Invite verification failed.";
+  }
+  if (payload.errorCode === "ACCOUNT_DISABLED") {
+    return "계정이 비활성화되었습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
+    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "RATE_LIMITED") {
+    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
+    return "로그인 세션이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Invite verification failed.";
+  }
+  return payload.error ?? "초대 코드 확인 중 오류가 발생했습니다.";
   if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
     return payload.error ?? "Invite verification failed.";
   }
@@ -150,7 +188,23 @@ export function toInviteErrorMessage(payload: ApiErrorResponse): string {
   return payload.error ?? "珥덈? 肄붾뱶 泥섎━???ㅽ뙣?덉뒿?덈떎.";
 }
 
-export function toConsentErrorMessage(payload: ApiErrorResponse): string {
+function legacyToConsentErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "POLICY_CONSENT_INCOMPLETE") {
+    return "필수 약관에 모두 동의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_VERSION_MISMATCH") {
+    return "약관 버전이 변경되었습니다. 최신 약관에 다시 동의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
+    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
+    return "동의 세션이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Policy consent failed.";
+  }
+  return payload.error ?? "약관 동의 처리 중 오류가 발생했습니다.";
   if (payload.errorCode === "POLICY_CONSENT_INCOMPLETE") {
     return "?꾩닔 ?쎄? ?숈쓽媛 ?꾩슂?⑸땲??";
   }
@@ -167,6 +221,69 @@ export function toConsentErrorMessage(payload: ApiErrorResponse): string {
     return payload.error ?? "Policy consent failed.";
   }
   return payload.error ?? "?쎄? ?숈쓽 泥섎━???ㅽ뙣?덉뒿?덈떎.";
+}
+
+export function toLoginErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
+    return "ID 또는 비밀번호가 일치하지 않습니다.";
+  }
+  if (payload.errorCode === "ACCOUNT_DISABLED") {
+    return "계정이 비활성화되었습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
+    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "RATE_LIMITED") {
+    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (payload.errorCode === "CU12_UNAVAILABLE" || payload.errorCode === "PORTAL_UNAVAILABLE") {
+    return payload.error ?? "Authentication service unavailable.";
+  }
+  if (payload.errorCode?.startsWith("INTERNAL_DB_") || payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Authentication failed.";
+  }
+  return payload.error ?? "로그인 처리 중 오류가 발생했습니다.";
+}
+
+export function toInviteErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
+    return payload.error ?? "Invite verification failed.";
+  }
+  if (payload.errorCode === "ACCOUNT_DISABLED") {
+    return "계정이 비활성화되었습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
+    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "RATE_LIMITED") {
+    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
+    return "로그인 세션이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Invite verification failed.";
+  }
+  return payload.error ?? "초대 코드 확인 중 오류가 발생했습니다.";
+}
+
+export function toConsentErrorMessage(payload: ApiErrorResponse): string {
+  if (payload.errorCode === "POLICY_CONSENT_INCOMPLETE") {
+    return "필수 약관에 모두 동의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_VERSION_MISMATCH") {
+    return "약관 버전이 변경되었습니다. 최신 약관에 다시 동의해 주세요.";
+  }
+  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
+    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+  }
+  if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
+    return "동의 세션이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (payload.errorCode === "INTERNAL_ERROR") {
+    return payload.error ?? "Policy consent failed.";
+  }
+  return payload.error ?? "약관 동의 처리 중 오류가 발생했습니다.";
 }
 
 export function LoginForm({

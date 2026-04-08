@@ -23,6 +23,11 @@ export interface CyberCampusCredentials {
   cu12Password: string;
 }
 
+export interface CyberCampusCookieStateEntry {
+  name: string;
+  value: string;
+}
+
 export interface CyberCampusSnapshotResult extends SyncSnapshotResult {
   messages: PortalMessage[];
 }
@@ -55,6 +60,54 @@ async function loginCyberCampus(page: Page, creds: CyberCampusCredentials): Prom
   await page.fill("#usr_pwd", creds.cu12Password);
   await page.click("#login_btn");
   await page.waitForURL(/\/ilos\/main\/main_form\.acl/, { timeout: 20000 });
+}
+
+function looksAuthenticated(html: string, responseUrl: string): boolean {
+  if (/\/ilos\/main\/main_form\.acl/i.test(responseUrl)) return true;
+  return /\/ilos\/lo\/logout\.acl/i.test(html)
+    || /popTodo\(/i.test(html)
+    || /received_list_pop_form\.acl/i.test(html);
+}
+
+async function applyCookieStateToContext(
+  page: Page,
+  cookieState?: CyberCampusCookieStateEntry[],
+): Promise<void> {
+  if (!cookieState?.length) return;
+  await page.context().addCookies(
+    cookieState.map((cookie) => ({
+      name: cookie.name,
+      value: cookie.value,
+      url: getEnv().CYBER_CAMPUS_BASE_URL,
+    })),
+  );
+}
+
+async function ensureCyberCampusSession(
+  page: Page,
+  creds: CyberCampusCredentials | null,
+  options?: {
+    cookieState?: CyberCampusCookieStateEntry[];
+    requireVerifiedSession?: boolean;
+  },
+): Promise<void> {
+  await applyCookieStateToContext(page, options?.cookieState);
+  if (options?.cookieState?.length) {
+    await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
+    const html = await page.content();
+    if (looksAuthenticated(html, page.url())) {
+      return;
+    }
+    if (options.requireVerifiedSession) {
+      throw new Error("CYBER_CAMPUS_SESSION_INVALID");
+    }
+  }
+
+  if (!creds) {
+    throw new Error("CYBER_CAMPUS_SESSION_INVALID");
+  }
+
+  await loginCyberCampus(page, creds);
 }
 
 async function fetchText(
@@ -136,6 +189,12 @@ function mergeCourses(
   return [...seen.values()];
 }
 
+function sortCyberCampusTasks<T extends { weekNo: number; lessonNo: number }>(tasks: T[]): T[] {
+  return tasks
+    .slice()
+    .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
+}
+
 async function collectMessages(contextPage: Page, userId: string): Promise<PortalMessage[]> {
   const messagePage = await contextPage.context().newPage();
   try {
@@ -174,6 +233,9 @@ export async function collectCyberCampusSnapshot(
   creds: CyberCampusCredentials,
   onCancelCheck?: CancelCheck,
   onProgress?: (progress: SyncProgress) => Promise<void> | void,
+  options?: {
+    cookieState?: CyberCampusCookieStateEntry[];
+  },
 ): Promise<CyberCampusSnapshotResult> {
   const context = await browser.newContext(createBrowserContextOptions());
   const page = await context.newPage();
@@ -184,7 +246,10 @@ export async function collectCyberCampusSnapshot(
   };
 
   try {
-    await loginCyberCampus(page, creds);
+    await ensureCyberCampusSession(page, creds, {
+      cookieState: options?.cookieState,
+      requireVerifiedSession: false,
+    });
     if (await shouldCancel()) throw new Error("JOB_CANCELLED");
 
     const mainHtml = await page.content();
@@ -236,6 +301,10 @@ export async function runCyberCampusAutoLearning(
   },
   onProgress?: (progress: AutoLearnProgress) => Promise<void> | void,
   onCancelCheck?: CancelCheck,
+  sessionOptions?: {
+    cookieState?: CyberCampusCookieStateEntry[];
+    requireVerifiedSession?: boolean;
+  },
 ): Promise<AutoLearnResult> {
   const context = await browser.newContext(createBrowserContextOptions());
   const page = await context.newPage();
@@ -250,37 +319,39 @@ export async function runCyberCampusAutoLearning(
   });
 
   try {
-    await loginCyberCampus(page, creds);
+    await ensureCyberCampusSession(page, creds, sessionOptions);
     const todoHtml = await fetchText(
       page,
       "/ilos/mp/todo_list.acl",
       { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
     );
-    const tasks = parseCyberCampusTodoListHtml(todoHtml, userId)
-      .filter((task) => task.activityType === "VOD");
+    const allTasks = sortCyberCampusTasks(
+      parseCyberCampusTodoListHtml(todoHtml, userId)
+        .filter((task) => task.activityType === "VOD"),
+    );
 
-    const plannedBase = options.mode === "ALL_COURSES"
-      ? tasks
-      : tasks.filter((task) => task.lectureSeq === options.lectureSeq);
-    const plannedTask = plannedBase[0] ?? null;
+    const filteredTasks = options.mode === "ALL_COURSES"
+      ? allTasks
+      : allTasks.filter((task) => task.lectureSeq === options.lectureSeq);
+    const plannedBase = options.mode === "SINGLE_NEXT"
+      ? filteredTasks.slice(0, 1)
+      : filteredTasks;
 
-    const planned: AutoLearnPlannedTask[] = plannedTask
-      ? [{
-        lectureSeq: plannedTask.lectureSeq,
-        courseContentsSeq: plannedTask.courseContentsSeq,
-        courseTitle: plannedTask.taskTitle ?? `Course ${plannedTask.lectureSeq}`,
-        weekNo: plannedTask.weekNo,
-        lessonNo: plannedTask.lessonNo,
-        taskTitle: plannedTask.taskTitle ?? `Lesson ${plannedTask.lessonNo}`,
-        state: plannedTask.state,
-        activityType: plannedTask.activityType,
-        requiredSeconds: plannedTask.requiredSeconds,
-        learnedSeconds: plannedTask.learnedSeconds,
-        availableFrom: plannedTask.availableFrom ?? null,
-        dueAt: plannedTask.dueAt ?? null,
-        remainingSeconds: 0,
-      }]
-      : [];
+    const planned: AutoLearnPlannedTask[] = plannedBase.map((plannedTask) => ({
+      lectureSeq: plannedTask.lectureSeq,
+      courseContentsSeq: plannedTask.courseContentsSeq,
+      courseTitle: plannedTask.taskTitle ?? `Course ${plannedTask.lectureSeq}`,
+      weekNo: plannedTask.weekNo,
+      lessonNo: plannedTask.lessonNo,
+      taskTitle: plannedTask.taskTitle ?? `Lesson ${plannedTask.lessonNo}`,
+      state: plannedTask.state,
+      activityType: plannedTask.activityType,
+      requiredSeconds: plannedTask.requiredSeconds,
+      learnedSeconds: plannedTask.learnedSeconds,
+      availableFrom: plannedTask.availableFrom ?? null,
+      dueAt: plannedTask.dueAt ?? null,
+      remainingSeconds: Math.max(0, plannedTask.requiredSeconds - plannedTask.learnedSeconds),
+    }));
 
     if (onProgress) {
       await onProgress({
@@ -298,7 +369,7 @@ export async function runCyberCampusAutoLearning(
       });
     }
 
-    if (!plannedTask) {
+    if (plannedBase.length === 0) {
       return {
         mode: options.mode,
         lectureSeqs: [],
@@ -316,42 +387,81 @@ export async function runCyberCampusAutoLearning(
       throw new Error("AUTOLEARN_CANCELLED");
     }
 
-    const rawLectureId = plannedTask.externalLectureId;
-    if (!rawLectureId) {
-      throw new Error("CYBER_CAMPUS_LECTURE_ID_MISSING");
-    }
+    const lectureSeqs: number[] = [];
+    let processedTaskCount = 0;
 
-    await page.goto(
-      `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${plannedTask.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(rawLectureId)}`,
-      { waitUntil: "domcontentloaded" },
-    );
-    await page.waitForTimeout(2000);
-    await page.evaluate(
-      ({ weekNo, lessonSeq }) => {
-        const form = document.forms.namedItem("myform") as HTMLFormElement | null;
-        if (!form) return;
-        const lectureWeeks = form.querySelector<HTMLInputElement>('input[name="lecture_weeks"]');
-        const weekNoInput = form.querySelector<HTMLInputElement>('input[name="WEEK_NO"]');
-        const itemIdInput = form.querySelector<HTMLInputElement>('input[name="item_id"]');
-        if (lectureWeeks) lectureWeeks.value = String(lessonSeq);
-        if (weekNoInput) weekNoInput.value = String(weekNo);
-        if (itemIdInput) itemIdInput.value = "";
-        form.submit();
-      },
-      { weekNo: plannedTask.weekNo, lessonSeq: plannedTask.courseContentsSeq },
-    );
-    await page.waitForTimeout(3000);
+    for (const plannedTask of plannedBase) {
+      if (await shouldCancel()) {
+        throw new Error("AUTOLEARN_CANCELLED");
+      }
 
-    if (secondaryAuthBlocked || /\/ilos\/st\/course\/submain_form\.acl/i.test(page.url())) {
-      throw new Error("CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED");
+      const rawLectureId = plannedTask.externalLectureId;
+      if (!rawLectureId) {
+        throw new Error("CYBER_CAMPUS_LECTURE_ID_MISSING");
+      }
+
+      secondaryAuthBlocked = false;
+      await page.goto(
+        `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${plannedTask.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(rawLectureId)}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await page.waitForTimeout(2000);
+      await page.evaluate(
+        ({ weekNo, lessonSeq }) => {
+          const form = document.forms.namedItem("myform") as HTMLFormElement | null;
+          if (!form) return;
+          const lectureWeeks = form.querySelector<HTMLInputElement>('input[name="lecture_weeks"]');
+          const weekNoInput = form.querySelector<HTMLInputElement>('input[name="WEEK_NO"]');
+          const itemIdInput = form.querySelector<HTMLInputElement>('input[name="item_id"]');
+          if (lectureWeeks) lectureWeeks.value = String(lessonSeq);
+          if (weekNoInput) weekNoInput.value = String(weekNo);
+          if (itemIdInput) itemIdInput.value = "";
+          form.submit();
+        },
+        { weekNo: plannedTask.weekNo, lessonSeq: plannedTask.courseContentsSeq },
+      );
+      await page.waitForTimeout(3000);
+
+      if (secondaryAuthBlocked || /\/ilos\/st\/course\/submain_form\.acl/i.test(page.url())) {
+        throw new Error("CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED");
+      }
+
+      processedTaskCount += 1;
+      if (!lectureSeqs.includes(plannedTask.lectureSeq)) {
+        lectureSeqs.push(plannedTask.lectureSeq);
+      }
+
+      if (onProgress) {
+        await onProgress({
+          phase: "RUNNING",
+          mode: options.mode,
+          totalTasks: planned.length,
+          completedTasks: processedTaskCount,
+          elapsedSeconds: 0,
+          estimatedRemainingSeconds: 0,
+          current: {
+            lectureSeq: plannedTask.lectureSeq,
+            weekNo: plannedTask.weekNo,
+            lessonNo: plannedTask.lessonNo,
+            activityType: plannedTask.activityType,
+            remainingSeconds: Math.max(0, plannedTask.requiredSeconds - plannedTask.learnedSeconds),
+            courseTitle: plannedTask.taskTitle ?? `Course ${plannedTask.lectureSeq}`,
+            taskTitle: plannedTask.taskTitle ?? `Lesson ${plannedTask.lessonNo}`,
+          },
+          plannedTaskCount: planned.length,
+          planned,
+          truncated: false,
+          heartbeatAt: new Date().toISOString(),
+        });
+      }
     }
 
     return {
       mode: options.mode,
-      lectureSeqs: [plannedTask.lectureSeq],
-      processedTaskCount: 1,
+      lectureSeqs,
+      processedTaskCount,
       elapsedSeconds: 0,
-      plannedTaskCount: 1,
+      plannedTaskCount: planned.length,
       truncated: false,
       estimatedTotalSeconds: 0,
       planned,

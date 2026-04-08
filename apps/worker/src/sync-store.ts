@@ -341,6 +341,60 @@ export async function getUserCu12Credentials(userId: string) {
   };
 }
 
+export interface PortalSessionCookieState {
+  name: string;
+  value: string;
+}
+
+function decodePortalSessionCookieState(payload: string): PortalSessionCookieState[] {
+  const raw = JSON.parse(decryptSecret(payload)) as unknown;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const name = (item as { name?: unknown }).name;
+      const value = (item as { value?: unknown }).value;
+      if (typeof name !== "string" || typeof value !== "string") return null;
+      return { name, value };
+    })
+    .filter((item): item is PortalSessionCookieState => item !== null);
+}
+
+export async function getPortalSessionCookieState(userId: string, provider: PortalProvider) {
+  const row = await prisma.portalSession.findUnique({
+    where: {
+      userId_provider: {
+        userId,
+        provider,
+      },
+    },
+    select: {
+      encryptedCookieState: true,
+      status: true,
+      expiresAt: true,
+      lastVerifiedAt: true,
+    },
+  });
+  if (!row) return null;
+
+  return {
+    status: row.status as "ACTIVE" | "EXPIRED" | "INVALID",
+    expiresAt: row.expiresAt,
+    lastVerifiedAt: row.lastVerifiedAt,
+    cookieState: decodePortalSessionCookieState(row.encryptedCookieState),
+  };
+}
+
+export async function invalidatePortalSession(userId: string, provider: PortalProvider) {
+  await prisma.portalSession.updateMany({
+    where: { userId, provider },
+    data: {
+      status: "INVALID",
+      updatedAt: new Date(),
+    },
+  });
+}
+
 export async function getUserMailPreference(userId: string): Promise<MailPreference | null> {
   const [user, subscription] = await Promise.all([
     prisma.user.findUnique({

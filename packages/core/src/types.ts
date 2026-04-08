@@ -78,7 +78,7 @@ export interface PortalMessage {
 }
 
 export type QueueJobType = "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
-export type QueueJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+export type QueueJobStatus = "PENDING" | "BLOCKED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 
 export interface QueuePayload {
   userId: string;

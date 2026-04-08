@@ -131,7 +131,7 @@ interface SiteNotice {
 interface Job {
   id: string;
   type: "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
-  status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+  status: "PENDING" | "BLOCKED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
   createdAt: string;
   runAfter: string;
   updatedAt: string;
@@ -154,10 +154,12 @@ interface JobDispatch {
   jobId: string;
   deduplicated: boolean;
   dispatched?: boolean;
-  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE";
+  dispatchState?: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE" | "NOT_APPLICABLE";
   dispatchError?: string;
   dispatchErrorCode?: string | null;
   notice?: string;
+  approvalRequired?: boolean;
+  approval?: CyberCampusApproval | null;
 }
 
 interface RunCancelResult {
@@ -201,6 +203,40 @@ interface Account {
   quizAutoSolveEnabled: boolean;
   lastLoginAt: string | null;
   lastLoginIp: string | null;
+}
+
+interface SecondaryAuthMethod {
+  way: number;
+  param: string;
+  target: string;
+  label: string;
+  requiresCode: boolean;
+}
+
+interface CyberCampusPortalSession {
+  available: boolean;
+  status: "ACTIVE" | "EXPIRED" | "INVALID" | null;
+  expiresAt: string | null;
+  lastVerifiedAt: string | null;
+}
+
+interface CyberCampusApproval {
+  id: string;
+  jobId: string;
+  status: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  expiresAt: string;
+  completedAt: string | null;
+  canceledAt: string | null;
+  errorMessage: string | null;
+  methods: SecondaryAuthMethod[];
+  selectedMethod: SecondaryAuthMethod | null;
+  requestCode: string | null;
+  displayCode: string | null;
+}
+
+interface CyberCampusState {
+  session: CyberCampusPortalSession;
+  approval: CyberCampusApproval | null;
 }
 
 interface AutoProgress {
@@ -327,6 +363,7 @@ interface DashboardBootstrap {
   siteNotices: SiteNotice[];
   maintenanceNotice: SiteNotice | null;
   account: Account | null;
+  cyberCampus: CyberCampusState;
   preference: MailPreference;
 }
 
@@ -492,6 +529,21 @@ function parseDateMs(value: string | null | undefined): number | null {
   if (!value) return null;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatApprovalCountdown(totalSeconds: number | null): string {
+  if (totalSeconds === null) return "-";
+  const safe = Math.max(0, totalSeconds);
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${minutes}분 ${seconds}초`;
+}
+
+function formatCyberCampusSessionStatus(session: CyberCampusPortalSession): string {
+  if (session.available) return "재사용 가능";
+  if (session.status === "EXPIRED") return "만료됨";
+  if (session.status === "INVALID") return "재인증 필요";
+  return "세션 없음";
 }
 
 function isCourseDeadlineUrgent(course: Course): boolean {
@@ -697,6 +749,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [autoLearnEnabledDraft, setAutoLearnEnabledDraft] = useState(true);
   const [quizAutoSolveEnabledDraft, setQuizAutoSolveEnabledDraft] = useState(true);
   const [account, setAccount] = useState<Account | null>(null);
+  const [cyberCampus, setCyberCampus] = useState<CyberCampusState>({
+    session: {
+      available: false,
+      status: null,
+      expiresAt: null,
+      lastVerifiedAt: null,
+    },
+    approval: null,
+  });
 
   const [mode, setMode] = useState<"SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES">("ALL_COURSES");
   const [lectureSeq, setLectureSeq] = useState<number | null>(null);
@@ -713,6 +774,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [syncQueueCleanupSubmitting, setSyncQueueCleanupSubmitting] = useState(false);
   const [notificationClearing, setNotificationClearing] = useState(false);
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [approvalCode, setApprovalCode] = useState("");
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -746,13 +810,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => analyzeSyncQueueState(jobs, Date.now(), syncQueueSummary ?? undefined),
     [jobs, syncQueueSummary],
   );
+  const isCyberCampusProvider = account?.provider === "CYBER_CAMPUS";
+  const cyberCampusSession = cyberCampus.session;
+  const activeCyberCampusApproval = cyberCampus.approval;
   const syncQueueState = syncQueueAnalysis.state;
   const syncQueueStaleJobIds = syncQueueAnalysis.staleJobIds;
   const syncQueueStatusMessage = syncQueueAnalysis.statusMessage;
   const syncQueueGuidance = useMemo(() => getSyncQueueGuidance(syncQueueState), [syncQueueState]);
   const hasActiveJobs = useMemo(() => jobs.some((job) => !TERMINAL.has(job.status)), [jobs]);
   const syncInProgress = syncQueueState !== "IDLE";
-  const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "RUNNING"));
+  const autoInProgress = sortedJobs.some((job) => job.type === "AUTOLEARN" && (job.status === "PENDING" || job.status === "BLOCKED" || job.status === "RUNNING"));
   const activeSyncJob = useMemo(
     () =>
       sortedJobs.find(
@@ -767,7 +834,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       sortedJobs.find(
         (job) =>
           job.type === "AUTOLEARN"
-          && (job.status === "PENDING" || job.status === "RUNNING"),
+          && (job.status === "RUNNING" || job.status === "BLOCKED" || job.status === "PENDING"),
       ) ?? null,
     [sortedJobs],
   );
@@ -872,7 +939,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       || autoProgress.progress.current.courseTitle?.trim()
       || `강좌 ${autoProgress.progress.current.lectureSeq}`
     : null;
-  const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING";
+  const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING" || trackingDetail?.status === "BLOCKED";
+  const approvalExpiresAtMs = parseDateMs(activeCyberCampusApproval?.expiresAt ?? null);
+  const approvalExpiresInSeconds = approvalExpiresAtMs === null
+    ? null
+    : Math.max(0, Math.floor((approvalExpiresAtMs - Date.now()) / 1000));
   const syncButtonLabel = useMemo(() => {
     switch (syncQueueState) {
       case "RUNNING":
@@ -960,6 +1031,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setSyncQueueSummary(payload.syncQueue ?? null);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
+      setCyberCampus(payload.cyberCampus ?? {
+        session: {
+          available: false,
+          status: null,
+          expiresAt: null,
+          lastVerifiedAt: null,
+        },
+        approval: null,
+      });
       setAutoLearnEnabledDraft(payload.account?.autoLearnEnabled ?? true);
       setQuizAutoSolveEnabledDraft(payload.account?.quizAutoSolveEnabled ?? true);
       setMailDraft(payload.preference);
@@ -1038,11 +1118,22 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     if (trackingJobId) return;
     const isTrackable = (job: Job) => job.type === "SYNC" || job.type === "NOTICE_SCAN" || job.type === "AUTOLEARN";
     const runningJob = sortedJobs.find((job) => isTrackable(job) && job.status === "RUNNING");
+    const blockedJob = sortedJobs.find((job) => isTrackable(job) && job.status === "BLOCKED");
     const pendingJob = sortedJobs.find((job) => isTrackable(job) && job.status === "PENDING");
-    const candidate = runningJob ?? pendingJob ?? null;
+    const candidate = runningJob ?? blockedJob ?? pendingJob ?? null;
     if (!candidate) return;
     setTrackingJobId(candidate.id);
   }, [sortedJobs, trackingJobId]);
+
+  useEffect(() => {
+    if (!approvalModalOpen || !activeCyberCampusApproval?.selectedMethod || approvalSubmitting) return;
+    if (activeCyberCampusApproval.selectedMethod.requiresCode) return;
+
+    const timer = setTimeout(() => {
+      void confirmCyberCampusApproval();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [approvalModalOpen, activeCyberCampusApproval, approvalSubmitting]);
 
   useEffect(() => {
     if (!summary || loading) return;
@@ -1322,6 +1413,17 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       } catch {
         // Ignore hydration failure. Polling will continue.
       }
+      if (action === "AUTOLEARN" && payload.approvalRequired && payload.approval) {
+        setCyberCampus((prev) => ({
+          session: prev.session,
+          approval: payload.approval ?? null,
+        }));
+        setApprovalCode("");
+        setApprovalModalOpen(true);
+        setMessage(payload.notice ?? "사이버캠퍼스 자동 수강은 2차 인증을 완료한 뒤 시작됩니다.");
+        await refreshAll(true);
+        return;
+      }
       if (action === "AUTOLEARN") {
         const baseMessage = payload.notice
           ?? (payload.deduplicated
@@ -1349,6 +1451,112 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     } finally {
       setActionSubmitting(false);
       if (!bootstrapSyncing) setBlockingMessage(null);
+    }
+  }
+
+  async function startCyberCampusApproval(method: SecondaryAuthMethod) {
+    if (!activeCyberCampusApproval || approvalSubmitting) return;
+    setApprovalSubmitting(true);
+    setBlockingMessage("사이버캠퍼스 2차 인증 요청을 준비 중입니다...");
+    try {
+      const payload = await fetchJson<{ approval: CyberCampusApproval }>(
+        `/api/cyber-campus/approval/${activeCyberCampusApproval.id}/start`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ way: method.way, param: method.param }),
+        },
+      );
+      setCyberCampus((prev) => ({
+        session: prev.session,
+        approval: payload.approval,
+      }));
+      setApprovalCode("");
+      setApprovalModalOpen(true);
+      await refreshAll(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setApprovalSubmitting(false);
+      if (!bootstrapSyncing) {
+        setBlockingMessage(null);
+      }
+    }
+  }
+
+  async function confirmCyberCampusApproval() {
+    if (!activeCyberCampusApproval || approvalSubmitting) return;
+    if (activeCyberCampusApproval.selectedMethod?.requiresCode && !approvalCode.trim()) {
+      setError("인증 코드를 입력해 주세요.");
+      return;
+    }
+
+    setApprovalSubmitting(true);
+    setBlockingMessage("사이버캠퍼스 2차 인증 상태를 확인 중입니다...");
+    try {
+      const payload = await fetchJson<{
+        state: "PENDING" | "COMPLETED";
+        approval: CyberCampusApproval;
+        jobId?: string;
+      }>(
+        `/api/cyber-campus/approval/${activeCyberCampusApproval.id}/confirm`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            code: activeCyberCampusApproval.selectedMethod?.requiresCode ? approvalCode.trim() : undefined,
+          }),
+        },
+      );
+
+      setCyberCampus((prev) => ({
+        session: prev.session,
+        approval: payload.approval,
+      }));
+
+      if (payload.state === "COMPLETED" && payload.jobId) {
+        setApprovalModalOpen(false);
+        setApprovalCode("");
+        setTrackingJobId(payload.jobId);
+        try {
+          const detail = await fetchJson<JobDetail>(`/api/jobs/${payload.jobId}`);
+          setTrackingDetail(detail);
+        } catch {
+          // Ignore hydration failure. Polling will continue.
+        }
+        setMessage("2차 인증이 완료되어 자동 수강 작업이 다시 시작되었습니다.");
+      }
+
+      await refreshAll(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setApprovalSubmitting(false);
+      if (!bootstrapSyncing) {
+        setBlockingMessage(null);
+      }
+    }
+  }
+
+  async function cancelCyberCampusApprovalRequest() {
+    if (!activeCyberCampusApproval || approvalSubmitting) return;
+    setApprovalSubmitting(true);
+    setBlockingMessage("사이버캠퍼스 2차 인증 요청을 취소 중입니다...");
+    try {
+      await fetchJson<{ approval: CyberCampusApproval }>(`/api/cyber-campus/approval/${activeCyberCampusApproval.id}`, {
+        method: "DELETE",
+      });
+      setApprovalModalOpen(false);
+      setApprovalCode("");
+      setMessage("사이버캠퍼스 2차 인증 요청을 취소했습니다.");
+      await refreshAll(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setApprovalSubmitting(false);
+      if (!bootstrapSyncing) {
+        setBlockingMessage(null);
+      }
     }
   }
 
@@ -1492,7 +1700,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(mailDraft),
       });
-      if (account) {
+      if (account?.provider === "CU12") {
         await fetchJson("/api/cu12/automation", {
           method: "PATCH",
           headers: { "content-type": "application/json" },
@@ -1684,6 +1892,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <div className="button-row">
           <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
         </div>
+        {isCyberCampusProvider ? (
+          <div className="pill-note top-gap">
+            <p><strong>정책</strong>: 사이버캠퍼스 자동 수강은 수동 요청 전용입니다.</p>
+            <p className="muted">세션이 유효하면 다음 요청부터는 2차 인증을 다시 묻지 않습니다.</p>
+            <p className="muted">
+              세션 상태: {formatCyberCampusSessionStatus(cyberCampusSession)}
+              {" / "}
+              만료: {toDateTime(cyberCampusSession.expiresAt)}
+            </p>
+            {activeCyberCampusApproval ? (
+              <div className="button-row top-gap">
+                <button type="button" className="ghost-btn" onClick={() => setApprovalModalOpen(true)} disabled={approvalSubmitting}>
+                  2차 인증 이어서 하기
+                </button>
+                <button type="button" className="ghost-btn" onClick={() => void cancelCyberCampusApprovalRequest()} disabled={approvalSubmitting}>
+                  인증 요청 취소
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="form-grid top-gap">
           <label className="field">
             <span>모드</span>
@@ -2019,6 +2248,77 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </div>
       ) : null}
 
+      {approvalModalOpen && activeCyberCampusApproval ? (
+        <div className="modal-overlay">
+          <section className="modal-card">
+            <h2>사이버캠퍼스 2차 인증</h2>
+            <p className="muted">만료까지 {formatApprovalCountdown(approvalExpiresInSeconds)}</p>
+            <p className="muted">상태: {activeCyberCampusApproval.status}</p>
+            {activeCyberCampusApproval.errorMessage ? (
+              <p className="error-text">{activeCyberCampusApproval.errorMessage}</p>
+            ) : null}
+
+            {!activeCyberCampusApproval.selectedMethod ? (
+              <div className="form-stack top-gap">
+                <p className="muted">아래 인증 수단 중 하나를 선택해 주세요.</p>
+                <div className="button-row">
+                  {activeCyberCampusApproval.methods.map((method) => (
+                    <button
+                      key={`${method.way}:${method.param}`}
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => void startCyberCampusApproval(method)}
+                      disabled={approvalSubmitting}
+                    >
+                      {method.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="form-stack top-gap">
+                <div className="pill-note">
+                  <p><strong>선택 수단</strong>: {activeCyberCampusApproval.selectedMethod.label}</p>
+                  {activeCyberCampusApproval.requestCode ? (
+                    <p><strong>요청 번호</strong>: {activeCyberCampusApproval.requestCode}</p>
+                  ) : null}
+                  {activeCyberCampusApproval.displayCode ? (
+                    <p><strong>화면 코드</strong>: {activeCyberCampusApproval.displayCode}</p>
+                  ) : null}
+                </div>
+                {activeCyberCampusApproval.selectedMethod.requiresCode ? (
+                  <label className="field">
+                    <span>인증 코드</span>
+                    <input
+                      value={approvalCode}
+                      onChange={(event) => setApprovalCode(event.target.value)}
+                      maxLength={20}
+                      placeholder="인증 코드를 입력하세요"
+                    />
+                  </label>
+                ) : (
+                  <p className="muted">기기에서 승인을 완료하면 자동으로 상태를 다시 확인합니다.</p>
+                )}
+                <div className="button-row">
+                  <button type="button" onClick={() => void confirmCyberCampusApproval()} disabled={approvalSubmitting}>
+                    {approvalSubmitting ? "확인 중..." : "인증 확인"}
+                  </button>
+                  <button type="button" className="ghost-btn" onClick={() => setApprovalModalOpen(false)} disabled={approvalSubmitting}>
+                    닫기
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="button-row top-gap">
+              <button type="button" className="ghost-btn" onClick={() => void cancelCyberCampusApprovalRequest()} disabled={approvalSubmitting}>
+                인증 요청 취소
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {settingsOpen ? (
         <div className="modal-overlay">
           <section className="modal-card wide">
@@ -2026,11 +2326,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <div className="table-wrap">
               <table>
                 <tbody>
+                  <tr><th>포털</th><td>{account?.provider ?? "-"}</td></tr>
                   <tr><th>CU12 아이디</th><td>{account?.cu12Id ?? "-"}</td></tr>
                   <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
-                  <tr><th>정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
+                  <tr><th>정기 자동 수강</th><td>{account ? (isCyberCampusProvider ? "지원 안 함" : (autoLearnEnabledDraft ? "사용" : "사용 안 함")) : "-"}</td></tr>
                   <tr><th>퀴즈 자동 풀이</th><td>{account ? (quizAutoSolveEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
+                  {isCyberCampusProvider ? <tr><th>사캠 세션</th><td>{formatCyberCampusSessionStatus(cyberCampusSession)} / {toDateTime(cyberCampusSession.expiresAt)}</td></tr> : null}
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
                   <tr><th>다음 자동 동기화</th><td>{toDateTime(summary?.nextAutoSyncAt ?? null)}</td></tr>
                   <tr><th>마지막 접속일</th><td>{toDateTime(account?.lastLoginAt ?? null)}</td></tr>
@@ -2067,16 +2369,24 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     type="checkbox"
                     checked={autoLearnEnabledDraft}
                     onChange={(event) => setAutoLearnEnabledDraft(event.target.checked)}
-                    disabled={!account}
+                    disabled={!account || isCyberCampusProvider}
                   />
-                  <span>신규 강의 감지 시 자동 수강 사용</span>
+                  <span>{isCyberCampusProvider ? "사이버캠퍼스는 수동 요청만 지원" : "신규 강의 감지 시 자동 수강 사용"}</span>
                 </label>
-                <p className="muted text-small">
-                  이 설정을 켜면 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
-                </p>
-                <p className="muted text-small">
-                  해당 옵션이 비활성화된 경우 대시보드에서 사용자가 수동으로 요청한 경우에만 자동 수강이 동작합니다.
-                </p>
+                {isCyberCampusProvider ? (
+                  <p className="muted text-small">
+                    사이버캠퍼스는 2차 인증이 필요하므로 정기 스케줄 자동 수강을 지원하지 않습니다. 대시보드에서 수동으로 요청해 주세요.
+                  </p>
+                ) : (
+                  <>
+                    <p className="muted text-small">
+                      이 설정을 켜면 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
+                    </p>
+                    <p className="muted text-small">
+                      해당 옵션이 비활성화된 경우 대시보드에서 사용자가 수동으로 요청한 경우에만 자동 수강이 동작합니다.
+                    </p>
+                  </>
+                )}
                 {!account ? (
                   <p className="muted text-small">CU12 계정 연결 후 자동 수강 예약 설정을 사용할 수 있습니다.</p>
                 ) : null}
