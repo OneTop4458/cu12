@@ -140,6 +140,7 @@ model Cu12Account {
   accountStatus          AccountStatus @default(CONNECTED)
   statusReason           String?
   autoLearnEnabled       Boolean       @default(true)
+  quizAutoSolveEnabled   Boolean       @default(true)
   detectActivitiesEnabled Boolean      @default(true)
   emailDigestEnabled     Boolean       @default(true)
   createdAt              DateTime      @default(now())

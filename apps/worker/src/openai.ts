@@ -47,6 +47,10 @@ interface OpenAiChatCompletionResponse {
   }>;
 }
 
+export function isQuizAutoSolveConfigured(env = getEnv()): boolean {
+  return typeof env.OPENAI_API_KEY === "string" && env.OPENAI_API_KEY.trim().length > 0;
+}
+
 function trimStringArray(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
   return values
@@ -143,7 +147,7 @@ function buildUserPrompt(input: QuizPromptInput): string {
 
 export async function generateQuizAnswer(input: QuizPromptInput): Promise<QuizAnswerPlan> {
   const env = getEnv();
-  if (!env.OPENAI_API_KEY || env.OPENAI_API_KEY.trim().length === 0) {
+  if (!isQuizAutoSolveConfigured(env)) {
     throw new Error("OPENAI_API_KEY is required for quiz auto-solving.");
   }
 

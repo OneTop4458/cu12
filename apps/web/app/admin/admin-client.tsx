@@ -44,6 +44,7 @@ interface Cu12Account {
   campus: CampusType;
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
+  quizAutoSolveEnabled?: boolean;
 }
 
 interface Member {
