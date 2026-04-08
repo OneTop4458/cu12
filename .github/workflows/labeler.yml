@@ -2,7 +2,7 @@ name: PR Labeler
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
               { name: "infra", color: "FBCA04", description: "workflow/config changes" },
               { name: "dependencies", color: "0366D6", description: "dependency updates" },
               { name: "bot", color: "5319E7", description: "automated maintenance changes" },
-              { name: "automerge", color: "1D976C", description: "explicit opt-in for PR auto-merge" },
+              { name: "automerge", color: "1D976C", description: "safe PR candidate for auto-merge" },
               { name: "major-update", color: "D93F0B", description: "manual review required for semver-major updates" }
             ];
 
@@ -52,3 +52,79 @@ jobs:
       - uses: actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Manage automerge label for safe AI PRs
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+
+            if (!pr) {
+              core.info("No pull request payload. Skip automerge labeling.");
+              return;
+            }
+
+            const branchName = pr.head.ref ?? "";
+            const sameRepo = pr.head.repo?.full_name === `${owner}/${repo}`;
+            const isAiBranch = /^(ai|codex)\//.test(branchName);
+            const isDraft = pr.draft === true;
+            const allowedPatterns = [
+              /^apps\/web\//,
+              /^apps\/worker\//,
+              /^packages\/core\//,
+              /^docs\//,
+              /^README\.md$/,
+              /^package\.json$/,
+              /^pnpm-lock\.yaml$/,
+            ];
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const disallowed = files.find((file) => !allowedPatterns.some((pattern) => pattern.test(file.filename)));
+            const shouldAutomerge = sameRepo && isAiBranch && !isDraft && !disallowed;
+
+            const existingLabels = new Set((pr.labels ?? []).map((label) => label.name));
+            const hasAutomerge = existingLabels.has("automerge");
+
+            if (shouldAutomerge && !hasAutomerge) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr.number,
+                labels: ["automerge"],
+              });
+              core.info(`Added automerge label to PR #${pr.number}.`);
+              return;
+            }
+
+            if (!shouldAutomerge && hasAutomerge) {
+              await github.rest.issues.removeLabel({
+                owner,
+                repo,
+                issue_number: pr.number,
+                name: "automerge",
+              }).catch((error) => {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              });
+              const reason =
+                !sameRepo ? "fork or external repo"
+                : isDraft ? "draft PR"
+                : !isAiBranch ? `branch '${branchName}' is not ai/* or codex/*`
+                : `disallowed path '${disallowed?.filename ?? "unknown"}'`;
+              core.info(`Removed automerge label from PR #${pr.number}: ${reason}.`);
+              return;
+            }
+
+            core.info(
+              shouldAutomerge
+                ? `PR #${pr.number} already has automerge label.`
+                : `PR #${pr.number} is not eligible for automerge.`,
+            );

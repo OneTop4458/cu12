@@ -75,10 +75,15 @@
 
 3. `labeler.yml`
 - Applies PR labels based on changed paths.
-- Ensures the manual `automerge` label exists for explicit auto-merge opt-in.
+- Ensures the `automerge` label exists and auto-applies it only for safe same-repo AI/Codex PRs.
+- Safe auto-merge labeling requires:
+  - branch name starts with `ai/` or `codex/`
+  - PR is not draft
+  - changed files stay within `apps/web/**`, `apps/worker/**`, `packages/core/**`, `docs/**`, `README.md`, `package.json`, `pnpm-lock.yaml`
+- If a PR later becomes ineligible, the workflow removes the `automerge` label again.
 
 4. `codex-auto-merge-on-approval.yml`
-- Enables squash auto-merge only for repository PRs that are explicitly labeled `automerge`.
+- Enables squash auto-merge only for repository PRs labeled `automerge`.
 - Refuses auto-merge for sensitive path changes (`.github/workflows/**`, `prisma/**`, `scripts/**`, `AGENTS.md`) even when the label is present.
 - After a PR is merged into `main`, dispatches `Deploy Vercel` when the merged file set includes deploy-relevant paths.
 
