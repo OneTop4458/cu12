@@ -1111,6 +1111,15 @@ async function processMailDigest(userId: string) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
   }
 
+  const provider = (
+    await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: { provider: true },
+    })
+  )?.provider === "CYBER_CAMPUS"
+    ? "CYBER_CAMPUS"
+    : "CU12";
+
   const now = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const dueSoonUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1125,15 +1134,15 @@ async function processMailDigest(userId: string) {
     dueSoonTasks,
   ] = await Promise.all([
     prisma.courseSnapshot.aggregate({
-      where: { userId, status: "ACTIVE" },
+      where: { userId, provider, status: "ACTIVE" },
       _count: { _all: true },
       _avg: { progressPercent: true },
     }),
-    prisma.courseNotice.count({ where: { userId, isRead: false } }),
-    prisma.notificationEvent.count({ where: { userId, isUnread: true } }),
-    prisma.learningTask.count({ where: { userId, state: "PENDING" } }),
+    prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
+    prisma.notificationEvent.count({ where: { userId, provider, isUnread: true } }),
+    prisma.learningTask.count({ where: { userId, provider, state: "PENDING" } }),
     prisma.courseNotice.findMany({
-      where: { userId, createdAt: { gte: last24h } },
+      where: { userId, provider, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -1146,7 +1155,7 @@ async function processMailDigest(userId: string) {
       },
     }),
     prisma.notificationEvent.findMany({
-      where: { userId, createdAt: { gte: last24h } },
+      where: { userId, provider, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -1162,6 +1171,7 @@ async function processMailDigest(userId: string) {
     prisma.learningTask.findMany({
       where: {
         userId,
+        provider,
         state: "PENDING",
         dueAt: { gte: now, lte: dueSoonUntil },
       },
@@ -1185,7 +1195,7 @@ async function processMailDigest(userId: string) {
 
   const titleRows = lectureSeqs.length > 0
     ? await prisma.courseSnapshot.findMany({
-      where: { userId, lectureSeq: { in: lectureSeqs } },
+      where: { userId, provider, lectureSeq: { in: lectureSeqs } },
       select: { lectureSeq: true, title: true },
     })
     : [];
