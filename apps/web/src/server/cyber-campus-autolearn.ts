@@ -18,6 +18,23 @@ const CYBER_CAMPUS_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CYBER_CAMPUS_APPROVAL_TTL_MS = 10 * 60 * 1000;
 const CYBER_CAMPUS_APPROVAL_ACTIVE_TTL_MS = 5 * 60 * 1000;
 
+function isMissingPortalSessionStoreError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2021" || error.code === "P2022";
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return /(portalsession|portalapprovalsession)/i.test(error.message);
+  }
+
+  if (error instanceof Error) {
+    return /(portalsession|portalapprovalsession)/i.test(error.message)
+      && /(table|column|does not exist|unknown)/i.test(error.message);
+  }
+
+  return false;
+}
+
 type ApprovalSessionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
 type PortalSessionStatus = "ACTIVE" | "EXPIRED" | "INVALID";
 
@@ -293,12 +310,28 @@ async function queueCyberCampusAutoLearnJob(input: RequestCyberCampusAutoLearnIn
 }
 
 export async function getCyberCampusApprovalState(userId: string): Promise<CyberCampusApprovalState> {
-  const portalSession = await getPortalSession(userId, "CYBER_CAMPUS");
-  const approval = await resolveActiveApproval(userId);
-  return {
-    session: serializePortalSession(portalSession),
-    approval: serializeApproval(approval),
-  };
+  try {
+    const portalSession = await getPortalSession(userId, "CYBER_CAMPUS");
+    const approval = await resolveActiveApproval(userId);
+    return {
+      session: serializePortalSession(portalSession),
+      approval: serializeApproval(approval),
+    };
+  } catch (error) {
+    if (!isMissingPortalSessionStoreError(error)) {
+      throw error;
+    }
+
+    return {
+      session: {
+        available: false,
+        status: null,
+        expiresAt: null,
+        lastVerifiedAt: null,
+      },
+      approval: null,
+    };
+  }
 }
 
 export async function requestCyberCampusAutoLearn(
