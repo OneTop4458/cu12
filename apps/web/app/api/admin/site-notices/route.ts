@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
+import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { SiteNoticeType } from "@prisma/client";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
-import { createSiteNotice, listSiteNotices } from "@/server/site-notice";
+import { createSiteNotice, listSiteNotices, PUBLIC_SITE_NOTICES_TAG } from "@/server/site-notice";
 import { writeAuditLog } from "@/server/audit-log";
 
 const CreateSiteNoticeSchema = z.object({
@@ -81,6 +82,8 @@ export async function POST(request: NextRequest) {
         type: created.type,
       },
     });
+
+    revalidateTag(PUBLIC_SITE_NOTICES_TAG, "max");
 
     return jsonOk({ created: true, notice: created });
   } catch (error) {

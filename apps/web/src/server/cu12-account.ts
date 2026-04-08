@@ -3,6 +3,7 @@ import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { isMissingProviderColumnError, warnMissingProviderColumn, withDefaultProvider } from "@/lib/provider-compat";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { invalidateCachedAuthState, primeCachedCurrentProvider } from "@/server/auth-state-cache";
 
 export interface Cu12AccountInput {
   provider?: PortalProvider;
@@ -187,7 +188,7 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
 
   if (existing) {
     try {
-      return await prisma.cu12Account.update({
+      const updated = await prisma.cu12Account.update({
         where: { userId },
         data: {
           provider: currentProvider,
@@ -200,6 +201,8 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
         },
         select: accountMutationSelect,
       });
+      primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
+      return updated;
     } catch (error) {
       if (!isMissingProviderColumnError(error)) {
         throw error;
@@ -216,20 +219,22 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
           statusReason: null,
           updatedAt: new Date(),
         },
-      select: {
+        select: {
           cu12Id: true,
           campus: true,
         },
       });
-      return withDefaultProvider<Cu12AccountMutationRecord>({
+      const next = withDefaultProvider<Cu12AccountMutationRecord>({
         cu12Id: legacy.cu12Id,
         campus: (legacy.campus as PortalCampus | null | undefined) ?? null,
       });
+      primeCachedCurrentProvider(userId, next.provider);
+      return next;
     }
   }
 
   try {
-    return await prisma.cu12Account.create({
+    const created = await prisma.cu12Account.create({
       data: {
         userId,
         provider: currentProvider,
@@ -240,6 +245,8 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
       },
       select: accountMutationSelect,
     });
+    primeCachedCurrentProvider(userId, created.provider as PortalProvider);
+    return created;
   } catch (error) {
     if (!isMissingProviderColumnError(error)) {
       throw error;
@@ -259,10 +266,12 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
         campus: true,
       },
     });
-    return withDefaultProvider<Cu12AccountMutationRecord>({
+    const next = withDefaultProvider<Cu12AccountMutationRecord>({
       cu12Id: legacy.cu12Id,
       campus: (legacy.campus as PortalCampus | null | undefined) ?? null,
     });
+    primeCachedCurrentProvider(userId, next.provider);
+    return next;
   }
 }
 
@@ -433,11 +442,13 @@ export async function updateAutomationSettings(userId: string, input: Automation
   };
 
   try {
-    return await prisma.cu12Account.update({
+    const updated = await prisma.cu12Account.update({
       where: { userId },
       data,
       select: automationSettingsSelect,
     });
+    primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
+    return updated;
   } catch (error) {
     const missingProvider = isMissingProviderColumnError(error);
     const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
@@ -471,22 +482,26 @@ export async function updateAutomationSettings(userId: string, input: Automation
         updatedAt: true,
       },
     });
-    return toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz });
+    const next = toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz });
+    primeCachedCurrentProvider(userId, next.provider as PortalProvider);
+    return next;
   }
 }
 
 export async function setCurrentPortalProvider(userId: string, provider: PortalProvider) {
-  return prisma.cu12Account.update({
+  const updated = await prisma.cu12Account.update({
     where: { userId },
     data: {
       provider,
       updatedAt: new Date(),
     },
   });
+  primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
+  return updated;
 }
 
 export async function markCu12Status(userId: string, accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR", reason?: string) {
-  return prisma.cu12Account.update({
+  const updated = await prisma.cu12Account.update({
     where: { userId },
     data: {
       accountStatus,
@@ -494,4 +509,6 @@ export async function markCu12Status(userId: string, accountStatus: "CONNECTED" 
       updatedAt: new Date(),
     },
   });
+  invalidateCachedAuthState(userId);
+  return updated;
 }

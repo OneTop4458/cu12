@@ -6,6 +6,7 @@ import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { generateToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
+import { invalidateCachedAuthState } from "@/server/auth-state-cache";
 
 interface Params {
   params: Promise<{ userId: string }>;
@@ -156,6 +157,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       },
     });
 
+    invalidateCachedAuthState(userId);
+
     return jsonOk({ updated: true, user: updated });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -252,6 +255,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
         reason: body.reason ?? null,
       },
     });
+
+    invalidateCachedAuthState(userId);
 
     return jsonOk({
       deleted: true,

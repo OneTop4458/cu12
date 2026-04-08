@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { SiteNoticeType } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export type SiteNoticePayload = {
@@ -35,6 +36,10 @@ type SiteNoticeModel = Prisma.SiteNoticeGetPayload<{
     };
   };
 }>;
+
+export const PUBLIC_SITE_NOTICES_TAG = "public-site-notices";
+
+export type PublicSiteNoticePayload = Omit<SiteNoticePayload, "createdByUser">;
 
 function toNullableIso(value: Date | null): string | null {
   if (!value) return null;
@@ -106,6 +111,57 @@ export async function listSiteNotices(type?: SiteNoticeType, includeInactive = f
     createdAt: toNullableIso(record.createdAt) ?? "",
     updatedAt: toNullableIso(record.updatedAt) ?? "",
   }) as SiteNoticePayload);
+}
+
+const listPublicSiteNoticesCached = unstable_cache(
+  async (type: SiteNoticeType | null) => {
+    if (!process.env.DATABASE_URL) {
+      return [] satisfies PublicSiteNoticePayload[];
+    }
+
+    const now = new Date();
+    const records = await prisma.siteNotice.findMany({
+      where: buildBaseWhere(type ?? undefined, { includeInactive: false, now }),
+      orderBy: [
+        { priority: "desc" },
+        { createdAt: "desc" },
+      ],
+      select: {
+        id: true,
+        title: true,
+        message: true,
+        type: true,
+        isActive: true,
+        priority: true,
+        visibleFrom: true,
+        visibleTo: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return records.map((record) => ({
+      id: record.id,
+      title: record.title,
+      message: record.message,
+      type: record.type,
+      isActive: record.isActive,
+      priority: record.priority,
+      visibleFrom: toNullableIso(record.visibleFrom),
+      visibleTo: toNullableIso(record.visibleTo),
+      createdAt: toNullableIso(record.createdAt) ?? "",
+      updatedAt: toNullableIso(record.updatedAt) ?? "",
+    }) satisfies PublicSiteNoticePayload);
+  },
+  ["public-site-notices"],
+  {
+    revalidate: 60,
+    tags: [PUBLIC_SITE_NOTICES_TAG],
+  },
+);
+
+export async function listPublicSiteNotices(type?: SiteNoticeType): Promise<PublicSiteNoticePayload[]> {
+  return listPublicSiteNoticesCached(type ?? null);
 }
 
 export async function getActiveSiteNotice(type: SiteNoticeType, now = new Date()): Promise<SiteNoticePayload | null> {

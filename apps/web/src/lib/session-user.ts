@@ -5,8 +5,7 @@ import {
   SessionTokenPayload,
   verifyActiveSession,
 } from "./auth";
-import { prisma } from "./prisma";
-import { withWithdrawnAtFallback } from "./withdrawn-compat";
+import { getCachedActiveUser } from "@/server/auth-state-cache";
 
 export async function getServerActiveSession(): Promise<SessionTokenPayload | null> {
   const cookieStore = await cookies();
@@ -16,28 +15,8 @@ export async function getServerActiveSession(): Promise<SessionTokenPayload | nu
   );
   if (!session) return null;
 
-  const user = await withWithdrawnAtFallback(
-    () =>
-      prisma.user.findUnique({
-        where: { id: session.userId },
-        select: {
-          email: true,
-          role: true,
-          isActive: true,
-          withdrawnAt: true,
-        },
-      }),
-    () =>
-      prisma.user.findUnique({
-        where: { id: session.userId },
-        select: {
-          email: true,
-          role: true,
-          isActive: true,
-        },
-      }),
-  );
-  if (!user || !user.isActive || user.withdrawnAt !== null) {
+  const user = await getCachedActiveUser(session.userId);
+  if (!user) {
     return null;
   }
 
