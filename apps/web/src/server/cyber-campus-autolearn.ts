@@ -313,7 +313,7 @@ export async function requestCyberCampusAutoLearn(
       jobId: activeApproval.jobId,
       status: "BLOCKED",
       approval: serializeApproval(activeApproval)!,
-      notice: "Cyber Campus auto-learning is waiting for secondary authentication.",
+      notice: "사이버캠퍼스 자동 수강은 2차 인증이 완료될 때까지 대기 중입니다.",
     };
   }
 
@@ -329,8 +329,8 @@ export async function requestCyberCampusAutoLearn(
       dispatchError: queued.dispatch.error,
       dispatchErrorCode: queued.dispatch.errorCode,
       notice: queued.deduplicated
-        ? "Manual Cyber Campus auto-learning request already exists and will continue after the current job."
-        : "Cyber Campus auto-learning request queued with an existing verified session.",
+        ? "사이버캠퍼스 자동 수강 요청이 이미 있어 현재 작업 뒤에 이어서 진행됩니다."
+        : "기존 인증 세션을 재사용해 사이버캠퍼스 자동 수강 요청을 접수했습니다.",
     };
   }
 
@@ -365,8 +365,8 @@ export async function requestCyberCampusAutoLearn(
       dispatchError: queued.dispatch.error,
       dispatchErrorCode: queued.dispatch.errorCode,
       notice: queued.deduplicated
-        ? "Manual Cyber Campus auto-learning request already exists and will continue after the current job."
-        : "Cyber Campus auto-learning request queued.",
+        ? "사이버캠퍼스 자동 수강 요청이 이미 있어 현재 작업 뒤에 이어서 진행됩니다."
+        : "사이버캠퍼스 자동 수강 요청을 접수했습니다.",
     };
   }
 
@@ -420,7 +420,7 @@ export async function requestCyberCampusAutoLearn(
       completedAt: approval.completedAt,
       canceledAt: approval.canceledAt,
     })!,
-    notice: secondary.message ?? "Cyber Campus secondary authentication is required before auto-learning can start.",
+    notice: secondary.message ?? "사이버캠퍼스 자동 수강을 시작하려면 2차 인증이 필요합니다.",
   };
 }
 

@@ -12,5 +12,5 @@ export function providerSupportsCampus(provider: PortalProvider): boolean {
 }
 
 export function portalDisplayName(provider: PortalProvider): string {
-  return provider === "CYBER_CAMPUS" ? "Cyber Campus" : "공유대 CU12";
+  return provider === "CYBER_CAMPUS" ? "Cyber Campus" : "CU12";
 }

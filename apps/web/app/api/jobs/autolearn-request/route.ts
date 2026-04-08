@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const mode = body.mode ?? "ALL_COURSES";
 
     if (mode !== "ALL_COURSES" && !body.lectureSeq) {
-      return jsonError("lectureSeq is required for SINGLE modes", 400);
+      return jsonError("선택 강좌 모드에서는 lectureSeq가 필요합니다.", 400);
     }
 
     const userId = context.effective.userId;
@@ -90,11 +90,11 @@ export async function POST(request: NextRequest) {
     });
     const notice = deduplicated
       ? dispatch.state === "SKIPPED_DUPLICATE"
-        ? "A matching auto-learning request already exists and will continue after the current run."
-        : "The previous auto-learning request looked stale, so a new dispatch was prepared."
+        ? "같은 조건의 자동 수강 요청이 이미 있어 현재 작업이 끝난 뒤 이어서 진행됩니다."
+        : "이전 자동 수강 요청이 지연된 것으로 보여 새 실행 준비를 다시 시작했습니다."
       : dispatch.dispatched
-        ? "Auto-learning request queued and will start soon."
-        : "Auto-learning request queued, but worker dispatch is delayed.";
+        ? "자동 수강 요청이 접수되었습니다. 곧 순서대로 시작됩니다."
+        : "자동 수강 요청이 접수되었지만 worker 실행이 지연되고 있습니다.";
 
     await writeAuditLog({
       category: "JOB",
@@ -131,6 +131,6 @@ export async function POST(request: NextRequest) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400);
     }
-    return jsonError(error instanceof Error ? error.message : "Failed to request auto-learning", 500);
+    return jsonError(error instanceof Error ? error.message : "자동 수강 요청 처리에 실패했습니다.", 500);
   }
 }

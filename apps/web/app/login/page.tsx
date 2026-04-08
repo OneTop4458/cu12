@@ -1,10 +1,10 @@
+import { SiteNoticeType } from "@prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SiteNoticeType } from "@prisma/client";
+import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { getServerActiveSession } from "@/lib/session-user";
 import { listSiteNotices } from "@/server/site-notice";
 import { LoginForm } from "./login-form";
-import { ThemeToggle } from "../../components/theme/theme-toggle";
 
 export default async function LoginPage({
   searchParams,
@@ -41,21 +41,18 @@ export default async function LoginPage({
             alt="Catholic University logo"
             className="brand-wordmark"
           />
-          <p className="brand-kicker">CUK Auto</p>
-          <h1>Multi-Portal Learning Automation</h1>
-          <p className="muted">
-            CU12와 가톨릭대 사이버캠퍼스를 하나의 워크플로우로 연결합니다.
-          </p>
-          <p className="brand-mark">
-            CUK Auto
-          </p>
+          <p className="brand-kicker">Catholic University Automation</p>
+          <h1>가톨릭대학교 수강 지원 솔루션</h1>
+          <p className="muted">Catholic University Automation 로그인 페이지입니다.</p>
+          <p className="muted">가톨릭대학교 포털 계정으로 로그인한 뒤 이용할 서비스를 선택해 주세요.</p>
+          <p className="brand-mark">Catholic University Automation</p>
         </section>
 
         <section className="card auth-card brand-login">
           <div className="brand-ribbon" />
-          <p className="brand-kicker">CUK Auto</p>
-          <h1>Sign In</h1>
-          <p className="muted">포털을 선택하고 계정 정보를 입력해 로그인하세요.</p>
+          <p className="brand-kicker">Catholic University Automation</p>
+          <h1>로그인</h1>
+          <p className="muted">가톨릭대학교 포털 계정으로 로그인하세요.</p>
           {activeMaintenanceNotice ? (
             <section className="top-gap card">
               <p className="error-text">서비스 공지</p>

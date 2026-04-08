@@ -1,6 +1,6 @@
-# CUK Auto
+# Catholic University Automation
 
-CUK Auto is a cloud-first service that verifies portal credentials, tracks course/notice status, and executes queue-based auto-learning jobs across CU12 and Cyber Campus.
+Catholic University Automation is a cloud-first service that verifies portal credentials, tracks course and notice status, and executes queue-based auto-learning jobs across CU12 and Cyber Campus.
 
 ## 1. Product Summary
 

@@ -801,7 +801,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               loading="lazy"
             />
             <div>
-              <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
+              <p className="brand-kicker">Catholic University Automation</p>
               <h1>운영 관리센터</h1>
             </div>
           </div>
@@ -846,7 +846,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       </header>
       <section className="card admin-hero">
         <div>
-          <p className="brand-kicker">CUK Auto Admin</p>
+          <p className="brand-kicker">가톨릭대학교 수강 지원 솔루션 관리자</p>
           <h1>운영 관리센터</h1>
           <p className="text-small muted">
             회원 {members.length}명, 초대 코드 {invites.length}개, 로그 {logPagination?.total ?? 0}건
@@ -890,7 +890,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <label className="field">
             <span>포털</span>
             <select value={newProvider} onChange={(event) => setNewProvider(event.target.value as PortalProvider)}>
-              <option value="CU12">공유대 CU12</option>
+              <option value="CU12">CU12</option>
               <option value="CYBER_CAMPUS">사이버캠퍼스</option>
             </select>
           </label>
@@ -1108,7 +1108,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <label className="field">
             <span>포털</span>
             <select value={inviteProvider} onChange={(event) => setInviteProvider(event.target.value as PortalProvider)}>
-              <option value="CU12">공유대 CU12</option>
+              <option value="CU12">CU12</option>
               <option value="CYBER_CAMPUS">사이버캠퍼스</option>
             </select>
           </label>

@@ -1739,7 +1739,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               loading="lazy"
             />
             <div>
-              <p className="brand-kicker">CUK Auto · Multi-Portal Dashboard</p>
+              <p className="brand-kicker">Catholic University Automation</p>
               <h1>나의 학습 홈</h1>
             </div>
           </div>
