@@ -7,6 +7,8 @@
 
 2. `deploy-vercel.yml`
 - Deploys web application to Vercel from `main`.
+- Runs automatically for direct `push(main)` events that touch deploy-relevant paths.
+- Also runs when an auto-merged PR into `main` changes deploy-relevant files because `codex-auto-merge-on-approval.yml` explicitly dispatches `Deploy Vercel` after merge.
 
 3. `worker-consume.yml`
 - Claims and processes queue jobs via worker runtime.
@@ -74,7 +76,11 @@
 3. `labeler.yml`
 - Applies PR labels based on changed paths.
 
-4. `secret-scan.yml`
+4. `codex-auto-merge-on-approval.yml`
+- Enables squash auto-merge for repository PRs created by the normal Codex flow.
+- After a PR is merged into `main`, dispatches `Deploy Vercel` when the merged file set includes deploy-relevant paths.
+
+5. `secret-scan.yml`
 - Runs gitleaks-based secret scan on pull requests, protected branch pushes, daily schedule, and manual dispatch.
 - Uploads SARIF findings and fails the check when leaks are detected.
 
