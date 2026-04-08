@@ -11,10 +11,26 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const MAX_INT32 = 2147483647;
+
+function toStableInt32(raw: string): number {
+  let hash = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    hash = ((hash * 31) + raw.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash) || 1;
+}
+
 function toLectureSeq(rawKey: string): number {
   const digits = rawKey.replace(/\D+/g, "");
   const parsed = Number(digits);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+  if (parsed <= MAX_INT32) {
+    return parsed;
+  }
+  return toStableInt32(digits);
 }
 
 function toIsoDate(raw: string | null | undefined): string | null {
