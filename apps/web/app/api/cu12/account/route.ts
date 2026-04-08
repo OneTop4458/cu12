@@ -15,7 +15,7 @@ const PostSchema = z.object({
   provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
   cu12Id: z.string().min(4).max(80),
   cu12Password: z.string().min(4).max(120),
-  campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
+  campus: z.enum(["SONGSIM", "SONGSIN"]).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -38,7 +38,10 @@ export async function POST(request: NextRequest) {
   try {
     const body = await parseBody(request, PostSchema);
     const currentProvider = body.provider ? normalizePortalProvider(body.provider) : undefined;
-    const campus = body.campus ?? "SONGSIM";
+    const campus = currentProvider === "CYBER_CAMPUS" ? undefined : body.campus;
+    if (currentProvider !== "CYBER_CAMPUS" && !campus) {
+      return jsonError("CU12 campus is required when connecting CU12 as the current service.", 400, "VALIDATION_ERROR");
+    }
 
     const account = await upsertCu12Account(context.effective.userId, {
       currentProvider,

@@ -321,6 +321,7 @@ export async function POST(request: NextRequest) {
       });
 
       await upsertCu12Account(user.id, {
+        currentProvider: validation.verifiedProvider ?? providerHint,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password,
         campus: verifiedCampus,

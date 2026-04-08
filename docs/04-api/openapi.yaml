@@ -554,8 +554,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [cu12Id, cu12Password, campus]
+              required: [cu12Id, cu12Password]
               properties:
+                provider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
                 cu12Id:
                   type: string
                   minLength: 4
@@ -566,6 +569,7 @@ paths:
                   maxLength: 120
                 campus:
                   $ref: "#/components/schemas/Campus"
+                  nullable: true
       responses:
         "200":
           description: Connected and sync queued
