@@ -1,5 +1,5 @@
 import type { PortalProvider } from "@cu12/core";
-import { CourseStatus, Prisma } from "@prisma/client";
+import { CourseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 interface ActivityTypeCounts {
@@ -121,47 +121,47 @@ async function fetchLearningTasksRaw(input: {
   limit?: number;
   orderBy?: "dueAtAsc" | "lectureWeekLessonAsc";
 }): Promise<Array<LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState }>> {
-  const conditions: Prisma.Sql[] = [
-    Prisma.sql`"userId" = ${input.userId}`,
-    Prisma.sql`"provider" = ${input.provider}`,
-  ];
+  const rows = await prisma.learningTask.findMany({
+    where: {
+      userId: input.userId,
+      provider: input.provider,
+      ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+      ...(input.dueAtGte || input.dueAtLte
+        ? {
+          dueAt: {
+            ...(input.dueAtGte ? { gte: input.dueAtGte } : {}),
+            ...(input.dueAtLte ? { lte: input.dueAtLte } : {}),
+          },
+        }
+        : {}),
+    },
+    orderBy: input.orderBy === "lectureWeekLessonAsc"
+      ? [
+        { lectureSeq: "asc" },
+        { weekNo: "asc" },
+        { lessonNo: "asc" },
+      ]
+      : [{ dueAt: "asc" }],
+    ...(typeof input.limit === "number" ? { take: Math.max(1, Math.floor(input.limit)) } : {}),
+    select: {
+      lectureSeq: true,
+      courseContentsSeq: true,
+      weekNo: true,
+      lessonNo: true,
+      activityType: true,
+      state: true,
+      requiredSeconds: true,
+      learnedSeconds: true,
+      availableFrom: true,
+      dueAt: true,
+    },
+  });
 
-  if (typeof input.lectureSeq === "number") {
-    conditions.push(Prisma.sql`"lectureSeq" = ${input.lectureSeq}`);
-  }
-  if (input.dueAtGte) {
-    conditions.push(Prisma.sql`"dueAt" >= ${input.dueAtGte}`);
-  }
-  if (input.dueAtLte) {
-    conditions.push(Prisma.sql`"dueAt" <= ${input.dueAtLte}`);
-  }
-
-  const orderBy = input.orderBy === "lectureWeekLessonAsc"
-    ? Prisma.sql`ORDER BY "lectureSeq" ASC, "weekNo" ASC, "lessonNo" ASC`
-    : Prisma.sql`ORDER BY "dueAt" ASC`;
-  const limit = typeof input.limit === "number"
-    ? Prisma.sql`LIMIT ${Math.max(1, Math.floor(input.limit))}`
-    : Prisma.empty;
-
-  const rows = await prisma.$queryRaw<LearningTaskRow[]>(Prisma.sql`
-    SELECT
-      "lectureSeq",
-      "courseContentsSeq",
-      "weekNo",
-      "lessonNo",
-      "activityType"::text AS "activityType",
-      "state"::text AS "state",
-      "requiredSeconds",
-      "learnedSeconds",
-      "availableFrom",
-      "dueAt"
-    FROM "LearningTask"
-    WHERE ${Prisma.join(conditions, " AND ")}
-    ${orderBy}
-    ${limit}
-  `);
-
-  return rows.map(normalizeLearningTaskRow);
+  return rows.map((row) => normalizeLearningTaskRow({
+    ...row,
+    activityType: row.activityType,
+    state: row.state,
+  }));
 }
 
 function mapNoticeCountsByLecture(
