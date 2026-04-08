@@ -1,10 +1,23 @@
+import { SiteNoticeType } from "@prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SiteNoticeType } from "@prisma/client";
+import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { getServerActiveSession } from "@/lib/session-user";
 import { listSiteNotices } from "@/server/site-notice";
 import { LoginForm } from "./login-form";
-import { ThemeToggle } from "../../components/theme/theme-toggle";
+
+const COPY = {
+  appName: "Catholic University Automation",
+  title: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uC218\uAC15 \uC9C0\uC6D0 \uC194\uB8E8\uC158",
+  subtitle: "Catholic University Automation \uB85C\uADF8\uC778 \uD398\uC774\uC9C0\uC785\uB2C8\uB2E4.",
+  portalGuide: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD55C \uB4A4 \uC774\uC6A9\uD560 \uC11C\uBE44\uC2A4\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  loginTitle: "\uB85C\uADF8\uC778",
+  loginIntro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694.",
+  serviceNotice: "\uC11C\uBE44\uC2A4 \uACF5\uC9C0",
+  maintenanceLink: "\uC6B4\uC601 \uC548\uB0B4 \uBCF4\uAE30",
+  noticeTitle: "\uACF5\uC9C0",
+  noticesLink: "\uC804\uCCB4 \uACF5\uC9C0 \uBCF4\uAE30",
+} as const;
 
 export default async function LoginPage({
   searchParams,
@@ -41,34 +54,31 @@ export default async function LoginPage({
             alt="Catholic University logo"
             className="brand-wordmark"
           />
-          <p className="brand-kicker">Catholic University CU12 Automation</p>
-          <h1>가톨릭 공유대학 수강 지원 솔루션</h1>
-          <p className="muted">
-            CU12 로그인 페이지입니다.
-          </p>
-          <p className="brand-mark">
-            Catholic University CU12 Automation
-          </p>
+          <p className="brand-kicker">{COPY.appName}</p>
+          <h1>{COPY.title}</h1>
+          <p className="muted">{COPY.subtitle}</p>
+          <p className="muted">{COPY.portalGuide}</p>
+          <p className="brand-mark">{COPY.appName}</p>
         </section>
 
         <section className="card auth-card brand-login">
           <div className="brand-ribbon" />
-          <p className="brand-kicker">Catholic University CU12 Automation</p>
-          <h1>로그인</h1>
-          <p className="muted">가톨릭 공유대학 아이디와 비밀번호를 입력해 로그인하세요.</p>
+          <p className="brand-kicker">{COPY.appName}</p>
+          <h1>{COPY.loginTitle}</h1>
+          <p className="muted">{COPY.loginIntro}</p>
           {activeMaintenanceNotice ? (
             <section className="top-gap card">
-              <p className="error-text">시스템 점검 공지</p>
+              <p className="error-text">{COPY.serviceNotice}</p>
               <p className="muted">{activeMaintenanceNotice.title}</p>
               <p className="muted">{activeMaintenanceNotice.message}</p>
               <Link className="ghost-btn" href="/maintenance" style={{ alignSelf: "flex-start" }}>
-                점검 안내 보기
+                {COPY.maintenanceLink}
               </Link>
             </section>
           ) : null}
           {recentBroadcastNotices.length > 0 ? (
             <section className="top-gap card">
-              <p className="brand-kicker">공지</p>
+              <p className="brand-kicker">{COPY.noticeTitle}</p>
               <ul style={{ marginTop: 8, paddingLeft: 16 }}>
                 {recentBroadcastNotices.map((notice) => (
                   <li key={notice.id}>
@@ -79,10 +89,10 @@ export default async function LoginPage({
                   </li>
                 ))}
               </ul>
-            <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
-              전체 공지 보기
-            </Link>
-          </section>
+              <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
+                {COPY.noticesLink}
+              </Link>
+            </section>
           ) : null}
           <LoginForm sessionExpiredReason={sessionExpiredReason} />
         </section>

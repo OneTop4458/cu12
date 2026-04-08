@@ -7,6 +7,7 @@ import {
   TEST_USER_SYNC_BLOCKED_ERROR_CODE,
   TEST_USER_SYNC_BLOCKED_MESSAGE,
 } from "@/server/queue";
+import { getCurrentPortalProvider } from "@/server/current-provider";
 import { dispatchManualJob } from "@/server/manual-dispatch-policy";
 
 export async function POST(request: NextRequest) {
@@ -29,11 +30,12 @@ export async function POST(request: NextRequest) {
     return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
   }
 
+  const provider = await getCurrentPortalProvider(userId);
   const { job, deduplicated } = await enqueueJob({
     userId,
     type: "SYNC",
-    payload: { userId, reason: "manual_sync" },
-    idempotencyKey: `sync:${userId}:manual`,
+    payload: { userId, provider, reason: "manual_sync" },
+    idempotencyKey: `sync:${userId}:${provider}:manual`,
   });
 
   const { dispatch } = await dispatchManualJob(userId, "sync", {
@@ -58,6 +60,7 @@ export async function POST(request: NextRequest) {
     targetUserId: userId,
     message: "SYNC job requested",
     meta: {
+      provider,
       jobId: job.id,
       deduplicated,
       dispatched: dispatch.dispatched,
@@ -67,6 +70,7 @@ export async function POST(request: NextRequest) {
   });
 
   return jsonOk({
+    provider,
     jobId: job.id,
     status: job.status,
     deduplicated,

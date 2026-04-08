@@ -1,6 +1,6 @@
-# CU12 Automation
+# Catholic University Automation
 
-CU12 Automation is a cloud-first service that verifies CU12 credentials, tracks course/notice status, and executes queue-based auto-learning jobs.
+Catholic University Automation is a cloud-first service that verifies portal credentials, tracks course and notice status, and executes queue-based auto-learning jobs across CU12 and Cyber Campus.
 
 ## 1. Product Summary
 

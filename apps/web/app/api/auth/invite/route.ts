@@ -5,7 +5,6 @@ import { jsonError, jsonOk, parseBody, requireAdminActor, requireUser } from "@/
 import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
-
 const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
@@ -31,6 +30,7 @@ export async function GET(request: NextRequest) {
     take: 100,
     select: {
       id: true,
+      provider: true,
       cu12Id: true,
       role: true,
       isActive: true,
@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
 
     const invite = await prisma.inviteToken.create({
       data: {
+        provider: "CU12",
         cu12Id: body.cu12Id,
         role: body.role,
         isActive: body.isActive,

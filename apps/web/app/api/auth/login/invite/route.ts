@@ -91,7 +91,8 @@ export async function POST(request: NextRequest) {
         "LOGIN_CHALLENGE_INVALID",
       );
     }
-    const throttleIdentifiers = [ipThrottleIdentifier, `cu12:${challenge.cu12Id}`];
+    const provider = challenge.provider;
+    const throttleIdentifiers = [ipThrottleIdentifier, `portal:${challenge.cu12Id}`];
     const challengeThrottle = await checkAuthThrottleBestEffort("invite", throttleIdentifiers);
     if (challengeThrottle.blocked) {
       return rateLimitedInviteError();
@@ -112,8 +113,9 @@ export async function POST(request: NextRequest) {
         await writeAuditLogBestEffort({
           category: "AUTH",
           severity: "WARN",
-          message: "Invite verification failed: CU12 ID is not approved",
+          message: "Invite verification failed: portal login ID is not approved",
           meta: {
+            provider,
             cu12Id: challenge.cu12Id,
           },
         });
@@ -126,6 +128,7 @@ export async function POST(request: NextRequest) {
         severity: "WARN",
         message: "Invite verification failed: invalid invite code",
         meta: {
+          provider,
           cu12Id: challenge.cu12Id,
         },
       });
@@ -139,6 +142,7 @@ export async function POST(request: NextRequest) {
         severity: "WARN",
         message: "Invite verification failed: invite code is inactive",
         meta: {
+          provider,
           cu12Id: challenge.cu12Id,
           inviteId: invite.id,
         },
@@ -153,6 +157,7 @@ export async function POST(request: NextRequest) {
         severity: "WARN",
         message: "Invite verification failed: invite code expired",
         meta: {
+          provider,
           cu12Id: challenge.cu12Id,
           inviteId: invite.id,
         },
@@ -167,6 +172,7 @@ export async function POST(request: NextRequest) {
         severity: "WARN",
         message: "Invite verification failed: invite code already used",
         meta: {
+          provider,
           cu12Id: challenge.cu12Id,
           inviteId: invite.id,
         },
@@ -179,8 +185,9 @@ export async function POST(request: NextRequest) {
       await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "WARN",
-        message: "Invite verification failed: unapproved CU12 ID",
+        message: "Invite verification failed: unapproved portal login ID",
         meta: {
+          provider,
           cu12Id: challenge.cu12Id,
           inviteCu12Id: invite.cu12Id,
         },
@@ -236,6 +243,7 @@ export async function POST(request: NextRequest) {
           severity: "WARN",
           message: "Invite verification failed: invite already consumed during verification",
           meta: {
+            provider,
             cu12Id: challenge.cu12Id,
             inviteId: invite.id,
           },
@@ -278,6 +286,7 @@ export async function POST(request: NextRequest) {
             severity: "WARN",
             message: "Invite verification failed: invite already consumed during first-login registration",
             meta: {
+              provider,
               cu12Id: challenge.cu12Id,
               inviteId: invite.id,
             },
@@ -295,6 +304,7 @@ export async function POST(request: NextRequest) {
     }
 
     await upsertCu12Account(user.id, {
+      currentProvider: provider,
       cu12Id: challenge.cu12Id,
       cu12Password,
       campus: challenge.campus,
@@ -323,6 +333,7 @@ export async function POST(request: NextRequest) {
         policies: consent.policies,
         user: {
           userId: user.id,
+          provider,
           cu12Id: challenge.cu12Id,
           role: user.role,
         },
@@ -362,6 +373,7 @@ export async function POST(request: NextRequest) {
       stage: "AUTHENTICATED" as const,
       user: {
         userId: user.id,
+        provider,
         cu12Id: challenge.cu12Id,
         role: user.role,
       },
@@ -382,6 +394,7 @@ export async function POST(request: NextRequest) {
       targetUserId: user.id,
       message: firstLogin ? "First-login invite verification succeeded" : "Invite verification succeeded",
       meta: {
+        provider,
         cu12Id: challenge.cu12Id,
         role: user.role,
         loginIp,
@@ -409,4 +422,3 @@ export async function POST(request: NextRequest) {
     return jsonError("Invite verification failed.", 500, "INTERNAL_ERROR");
   }
 }
-

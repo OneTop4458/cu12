@@ -1,11 +1,12 @@
+import { SiteNoticeType } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { getDashboardAccount } from "@/server/cu12-account";
-import { getCourses, getDashboardSummary, getNotifications, getUpcomingDeadlines } from "@/server/dashboard";
+import { getCyberCampusApprovalState } from "@/server/cyber-campus-autolearn";
+import { getCourses, getDashboardSummary, getMessages, getNotifications, getUpcomingDeadlines } from "@/server/dashboard";
 import { getSyncQueueSummaryForUser, listJobsForUser } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
-import { SiteNoticeType } from "@prisma/client";
 
 function parseLimit(value: string | null, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -67,19 +68,33 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const deadlinesLimit = parseLimit(url.searchParams.get("deadlinesLimit"), 20, 100);
   const notificationsLimit = parseLimit(url.searchParams.get("notificationsLimit"), 40, 200);
+  const messagesLimit = parseLimit(url.searchParams.get("messagesLimit"), 20, 100);
   const jobsLimit = parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
   const userId = context.effective.userId;
+  const account = await getDashboardAccount(userId);
+  const provider = account?.provider ?? "CU12";
 
-  const [summary, courses, deadlines, notifications, jobs, syncQueue, siteNotices, account, preference] = await Promise.all([
-    getDashboardSummary(userId),
-    getCourses(userId),
-    getUpcomingDeadlines(userId, deadlinesLimit),
-    getNotifications(userId, { unreadOnly: true, limit: notificationsLimit }),
+  const [summary, courses, deadlines, notifications, messages, jobs, syncQueue, siteNotices, preference, cyberCampus] = await Promise.all([
+    getDashboardSummary(userId, provider),
+    getCourses(userId, provider),
+    getUpcomingDeadlines(userId, deadlinesLimit, provider),
+    getNotifications(userId, provider, { unreadOnly: true, limit: notificationsLimit }),
+    getMessages(userId, provider, messagesLimit),
     listJobsForUser(userId, jobsLimit),
     getSyncQueueSummaryForUser(userId),
     listSiteNotices(undefined, false),
-    getDashboardAccount(userId),
     resolveMailPreference(userId),
+    provider === "CYBER_CAMPUS"
+      ? getCyberCampusApprovalState(userId)
+      : Promise.resolve({
+        session: {
+          available: false,
+          status: null,
+          expiresAt: null,
+          lastVerifiedAt: null,
+        },
+        approval: null,
+      }),
   ]);
 
   if (!preference) {
@@ -98,12 +113,14 @@ export async function GET(request: NextRequest) {
       courses,
       deadlines,
       notifications,
+      messages,
       jobs,
       syncQueue,
       siteNotices,
       maintenanceNotice,
       account: account
         ? {
+          provider: account.provider,
           cu12Id: account.cu12Id,
           campus: account.campus,
           accountStatus: account.accountStatus,
@@ -114,6 +131,7 @@ export async function GET(request: NextRequest) {
           lastLoginIp: account.user.lastLoginIp,
         }
         : null,
+      cyberCampus,
       preference,
     },
     {

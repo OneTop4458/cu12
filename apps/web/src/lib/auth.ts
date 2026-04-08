@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
+import type { PortalCampus, PortalProvider } from "@cu12/core";
 import { getEnv } from "./env";
 
 export const SESSION_COOKIE_NAME = "cu12_session";
@@ -21,8 +22,9 @@ export interface SessionTokenPayload {
 
 export interface LoginChallengePayload {
   purpose: typeof LOGIN_CHALLENGE_PURPOSE;
+  provider: PortalProvider;
   cu12Id: string;
-  campus: "SONGSIM" | "SONGSIN";
+  campus?: PortalCampus | null;
   encryptedCu12Password: string;
   nonce: string;
 }
@@ -159,8 +161,9 @@ export async function verifyActiveSession(sessionToken?: string, idleToken?: str
 export async function signLoginChallengeToken(payload: Omit<LoginChallengePayload, "purpose">): Promise<string> {
   return new SignJWT({
     purpose: LOGIN_CHALLENGE_PURPOSE,
+    provider: payload.provider,
     cu12Id: payload.cu12Id,
-    campus: payload.campus,
+    campus: payload.campus ?? null,
     encryptedCu12Password: payload.encryptedCu12Password,
     nonce: payload.nonce,
   } satisfies LoginChallengePayload as unknown as JWTPayload)
@@ -176,22 +179,32 @@ export async function verifyLoginChallengeToken(token: string): Promise<LoginCha
     const value = verified.payload as Partial<LoginChallengePayload>;
     if (
       value.purpose !== LOGIN_CHALLENGE_PURPOSE ||
+      !value.provider ||
       !value.cu12Id ||
-      !value.campus ||
       !value.encryptedCu12Password ||
       !value.nonce
     ) {
       return null;
     }
 
-    if (value.campus !== "SONGSIM" && value.campus !== "SONGSIN") {
+    if (value.provider !== "CU12" && value.provider !== "CYBER_CAMPUS") {
+      return null;
+    }
+
+    if (
+      value.campus !== undefined
+      && value.campus !== null
+      && value.campus !== "SONGSIM"
+      && value.campus !== "SONGSIN"
+    ) {
       return null;
     }
 
     return {
       purpose: LOGIN_CHALLENGE_PURPOSE,
+      provider: value.provider,
       cu12Id: value.cu12Id,
-      campus: value.campus,
+      campus: value.campus ?? null,
       encryptedCu12Password: value.encryptedCu12Password,
       nonce: value.nonce,
     };

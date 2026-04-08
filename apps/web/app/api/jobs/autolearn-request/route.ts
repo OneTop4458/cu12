@@ -2,8 +2,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { writeAuditLog } from "@/server/audit-log";
-import { enqueueJob } from "@/server/queue";
+import { requestCyberCampusAutoLearn } from "@/server/cyber-campus-autolearn";
+import { getCurrentPortalProvider } from "@/server/current-provider";
 import { dispatchManualJob } from "@/server/manual-dispatch-policy";
+import { enqueueJob } from "@/server/queue";
 
 const BodySchema = z.object({
   mode: z.enum(["SINGLE_NEXT", "SINGLE_ALL", "ALL_COURSES"]).default("ALL_COURSES"),
@@ -17,23 +19,66 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
+    const mode = body.mode ?? "ALL_COURSES";
 
-    if (body.mode !== "ALL_COURSES" && !body.lectureSeq) {
-      return jsonError("lectureSeq is required for SINGLE modes", 400);
+    if (mode !== "ALL_COURSES" && !body.lectureSeq) {
+      return jsonError("선택 강좌 모드에서는 lectureSeq가 필요합니다.", 400);
     }
 
     const userId = context.effective.userId;
+    const provider = await getCurrentPortalProvider(userId);
+
+    if (provider === "CYBER_CAMPUS") {
+      const result = await requestCyberCampusAutoLearn({
+        userId,
+        mode,
+        lectureSeq: body.lectureSeq,
+        reason: body.reason ?? "manual_request",
+      });
+
+      await writeAuditLog({
+        category: "JOB",
+        severity: "INFO",
+        actorUserId: context.actor.userId,
+        targetUserId: userId,
+        message: "Cyber Campus AUTOLEARN job requested",
+        meta: {
+          provider,
+          jobId: result.jobId,
+          mode,
+          lectureSeq: body.lectureSeq ?? null,
+          kind: result.kind,
+          status: result.status,
+        },
+      });
+
+      return jsonOk({
+        provider,
+        jobId: result.jobId,
+        status: result.status,
+        deduplicated: result.kind === "QUEUED" ? result.deduplicated : false,
+        dispatched: result.kind === "QUEUED" ? result.dispatched : false,
+        dispatchState: result.kind === "QUEUED" ? result.dispatchState : "NOT_APPLICABLE",
+        dispatchError: result.kind === "QUEUED" ? result.dispatchError : null,
+        dispatchErrorCode: result.kind === "QUEUED" ? result.dispatchErrorCode : null,
+        notice: result.notice,
+        approvalRequired: result.kind === "APPROVAL_REQUIRED",
+        approval: result.kind === "APPROVAL_REQUIRED" ? result.approval : null,
+      });
+    }
+
     const lecturePart = body.lectureSeq ? String(body.lectureSeq) : "all";
     const { job, deduplicated } = await enqueueJob({
       userId,
       type: "AUTOLEARN",
       payload: {
         userId,
+        provider,
         lectureSeq: body.lectureSeq,
-        autoLearnMode: body.mode,
+        autoLearnMode: mode,
         reason: body.reason ?? "manual_request",
       },
-      idempotencyKey: `autolearn:${userId}:${body.mode}:${lecturePart}`,
+      idempotencyKey: `autolearn:${userId}:${provider}:${mode}:${lecturePart}`,
     });
 
     const { dispatch } = await dispatchManualJob(userId, "autolearn", {
@@ -45,11 +90,11 @@ export async function POST(request: NextRequest) {
     });
     const notice = deduplicated
       ? dispatch.state === "SKIPPED_DUPLICATE"
-        ? "같은 조건의 요청이 이미 있어 현재 작업이 끝난 뒤 이어서 진행됩니다."
-        : "이전 요청이 오래되어 자동 수강을 다시 시작하도록 준비했습니다."
+        ? "같은 조건의 자동 수강 요청이 이미 있어 현재 작업이 끝난 뒤 이어서 진행됩니다."
+        : "이전 자동 수강 요청이 지연된 것으로 보여 새 실행 준비를 다시 시작했습니다."
       : dispatch.dispatched
-        ? "자동 수강 요청이 접수되었습니다. 순서대로 곧 시작됩니다."
-        : "자동 수강 요청은 접수되었습니다. 실행 준비가 지연되어 시작까지 조금 더 걸릴 수 있습니다.";
+        ? "자동 수강 요청이 접수되었습니다. 곧 순서대로 시작됩니다."
+        : "자동 수강 요청이 접수되었지만 worker 실행이 지연되고 있습니다.";
 
     await writeAuditLog({
       category: "JOB",
@@ -58,8 +103,9 @@ export async function POST(request: NextRequest) {
       targetUserId: userId,
       message: "AUTOLEARN job requested",
       meta: {
+        provider,
         jobId: job.id,
-        mode: body.mode,
+        mode,
         lectureSeq: body.lectureSeq ?? null,
         deduplicated,
         dispatched: dispatch.dispatched,
@@ -69,6 +115,7 @@ export async function POST(request: NextRequest) {
     });
 
     return jsonOk({
+      provider,
       jobId: job.id,
       status: job.status,
       deduplicated,
@@ -77,11 +124,13 @@ export async function POST(request: NextRequest) {
       dispatchError: dispatch.error,
       dispatchErrorCode: dispatch.errorCode,
       notice,
+      approvalRequired: false,
+      approval: null,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400);
     }
-    return jsonError("Failed to request auto-learning", 500);
+    return jsonError(error instanceof Error ? error.message : "자동 수강 요청 처리에 실패했습니다.", 500);
   }
 }

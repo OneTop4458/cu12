@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: CU12 Automation API
+  title: Catholic University Automation API
   version: 0.5.0
   description: >-
-    API contract for the CU12 Automation web application.
+    API contract for the Catholic University Automation web application.
     This document reflects the runtime behavior implemented in apps/web as of 2026-03-07.
 servers:
   - url: https://your-app.example.com
@@ -14,6 +14,7 @@ tags:
   - name: Auth
   - name: CU12
   - name: Jobs
+  - name: CyberCampus
   - name: Dashboard
   - name: Mail
   - name: Admin
@@ -74,9 +75,10 @@ paths:
   /api/auth/login:
     post:
       tags: [Auth]
-      summary: Step 1 login with CU12 credentials
+      summary: Step 1 login with the Catholic University portal account
       description: >-
-        Verifies CU12 credentials in real time.
+        Verifies the shared Catholic University portal credential in real time.
+        The same credential is reused across CU12 and Cyber Campus.
         Returns AUTHENTICATED for mapped users, INVITE_REQUIRED for first-login users,
         or CONSENT_REQUIRED when required policies must be accepted.
         Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
@@ -523,7 +525,7 @@ paths:
   /api/cu12/account:
     get:
       tags: [CU12]
-      summary: Get CU12 account mapping for effective user
+      summary: Get the shared portal credential mapping for the effective user
       security:
         - cookieAuth: []
       responses:
@@ -543,7 +545,7 @@ paths:
           description: Unauthorized
     post:
       tags: [CU12]
-      summary: Connect/update CU12 credentials and queue sync
+      summary: Connect/update the shared portal credential and queue sync for the current service
       security:
         - cookieAuth: []
       requestBody:
@@ -552,8 +554,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [cu12Id, cu12Password, campus]
+              required: [cu12Id, cu12Password]
               properties:
+                provider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
                 cu12Id:
                   type: string
                   minLength: 4
@@ -564,6 +569,7 @@ paths:
                   maxLength: 120
                 campus:
                   $ref: "#/components/schemas/Campus"
+                  nullable: true
       responses:
         "200":
           description: Connected and sync queued
@@ -595,7 +601,7 @@ paths:
   /api/cu12/automation:
     patch:
       tags: [CU12]
-      summary: Update CU12 automation flags
+      summary: Update automation flags and the current dashboard service
       security:
         - cookieAuth: []
       requestBody:
@@ -605,6 +611,9 @@ paths:
             schema:
               type: object
               properties:
+                currentProvider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
                 autoLearnEnabled:
                   type: boolean
                 quizAutoSolveEnabled:
@@ -768,6 +777,125 @@ paths:
           description: Job not found
         "401":
           description: Unauthorized
+
+  /api/cyber-campus/approval/{approvalId}:
+    get:
+      tags: [CyberCampus]
+      summary: Get Cyber Campus approval-session state
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: approvalId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cyber Campus approval state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CyberCampusApprovalEnvelope"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Approval session not found
+    delete:
+      tags: [CyberCampus]
+      summary: Cancel Cyber Campus approval-session and blocked auto-learn job
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: approvalId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Approval session canceled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CyberCampusApprovalEnvelope"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Approval session not found
+
+  /api/cyber-campus/approval/{approvalId}/start:
+    post:
+      tags: [CyberCampus]
+      summary: Start a Cyber Campus secondary-auth method
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: approvalId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [way]
+              properties:
+                way:
+                  type: integer
+                param:
+                  type: string
+      responses:
+        "200":
+          description: Approval method started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CyberCampusApprovalEnvelope"
+        "400":
+          description: Invalid approval state or payload
+        "401":
+          description: Unauthorized
+        "404":
+          description: Approval session not found
+
+  /api/cyber-campus/approval/{approvalId}/confirm:
+    post:
+      tags: [CyberCampus]
+      summary: Confirm Cyber Campus secondary authentication
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: approvalId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Approval status after confirmation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CyberCampusApprovalConfirmResponse"
+        "400":
+          description: Invalid approval state or payload
+        "401":
+          description: Unauthorized
+        "404":
+          description: Approval session not found
 
   /api/dashboard/summary:
     get:
@@ -1899,7 +2027,7 @@ paths:
           description: Member list
     post:
       tags: [Admin]
-      summary: Create or update a member from CU12 credentials or local credentials
+      summary: Create or update a member from a shared portal credential or local test credentials
       security:
         - cookieAuth: []
       requestBody:
@@ -2669,6 +2797,7 @@ components:
       type: object
       required:
         [
+          provider,
           cu12Id,
           campus,
           accountStatus,
@@ -2679,10 +2808,15 @@ components:
           updatedAt,
         ]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
+          description: Current dashboard/service scope for the shared portal credential.
         cu12Id:
           type: string
         campus:
           $ref: "#/components/schemas/Campus"
+          nullable: true
         accountStatus:
           type: string
           enum: [CONNECTED, NEEDS_REAUTH, ERROR]
@@ -3030,9 +3164,111 @@ components:
           type: object
           nullable: true
 
+    CyberCampusSecondaryAuthMethod:
+      type: object
+      required: [way, param, target, label, requiresCode]
+      properties:
+        way:
+          type: integer
+        param:
+          type: string
+        target:
+          type: string
+        label:
+          type: string
+        requiresCode:
+          type: boolean
+
+    CyberCampusApproval:
+      type: object
+      required: [id, jobId, status, expiresAt, completedAt, canceledAt, errorMessage, methods, selectedMethod, requestCode, displayCode]
+      properties:
+        id:
+          type: string
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, COMPLETED, EXPIRED, CANCELED]
+        expiresAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        canceledAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        methods:
+          type: array
+          items:
+            $ref: "#/components/schemas/CyberCampusSecondaryAuthMethod"
+        selectedMethod:
+          allOf:
+            - $ref: "#/components/schemas/CyberCampusSecondaryAuthMethod"
+          nullable: true
+        requestCode:
+          type: string
+          nullable: true
+        displayCode:
+          type: string
+          nullable: true
+
+    CyberCampusState:
+      type: object
+      required: [session, approval]
+      properties:
+        session:
+          type: object
+          required: [available, status, expiresAt, lastVerifiedAt]
+          properties:
+            available:
+              type: boolean
+            status:
+              type: string
+              enum: [ACTIVE, EXPIRED, INVALID]
+              nullable: true
+            expiresAt:
+              type: string
+              format: date-time
+              nullable: true
+            lastVerifiedAt:
+              type: string
+              format: date-time
+              nullable: true
+        approval:
+          allOf:
+            - $ref: "#/components/schemas/CyberCampusApproval"
+          nullable: true
+
+    CyberCampusApprovalEnvelope:
+      type: object
+      required: [approval]
+      properties:
+        approval:
+          $ref: "#/components/schemas/CyberCampusApproval"
+
+    CyberCampusApprovalConfirmResponse:
+      type: object
+      required: [state, approval]
+      properties:
+        state:
+          type: string
+          enum: [PENDING, COMPLETED]
+        approval:
+          $ref: "#/components/schemas/CyberCampusApproval"
+        jobId:
+          type: string
+          nullable: true
+
     DashboardBootstrapResponse:
       type: object
-      required: [context, summary, courses, deadlines, notifications, jobs, syncQueue, siteNotices, maintenanceNotice, account, preference]
+      required: [context, summary, courses, deadlines, notifications, jobs, syncQueue, siteNotices, maintenanceNotice, account, cyberCampus, preference]
       properties:
         context:
           $ref: "#/components/schemas/SessionContext"
@@ -3067,12 +3303,17 @@ components:
         account:
           type: object
           nullable: true
-          required: [cu12Id, campus, accountStatus, statusReason, autoLearnEnabled, quizAutoSolveEnabled, lastLoginAt, lastLoginIp]
+          required: [provider, cu12Id, campus, accountStatus, statusReason, autoLearnEnabled, quizAutoSolveEnabled, lastLoginAt, lastLoginIp]
           properties:
+            provider:
+              type: string
+              enum: [CU12, CYBER_CAMPUS]
+              description: Current dashboard/service scope for the shared portal credential.
             cu12Id:
               type: string
             campus:
               $ref: "#/components/schemas/Campus"
+              nullable: true
             accountStatus:
               type: string
               enum: [CONNECTED, NEEDS_REAUTH, ERROR]
@@ -3090,6 +3331,8 @@ components:
             lastLoginIp:
               type: string
               nullable: true
+        cyberCampus:
+          $ref: "#/components/schemas/CyberCampusState"
         preference:
           $ref: "#/components/schemas/MailPreference"
 
@@ -3357,6 +3600,7 @@ components:
       type: object
       required:
         [
+          provider,
           jobId,
           status,
           deduplicated,
@@ -3364,20 +3608,26 @@ components:
           dispatchState,
           dispatchErrorCode,
           notice,
+          approvalRequired,
+          approval,
         ]
       properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
+          description: Service target selected for the queued job.
         jobId:
           type: string
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         deduplicated:
           type: boolean
         dispatched:
           type: boolean
         dispatchState:
           type: string
-          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE]
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE, NOT_APPLICABLE]
         dispatchError:
           type: string
           nullable: true
@@ -3386,6 +3636,12 @@ components:
           nullable: true
         notice:
           type: string
+        approvalRequired:
+          type: boolean
+        approval:
+          allOf:
+            - $ref: "#/components/schemas/CyberCampusApproval"
+          nullable: true
 
     WorkerRunCancelResult:
       type: object

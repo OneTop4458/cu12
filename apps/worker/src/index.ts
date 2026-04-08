@@ -1,3 +1,4 @@
+import type { PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import {
@@ -16,7 +17,9 @@ import {
   type AutoLearnMode,
   type AutoLearnProgress,
   type SyncProgress,
+  type Cu12Credentials,
 } from "./cu12-automation";
+import { collectCyberCampusSnapshot, runCyberCampusAutoLearning } from "./cyber-campus-sync";
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import {
@@ -29,6 +32,8 @@ import {
 import {
   getUserCu12Credentials,
   getUserMailPreference,
+  getPortalSessionCookieState,
+  invalidatePortalSession,
   markAccountConnected,
   markAccountNeedsReauth,
   markTaskDeadlineAlerted,
@@ -46,6 +51,10 @@ function sleep(ms: number) {
 function errMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function formatProviderName(provider: PortalProvider): string {
+  return provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "CU12";
 }
 
 function daysUntil(target: Date, now: Date): number {
@@ -380,9 +389,12 @@ async function reportSyncJobProgress(jobId: string, workerId: string, progress: 
 
 async function sendSyncAlertMail(
   userId: string,
+  provider: "CU12" | "CYBER_CAMPUS",
   summary: {
     newNoticeCount: number;
     newUnreadNotificationCount: number;
+    newMessageCount: number;
+    unreadMessageCount: number;
     newNotices: Array<{
       lectureSeq: number;
       noticeKey: string;
@@ -399,6 +411,12 @@ async function sendSyncAlertMail(
       message: string;
       occurredAt: string | null;
       isCanceled: boolean;
+    }>;
+    newMessages: Array<{
+      messageSeq: string;
+      title: string;
+      senderName: string | null;
+      sentAt: string | null;
     }>;
     deadlineTasks: Array<{
       lectureSeq: number;
@@ -436,6 +454,7 @@ async function sendSyncAlertMail(
 
       const inserted = await markTaskDeadlineAlerted(
         userId,
+        provider,
         {
           lectureSeq: task.lectureSeq,
           courseContentsSeq: task.courseContentsSeq,
@@ -460,6 +479,8 @@ async function sendSyncAlertMail(
     generatedAt: new Date(),
     newNotices: pref.alertOnNotice ? summary.newNotices : [],
     newUnreadNotifications: pref.alertOnNotice ? summary.newUnreadNotifications : [],
+    newMessages: pref.alertOnNotice ? summary.newMessages : [],
+    unreadMessageCount: summary.unreadMessageCount,
     deadlineAlerts: pref.alertOnDeadline ? deadlineAlerts : [],
   });
   if (!mailDocument) {
@@ -693,6 +714,9 @@ async function processSync(
   userId: string,
   jobType: "SYNC" | "NOTICE_SCAN",
   onCancelCheck?: CancelCheck,
+  options?: {
+    provider?: PortalProvider;
+  },
 ) {
   const resultType: "SYNC" | "NOTICE_SCAN" = jobType === "NOTICE_SCAN" ? "NOTICE_SCAN" : "SYNC";
   const logPrefix = `[${resultType}]`;
@@ -700,57 +724,93 @@ async function processSync(
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
+  const targetProvider = options?.provider ?? creds.provider;
+  const cu12Campus = creds.campus === "SONGSIN" ? "SONGSIN" : creds.campus === "SONGSIM" ? "SONGSIM" : null;
+  if (targetProvider === "CU12" && !cu12Campus) {
+    throw new Error("CU12_CAMPUS_REQUIRED");
+  }
+  const cu12Creds: Cu12Credentials = {
+    cu12Id: creds.cu12Id,
+    cu12Password: creds.cu12Password,
+    campus: cu12Campus ?? "SONGSIM",
+  };
 
   const shouldCancel = onCancelCheck ?? (async () => false);
   const startedAtMs = Date.now();
   let lastProgressLogKey = "";
   console.log(`${logPrefix} started job=${jobId} user=${userId}`);
   try {
-    const snapshot = await collectCu12SnapshotViaHttp(
-      userId,
-      creds,
-      shouldCancel,
-      async (progress) => {
-        await reportSyncJobProgress(jobId, workerId, progress);
-        const currentTitle = progress.current?.title ?? "-";
-        const currentSeq = progress.current?.lectureSeq ?? 0;
-        const key = [
-          progress.phase,
-          progress.completedCourses,
-          progress.totalCourses,
-          progress.noticeCount,
-          progress.taskCount,
-          progress.notificationCount,
-          currentSeq,
-        ].join(":");
-        if (key === lastProgressLogKey) return;
-        lastProgressLogKey = key;
-        console.log(
-          `${logPrefix} progress job=${jobId}`
-          + ` phase=${progress.phase}`
-          + ` courses=${progress.completedCourses}/${Math.max(1, progress.totalCourses)}`
-          + ` notices=${progress.noticeCount}`
-          + ` tasks=${progress.taskCount}`
-          + ` notifications=${progress.notificationCount}`
-          + ` elapsed=${Math.max(0, progress.elapsedSeconds ?? 0)}s`
-          + ` eta=${progress.estimatedRemainingSeconds == null ? "calc" : `${Math.max(0, progress.estimatedRemainingSeconds)}s`}`
-          + ` current=${currentTitle}(${currentSeq})`,
-        );
-      },
-    );
-    const persisted = await persistSnapshot(userId, snapshot);
+    const progressReporter = async (progress: SyncProgress) => {
+      await reportSyncJobProgress(jobId, workerId, progress);
+      const currentTitle = progress.current?.title ?? "-";
+      const currentSeq = progress.current?.lectureSeq ?? 0;
+      const key = [
+        progress.phase,
+        progress.completedCourses,
+        progress.totalCourses,
+        progress.noticeCount,
+        progress.taskCount,
+        progress.notificationCount,
+        currentSeq,
+      ].join(":");
+      if (key === lastProgressLogKey) return;
+      lastProgressLogKey = key;
+      console.log(
+        `${logPrefix} progress job=${jobId}`
+        + ` phase=${progress.phase}`
+        + ` courses=${progress.completedCourses}/${Math.max(1, progress.totalCourses)}`
+        + ` notices=${progress.noticeCount}`
+        + ` tasks=${progress.taskCount}`
+        + ` notifications=${progress.notificationCount}`
+        + ` elapsed=${Math.max(0, progress.elapsedSeconds ?? 0)}s`
+        + ` eta=${progress.estimatedRemainingSeconds == null ? "calc" : `${Math.max(0, progress.estimatedRemainingSeconds)}s`}`
+        + ` current=${currentTitle}(${currentSeq})`,
+      );
+    };
+    const snapshot = targetProvider === "CYBER_CAMPUS"
+      ? await (async () => {
+        const browser = await chromium.launch({ headless: getEnv().PLAYWRIGHT_HEADLESS });
+        try {
+          return await collectCyberCampusSnapshot(
+            browser,
+            userId,
+            {
+              cu12Id: creds.cu12Id,
+              cu12Password: creds.cu12Password,
+            },
+            shouldCancel,
+            progressReporter,
+          );
+        } finally {
+          await browser.close();
+        }
+      })()
+      : await collectCu12SnapshotViaHttp(
+        userId,
+        cu12Creds,
+        shouldCancel,
+        progressReporter,
+      );
+    const persisted = await persistSnapshot(userId, targetProvider, snapshot);
     await markAccountConnected(userId);
 
     const courseTitleBySeq = new Map(snapshot.courses.map((course) => [course.lectureSeq, course.title]));
+    const messageCount =
+      "messages" in snapshot && Array.isArray((snapshot as { messages?: unknown[] }).messages)
+        ? (snapshot as { messages: unknown[] }).messages.length
+        : 0;
 
-    await sendSyncAlertMail(userId, {
+    await sendSyncAlertMail(userId, targetProvider, {
       newNoticeCount: persisted.newNoticeCount,
       newUnreadNotificationCount: persisted.newUnreadNotificationCount,
+      newMessageCount: persisted.newMessageCount,
+      unreadMessageCount: persisted.unreadMessageCount,
       newNotices: persisted.newNotices.map((notice) => ({
         ...notice,
         courseTitle: courseTitleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
       })),
       newUnreadNotifications: persisted.newUnreadNotifications,
+      newMessages: persisted.newMessages,
       deadlineTasks: persisted.deadlineTasks.map((task) => ({
         ...task,
         courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
@@ -763,6 +823,7 @@ async function processSync(
       + ` notices=${snapshot.notices.length}`
       + ` tasks=${snapshot.tasks.length}`
       + ` notifications=${snapshot.notifications.length}`
+      + ` messages=${messageCount}`
       + ` elapsed=${Math.max(1, Math.floor((Date.now() - startedAtMs) / 1000))}s`,
     );
 
@@ -778,6 +839,7 @@ async function processSync(
         noticeCount: snapshot.notices.length,
         taskCount: snapshot.tasks.length,
         notificationCount: snapshot.notifications.length,
+        messageCount,
       },
     });
 
@@ -789,6 +851,7 @@ async function processSync(
       tasks: snapshot.tasks.length,
       newNoticeCount: persisted.newNoticeCount,
       newNotificationCount: persisted.newNotificationCount,
+      newMessageCount: persisted.newMessageCount,
       pendingTaskCount: persisted.pendingTaskCount,
       deadlineTaskCount: persisted.deadlineTasks.length,
     };
@@ -839,12 +902,37 @@ async function processAutolearn(
   options?: {
     chainSegment?: number;
     sendStartMail?: boolean;
+    provider?: PortalProvider;
   },
 ) {
   const creds = await getUserCu12Credentials(userId);
   if (!creds) {
     throw new Error("CU12 account is not configured for this user");
   }
+  const targetProvider = options?.provider ?? creds.provider;
+  const cu12Campus = creds.campus === "SONGSIN" ? "SONGSIN" : creds.campus === "SONGSIM" ? "SONGSIM" : null;
+  if (creds.provider !== targetProvider) {
+    throw new Error(
+      `자동 수강 요청 서비스(${formatProviderName(targetProvider)})와 현재 연결된 서비스(${formatProviderName(creds.provider)})가 달라 작업을 시작할 수 없습니다. 계정 연결 상태를 다시 확인해 주세요.`,
+    );
+  }
+  if (targetProvider === "CU12" && !cu12Campus) {
+    throw new Error("CU12_CAMPUS_REQUIRED");
+  }
+  const cyberCampusSession = targetProvider === "CYBER_CAMPUS"
+    ? await getPortalSessionCookieState(userId, "CYBER_CAMPUS")
+    : null;
+  if (targetProvider === "CYBER_CAMPUS") {
+    const sessionExpired = cyberCampusSession?.expiresAt && cyberCampusSession.expiresAt.getTime() <= Date.now();
+    if (!cyberCampusSession || cyberCampusSession.status !== "ACTIVE" || sessionExpired || cyberCampusSession.cookieState.length === 0) {
+      throw new Error("CYBER_CAMPUS_SESSION_REQUIRED");
+    }
+  }
+  const cu12Creds: Cu12Credentials = {
+    cu12Id: creds.cu12Id,
+    cu12Password: creds.cu12Password,
+    campus: cu12Campus ?? "SONGSIM",
+  };
 
   const env = getEnv();
   const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
@@ -867,52 +955,90 @@ async function processAutolearn(
     });
   }
   try {
-    const autoResult = await runAutoLearning(
-      browser,
-      userId,
-      creds,
-      {
-        mode,
-        lectureSeq,
-        quizAutoSolveEnabled: creds.quizAutoSolveEnabled,
-      },
-      async (progress) => {
-        const nowIso = progress.heartbeatAt ?? new Date().toISOString();
-        lastHeartbeatAt = nowIso;
-        lastHeartbeatAtMs = Date.parse(nowIso) || Date.now();
-        if (progress.phase === "RUNNING" && progress.current) {
-          const elapsed = progress.current.elapsedSeconds ?? 0;
-          const courseTitle = progress.current.courseTitle ?? `Course ${progress.current.lectureSeq}`;
-          const taskTitle = progress.current.taskTitle ?? "-";
-          console.log(
-            `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
-            + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
-            + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
+    const progressReporter = async (progress: AutoLearnProgress) => {
+      const nowIso = progress.heartbeatAt ?? new Date().toISOString();
+      lastHeartbeatAt = nowIso;
+      lastHeartbeatAtMs = Date.parse(nowIso) || Date.now();
+      if (progress.phase === "RUNNING" && progress.current) {
+        const elapsed = progress.current.elapsedSeconds ?? 0;
+        const courseTitle = progress.current.courseTitle ?? `Course ${progress.current.lectureSeq}`;
+        const taskTitle = progress.current.taskTitle ?? "-";
+        console.log(
+          `[AUTOLEARN] heartbeat job=${jobId} lecture=${progress.current.lectureSeq}`
+          + ` week=${progress.current.weekNo} lesson=${progress.current.lessonNo}`
+          + ` elapsed=${elapsed}s remaining=${progress.current.remainingSeconds}s`
           + ` total=${progress.elapsedSeconds}s`
-            + ` course="${courseTitle}" task="${taskTitle}"`,
-          );
-        }
-        await reportJobProgress(jobId, workerId, progress);
-      },
-      async () => {
-        if (stallDetected) return true;
-        const externalCancel = onCancelCheck ? await onCancelCheck() : false;
-        if (externalCancel) return true;
-        const status = await getJobStatus(jobId);
-        return status === null || status === JobStatus.CANCELED;
-      },
-    );
+          + ` course="${courseTitle}" task="${taskTitle}"`,
+        );
+      }
+      await reportJobProgress(jobId, workerId, progress);
+    };
+    const cancelReporter = async () => {
+      if (stallDetected) return true;
+      const externalCancel = onCancelCheck ? await onCancelCheck() : false;
+      if (externalCancel) return true;
+      const status = await getJobStatus(jobId);
+      return status === null || status === JobStatus.CANCELED;
+    };
+    const autoResult = targetProvider === "CYBER_CAMPUS"
+      ? await runCyberCampusAutoLearning(
+        browser,
+        userId,
+        {
+          cu12Id: creds.cu12Id,
+          cu12Password: creds.cu12Password,
+        },
+        { mode, lectureSeq },
+        progressReporter,
+        cancelReporter,
+        {
+          cookieState: cyberCampusSession?.cookieState,
+          requireVerifiedSession: true,
+        },
+      )
+      : await runAutoLearning(
+        browser,
+        userId,
+        cu12Creds,
+        {
+          mode,
+          lectureSeq,
+          quizAutoSolveEnabled: creds.quizAutoSolveEnabled,
+        },
+        progressReporter,
+        cancelReporter,
+      );
     if (stallDetected) {
       throw new Error(AUTOLEARN_STALLED_ERROR);
     }
     clearInterval(stallWatchdog);
 
-    await recordLearningRun(userId, lectureSeq ?? null, "SUCCESS", `mode=${mode}, processed=${autoResult.processedTaskCount}`);
+    await recordLearningRun(
+      userId,
+      targetProvider,
+      lectureSeq ?? null,
+      "SUCCESS",
+      `mode=${mode}, processed=${autoResult.processedTaskCount}`,
+    );
 
     // Refresh snapshots after playback updates.
     const shouldCancel = onCancelCheck ?? (async () => false);
-    const snapshot = await collectCu12Snapshot(browser, userId, creds, shouldCancel);
-    await persistSnapshot(userId, snapshot);
+    const snapshot = targetProvider === "CYBER_CAMPUS"
+      ? await collectCyberCampusSnapshot(
+        browser,
+        userId,
+        {
+          cu12Id: creds.cu12Id,
+          cu12Password: creds.cu12Password,
+        },
+        shouldCancel,
+        undefined,
+        {
+          cookieState: cyberCampusSession?.cookieState,
+        },
+      )
+      : await collectCu12Snapshot(browser, userId, cu12Creds, shouldCancel);
+    await persistSnapshot(userId, targetProvider, snapshot);
 
     await writeAuditLog({
       category: "WORKER",
@@ -950,7 +1076,15 @@ async function processAutolearn(
     const isStalled = message === AUTOLEARN_STALLED_ERROR;
 
     if (!isCancelled) {
-      await recordLearningRun(userId, lectureSeq ?? null, "FAILED", message);
+      if (
+        targetProvider === "CYBER_CAMPUS"
+        && (message === "CYBER_CAMPUS_SESSION_INVALID"
+          || message === "CYBER_CAMPUS_SESSION_REQUIRED"
+          || message === "CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED")
+      ) {
+        await invalidatePortalSession(userId, "CYBER_CAMPUS");
+      }
+      await recordLearningRun(userId, targetProvider, lectureSeq ?? null, "FAILED", message);
       await writeAuditLog({
         category: "WORKER",
         severity: "ERROR",
@@ -991,6 +1125,15 @@ async function processMailDigest(userId: string) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
   }
 
+  const provider = (
+    await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: { provider: true },
+    })
+  )?.provider === "CYBER_CAMPUS"
+    ? "CYBER_CAMPUS"
+    : "CU12";
+
   const now = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const dueSoonUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -999,21 +1142,24 @@ async function processMailDigest(userId: string) {
     summary,
     unreadNotices,
     unreadNotifications,
+    unreadMessages,
     pendingTaskCount,
     recentNotices,
     recentNotifications,
+    recentMessages,
     dueSoonTasks,
   ] = await Promise.all([
     prisma.courseSnapshot.aggregate({
-      where: { userId, status: "ACTIVE" },
+      where: { userId, provider, status: "ACTIVE" },
       _count: { _all: true },
       _avg: { progressPercent: true },
     }),
-    prisma.courseNotice.count({ where: { userId, isRead: false } }),
-    prisma.notificationEvent.count({ where: { userId, isUnread: true } }),
-    prisma.learningTask.count({ where: { userId, state: "PENDING" } }),
+    prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
+    prisma.notificationEvent.count({ where: { userId, provider, isUnread: true } }),
+    prisma.portalMessage.count({ where: { userId, provider, isRead: false } }),
+    prisma.learningTask.count({ where: { userId, provider, state: "PENDING" } }),
     prisma.courseNotice.findMany({
-      where: { userId, createdAt: { gte: last24h } },
+      where: { userId, provider, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -1026,7 +1172,7 @@ async function processMailDigest(userId: string) {
       },
     }),
     prisma.notificationEvent.findMany({
-      where: { userId, createdAt: { gte: last24h } },
+      where: { userId, provider, createdAt: { gte: last24h } },
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -1039,9 +1185,22 @@ async function processMailDigest(userId: string) {
         isCanceled: true,
       },
     }),
+    prisma.portalMessage.findMany({
+      where: { userId, provider, createdAt: { gte: last24h } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        title: true,
+        senderName: true,
+        sentAt: true,
+        createdAt: true,
+        isRead: true,
+      },
+    }),
     prisma.learningTask.findMany({
       where: {
         userId,
+        provider,
         state: "PENDING",
         dueAt: { gte: now, lte: dueSoonUntil },
       },
@@ -1065,7 +1224,7 @@ async function processMailDigest(userId: string) {
 
   const titleRows = lectureSeqs.length > 0
     ? await prisma.courseSnapshot.findMany({
-      where: { userId, lectureSeq: { in: lectureSeqs } },
+      where: { userId, provider, lectureSeq: { in: lectureSeqs } },
       select: { lectureSeq: true, title: true },
     })
     : [];
@@ -1078,12 +1237,14 @@ async function processMailDigest(userId: string) {
     avgProgress: summary._avg.progressPercent ?? 0,
     unreadNoticeCount: unreadNotices,
     unreadNotificationCount: unreadNotifications,
+    unreadMessageCount: unreadMessages,
     pendingTaskCount,
     recentNotices: recentNotices.map((notice) => ({
       ...notice,
       courseTitle: titleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
     })),
     recentNotifications,
+    recentMessages,
     dueSoonTasks: dueSoonTasks.map((task) => ({
       ...task,
       courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
@@ -1173,7 +1334,21 @@ async function main() {
               const status = await getJobStatus(job.id);
               return status === null || status === JobStatus.CANCELED;
             };
-            result = await processSync(job.id, workerId, job.payload.userId, job.type, shouldCancel);
+            result = await processSync(
+              job.id,
+              workerId,
+              job.payload.userId,
+              job.type,
+              shouldCancel,
+              {
+                provider:
+                  job.payload.provider === "CYBER_CAMPUS"
+                    ? "CYBER_CAMPUS"
+                    : job.payload.provider === "CU12"
+                      ? "CU12"
+                      : undefined,
+              },
+            );
           } else if (job.type === JobType.AUTOLEARN) {
             const shouldCancel = async () => {
               const status = await getJobStatus(job.id);
@@ -1192,6 +1367,12 @@ async function main() {
               {
                 chainSegment,
                 sendStartMail: shouldSendStartMail,
+                provider:
+                  job.payload.provider === "CYBER_CAMPUS"
+                    ? "CYBER_CAMPUS"
+                    : job.payload.provider === "CU12"
+                      ? "CU12"
+                      : undefined,
               },
             );
           } else {

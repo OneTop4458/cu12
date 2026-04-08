@@ -9,6 +9,7 @@ import type { AutoLearnMode, AutoLearnPlannedTask } from "./cu12-automation";
 export const DASHBOARD_SECTION_ID = {
   OVERVIEW: "overview",
   NOTIFICATIONS: "notifications",
+  MESSAGES: "messages",
   DEADLINES: "deadlines",
   JOBS: "jobs",
   COURSES: "courses",
@@ -41,6 +42,12 @@ export interface DeadlineMailItem {
   daysLeft: number;
 }
 
+export interface SyncAlertMessageMailItem {
+  title: string;
+  senderName: string | null;
+  sentAt: string | null;
+}
+
 export interface DigestNoticeMailItem {
   title: string;
   author: string | null;
@@ -66,6 +73,14 @@ export interface DigestDeadlineMailItem {
   weekNo: number;
   lessonNo: number;
   dueAt: Date | string | null;
+}
+
+export interface DigestMessageMailItem {
+  title: string;
+  senderName: string | null;
+  sentAt: Date | string | null;
+  createdAt?: Date | string | null;
+  isRead: boolean;
 }
 
 export interface MailDocument {
@@ -284,6 +299,8 @@ export function buildSyncAlertMail(input: {
   generatedAt: Date;
   newNotices: SyncAlertNoticeMailItem[];
   newUnreadNotifications: SyncAlertNotificationMailItem[];
+  newMessages: SyncAlertMessageMailItem[];
+  unreadMessageCount: number;
   deadlineAlerts: DeadlineMailItem[];
 }): MailDocument | null {
   const noticeItems = input.newNotices
@@ -334,19 +351,43 @@ export function buildSyncAlertMail(input: {
     ]))
     .filter((item) => item.length > 0);
 
-  if (noticeItems.length === 0 && notificationItems.length === 0 && deadlineItems.length === 0) {
+  const messageItems = input.newMessages
+    .map((message) => {
+      const title = normalizeInlineText(message.title);
+      const sender = normalizeInlineText(message.senderName);
+      const sentAt = formatKoDateTime(message.sentAt);
+      const hasSummary = title.length > 0 || sender.length > 0 || sentAt !== "-";
+      if (!hasSummary) return "";
+
+      const metaLine = formatSummaryMeta([
+        sender ? `보낸 사람 ${sender}` : null,
+        sentAt !== "-" ? `수신 ${sentAt}` : null,
+      ]);
+
+      return renderListItem([
+        { text: title ? `<strong>${escapeHtml(title)}</strong>` : "<strong>받은쪽지</strong>" },
+        { text: metaLine ? escapeHtml(metaLine) : "", muted: true },
+      ]);
+    })
+    .filter((item) => item.length > 0);
+
+  if (noticeItems.length === 0 && notificationItems.length === 0 && messageItems.length === 0 && deadlineItems.length === 0) {
     return null;
   }
 
   const sections: string[] = [];
   const noticeSectionCount = noticeItems.length;
   const notificationSectionCount = notificationItems.length;
+  const messageSectionCount = messageItems.length;
 
-  if (noticeSectionCount > 0 || notificationSectionCount > 0) {
+  if (noticeSectionCount > 0 || notificationSectionCount > 0 || messageSectionCount > 0) {
     sections.push(
       renderMailSection(
-        "공지/알림 요약",
-        `<p style="margin:0;color:#111827;">신규 공지 <strong>${noticeSectionCount}</strong>건, 신규 미확인 알림 <strong>${notificationSectionCount}</strong>건입니다.</p>`,
+        "공지/알림/쪽지 요약",
+        `
+          <p style="margin:0 0 6px;color:#111827;">신규 공지 <strong>${noticeSectionCount}</strong>건, 신규 미확인 알림 <strong>${notificationSectionCount}</strong>건입니다.</p>
+          <p style="margin:0;color:#111827;">새 받은쪽지 <strong>${messageSectionCount}</strong>건, 전체 미확인 쪽지 <strong>${input.unreadMessageCount}</strong>건입니다.</p>
+        `,
         {
           href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.NOTIFICATIONS),
           label: "공지/알림 보기",
@@ -381,6 +422,19 @@ export function buildSyncAlertMail(input: {
     );
   }
 
+  if (messageItems.length > 0) {
+    sections.push(
+      renderMailSection(
+        "새 받은쪽지",
+        renderMailList(messageItems, 10),
+        {
+          href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.MESSAGES),
+          label: "받은쪽지 보기",
+        },
+      ),
+    );
+  }
+
   if (deadlineItems.length > 0) {
     sections.push(
       renderMailSection(
@@ -398,13 +452,15 @@ export function buildSyncAlertMail(input: {
   pushSummaryRow(summaryRows, "생성 시각", formatKoDateTime(input.generatedAt));
   pushSummaryRow(summaryRows, "신규 공지", `${noticeItems.length}건`);
   pushSummaryRow(summaryRows, "신규 미확인 알림", `${notificationItems.length}건`);
+  pushSummaryRow(summaryRows, "새 받은쪽지", `${messageItems.length}건`);
+  pushSummaryRow(summaryRows, "전체 미확인 쪽지", `${input.unreadMessageCount}건`);
   pushSummaryRow(summaryRows, "마감 임박 알림", `${deadlineItems.length}건`);
 
   return {
     subject: "[CU12] 동기화 알림",
     html: renderMailLayout({
       title: "동기화 알림 리포트",
-      subtitle: "최근 동기화에서 감지된 신규 공지, 미확인 알림, 마감 임박 차시입니다.",
+      subtitle: "최근 동기화에서 감지된 신규 공지, 미확인 알림, 받은쪽지, 마감 임박 차시입니다.",
       summaryRows,
       sections,
       primaryLink: {
@@ -422,9 +478,11 @@ export function buildDigestMail(input: {
   avgProgress: number;
   unreadNoticeCount: number;
   unreadNotificationCount: number;
+  unreadMessageCount: number;
   pendingTaskCount: number;
   recentNotices: DigestNoticeMailItem[];
   recentNotifications: DigestNotificationMailItem[];
+  recentMessages: DigestMessageMailItem[];
   dueSoonTasks: DigestDeadlineMailItem[];
 }): MailDocument | null {
   const noticeItems = input.recentNotices
@@ -485,7 +543,29 @@ export function buildDigestMail(input: {
     })
     .filter((item) => item.length > 0);
 
-  if (noticeItems.length === 0 && notificationItems.length === 0 && deadlineItems.length === 0) {
+  const messageItems = input.recentMessages
+    .map((message) => {
+      const title = normalizeInlineText(message.title);
+      const sender = normalizeInlineText(message.senderName);
+      const sentAtLabel = formatKoDateTime(message.sentAt ?? message.createdAt);
+      const readLabel = message.isRead ? "확인" : "미확인";
+      const hasSummary = title.length > 0 || sender.length > 0 || sentAtLabel !== "-";
+      if (!hasSummary) return "";
+
+      const metaLine = formatSummaryMeta([
+        sender ? `보낸 사람 ${sender}` : null,
+        sentAtLabel !== "-" ? `수신 ${sentAtLabel}` : null,
+        readLabel,
+      ]);
+
+      return renderListItem([
+        { text: title ? `<strong>${escapeHtml(title)}</strong>` : `<strong>받은쪽지</strong> | ${escapeHtml(readLabel)}` },
+        { text: metaLine ? escapeHtml(metaLine) : "", muted: true },
+      ]);
+    })
+    .filter((item) => item.length > 0);
+
+  if (noticeItems.length === 0 && notificationItems.length === 0 && messageItems.length === 0 && deadlineItems.length === 0) {
     return null;
   }
 
@@ -496,6 +576,7 @@ export function buildDigestMail(input: {
       `
         <p style="margin:0 0 6px;color:#111827;">최근 24시간 신규 공지: <strong>${noticeItems.length}</strong>건</p>
         <p style="margin:0 0 6px;color:#111827;">최근 24시간 신규 알림: <strong>${notificationItems.length}</strong>건</p>
+        <p style="margin:0 0 6px;color:#111827;">최근 24시간 받은쪽지: <strong>${messageItems.length}</strong>건</p>
         <p style="margin:0;color:#111827;">7일 이내 마감 차시: <strong>${deadlineItems.length}</strong>건</p>
       `,
       {
@@ -531,6 +612,19 @@ export function buildDigestMail(input: {
     );
   }
 
+  if (messageItems.length > 0) {
+    sections.push(
+      renderMailSection(
+        "최근 받은쪽지",
+        renderMailList(messageItems, 10),
+        {
+          href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.MESSAGES),
+          label: "받은쪽지 보기",
+        },
+      ),
+    );
+  }
+
   if (deadlineItems.length > 0) {
     sections.push(
       renderMailSection(
@@ -550,13 +644,14 @@ export function buildDigestMail(input: {
   pushSummaryRow(summaryRows, "평균 진도", `${Math.round(input.avgProgress)}%`);
   pushSummaryRow(summaryRows, "미확인 공지", String(input.unreadNoticeCount));
   pushSummaryRow(summaryRows, "미확인 알림", String(input.unreadNotificationCount));
+  pushSummaryRow(summaryRows, "미확인 쪽지", String(input.unreadMessageCount));
   pushSummaryRow(summaryRows, "미완료 차시", String(input.pendingTaskCount));
 
   return {
     subject: "[CU12] 일일 학습 요약",
     html: renderMailLayout({
       title: "일일 학습 요약",
-      subtitle: "최근 24시간 변경 사항과 임박 마감 차시입니다.",
+      subtitle: "최근 24시간 변경 사항, 받은쪽지, 임박 마감 차시입니다.",
       summaryRows,
       sections,
       primaryLink: {

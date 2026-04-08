@@ -22,10 +22,12 @@ import {
   writeAuditLogBestEffort,
 } from "@/server/auth-best-effort";
 import { upsertCu12Account } from "@/server/cu12-account";
-import { isCu12UnavailableResult, verifyCu12Login } from "@/server/cu12-login";
+import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-login";
+import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { getPolicyConsentRequirement } from "@/server/policy";
 
 const BodySchema = z.object({
+  provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
   cu12Id: z.string().trim().min(4).max(80),
   cu12Password: z.string().min(4).max(120),
   campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
@@ -88,10 +90,12 @@ export async function POST(request: NextRequest) {
       }
       throw error;
     }
+
+    const providerHint = body.provider ? normalizePortalProvider(body.provider) : undefined;
     const campus = body.campus ?? "SONGSIM";
     const sessionPolicy = resolveSessionLifetimePolicy(body.rememberSession);
     const loginIp = getRequestIp(request);
-    const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `cu12:${body.cu12Id}`];
+    const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `portal:${body.cu12Id}`];
     const throttle = await checkAuthThrottleBestEffort("login", throttleIdentifiers);
     if (throttle.blocked) {
       return rateLimitedLoginError();
@@ -160,6 +164,7 @@ export async function POST(request: NextRequest) {
           policies: consent.policies,
           user: {
             userId: localCandidate.id,
+            provider: providerHint ?? undefined,
             cu12Id: body.cu12Id,
             role: localCandidate.role,
           },
@@ -191,6 +196,7 @@ export async function POST(request: NextRequest) {
         stage: "AUTHENTICATED" as const,
         user: {
           userId: localCandidate.id,
+          provider: providerHint ?? undefined,
           cu12Id: body.cu12Id,
           role: localCandidate.role,
         },
@@ -219,6 +225,7 @@ export async function POST(request: NextRequest) {
         targetUserId: localCandidate.id,
         message: "User authenticated using local credentials",
         meta: {
+          provider: providerHint ?? null,
           cu12Id: body.cu12Id,
           campus,
           loginIp,
@@ -228,13 +235,14 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    const validation = await verifyCu12Login({
+    const validation = await verifyPortalLogin({
+      providerHint,
       cu12Id: body.cu12Id,
       cu12Password: body.cu12Password,
       campus,
     });
     if (!validation.ok) {
-      const unavailable = isCu12UnavailableResult(validation);
+      const unavailable = isPortalUnavailableResult(validation);
       if (!unavailable) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
       }
@@ -242,19 +250,21 @@ export async function POST(request: NextRequest) {
         category: "AUTH",
         severity: unavailable ? "ERROR" : "WARN",
         message: unavailable
-          ? "Authentication failed due to CU12 network failure"
-          : "CU12 login validation failed",
+          ? "Authentication failed due to portal network failure"
+          : "Portal login validation failed",
         meta: {
+          provider: providerHint ?? validation.verifiedProvider ?? null,
           cu12Id: body.cu12Id,
           campus,
           messageCode: validation.messageCode ?? null,
         },
       });
       if (unavailable) {
-        return jsonError("Authentication service unavailable.", 503, "CU12_UNAVAILABLE");
+        return jsonError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
       }
       return authenticationFailedError();
     }
+    const verifiedCampus = validation.verifiedProvider === "CU12" ? campus : undefined;
 
     const existingAccount = await prisma.cu12Account.findUnique({
       where: { cu12Id: body.cu12Id },
@@ -311,9 +321,10 @@ export async function POST(request: NextRequest) {
       });
 
       await upsertCu12Account(user.id, {
+        currentProvider: validation.verifiedProvider ?? providerHint,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password,
-        campus,
+        campus: verifiedCampus,
       });
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
@@ -324,14 +335,16 @@ export async function POST(request: NextRequest) {
       user = existingUserByEmail;
 
       await upsertCu12Account(user.id, {
+        currentProvider: validation.verifiedProvider ?? providerHint,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password,
-        campus,
+        campus: verifiedCampus,
       });
     } else {
       const challengeToken = await signLoginChallengeToken({
+        provider: validation.verifiedProvider ?? providerHint ?? "CU12",
         cu12Id: body.cu12Id,
-        campus,
+        campus: validation.verifiedProvider === "CU12" ? campus : null,
         encryptedCu12Password: encryptSecret(body.cu12Password),
         nonce: randomUUID(),
       });
@@ -339,8 +352,9 @@ export async function POST(request: NextRequest) {
       await writeAuditLogBestEffort({
         category: "AUTH",
         severity: "INFO",
-        message: "Login challenge issued for first-time CU12 user",
+        message: "Login challenge issued for first-time portal user",
         meta: {
+          provider: validation.verifiedProvider ?? providerHint ?? null,
           cu12Id: body.cu12Id,
           campus,
         },
@@ -390,6 +404,7 @@ export async function POST(request: NextRequest) {
         policies: consent.policies,
         user: {
           userId: user.id,
+          provider: validation.verifiedProvider ?? providerHint ?? undefined,
           cu12Id: body.cu12Id,
           role: user.role,
         },
@@ -411,6 +426,7 @@ export async function POST(request: NextRequest) {
       stage: "AUTHENTICATED" as const,
       user: {
         userId: user.id,
+        provider: validation.verifiedProvider ?? providerHint ?? undefined,
         cu12Id: body.cu12Id,
         role: user.role,
       },
@@ -437,8 +453,9 @@ export async function POST(request: NextRequest) {
       severity: "INFO",
       actorUserId: user.id,
       targetUserId: user.id,
-      message: "User authenticated with CU12 credentials",
+      message: "User authenticated with portal credentials",
       meta: {
+        provider: validation.verifiedProvider ?? providerHint ?? null,
         cu12Id: body.cu12Id,
         campus,
         loginIp,
@@ -480,12 +497,12 @@ export async function POST(request: NextRequest) {
         await writeAuditLogBestEffort({
           category: "AUTH",
           severity: "ERROR",
-          message: "Authentication failed due to CU12 network failure",
+          message: "Authentication failed due to portal network failure",
           meta: {
             error: error.message,
           },
         });
-        return jsonError("Authentication service unavailable.", 503, "CU12_UNAVAILABLE");
+        return jsonError("Authentication service unavailable.", 503, "PORTAL_UNAVAILABLE");
       }
     }
     await writeAuditLogBestEffort({
@@ -499,4 +516,3 @@ export async function POST(request: NextRequest) {
     return jsonError("Authentication failed.", 500, "INTERNAL_ERROR");
   }
 }
-

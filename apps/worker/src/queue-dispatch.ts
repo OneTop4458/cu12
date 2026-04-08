@@ -96,6 +96,7 @@ async function resolveAutoLearnWindowEligibleUserIds(
   const tasks = await prisma.learningTask.findMany({
     where: {
       userId: { in: userIds },
+      provider: "CU12",
       state: "PENDING",
       activityType: { in: ["VOD", "MATERIAL", "QUIZ"] },
       AND: [
@@ -188,6 +189,7 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
           is: {
             accountStatus: "CONNECTED",
             autoLearnEnabled: true,
+            campus: { not: null },
           },
         },
       },
@@ -306,7 +308,11 @@ async function main() {
         userId: user.id,
         type,
         status: JobStatus.PENDING,
-        payload: { userId: user.id, reason: "scheduled_dispatch" },
+        payload: {
+          userId: user.id,
+          provider: type === JobType.AUTOLEARN ? "CU12" : undefined,
+          reason: "scheduled_dispatch",
+        },
         idempotencyKey: key,
         runAfter: new Date(),
       },

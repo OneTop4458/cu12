@@ -1,14 +1,18 @@
-﻿import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import type { PortalCampus, PortalProvider } from "@cu12/core";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
 export interface Cu12AccountInput {
+  provider?: PortalProvider;
+  currentProvider?: PortalProvider;
   cu12Id: string;
   cu12Password: string;
-  campus: "SONGSIM" | "SONGSIN";
+  campus?: PortalCampus | null;
 }
 
 export interface AutomationSettingsInput {
+  currentProvider?: PortalProvider;
   autoLearnEnabled?: boolean;
   quizAutoSolveEnabled?: boolean;
   detectActivitiesEnabled?: boolean;
@@ -16,6 +20,7 @@ export interface AutomationSettingsInput {
 }
 
 const automationSettingsSelect = {
+  provider: true,
   cu12Id: true,
   campus: true,
   accountStatus: true,
@@ -32,6 +37,7 @@ type Cu12AutomationSettingsRecord = Prisma.Cu12AccountGetPayload<{
 }>;
 
 const dashboardAccountSelect = {
+  provider: true,
   cu12Id: true,
   campus: true,
   accountStatus: true,
@@ -76,21 +82,41 @@ function withQuizDefault<T extends { quizAutoSolveEnabled?: boolean }>(record: O
 }
 
 export async function upsertCu12Account(userId: string, input: Cu12AccountInput) {
-  return prisma.cu12Account.upsert({
+  const existing = await prisma.cu12Account.findUnique({
     where: { userId },
-    update: {
-      cu12Id: input.cu12Id,
-      encryptedPassword: encryptSecret(input.cu12Password),
-      campus: input.campus,
-      accountStatus: "CONNECTED",
-      statusReason: null,
-      updatedAt: new Date(),
+    select: {
+      provider: true,
+      campus: true,
     },
-    create: {
+  });
+
+  const currentProvider = input.currentProvider ?? input.provider ?? (existing?.provider as PortalProvider | undefined) ?? "CU12";
+  const campus = input.campus !== undefined
+    ? input.campus
+    : (existing?.campus as PortalCampus | null | undefined) ?? null;
+
+  if (existing) {
+    return prisma.cu12Account.update({
+      where: { userId },
+      data: {
+        provider: currentProvider,
+        cu12Id: input.cu12Id,
+        encryptedPassword: encryptSecret(input.cu12Password),
+        campus,
+        accountStatus: "CONNECTED",
+        statusReason: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  return prisma.cu12Account.create({
+    data: {
       userId,
+      provider: currentProvider,
       cu12Id: input.cu12Id,
       encryptedPassword: encryptSecret(input.cu12Password),
-      campus: input.campus,
+      campus,
       accountStatus: "CONNECTED",
     },
   });
@@ -101,9 +127,10 @@ export async function getCu12Credentials(userId: string) {
   if (!account) return null;
 
   return {
+    provider: account.provider as PortalProvider,
     cu12Id: account.cu12Id,
     cu12Password: decryptSecret(account.encryptedPassword),
-    campus: account.campus,
+    campus: (account.campus ?? null) as PortalCampus | null,
   };
 }
 
@@ -121,6 +148,7 @@ export async function getAutomationSettingsAccount(userId: string): Promise<Cu12
     const fallback = await prisma.cu12Account.findUnique({
       where: { userId },
       select: {
+        provider: true,
         cu12Id: true,
         campus: true,
         accountStatus: true,
@@ -149,6 +177,7 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
     const fallback = await prisma.cu12Account.findUnique({
       where: { userId },
       select: {
+        provider: true,
         cu12Id: true,
         campus: true,
         accountStatus: true,
@@ -167,7 +196,13 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
 }
 
 export async function updateAutomationSettings(userId: string, input: AutomationSettingsInput) {
+  const current = await prisma.cu12Account.findUnique({ where: { userId }, select: { provider: true } });
+  if (!current) {
+    throw new Error("Account not found");
+  }
+
   const data = {
+    provider: input.currentProvider,
     autoLearnEnabled: input.autoLearnEnabled,
     quizAutoSolveEnabled: input.quizAutoSolveEnabled,
     detectActivitiesEnabled: input.detectActivitiesEnabled,
@@ -188,11 +223,13 @@ export async function updateAutomationSettings(userId: string, input: Automation
     const fallback = await prisma.cu12Account.update({
       where: { userId },
       data: {
+        provider: input.currentProvider ?? current.provider,
         autoLearnEnabled: input.autoLearnEnabled,
         detectActivitiesEnabled: input.detectActivitiesEnabled,
         emailDigestEnabled: input.emailDigestEnabled,
       },
       select: {
+        provider: true,
         cu12Id: true,
         campus: true,
         accountStatus: true,
@@ -205,6 +242,16 @@ export async function updateAutomationSettings(userId: string, input: Automation
     });
     return withQuizDefault<Cu12AutomationSettingsRecord>(fallback);
   }
+}
+
+export async function setCurrentPortalProvider(userId: string, provider: PortalProvider) {
+  return prisma.cu12Account.update({
+    where: { userId },
+    data: {
+      provider,
+      updatedAt: new Date(),
+    },
+  });
 }
 
 export async function markCu12Status(userId: string, accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR", reason?: string) {

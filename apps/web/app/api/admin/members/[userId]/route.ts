@@ -203,16 +203,21 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     await prisma.$transaction(async (tx) => {
       await tx.cu12Account.deleteMany({ where: { userId } });
       await tx.mailSubscription.deleteMany({ where: { userId } });
+      await tx.mailDelivery.deleteMany({ where: { userId } });
       await tx.taskDeadlineAlert.deleteMany({ where: { userId } });
+      await tx.userPolicyConsent.deleteMany({ where: { userId } });
       await tx.courseNotice.deleteMany({ where: { userId } });
       await tx.courseSnapshot.deleteMany({ where: { userId } });
       await tx.learningRun.deleteMany({ where: { userId } });
       await tx.learningTask.deleteMany({ where: { userId } });
       await tx.notificationEvent.deleteMany({ where: { userId } });
+      await tx.portalMessage.deleteMany({ where: { userId } });
+      await tx.portalApprovalSession.deleteMany({ where: { userId } });
+      await tx.portalSession.deleteMany({ where: { userId } });
       await tx.jobQueue.updateMany({
         where: {
           userId,
-          status: { in: ["PENDING", "RUNNING"] },
+          status: { in: ["PENDING", "BLOCKED", "RUNNING"] },
         },
         data: {
           status: "CANCELED",

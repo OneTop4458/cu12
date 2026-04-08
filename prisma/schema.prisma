@@ -29,6 +29,11 @@ enum AccountStatus {
   ERROR
 }
 
+enum PortalProvider {
+  CU12
+  CYBER_CAMPUS
+}
+
 enum CourseStatus {
   ACTIVE
   UPCOMING
@@ -59,9 +64,24 @@ enum JobType {
 
 enum JobStatus {
   PENDING
+  BLOCKED
   RUNNING
   SUCCEEDED
   FAILED
+  CANCELED
+}
+
+enum PortalSessionStatus {
+  ACTIVE
+  EXPIRED
+  INVALID
+}
+
+enum PortalApprovalStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  EXPIRED
   CANCELED
 }
 
@@ -101,6 +121,9 @@ model User {
   courseSnapshots CourseSnapshot[]
   courseNotices  CourseNotice[]
   notifications  NotificationEvent[]
+  portalMessages PortalMessage[]
+  portalSessions PortalSession[]
+  portalApprovalSessions PortalApprovalSession[]
   learningTasks  LearningTask[]
   learningRuns   LearningRun[]
   mailSubs       MailSubscription[]
@@ -116,6 +139,7 @@ model User {
 
 model InviteToken {
   id              String    @id @default(cuid())
+  provider        PortalProvider @default(CU12)
   cu12Id          String
   role            UserRole  @default(USER)
   tokenHash       String    @unique
@@ -128,15 +152,16 @@ model InviteToken {
   createdBy       User?     @relation("InviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   usedBy          User?     @relation("InviteUsedBy", fields: [usedByUserId], references: [id], onDelete: SetNull)
 
-  @@index([cu12Id])
+  @@index([provider, cu12Id])
 }
 
 model Cu12Account {
   id                     String        @id @default(cuid())
   userId                 String        @unique
-  cu12Id                 String        @unique
+  provider               PortalProvider @default(CU12)
+  cu12Id                 String
   encryptedPassword      String
-  campus                 String
+  campus                 String?
   accountStatus          AccountStatus @default(CONNECTED)
   statusReason           String?
   autoLearnEnabled       Boolean       @default(true)
@@ -146,6 +171,9 @@ model Cu12Account {
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
   user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cu12Id])
+  @@index([provider])
 }
 
 model JobQueue {
@@ -262,7 +290,9 @@ model AuthRateLimit {
 model CourseSnapshot {
   id             String      @id @default(cuid())
   userId         String
+  provider       PortalProvider @default(CU12)
   lectureSeq     Int
+  externalLectureId String?
   title          String
   instructor     String?
   progressPercent Int       @default(0)
@@ -276,14 +306,16 @@ model CourseSnapshot {
   updatedAt      DateTime    @updatedAt
   user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, lectureSeq])
-  @@index([userId, status])
+  @@unique([userId, provider, lectureSeq])
+  @@index([userId, provider, status])
 }
 
 model CourseNotice {
   id         String   @id @default(cuid())
   userId     String
+  provider   PortalProvider @default(CU12)
   lectureSeq Int
+  externalLectureId String?
   noticeKey  String
   title      String
   author     String?
@@ -296,14 +328,15 @@ model CourseNotice {
   updatedAt  DateTime @updatedAt
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, lectureSeq, noticeKey])
-  @@index([userId, lectureSeq, postedAt])
-  @@index([userId, isRead, lectureSeq])
+  @@unique([userId, provider, lectureSeq, noticeKey])
+  @@index([userId, provider, lectureSeq, postedAt])
+  @@index([userId, provider, isRead, lectureSeq])
 }
 
 model NotificationEvent {
   id          String   @id @default(cuid())
   userId      String
+  provider    PortalProvider @default(CU12)
   notifierSeq String
   courseTitle String
   category    String
@@ -317,14 +350,78 @@ model NotificationEvent {
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, notifierSeq])
-  @@index([userId, occurredAt])
+  @@unique([userId, provider, notifierSeq])
+  @@index([userId, provider, occurredAt])
+}
+
+model PortalSession {
+  id                   String              @id @default(cuid())
+  userId               String
+  provider             PortalProvider
+  encryptedCookieState String
+  status               PortalSessionStatus @default(ACTIVE)
+  lastVerifiedAt       DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([provider, status, expiresAt])
+}
+
+model PortalApprovalSession {
+  id                   String               @id @default(cuid())
+  userId               String
+  jobId                String               @unique
+  provider             PortalProvider
+  status               PortalApprovalStatus @default(PENDING)
+  encryptedCookieState String
+  methods              Json?
+  selectedWay          Int?
+  selectedParam        String?
+  selectedTarget       String?
+  authSeq              String?
+  requestCode          String?
+  displayCode          String?
+  errorMessage         String?
+  expiresAt            DateTime
+  completedAt          DateTime?
+  canceledAt           DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider, status, expiresAt])
+}
+
+model PortalMessage {
+  id         String   @id @default(cuid())
+  userId     String
+  provider   PortalProvider @default(CU12)
+  messageSeq String
+  title      String
+  senderId   String?
+  senderName String?
+  bodyText   String
+  sentAt     DateTime?
+  isRead     Boolean  @default(false)
+  syncedAt   DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider, messageSeq])
+  @@index([userId, provider, sentAt])
+  @@index([userId, provider, isRead, sentAt])
 }
 
 model LearningTask {
   id               String            @id @default(cuid())
   userId           String
+  provider         PortalProvider    @default(CU12)
   lectureSeq       Int
+  externalLectureId String?
   courseContentsSeq Int
   weekNo           Int
   lessonNo         Int
@@ -338,15 +435,17 @@ model LearningTask {
   updatedAt        DateTime          @updatedAt
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, lectureSeq, courseContentsSeq])
-  @@index([userId, state])
-  @@index([userId, state, dueAt])
+  @@unique([userId, provider, lectureSeq, courseContentsSeq])
+  @@index([userId, provider, state])
+  @@index([userId, provider, state, dueAt])
 }
 
 model LearningRun {
   id         String   @id @default(cuid())
   userId     String
+  provider   PortalProvider @default(CU12)
   lectureSeq Int
+  externalLectureId String?
   startedAt  DateTime
   endedAt    DateTime?
   status     String
@@ -355,7 +454,7 @@ model LearningRun {
   updatedAt  DateTime @updatedAt
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, startedAt])
+  @@index([userId, provider, startedAt])
 }
 
 model MailSubscription {
@@ -393,15 +492,17 @@ model MailDelivery {
 model TaskDeadlineAlert {
   id               String   @id @default(cuid())
   userId           String
+  provider         PortalProvider @default(CU12)
   lectureSeq       Int
+  externalLectureId String?
   courseContentsSeq Int
   thresholdDays    Int
   dueAt            DateTime
   alertedAt        DateTime @default(now())
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, lectureSeq, courseContentsSeq, thresholdDays, dueAt])
-  @@index([userId, dueAt])
+  @@unique([userId, provider, lectureSeq, courseContentsSeq, thresholdDays, dueAt])
+  @@index([userId, provider, dueAt])
 }
 
 model AuditLog {

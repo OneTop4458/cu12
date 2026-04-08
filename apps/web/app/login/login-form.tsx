@@ -8,6 +8,7 @@ import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-r
 
 type SessionExpiredReason = "session-timeout" | "session-expired";
 type Campus = "SONGSIM" | "SONGSIN";
+type PortalProvider = "CU12" | "CYBER_CAMPUS";
 type PolicyType = "PRIVACY_POLICY" | "TERMS_OF_SERVICE";
 
 interface SessionPolicy {
@@ -20,6 +21,7 @@ interface AuthenticatedResponse {
   stage: "AUTHENTICATED";
   user: {
     userId: string;
+    provider?: PortalProvider;
     cu12Id: string;
     role: "ADMIN" | "USER";
   };
@@ -45,6 +47,7 @@ interface ConsentRequiredResponse {
   policies: PolicyDocumentResponse[];
   user: {
     userId: string;
+    provider?: PortalProvider;
     cu12Id: string;
     role: "ADMIN" | "USER";
   };
@@ -59,18 +62,66 @@ interface ApiErrorResponse {
 
 type LoginResponse = AuthenticatedResponse | InviteRequiredResponse | ConsentRequiredResponse;
 
-const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
-  { value: "SONGSIM", label: "성심교정" },
-  { value: "SONGSIN", label: "성신교정" },
-];
 const LAST_ACTIVITY_STORAGE_KEY = "cu12:last-activity-at";
 const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
 const LEGACY_IDLE_TIMEOUT_STORAGE_KEY = "cu12:session-idle-timeout-ms";
 const SAVED_CU12_ID_STORAGE_KEY = "cu12:saved-cu12-id";
 
+const COPY = {
+  campusSongsim: "\uC131\uC2EC\uAD50\uC815",
+  campusSongsin: "\uC131\uC2E0\uAD50\uC815",
+  cyberCampus: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4",
+  authFailed: "ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+  accountDisabled: "\uACC4\uC815\uC774 \uBE44\uD65C\uC131\uD654\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBB38\uC758\uD574 \uC8FC\uC138\uC694.",
+  policyNotConfigured: "\uD544\uC218 \uC57D\uAD00\uC774 \uC544\uC9C1 \uB4F1\uB85D\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBB38\uC758\uD574 \uC8FC\uC138\uC694.",
+  rateLimited: "\uC694\uCCAD\uC774 \uB9CE\uC544 \uC7A0\uC2DC \uCC28\uB2E8\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+  loginFallback: "\uB85C\uADF8\uC778 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  inviteFallback: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  consentIncomplete: "\uD544\uC218 \uC57D\uAD00\uC5D0 \uBAA8\uB450 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
+  consentMismatch: "\uC57D\uAD00 \uBC84\uC804\uC774 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uCD5C\uC2E0 \uC57D\uAD00\uC5D0 \uB2E4\uC2DC \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
+  consentFallback: "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  challengeInvalid: "\uB85C\uADF8\uC778 \uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
+  consentSessionInvalid: "\uB3D9\uC758 \uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
+  sessionExpiredTitle: "\uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5B4 \uB85C\uADF8\uC544\uC6C3 \uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  sessionExpiredContent: "\uAC1C\uC778\uC815\uBCF4 \uBCF4\uD638 \uBC0F \uBCF4\uC548 \uAC15\uD654\uB97C \uC704\uD55C \uC790\uB3D9 \uB85C\uADF8\uC544\uC6C3 \uC815\uCC45\uC5D0 \uB530\uB77C \uC138\uC158\uC774 \uC885\uB8CC \uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  intro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD1B5\uD569 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694. \uB85C\uADF8\uC778 \uD6C4 \uB300\uC2DC\uBCF4\uB4DC\uC5D0\uC11C CU12\uC640 \uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC911 \uD604\uC7AC \uC11C\uBE44\uC2A4\uB97C \uC804\uD658\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  accountIdLabel: "\uD3EC\uD138 \uACC4\uC815 ID",
+  passwordLabel: "\uBE44\uBC00\uBC88\uD638",
+  campusLabel: "CU12 \uAD50\uC815 \uC124\uC815",
+  saveId: "ID \uC800\uC7A5",
+  resetPassword: "\uBE44\uBC00\uBC88\uD638 \uCD08\uAE30\uD654",
+  submit: "\uB85C\uADF8\uC778",
+  submitting: "\uCC98\uB9AC \uC911...",
+  networkLogin: "\uB85C\uADF8\uC778 \uC694\uCCAD \uC911 \uB124\uD2B8\uC6CC\uD06C \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  loginUnavailable: "\uB85C\uADF8\uC778 \uC11C\uBE44\uC2A4\uC5D0 \uC77C\uC2DC\uC801\uC73C\uB85C \uC811\uC18D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyResponse: "\uC11C\uBC84 \uC751\uB2F5\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.",
+  invalidResponse: "\uC11C\uBC84 \uC751\uB2F5\uC744 \uD574\uC11D\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+  inviteTitle: "\uCD08\uB300 \uCF54\uB4DC \uC785\uB825",
+  inviteIntro: "\uAD00\uB9AC\uC790\uAC00 \uBC1C\uAE09\uD55C \uCD08\uB300 \uCF54\uB4DC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  inviteCode: "\uCD08\uB300 \uCF54\uB4DC",
+  confirm: "\uD655\uC778",
+  close: "\uB2EB\uAE30",
+  inviteNetwork: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  inviteSessionMissing: "\uCD08\uB300 \uCF54\uB4DC \uC778\uC99D \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
+  inviteVerificationFailed: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  consentTitle: "\uD544\uC218 \uC57D\uAD00 \uB3D9\uC758",
+  consentIntro: "\uC11C\uBE44\uC2A4 \uC774\uC6A9\uC744 \uC704\uD574 \uD544\uC218 \uC57D\uAD00\uC5D0 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
+  consentRequired: "\uD544\uC218)",
+  consentSubmit: "\uB3D9\uC758\uD558\uACE0 \uB85C\uADF8\uC778",
+  consentDecline: "\uB3D9\uC758 \uAC70\uBD80",
+  consentDeclineMessage: "\uD544\uC218 \uC57D\uAD00\uC5D0 \uB3D9\uC758\uD574\uC57C \uC11C\uBE44\uC2A4\uB97C \uC774\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  consentSessionMissing: "\uC57D\uAD00 \uB3D9\uC758 \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
+  consentNetwork: "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  consentFailed: "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+} as const;
+
+const CAMPUS_OPTIONS: Array<{ value: Campus; label: string }> = [
+  { value: "SONGSIM", label: COPY.campusSongsim },
+  { value: "SONGSIN", label: COPY.campusSongsin },
+];
+
 function applySessionPolicy(policy: SessionPolicy | undefined) {
-  if (typeof window === "undefined") return;
-  if (!policy) return;
+  if (typeof window === "undefined" || !policy) return;
   try {
     window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
     window.localStorage.removeItem(SESSION_EXPIRED_STATE_KEY);
@@ -100,65 +151,69 @@ function syncSavedCu12Id(shouldSave: boolean, cu12Id: string) {
 
 export function toLoginErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "AUTH_FAILED" || payload.errorCode === "CU12_AUTH_FAILED") {
-    return "ID 또는 비밀번호가 일치하지 않습니다.";
+    return COPY.authFailed;
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
-    return "계정이 비활성 상태입니다. 관리자에게 문의해 주세요.";
+    return COPY.accountDisabled;
   }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+    return COPY.policyNotConfigured;
   }
   if (payload.errorCode === "RATE_LIMITED") {
-    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+    return COPY.rateLimited;
   }
-  if (payload.errorCode === "CU12_UNAVAILABLE") {
-    return payload.error ?? "Authentication service unavailable.";
+  if (
+    payload.errorCode === "CU12_UNAVAILABLE"
+    || payload.errorCode === "CYBER_CAMPUS_UNAVAILABLE"
+    || payload.errorCode === "PORTAL_UNAVAILABLE"
+  ) {
+    return payload.error ?? COPY.loginUnavailable;
   }
   if (payload.errorCode?.startsWith("INTERNAL_DB_") || payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? "Authentication failed.";
+    return payload.error ?? COPY.loginFallback;
   }
-  return payload.error ?? "로그인 처리에 실패했습니다.";
+  return payload.error ?? COPY.loginFallback;
 }
 
 export function toInviteErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
-    return payload.error ?? "Invite verification failed.";
+    return payload.error ?? COPY.inviteVerificationFailed;
   }
   if (payload.errorCode === "ACCOUNT_DISABLED") {
-    return "계정이 비활성 상태입니다. 관리자에게 문의해 주세요.";
+    return COPY.accountDisabled;
   }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+    return COPY.policyNotConfigured;
   }
   if (payload.errorCode === "RATE_LIMITED") {
-    return "요청이 많아 잠시 차단되었습니다. 잠시 후 다시 시도해 주세요.";
+    return COPY.rateLimited;
   }
   if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-    return "인증 상태가 만료되었습니다. 다시 로그인해 주세요.";
+    return COPY.challengeInvalid;
   }
   if (payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? "Invite verification failed.";
+    return payload.error ?? COPY.inviteVerificationFailed;
   }
-  return payload.error ?? "초대 코드 처리에 실패했습니다.";
+  return payload.error ?? COPY.inviteFallback;
 }
 
 export function toConsentErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "POLICY_CONSENT_INCOMPLETE") {
-    return "필수 약관 동의가 필요합니다.";
+    return COPY.consentIncomplete;
   }
   if (payload.errorCode === "POLICY_VERSION_MISMATCH") {
-    return "약관이 갱신되었습니다. 다시 로그인 후 최신 약관에 동의해 주세요.";
+    return COPY.consentMismatch;
   }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return "필수 약관이 아직 등록되지 않았습니다. 관리자에게 문의해 주세요.";
+    return COPY.policyNotConfigured;
   }
   if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-    return "동의 세션이 만료되었습니다. 다시 로그인해 주세요.";
+    return COPY.consentSessionInvalid;
   }
   if (payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? "Policy consent failed.";
+    return payload.error ?? COPY.consentFailed;
   }
-  return payload.error ?? "약관 동의 처리에 실패했습니다.";
+  return payload.error ?? COPY.consentFallback;
 }
 
 export function LoginForm({
@@ -216,11 +271,11 @@ export function LoginForm({
 
   const isProcessing = submitting || inviteSubmitting || consentSubmitting;
   const processingMessage = submitting
-    ? "로그인 요청 처리 중..."
+    ? "\uB85C\uADF8\uC778 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
     : inviteSubmitting
-      ? "초대 코드 확인 처리 중..."
+      ? "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC744 \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
       : consentSubmitting
-        ? "약관 동의 처리 중..."
+        ? "\uC57D\uAD00 \uB3D9\uC758\uB97C \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
         : null;
 
   function clearConsentState() {
@@ -233,7 +288,7 @@ export function LoginForm({
 
   function declineConsent() {
     clearConsentState();
-    setError("필수 약관에 동의해야 서비스를 이용할 수 있습니다. 로그인 후 동의해 주세요.");
+    setError(COPY.consentDeclineMessage);
   }
 
   function startConsentFlow(payload: ConsentRequiredResponse) {
@@ -278,7 +333,7 @@ export function LoginForm({
         try {
           payload = await readJsonBody<ApiErrorResponse>(response);
         } catch {
-          setError("Server returned an invalid response.");
+          setError(COPY.invalidResponse);
           return;
         }
         setError(toLoginErrorMessage(payload ?? { error: resolveClientResponseError(response, payload, "Authentication failed.") }));
@@ -287,9 +342,10 @@ export function LoginForm({
 
       const payload = await readJsonBody<LoginResponse>(response);
       if (!payload) {
-        setError("Server returned an empty response.");
+        setError(COPY.emptyResponse);
         return;
       }
+
       syncSavedCu12Id(saveCu12Id, cu12Id);
       if (payload.stage === "INVITE_REQUIRED") {
         clearConsentState();
@@ -309,7 +365,7 @@ export function LoginForm({
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setError(COPY.networkLogin);
     } finally {
       setSubmitting(false);
     }
@@ -318,7 +374,7 @@ export function LoginForm({
   async function onSubmitInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!challengeToken) {
-      setInviteError("초대 코드 상태를 확인할 수 없습니다. 로그인 동작을 다시 시작해 주세요.");
+      setInviteError(COPY.inviteSessionMissing);
       return;
     }
 
@@ -342,9 +398,10 @@ export function LoginForm({
         try {
           payload = await readJsonBody<ApiErrorResponse>(response);
         } catch {
-          setInviteError("Server returned an invalid response.");
+          setInviteError(COPY.invalidResponse);
           return;
         }
+
         const safePayload = payload ?? { error: resolveClientResponseError(response, payload, "Invite verification failed.") };
         const message = toInviteErrorMessage(safePayload);
         setInviteError(message);
@@ -358,9 +415,10 @@ export function LoginForm({
 
       const payload = await readJsonBody<AuthenticatedResponse | ConsentRequiredResponse>(response);
       if (!payload) {
-        setInviteError("Server returned an empty response.");
+        setInviteError(COPY.emptyResponse);
         return;
       }
+
       syncSavedCu12Id(saveCu12Id, cu12Id);
       if (payload.stage === "CONSENT_REQUIRED") {
         startConsentFlow(payload);
@@ -373,7 +431,7 @@ export function LoginForm({
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setInviteError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setInviteError(COPY.inviteNetwork);
     } finally {
       setInviteSubmitting(false);
     }
@@ -382,11 +440,11 @@ export function LoginForm({
   async function onSubmitConsent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!consentToken) {
-      setConsentError("동의 세션을 확인할 수 없습니다. 다시 로그인해 주세요.");
+      setConsentError(COPY.consentSessionMissing);
       return;
     }
     if (!allPoliciesChecked) {
-      setConsentError("모든 필수 약관에 동의해 주세요.");
+      setConsentError(COPY.consentIncomplete);
       return;
     }
 
@@ -413,7 +471,7 @@ export function LoginForm({
         try {
           payload = await readJsonBody<ApiErrorResponse>(response);
         } catch {
-          setConsentError("Server returned an invalid response.");
+          setConsentError(COPY.invalidResponse);
           return;
         }
         const safePayload = payload ?? { error: resolveClientResponseError(response, payload, "Policy consent failed.") };
@@ -428,16 +486,17 @@ export function LoginForm({
 
       const payload = await readJsonBody<AuthenticatedResponse>(response);
       if (!payload) {
-        setConsentError("Server returned an empty response.");
+        setConsentError(COPY.emptyResponse);
         return;
       }
+
       syncSavedCu12Id(saveCu12Id, cu12Id);
       applySessionPolicy(payload.session);
       clearConsentState();
       router.push("/dashboard" as Route);
       router.refresh();
     } catch {
-      setConsentError("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setConsentError(COPY.consentNetwork);
     } finally {
       setConsentSubmitting(false);
     }
@@ -447,29 +506,28 @@ export function LoginForm({
     <div className="login-form-shell">
       {sessionExpiredReason ? (
         <div className="session-timeout-banner">
-          {sessionExpiredReason === "session-timeout" ? (
-            <p>자동 로그아웃: 30분 이상 활동이 없어 세션이 만료되어 다시 로그인해야 합니다.</p>
-          ) : (
-            <p>세션이 만료되어 자동으로 로그아웃되었습니다. 다시 로그인해 주세요.</p>
-          )}
+          <p><strong>{COPY.sessionExpiredTitle}</strong></p>
+          <p>{COPY.sessionExpiredContent}</p>
         </div>
       ) : null}
 
       <form onSubmit={onSubmit} className="form-stack">
+        <p className="muted">{COPY.intro}</p>
+
         <label className="field">
-          <span>CU12 ID</span>
+          <span>{COPY.accountIdLabel}</span>
           <input
             value={cu12Id}
             onChange={(event) => setCu12Id(event.target.value)}
             autoComplete="username"
             required
             minLength={4}
-            placeholder="예: student1234"
+            placeholder={"ID"}
           />
         </label>
 
         <label className="field">
-          <span>CU12 비밀번호</span>
+          <span>{COPY.passwordLabel}</span>
           <input
             type="password"
             value={cu12Password}
@@ -477,12 +535,12 @@ export function LoginForm({
             autoComplete="current-password"
             required
             minLength={4}
-            placeholder="비밀번호를 입력하세요"
+            placeholder={COPY.passwordLabel}
           />
         </label>
 
         <label className="field">
-          <span>캠퍼스</span>
+          <span>{COPY.campusLabel}</span>
           <select value={campus} onChange={(event) => setCampus(event.target.value as Campus)}>
             {CAMPUS_OPTIONS.map((entry) => (
               <option key={entry.value} value={entry.value}>
@@ -505,7 +563,7 @@ export function LoginForm({
                 }
               }}
             />
-            <span>아이디 저장</span>
+            <span>{COPY.saveId}</span>
           </label>
           <a
             className="btn ghost-btn login-reset-link"
@@ -513,7 +571,7 @@ export function LoginForm({
             target="_blank"
             rel="noopener noreferrer"
           >
-            비밀번호 초기화
+            {COPY.resetPassword}
           </a>
         </div>
 
@@ -521,42 +579,32 @@ export function LoginForm({
 
         <button type="submit" disabled={submitting} className="btn btn-success">
           {submitting ? <Loader2 className="spin" size={16} /> : null}
-          {submitting ? "처리 중..." : "로그인"}
+          {submitting ? COPY.submitting : COPY.submit}
         </button>
       </form>
 
       {showInviteModal ? (
-        <div
-          className="modal-overlay"
-          role="presentation"
-          onClick={() => {
-            if (!inviteSubmitting) {
-              setShowInviteModal(false);
-            }
-          }}
-        >
+        <div className="modal-overlay" role="presentation" onClick={() => !inviteSubmitting && setShowInviteModal(false)}>
           <section
             className="modal-card"
             role="dialog"
             aria-modal="true"
-            aria-label="초대 코드 입력"
+            aria-label={COPY.inviteTitle}
             onClick={(event) => event.stopPropagation()}
           >
-            <h2>초대 코드 입력</h2>
-            <p className="muted">
-              초대 코드를 가지고 계시다면 8자리 이상의 코드를 그대로 입력하고 확인 버튼을 눌러 주세요.
-            </p>
+            <h2>{COPY.inviteTitle}</h2>
+            <p className="muted">{COPY.inviteIntro}</p>
 
             <form onSubmit={onSubmitInvite} className="form-stack">
               <label className="field">
-                <span>초대 코드</span>
+                <span>{COPY.inviteCode}</span>
                 <input
                   value={inviteCode}
                   onChange={(event) => setInviteCode(event.target.value)}
                   required
                   minLength={8}
                   autoFocus
-                  placeholder="예: ABCD-1234"
+                  placeholder={"ABCD-1234"}
                 />
               </label>
 
@@ -564,7 +612,7 @@ export function LoginForm({
 
               <div className="button-row">
                 <button type="submit" disabled={inviteSubmitting} className="btn">
-                  {inviteSubmitting ? "처리 중..." : "확인"}
+                  {inviteSubmitting ? COPY.submitting : COPY.confirm}
                 </button>
                 <button
                   type="button"
@@ -572,7 +620,7 @@ export function LoginForm({
                   onClick={() => setShowInviteModal(false)}
                   disabled={inviteSubmitting}
                 >
-                  닫기
+                  {COPY.close}
                 </button>
               </div>
             </form>
@@ -586,13 +634,11 @@ export function LoginForm({
             className="modal-card"
             role="dialog"
             aria-modal="true"
-            aria-label="필수 약관 동의"
+            aria-label={COPY.consentTitle}
             onClick={(event) => event.stopPropagation()}
           >
-            <h2>필수 약관 동의</h2>
-            <p className="muted">
-              서비스 이용을 위해서는 필수 약관 동의가 필요합니다.
-            </p>
+            <h2>{COPY.consentTitle}</h2>
+            <p className="muted">{COPY.consentIntro}</p>
 
             <form onSubmit={onSubmitConsent} className="form-stack top-gap">
               {consentPolicies.map((policy) => (
@@ -625,7 +671,7 @@ export function LoginForm({
                           [policy.type]: event.target.checked,
                         }))}
                     />
-                    <span>{policy.title}에 동의합니다. (필수)</span>
+                    <span>{`${policy.title} (${COPY.consentRequired}`}</span>
                   </label>
                 </article>
               ))}
@@ -634,7 +680,7 @@ export function LoginForm({
 
               <div className="button-row">
                 <button type="submit" className="btn btn-success" disabled={consentSubmitting || !allPoliciesChecked}>
-                  {consentSubmitting ? "처리 중..." : "동의하고 로그인"}
+                  {consentSubmitting ? COPY.submitting : COPY.consentSubmit}
                 </button>
                 <button
                   type="button"
@@ -642,7 +688,7 @@ export function LoginForm({
                   onClick={declineConsent}
                   disabled={consentSubmitting}
                 >
-                  동의 거부 (로그인 취소)
+                  {COPY.consentDecline}
                 </button>
               </div>
             </form>
@@ -653,7 +699,7 @@ export function LoginForm({
       {isProcessing ? (
         <div className="processing-overlay" role="presentation" aria-live="polite" aria-busy={isProcessing}>
           <section className="modal-card processing-card">
-            <h2>처리 중</h2>
+            <h2>{COPY.submitting}</h2>
             <p className="muted">{processingMessage}</p>
             <div className="loading-bar">
               <span />

@@ -13,6 +13,7 @@ import { UserMenu } from "../../components/layout/user-menu";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
+type PortalProvider = "CU12" | "CYBER_CAMPUS";
 type InviteState = "ACTIVE" | "USED" | "EXPIRED" | "INACTIVE";
 
 interface AdminClientProps {
@@ -40,8 +41,9 @@ interface MailPreference {
 }
 
 interface Cu12Account {
+  provider: PortalProvider;
   cu12Id: string;
-  campus: CampusType;
+  campus: CampusType | null;
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
   quizAutoSolveEnabled?: boolean;
@@ -61,6 +63,7 @@ interface Member {
 
 interface Invite {
   id: string;
+  provider?: PortalProvider;
   cu12Id: string;
   role: RoleType;
   isActive: boolean;
@@ -129,6 +132,7 @@ interface LogPurgeResponse {
 
 interface InviteCreateResponse {
   inviteId: string;
+  provider?: PortalProvider;
   token: string;
   expiresAt: string;
 }
@@ -548,7 +552,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const syncMember = useCallback((member: Member) => {
     if (!member.cu12Account?.cu12Id || memberSyncBusyId === member.id) {
       if (!member.cu12Account?.cu12Id) {
-        setError("CU12 연동 계정이 없는 사용자는 동기화 할 수 없습니다.");
+        setError("통합 포털 계정이 연결되지 않은 사용자는 동기화할 수 없습니다.");
       }
       return;
     }
@@ -790,7 +794,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               loading="lazy"
             />
             <div>
-              <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션</p>
+              <p className="brand-kicker">Catholic University Automation</p>
               <h1>운영 관리센터</h1>
             </div>
           </div>
@@ -835,7 +839,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       </header>
       <section className="card admin-hero">
         <div>
-          <p className="brand-kicker">가톨릭대학교 공유대학 수강 지원 솔루션 관리자</p>
+          <p className="brand-kicker">가톨릭대학교 수강 지원 솔루션 관리자</p>
           <h1>운영 관리센터</h1>
           <p className="text-small muted">
             회원 {members.length}명, 초대 코드 {invites.length}개, 로그 {logPagination?.total ?? 0}건
@@ -877,7 +881,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         </div>
         <form className="form-grid top-gap" onSubmit={createMember}>
           <label className="field">
-            <span>CU12 ID</span>
+            <span>통합 포털 ID</span>
             <input
               value={newCu12Id}
               onChange={(event) => setNewCu12Id(event.target.value)}
@@ -897,7 +901,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             />
           </label>
           <label className="field">
-            <span>캠퍼스</span>
+            <span>CU12 교정 설정</span>
             <select
               value={newCampus}
               onChange={(event) => setNewCampus(event.target.value as CampusType)}
@@ -907,7 +911,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               <option value="SONGSIN">성신교정</option>
             </select>
             {isEditMode ? (
-              <p className="muted text-small">캠퍼스는 등록 후 별도 API에서 별도 수정하세요.</p>
+              <p className="muted text-small">CU12 교정 설정은 등록 후 별도 API에서 수정하세요.</p>
             ) : null}
           </label>
           <label className="field">
@@ -951,10 +955,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           ) : (
             <>
               {isEditMode ? (
-                <p className="muted">CU12 비밀번호는 이 화면에서 수정할 수 없습니다.</p>
+                <p className="muted">통합 포털 비밀번호는 이 화면에서 수정할 수 없습니다.</p>
               ) : (
                 <label className="field">
-                  <span>CU12 비밀번호</span>
+                  <span>통합 포털 비밀번호</span>
                   <input
                     type="password"
                     value={newCu12Password}
@@ -1084,11 +1088,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       <section className="card">
         <div className="table-toolbar">
           <h2>초대 코드 관리</h2>
-          <span className="text-small muted">회원 등록 전에 초대 코드를 발급해 초대 기반 등록을 허용할 수 있습니다.</span>
+          <span className="text-small muted">통합 포털 계정 승인을 위한 초대 코드를 발급합니다.</span>
         </div>
         <form className="form-grid top-gap" onSubmit={createInvite}>
           <label className="field">
-            <span>CU12 ID</span>
+            <span>통합 포털 ID</span>
             <input
               value={inviteCu12Id}
               onChange={(event) => setInviteCu12Id(event.target.value)}
@@ -1137,7 +1141,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <table>
             <thead>
               <tr>
-                <th>CU12 ID</th>
+                <th>계정 ID</th>
                 <th>역할</th>
                 <th>상태</th>
                 <th>생성일</th>
@@ -1155,7 +1159,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               ) : (
                 invites.map((invite) => (
                   <tr key={invite.id}>
-                    <td data-label="CU12 ID">{invite.cu12Id}</td>
+                    <td data-label="계정 ID">{invite.cu12Id}</td>
                     <td data-label="역할">{invite.role}</td>
                     <td data-label="상태">
                       <span className={`status-chip ${statusChipClassForInvite(invite.state)}`}>

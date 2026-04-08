@@ -8,6 +8,7 @@ const EnvSchema = z.object({
   WORKER_SHARED_TOKEN: z.string().min(32),
   TRUST_PROXY_HEADERS: z.coerce.boolean().default(false),
   CU12_BASE_URL: z.string().url().default("https://www.cu12.ac.kr"),
+  CYBER_CAMPUS_BASE_URL: z.string().url().default("https://e-cyber.catholic.ac.kr"),
   GITHUB_OWNER: z.string().optional(),
   GITHUB_REPO: z.string().optional(),
   GITHUB_WORKFLOW_ID: z.string().optional(),

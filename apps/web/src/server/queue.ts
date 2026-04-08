@@ -688,7 +688,7 @@ export async function cancelJob(jobId: string): Promise<{
   const updated = await prisma.jobQueue.updateMany({
     where: {
       id: jobId,
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+      status: { in: [JobStatus.PENDING, JobStatus.BLOCKED, JobStatus.RUNNING] },
     },
     data: {
       status: JobStatus.CANCELED,
