@@ -103,7 +103,7 @@ jobs:
           echo "job_types=$JOB_TYPES" >> "$GITHUB_OUTPUT"
 
           NORMALIZED_JOB_TYPES=$(echo "$JOB_TYPES" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
-          if [[ ",$NORMALIZED_JOB_TYPES," == *",AUTOLEARN,"* ]]; then
+          if [[ ",$NORMALIZED_JOB_TYPES," == *",AUTOLEARN,"* || ",$NORMALIZED_JOB_TYPES," == *",SYNC,"* || ",$NORMALIZED_JOB_TYPES," == *",NOTICE_SCAN,"* ]]; then
             echo "needs_playwright=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_playwright=false" >> "$GITHUB_OUTPUT"
