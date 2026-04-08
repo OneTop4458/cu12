@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonOk, jsonError } from "@/lib/http";
 
-import { listSiteNotices } from "@/server/site-notice";
+import { listPublicSiteNotices } from "@/server/site-notice";
 import { SiteNoticeType } from "@prisma/client";
 import { z } from "zod";
 
@@ -10,7 +10,7 @@ const QuerySchema = z.object({
 });
 
 function toPublicNotice(
-  notice: Awaited<ReturnType<typeof listSiteNotices>>[number],
+  notice: Awaited<ReturnType<typeof listPublicSiteNotices>>[number],
 ) {
   return {
     id: notice.id,
@@ -33,6 +33,6 @@ export async function GET(request: NextRequest) {
     return jsonError("Invalid notice type", 400, "VALIDATION_ERROR");
   }
 
-  const notices = await listSiteNotices(parsed.data.type, false);
+  const notices = await listPublicSiteNotices(parsed.data.type);
   return jsonOk({ siteNotices: notices.map(toPublicNotice) });
 }

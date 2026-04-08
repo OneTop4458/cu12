@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
+import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { SiteNoticeType } from "@prisma/client";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
-import { updateSiteNotice } from "@/server/site-notice";
+import { PUBLIC_SITE_NOTICES_TAG, updateSiteNotice } from "@/server/site-notice";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/server/audit-log";
 
@@ -88,6 +89,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       },
     });
 
+    revalidateTag(PUBLIC_SITE_NOTICES_TAG, "max");
+
     return jsonOk({ updated: true, notice });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -122,6 +125,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
         title: existing.title,
       },
     });
+
+    revalidateTag(PUBLIC_SITE_NOTICES_TAG, "max");
 
     return jsonOk({ deleted: true, noticeId });
   } catch (error) {

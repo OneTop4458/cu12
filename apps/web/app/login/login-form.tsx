@@ -693,16 +693,10 @@ export function LoginForm({
         </div>
       ) : null}
 
-      {isProcessing ? (
-        <div className="processing-overlay" role="presentation" aria-live="polite" aria-busy={isProcessing}>
-          <section className="modal-card processing-card">
-            <h2>{COPY.submitting}</h2>
-            <p className="muted">{processingMessage}</p>
-            <div className="loading-bar">
-              <span />
-            </div>
-          </section>
-        </div>
+      {isProcessing && processingMessage ? (
+        <p className="muted top-gap" aria-live="polite" aria-busy={isProcessing}>
+          {processingMessage}
+        </p>
       ) : null}
     </div>
   );

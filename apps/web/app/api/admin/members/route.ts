@@ -8,6 +8,7 @@ import { upsertCu12Account } from "@/server/cu12-account";
 import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-login";
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { writeAuditLog } from "@/server/audit-log";
+import { invalidateCachedAuthState } from "@/server/auth-state-cache";
 
 const CreateMemberSchema = z.object({
   provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
@@ -248,6 +249,8 @@ export async function POST(request: NextRequest) {
         isActive,
       },
     });
+
+    invalidateCachedAuthState(userId);
 
     return jsonOk({ created, user });
   } catch (error) {

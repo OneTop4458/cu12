@@ -1,4 +1,5 @@
 import { PolicyDocumentType } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export const REQUIRED_POLICY_TYPES: PolicyDocumentType[] = [
@@ -7,6 +8,7 @@ export const REQUIRED_POLICY_TYPES: PolicyDocumentType[] = [
 ];
 
 const POLICY_PROFILE_ID = "default";
+export const PUBLIC_ACTIVE_POLICIES_TAG = "public-active-policies";
 
 const POLICY_TEMPLATE_TOKENS = {
   companyName: "{{COMPANY_NAME}}",
@@ -250,7 +252,7 @@ export async function listPoliciesForAdmin(): Promise<PolicyDocumentPayload[]> {
   return rows.map((row) => toPolicyPayload(row));
 }
 
-export async function getActiveRequiredPolicies(): Promise<PolicyDocumentPayload[]> {
+async function loadActiveRequiredPolicies(): Promise<PolicyDocumentPayload[]> {
   const [rows, profile] = await Promise.all([
     prisma.policyDocument.findMany({
       where: {
@@ -271,6 +273,28 @@ export async function getActiveRequiredPolicies(): Promise<PolicyDocumentPayload
   ]);
 
   return rows.map((row) => toPolicyPayload(row, { profile, renderTemplate: true }));
+}
+
+const getCachedActiveRequiredPoliciesInner = unstable_cache(
+  async () => {
+    if (!process.env.DATABASE_URL) {
+      return [] satisfies PolicyDocumentPayload[];
+    }
+    return loadActiveRequiredPolicies();
+  },
+  ["public-active-required-policies"],
+  {
+    revalidate: 60,
+    tags: [PUBLIC_ACTIVE_POLICIES_TAG],
+  },
+);
+
+export async function getActiveRequiredPolicies(): Promise<PolicyDocumentPayload[]> {
+  return loadActiveRequiredPolicies();
+}
+
+export async function getCachedActiveRequiredPolicies(): Promise<PolicyDocumentPayload[]> {
+  return getCachedActiveRequiredPoliciesInner();
 }
 
 export async function getPolicyConsentRequirement(userId: string): Promise<PolicyConsentRequirement> {

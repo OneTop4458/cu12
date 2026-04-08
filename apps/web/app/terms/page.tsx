@@ -1,11 +1,9 @@
 import Link from "next/link";
 import { PolicyDocumentType } from "@prisma/client";
-import { getActiveRequiredPolicies } from "@/server/policy";
-
-export const dynamic = "force-dynamic";
+import { getCachedActiveRequiredPolicies } from "@/server/policy";
 
 export default async function TermsOfServicePage() {
-  const policies = await getActiveRequiredPolicies();
+  const policies = await getCachedActiveRequiredPolicies();
   const policy = policies.find((item) => item.type === PolicyDocumentType.TERMS_OF_SERVICE) ?? null;
 
   return (
