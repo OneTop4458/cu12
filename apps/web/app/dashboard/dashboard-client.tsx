@@ -1030,14 +1030,32 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     setCoursesLoading(true);
     try {
       const payload = await fetchJson<{ courses: Course[] }>("/api/dashboard/courses");
-      setCourses(payload.courses);
+      setCourses((prev) =>
+        payload.courses.map((course) => {
+          const existing = prev.find((entry) => entry.lectureSeq === course.lectureSeq);
+          if (!existing) {
+            return course;
+          }
+
+          if (!expandedCourseIds.has(course.lectureSeq) || existing.weekSummaries.length === 0) {
+            return course;
+          }
+
+          return {
+            ...course,
+            weekSummaries: existing.weekSummaries,
+            taskTypeCounts: existing.taskTypeCounts,
+            pendingTaskTypeCounts: existing.pendingTaskTypeCounts,
+          };
+        }),
+      );
       setLectureSeq((prev) => prev ?? payload.courses[0]?.lectureSeq ?? null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setCoursesLoading(false);
     }
-  }, [fetchJson]);
+  }, [expandedCourseIds, fetchJson]);
 
   const loadDeadlines = useCallback(async (limit = 30) => {
     setDeadlinesLoading(true);
@@ -1274,6 +1292,23 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     if (!candidate) return;
     setTrackingJobId(candidate.id);
   }, [sortedJobs, trackingJobId]);
+
+  useEffect(() => {
+    const missingExpandedDetails = courses.filter(
+      (course) =>
+        expandedCourseIds.has(course.lectureSeq)
+        && course.weekSummaries.length === 0
+        && !courseDetailLoadingIds.has(course.lectureSeq),
+    );
+
+    if (missingExpandedDetails.length === 0) {
+      return;
+    }
+
+    missingExpandedDetails.forEach((course) => {
+      void loadCourseDetail(course.lectureSeq);
+    });
+  }, [courseDetailLoadingIds, courses, expandedCourseIds, loadCourseDetail]);
 
   useEffect(() => {
     if (!approvalModalOpen || !activeCyberCampusApproval?.selectedMethod || approvalSubmitting) return;

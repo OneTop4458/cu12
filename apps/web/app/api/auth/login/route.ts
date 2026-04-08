@@ -79,7 +79,6 @@ function scheduleAuthSuccessSideEffects(input: {
   cu12Id: string;
   campus: "SONGSIM" | "SONGSIN";
   loginIp: string | null;
-  throttleIdentifiers: Array<string | null>;
 }) {
   runInBackground(async () => {
     await Promise.allSettled([
@@ -103,7 +102,6 @@ function scheduleAuthSuccessSideEffects(input: {
           loginIp: input.loginIp,
         },
       }),
-      clearAuthFailuresBestEffort("login", input.throttleIdentifiers),
     ]);
   });
 }
@@ -183,7 +181,7 @@ export async function POST(request: NextRequest) {
     const storedProviderHint = existingAccount?.provider
       ? normalizePortalProvider(existingAccount.provider)
       : undefined;
-    const resolvedProviderHint = storedProviderHint ?? explicitProviderHint;
+    const resolvedProviderHint = explicitProviderHint ?? storedProviderHint;
 
     if (localCandidate?.isTestUser) {
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
@@ -219,7 +217,7 @@ export async function POST(request: NextRequest) {
             firstLogin: false,
           }),
         );
-        runInBackground(() => clearAuthFailuresBestEffort("login", throttleIdentifiers));
+        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
         return timedOk({
           stage: "CONSENT_REQUIRED" as const,
           consentToken,
@@ -275,6 +273,7 @@ export async function POST(request: NextRequest) {
       });
       setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
       setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
+      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
       scheduleAuthSuccessSideEffects({
         userId: localCandidate.id,
@@ -283,7 +282,6 @@ export async function POST(request: NextRequest) {
         cu12Id: body.cu12Id,
         campus,
         loginIp,
-        throttleIdentifiers,
       });
       return attachTiming(response, timing);
     }
@@ -425,9 +423,9 @@ export async function POST(request: NextRequest) {
               campus,
             },
           }),
-          clearAuthFailuresBestEffort("login", throttleIdentifiers),
         ]);
       });
+      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
       return timedOk({
         stage: "INVITE_REQUIRED" as const,
@@ -459,7 +457,7 @@ export async function POST(request: NextRequest) {
           firstLogin: false,
         }),
       );
-      runInBackground(() => clearAuthFailuresBestEffort("login", throttleIdentifiers));
+      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
       return timedOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
@@ -515,6 +513,7 @@ export async function POST(request: NextRequest) {
     });
     setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
     setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
+    await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
     scheduleAuthSuccessSideEffects({
       userId: user.id,
@@ -523,7 +522,6 @@ export async function POST(request: NextRequest) {
       cu12Id: body.cu12Id,
       campus,
       loginIp,
-      throttleIdentifiers,
     });
 
     return attachTiming(response, timing);
