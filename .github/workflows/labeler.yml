@@ -154,4 +154,19 @@ jobs:
             exit 0
           fi
 
-          gh pr merge "$PR_NUMBER" -R "$GH_REPO" --auto --squash --delete-branch
+          merge_output="$(gh pr merge "$PR_NUMBER" -R "$GH_REPO" --auto --squash --delete-branch 2>&1)" || merge_status=$?
+          merge_status="${merge_status:-0}"
+
+          if [ "$merge_status" -eq 0 ]; then
+            echo "$merge_output"
+            exit 0
+          fi
+
+          echo "$merge_output"
+
+          if printf '%s' "$merge_output" | grep -Eqi 'Resource not accessible by integration|enablePullRequestAutoMerge|auto-merge is not enabled|Auto merge is not allowed'; then
+            echo "Skipping auto-merge enable because the repository or token cannot use the auto-merge API."
+            exit 0
+          fi
+
+          exit "$merge_status"

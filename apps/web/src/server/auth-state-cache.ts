@@ -1,4 +1,5 @@
 import type { PortalProvider } from "@cu12/core";
+import { isMissingProviderColumnError, warnMissingProviderColumn } from "@/lib/provider-compat";
 import { prisma } from "@/lib/prisma";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 
@@ -102,12 +103,21 @@ async function loadActiveUser(userId: string): Promise<CachedActiveUser | null> 
 }
 
 async function loadCurrentProvider(userId: string): Promise<PortalProvider> {
-  const account = await prisma.cu12Account.findUnique({
-    where: { userId },
-    select: { provider: true },
-  });
+  try {
+    const account = await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: { provider: true },
+    });
 
-  return (account?.provider as PortalProvider | undefined) ?? "CU12";
+    return (account?.provider as PortalProvider | undefined) ?? "CU12";
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    return "CU12";
+  }
 }
 
 export async function getCachedActiveUser(userId: string): Promise<CachedActiveUser | null> {
