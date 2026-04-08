@@ -18,7 +18,13 @@ export async function POST(request: NextRequest) {
     return jsonError(TEST_USER_SYNC_BLOCKED_MESSAGE, 409, TEST_USER_SYNC_BLOCKED_ERROR_CODE);
   }
 
-  const account = await prisma.cu12Account.findUnique({ where: { userId: session.userId } });
+  const account = await prisma.cu12Account.findUnique({
+    where: { userId: session.userId },
+    select: {
+      id: true,
+      accountStatus: true,
+    },
+  });
   if (!account) {
     return jsonError("CU12 account is not connected", 400);
   }

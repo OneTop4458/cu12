@@ -1,5 +1,6 @@
 import type { PortalCampus, PortalProvider } from "@cu12/core";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { isMissingProviderColumnError, warnMissingProviderColumn, withDefaultProvider } from "@/lib/provider-compat";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
@@ -56,6 +57,18 @@ type Cu12DashboardAccountRecord = Prisma.Cu12AccountGetPayload<{
   select: typeof dashboardAccountSelect;
 }>;
 
+type Cu12AccountMutationRecord = {
+  provider: PortalProvider;
+  cu12Id: string;
+  campus: PortalCampus | null;
+};
+
+const accountMutationSelect = {
+  provider: true,
+  cu12Id: true,
+  campus: true,
+} as const satisfies Prisma.Cu12AccountSelect;
+
 function isMissingQuizAutoSolveEnabledColumnError(error: unknown): boolean {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2022") {
     const column = String(error.meta?.column ?? "");
@@ -81,14 +94,91 @@ function withQuizDefault<T extends { quizAutoSolveEnabled?: boolean }>(record: O
   } as T;
 }
 
+function toAutomationSettingsRecord(
+  fallback: Omit<Cu12AutomationSettingsRecord, "provider" | "quizAutoSolveEnabled">
+    | Omit<Cu12AutomationSettingsRecord, "provider">
+    | Omit<Cu12AutomationSettingsRecord, "quizAutoSolveEnabled">
+    | Cu12AutomationSettingsRecord,
+  options: {
+    missingProvider: boolean;
+    missingQuiz: boolean;
+  },
+): Cu12AutomationSettingsRecord {
+  const withProvider = options.missingProvider
+    ? withDefaultProvider<Omit<Cu12AutomationSettingsRecord, "quizAutoSolveEnabled"> & { quizAutoSolveEnabled?: boolean }>(
+      fallback as Omit<Cu12AutomationSettingsRecord, "provider">,
+    )
+    : fallback as Cu12AutomationSettingsRecord;
+
+  return options.missingQuiz
+    ? withQuizDefault<Cu12AutomationSettingsRecord>(
+      withProvider as Omit<Cu12AutomationSettingsRecord, "quizAutoSolveEnabled">,
+    )
+    : withProvider as Cu12AutomationSettingsRecord;
+}
+
+function toDashboardAccountRecord(
+  fallback: Omit<Cu12DashboardAccountRecord, "provider" | "quizAutoSolveEnabled">
+    | Omit<Cu12DashboardAccountRecord, "provider">
+    | Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled">
+    | Cu12DashboardAccountRecord,
+  options: {
+    missingProvider: boolean;
+    missingQuiz: boolean;
+  },
+): Cu12DashboardAccountRecord {
+  const withProvider = options.missingProvider
+    ? withDefaultProvider<Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled"> & { quizAutoSolveEnabled?: boolean }>(
+      fallback as Omit<Cu12DashboardAccountRecord, "provider">,
+    )
+    : fallback as Cu12DashboardAccountRecord;
+
+  return options.missingQuiz
+    ? withQuizDefault<Cu12DashboardAccountRecord>(
+      withProvider as Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled">,
+    )
+    : withProvider as Cu12DashboardAccountRecord;
+}
+
 export async function upsertCu12Account(userId: string, input: Cu12AccountInput) {
-  const existing = await prisma.cu12Account.findUnique({
-    where: { userId },
-    select: {
-      provider: true,
-      campus: true,
-    },
-  });
+  let existing: {
+    provider?: PortalProvider;
+    campus: PortalCampus | null;
+  } | null;
+
+  try {
+    const found = await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: {
+        provider: true,
+        campus: true,
+      },
+    });
+    existing = found
+      ? {
+        provider: found.provider as PortalProvider | undefined,
+        campus: (found.campus as PortalCampus | null | undefined) ?? null,
+      }
+      : null;
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    const legacy = await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: {
+        campus: true,
+      },
+    });
+    existing = legacy
+      ? {
+        provider: "CU12",
+        campus: (legacy.campus as PortalCampus | null | undefined) ?? null,
+      }
+      : null;
+  }
 
   const currentProvider = input.currentProvider ?? input.provider ?? (existing?.provider as PortalProvider | undefined) ?? "CU12";
   const campus = input.campus !== undefined
@@ -96,41 +186,138 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
     : (existing?.campus as PortalCampus | null | undefined) ?? null;
 
   if (existing) {
-    return prisma.cu12Account.update({
-      where: { userId },
+    try {
+      return await prisma.cu12Account.update({
+        where: { userId },
+        data: {
+          provider: currentProvider,
+          cu12Id: input.cu12Id,
+          encryptedPassword: encryptSecret(input.cu12Password),
+          campus,
+          accountStatus: "CONNECTED",
+          statusReason: null,
+          updatedAt: new Date(),
+        },
+        select: accountMutationSelect,
+      });
+    } catch (error) {
+      if (!isMissingProviderColumnError(error)) {
+        throw error;
+      }
+
+      warnMissingProviderColumn();
+      const legacy = await prisma.cu12Account.update({
+        where: { userId },
+        data: {
+          cu12Id: input.cu12Id,
+          encryptedPassword: encryptSecret(input.cu12Password),
+          campus,
+          accountStatus: "CONNECTED",
+          statusReason: null,
+          updatedAt: new Date(),
+        },
+      select: {
+          cu12Id: true,
+          campus: true,
+        },
+      });
+      return withDefaultProvider<Cu12AccountMutationRecord>({
+        cu12Id: legacy.cu12Id,
+        campus: (legacy.campus as PortalCampus | null | undefined) ?? null,
+      });
+    }
+  }
+
+  try {
+    return await prisma.cu12Account.create({
       data: {
+        userId,
         provider: currentProvider,
         cu12Id: input.cu12Id,
         encryptedPassword: encryptSecret(input.cu12Password),
         campus,
         accountStatus: "CONNECTED",
-        statusReason: null,
-        updatedAt: new Date(),
+      },
+      select: accountMutationSelect,
+    });
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    const legacy = await prisma.cu12Account.create({
+      data: {
+        userId,
+        cu12Id: input.cu12Id,
+        encryptedPassword: encryptSecret(input.cu12Password),
+        campus,
+        accountStatus: "CONNECTED",
+      },
+      select: {
+        cu12Id: true,
+        campus: true,
       },
     });
+    return withDefaultProvider<Cu12AccountMutationRecord>({
+      cu12Id: legacy.cu12Id,
+      campus: (legacy.campus as PortalCampus | null | undefined) ?? null,
+    });
   }
-
-  return prisma.cu12Account.create({
-    data: {
-      userId,
-      provider: currentProvider,
-      cu12Id: input.cu12Id,
-      encryptedPassword: encryptSecret(input.cu12Password),
-      campus,
-      accountStatus: "CONNECTED",
-    },
-  });
 }
 
 export async function getCu12Credentials(userId: string) {
-  const account = await prisma.cu12Account.findUnique({ where: { userId } });
+  let account:
+    | {
+      provider?: PortalProvider;
+      cu12Id: string;
+      encryptedPassword: string;
+      campus: string | null;
+      quizAutoSolveEnabled?: boolean;
+    }
+    | null;
+
+  try {
+    account = await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: {
+        provider: true,
+        cu12Id: true,
+        encryptedPassword: true,
+        campus: true,
+        quizAutoSolveEnabled: true,
+      },
+    });
+  } catch (error) {
+    const missingProvider = isMissingProviderColumnError(error);
+    const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
+    if (!missingProvider && !missingQuiz) {
+      throw error;
+    }
+
+    if (missingProvider) {
+      warnMissingProviderColumn();
+    }
+
+    account = await prisma.cu12Account.findUnique({
+      where: { userId },
+      select: {
+        ...(missingProvider ? {} : { provider: true }),
+        cu12Id: true,
+        encryptedPassword: true,
+        campus: true,
+        ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
+      },
+    });
+  }
   if (!account) return null;
 
   return {
-    provider: account.provider as PortalProvider,
+    provider: (account.provider as PortalProvider | undefined) ?? "CU12",
     cu12Id: account.cu12Id,
     cu12Password: decryptSecret(account.encryptedPassword),
     campus: (account.campus ?? null) as PortalCampus | null,
+    quizAutoSolveEnabled: account.quizAutoSolveEnabled ?? true,
   };
 }
 
@@ -141,25 +328,34 @@ export async function getAutomationSettingsAccount(userId: string): Promise<Cu12
       select: automationSettingsSelect,
     });
   } catch (error) {
-    if (!isMissingQuizAutoSolveEnabledColumnError(error)) {
+    const missingProvider = isMissingProviderColumnError(error);
+    const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
+    if (!missingProvider && !missingQuiz) {
       throw error;
+    }
+
+    if (missingProvider) {
+      warnMissingProviderColumn();
     }
 
     const fallback = await prisma.cu12Account.findUnique({
       where: { userId },
       select: {
-        provider: true,
+        ...(missingProvider ? {} : { provider: true }),
         cu12Id: true,
         campus: true,
         accountStatus: true,
         statusReason: true,
         autoLearnEnabled: true,
+        ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
         detectActivitiesEnabled: true,
         emailDigestEnabled: true,
         updatedAt: true,
       },
     });
-    return fallback ? withQuizDefault<Cu12AutomationSettingsRecord>(fallback) : null;
+    if (!fallback) return null;
+
+    return toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz });
   }
 }
 
@@ -170,19 +366,26 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
       select: dashboardAccountSelect,
     });
   } catch (error) {
-    if (!isMissingQuizAutoSolveEnabledColumnError(error)) {
+    const missingProvider = isMissingProviderColumnError(error);
+    const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
+    if (!missingProvider && !missingQuiz) {
       throw error;
+    }
+
+    if (missingProvider) {
+      warnMissingProviderColumn();
     }
 
     const fallback = await prisma.cu12Account.findUnique({
       where: { userId },
       select: {
-        provider: true,
+        ...(missingProvider ? {} : { provider: true }),
         cu12Id: true,
         campus: true,
         accountStatus: true,
         statusReason: true,
         autoLearnEnabled: true,
+        ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
         user: {
           select: {
             lastLoginAt: true,
@@ -191,14 +394,34 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
         },
       },
     });
-    return fallback ? withQuizDefault<Cu12DashboardAccountRecord>(fallback) : null;
+    if (!fallback) return null;
+
+    return toDashboardAccountRecord(fallback, { missingProvider, missingQuiz });
   }
 }
 
 export async function updateAutomationSettings(userId: string, input: AutomationSettingsInput) {
-  const current = await prisma.cu12Account.findUnique({ where: { userId }, select: { provider: true } });
-  if (!current) {
-    throw new Error("Account not found");
+  let currentProvider: PortalProvider = "CU12";
+
+  try {
+    const current = await prisma.cu12Account.findUnique({ where: { userId }, select: { provider: true } });
+    if (!current) {
+      throw new Error("Account not found");
+    }
+    currentProvider = current.provider as PortalProvider;
+  } catch (error) {
+    if (error instanceof Error && error.message === "Account not found") {
+      throw error;
+    }
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    const current = await prisma.cu12Account.findUnique({ where: { userId }, select: { userId: true } });
+    if (!current) {
+      throw new Error("Account not found");
+    }
   }
 
   const data = {
@@ -216,31 +439,39 @@ export async function updateAutomationSettings(userId: string, input: Automation
       select: automationSettingsSelect,
     });
   } catch (error) {
-    if (!isMissingQuizAutoSolveEnabledColumnError(error)) {
+    const missingProvider = isMissingProviderColumnError(error);
+    const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
+    if (!missingProvider && !missingQuiz) {
       throw error;
+    }
+
+    if (missingProvider) {
+      warnMissingProviderColumn();
     }
 
     const fallback = await prisma.cu12Account.update({
       where: { userId },
       data: {
-        provider: input.currentProvider ?? current.provider,
+        ...(missingProvider ? {} : { provider: input.currentProvider ?? currentProvider }),
         autoLearnEnabled: input.autoLearnEnabled,
+        ...(missingQuiz ? {} : { quizAutoSolveEnabled: input.quizAutoSolveEnabled }),
         detectActivitiesEnabled: input.detectActivitiesEnabled,
         emailDigestEnabled: input.emailDigestEnabled,
       },
       select: {
-        provider: true,
+        ...(missingProvider ? {} : { provider: true }),
         cu12Id: true,
         campus: true,
         accountStatus: true,
         statusReason: true,
         autoLearnEnabled: true,
+        ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
         detectActivitiesEnabled: true,
         emailDigestEnabled: true,
         updatedAt: true,
       },
     });
-    return withQuizDefault<Cu12AutomationSettingsRecord>(fallback);
+    return toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz });
   }
 }
 
