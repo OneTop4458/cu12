@@ -2,7 +2,7 @@ name: PR Auto Merge On CI
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review, closed]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled, closed]
 
 permissions:
   actions: write
@@ -24,12 +24,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
+
           number="${{ github.event.pull_request.number }}"
           state="$(gh pr view "$number" -R "$GH_REPO" --json state,isDraft --jq '.state + ":" + (.isDraft|tostring)')"
           if [ "$state" != "OPEN:false" ]; then
             echo "PR #$number is not mergeable state ($state). Skip."
             exit 0
           fi
+
+          labels="$(gh pr view "$number" -R "$GH_REPO" --json labels --jq '.labels[].name')"
+          if ! grep -Fxq "automerge" <<< "$labels"; then
+            echo "PR #$number has no automerge label. Skip."
+            exit 0
+          fi
+
+          changed_files="$(gh pr view "$number" -R "$GH_REPO" --json files --jq '.files[].path')"
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              .github/workflows/*|prisma/*|scripts/*|AGENTS.md)
+                echo "PR #$number touches sensitive path '$path'. Skip auto-merge."
+                exit 0
+                ;;
+            esac
+          done <<< "$changed_files"
 
           gh pr merge "$number" -R "$GH_REPO" --auto --squash --delete-branch
 

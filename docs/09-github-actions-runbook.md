@@ -75,9 +75,11 @@
 
 3. `labeler.yml`
 - Applies PR labels based on changed paths.
+- Ensures the manual `automerge` label exists for explicit auto-merge opt-in.
 
 4. `codex-auto-merge-on-approval.yml`
-- Enables squash auto-merge for repository PRs created by the normal Codex flow.
+- Enables squash auto-merge only for repository PRs that are explicitly labeled `automerge`.
+- Refuses auto-merge for sensitive path changes (`.github/workflows/**`, `prisma/**`, `scripts/**`, `AGENTS.md`) even when the label is present.
 - After a PR is merged into `main`, dispatches `Deploy Vercel` when the merged file set includes deploy-relevant paths.
 
 5. `secret-scan.yml`
