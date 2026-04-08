@@ -10,9 +10,8 @@ const COPY = {
   appName: "Catholic University Automation",
   title: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uC218\uAC15 \uC9C0\uC6D0 \uC194\uB8E8\uC158",
   subtitle: "Catholic University Automation \uB85C\uADF8\uC778 \uD398\uC774\uC9C0\uC785\uB2C8\uB2E4.",
-  portalGuide: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD55C \uB4A4 \uC774\uC6A9\uD560 \uC11C\uBE44\uC2A4\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   loginTitle: "\uB85C\uADF8\uC778",
-  loginIntro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694.",
+  loginIntro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138(\uD2B8\uB9AC\uB2C8\uD2F0) \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694.",
   serviceNotice: "\uC11C\uBE44\uC2A4 \uACF5\uC9C0",
   maintenanceLink: "\uC6B4\uC601 \uC548\uB0B4 \uBCF4\uAE30",
   noticeTitle: "\uACF5\uC9C0",
@@ -57,7 +56,6 @@ export default async function LoginPage({
           <p className="brand-kicker">{COPY.appName}</p>
           <h1>{COPY.title}</h1>
           <p className="muted">{COPY.subtitle}</p>
-          <p className="muted">{COPY.portalGuide}</p>
           <p className="brand-mark">{COPY.appName}</p>
         </section>
 

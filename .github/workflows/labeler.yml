@@ -53,12 +53,16 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Manage automerge label for safe AI PRs
+        id: automerge
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const pr = context.payload.pull_request;
+
+            core.setOutput("should_enable_auto_merge", "false");
+            core.setOutput("pr_number", pr ? String(pr.number) : "");
 
             if (!pr) {
               core.info("No pull request payload. Skip automerge labeling.");
@@ -88,6 +92,7 @@ jobs:
 
             const disallowed = files.find((file) => !allowedPatterns.some((pattern) => pattern.test(file.filename)));
             const shouldAutomerge = sameRepo && isAiBranch && !isDraft && !disallowed;
+            core.setOutput("should_enable_auto_merge", shouldAutomerge ? "true" : "false");
 
             const existingLabels = new Set((pr.labels ?? []).map((label) => label.name));
             const hasAutomerge = existingLabels.has("automerge");
@@ -128,3 +133,25 @@ jobs:
                 ? `PR #${pr.number} already has automerge label.`
                 : `PR #${pr.number} is not eligible for automerge.`,
             );
+      - name: Enable auto-merge for eligible AI PRs
+        if: steps.automerge.outputs.should_enable_auto_merge == 'true'
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.automerge.outputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          state="$(gh pr view "$PR_NUMBER" -R "$GH_REPO" --json state,isDraft,autoMergeRequest --jq '.state + ":" + (.isDraft|tostring) + ":" + ((.autoMergeRequest != null)|tostring)')"
+          if [ "$state" = "OPEN:false:true" ]; then
+            echo "PR #$PR_NUMBER already has auto-merge enabled."
+            exit 0
+          fi
+
+          if [ "$state" != "OPEN:false:false" ]; then
+            echo "PR #$PR_NUMBER is not in an auto-mergeable state ($state). Skip."
+            exit 0
+          fi
+
+          gh pr merge "$PR_NUMBER" -R "$GH_REPO" --auto --squash --delete-branch
