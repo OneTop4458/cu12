@@ -188,6 +188,7 @@ interface Account {
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
   autoLearnEnabled: boolean;
+  quizAutoSolveEnabled: boolean;
   lastLoginAt: string | null;
   lastLoginIp: string | null;
 }
@@ -682,6 +683,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
   const [autoLearnEnabledDraft, setAutoLearnEnabledDraft] = useState(true);
+  const [quizAutoSolveEnabledDraft, setQuizAutoSolveEnabledDraft] = useState(true);
   const [account, setAccount] = useState<Account | null>(null);
 
   const [mode, setMode] = useState<"SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES">("ALL_COURSES");
@@ -946,6 +948,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
       setAutoLearnEnabledDraft(payload.account?.autoLearnEnabled ?? true);
+      setQuizAutoSolveEnabledDraft(payload.account?.quizAutoSolveEnabled ?? true);
       setMailDraft(payload.preference);
       const requiresMailSetup = payload.preference.updatedAt === null;
       setIsMailSetupRequired(requiresMailSetup);
@@ -1480,7 +1483,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         await fetchJson("/api/cu12/automation", {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ autoLearnEnabled: autoLearnEnabledDraft }),
+          body: JSON.stringify({
+            autoLearnEnabled: autoLearnEnabledDraft,
+            quizAutoSolveEnabled: quizAutoSolveEnabledDraft,
+          }),
         });
       }
       setIsMailSetupRequired(false);
@@ -1994,6 +2000,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <tr><th>캠퍼스</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
                   <tr><th>정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
+                  <tr><th>퀴즈 자동 풀이</th><td>{account ? (quizAutoSolveEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
                   <tr><th>다음 자동 동기화</th><td>{toDateTime(summary?.nextAutoSyncAt ?? null)}</td></tr>
                   <tr><th>마지막 접속일</th><td>{toDateTime(account?.lastLoginAt ?? null)}</td></tr>
@@ -2003,6 +2010,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </div>
             {mailDraft ? (
               <form onSubmit={saveMail} className="form-stack top-gap">
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={quizAutoSolveEnabledDraft}
+                    onChange={(event) => setQuizAutoSolveEnabledDraft(event.target.checked)}
+                    disabled={!account}
+                  />
+                  <span>자동 수강 중 퀴즈 자동 풀이 사용</span>
+                </label>
+                <p className="muted text-small">
+                  퀴즈 자동 풀이를 끄면 자동 수강은 영상과 자료만 처리하고 퀴즈는 남겨 둡니다. 작업 환경에 `OPENAI_API_KEY`가 없을 때도 퀴즈는 자동으로 건너뜁니다.
+                </p>
                 <label className="field"><span>수신 이메일</span><input type="email" value={mailDraft.email} onChange={(event) => setMailDraft({ ...mailDraft, email: event.target.value })} required /></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>메일 알림 사용</span></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnNotice} onChange={(event) => setMailDraft({ ...mailDraft, alertOnNotice: event.target.checked })} /><span>신규 공지/알림 즉시 발송</span></label>

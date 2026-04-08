@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { JobStatus, JobType } from "@prisma/client";
+import { getEnv } from "./env";
 import { prisma } from "./prisma";
 
 function parseArgs() {
@@ -76,8 +77,20 @@ function toBoolArg(value: string | undefined, fallback = false) {
   return fallback;
 }
 
-async function resolveAutoLearnWindowEligibleUserIds(userIds: string[]): Promise<Set<string>> {
-  if (userIds.length === 0) return new Set<string>();
+function isQuizAutoSolveAvailable() {
+  const key = getEnv().OPENAI_API_KEY;
+  return typeof key === "string" && key.trim().length > 0;
+}
+
+async function resolveAutoLearnWindowEligibleUserIds(
+  users: Array<{ id: string; quizAutoSolveEnabled: boolean }>,
+): Promise<Set<string>> {
+  if (users.length === 0) return new Set<string>();
+  const userIds = users.map((user) => user.id);
+  const allowQuizGlobally = isQuizAutoSolveAvailable();
+  const allowQuizByUserId = new Map(
+    users.map((user) => [user.id, allowQuizGlobally && user.quizAutoSolveEnabled]),
+  );
 
   const now = new Date();
   const tasks = await prisma.learningTask.findMany({
@@ -110,6 +123,9 @@ async function resolveAutoLearnWindowEligibleUserIds(userIds: string[]): Promise
 
   const eligible = new Set<string>();
   for (const task of tasks) {
+    if (task.activityType === "QUIZ" && !allowQuizByUserId.get(task.userId)) {
+      continue;
+    }
     if (task.activityType !== "VOD" || task.learnedSeconds < task.requiredSeconds) {
       eligible.add(task.userId);
     }
@@ -175,15 +191,27 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
           },
         },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        cu12Account: {
+          select: {
+            quizAutoSolveEnabled: true,
+          },
+        },
+      },
     });
 
     if (!autoLearnEligibleWindowOnly) {
-      return users;
+      return users.map((user) => ({ id: user.id }));
     }
 
-    const eligibleUserIds = await resolveAutoLearnWindowEligibleUserIds(users.map((user) => user.id));
-    return users.filter((user) => eligibleUserIds.has(user.id));
+    const eligibleUserIds = await resolveAutoLearnWindowEligibleUserIds(
+      users.map((user) => ({
+        id: user.id,
+        quizAutoSolveEnabled: user.cu12Account?.quizAutoSolveEnabled ?? true,
+      })),
+    );
+    return users.filter((user) => eligibleUserIds.has(user.id)).map((user) => ({ id: user.id }));
   }
 
   return prisma.user.findMany({

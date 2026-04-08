@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
         accountStatus: true,
         statusReason: true,
         autoLearnEnabled: true,
+        quizAutoSolveEnabled: true,
         user: {
           select: {
             lastLoginAt: true,
@@ -123,6 +124,7 @@ export async function GET(request: NextRequest) {
           accountStatus: account.accountStatus,
           statusReason: account.statusReason,
           autoLearnEnabled: account.autoLearnEnabled,
+          quizAutoSolveEnabled: account.quizAutoSolveEnabled,
           lastLoginAt: account.user.lastLoginAt,
           lastLoginIp: account.user.lastLoginIp,
         }

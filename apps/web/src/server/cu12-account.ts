@@ -9,6 +9,7 @@ export interface Cu12AccountInput {
 
 export interface AutomationSettingsInput {
   autoLearnEnabled?: boolean;
+  quizAutoSolveEnabled?: boolean;
   detectActivitiesEnabled?: boolean;
   emailDigestEnabled?: boolean;
 }
@@ -50,6 +51,7 @@ export async function updateAutomationSettings(userId: string, input: Automation
     where: { userId },
     data: {
       autoLearnEnabled: input.autoLearnEnabled,
+      quizAutoSolveEnabled: input.quizAutoSolveEnabled,
       detectActivitiesEnabled: input.detectActivitiesEnabled,
       emailDigestEnabled: input.emailDigestEnabled,
     },

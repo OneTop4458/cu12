@@ -607,6 +607,8 @@ paths:
               properties:
                 autoLearnEnabled:
                   type: boolean
+                quizAutoSolveEnabled:
+                  type: boolean
                 detectActivitiesEnabled:
                   type: boolean
                 emailDigestEnabled:
@@ -1974,6 +1976,8 @@ paths:
                   maxLength: 120
                 autoLearnEnabled:
                   type: boolean
+                quizAutoSolveEnabled:
+                  type: boolean
                 detectActivitiesEnabled:
                   type: boolean
                 emailDigestEnabled:
@@ -2669,6 +2673,7 @@ components:
           campus,
           accountStatus,
           autoLearnEnabled,
+          quizAutoSolveEnabled,
           detectActivitiesEnabled,
           emailDigestEnabled,
           updatedAt,
@@ -2685,6 +2690,8 @@ components:
           type: string
           nullable: true
         autoLearnEnabled:
+          type: boolean
+        quizAutoSolveEnabled:
           type: boolean
         detectActivitiesEnabled:
           type: boolean
@@ -3060,7 +3067,7 @@ components:
         account:
           type: object
           nullable: true
-          required: [cu12Id, campus, accountStatus, statusReason, lastLoginAt, lastLoginIp]
+          required: [cu12Id, campus, accountStatus, statusReason, autoLearnEnabled, quizAutoSolveEnabled, lastLoginAt, lastLoginIp]
           properties:
             cu12Id:
               type: string
@@ -3072,6 +3079,10 @@ components:
             statusReason:
               type: string
               nullable: true
+            autoLearnEnabled:
+              type: boolean
+            quizAutoSolveEnabled:
+              type: boolean
             lastLoginAt:
               type: string
               format: date-time

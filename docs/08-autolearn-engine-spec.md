@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Target: CU12 online learning flows for VOD, materials, and quizzes.
+- Target: CU12 online learning flows for VOD and materials, plus quizzes when quiz auto-solve is enabled for the user and OpenAI credentials are configured.
 - Excluded: assignments, debates, surveys, attendance-only items, and unsupported quiz DOM contracts.
 
 ## Execution Steps
@@ -39,7 +39,7 @@
 
 - Handle duplicate-play dialogs and unexpected modal prompts.
 - If page contract changes, fail fast with clear error capture.
-- If quiz answer generation is unavailable or OpenAI credentials are missing, fail the quiz task with a clear operator-facing error.
+- If quiz auto-solve is disabled for the user or OpenAI credentials are missing, quiz tasks are excluded from the plan and the run continues with supported non-quiz tasks.
 - Queue retry policy handles transient failures.
 
 ## Output

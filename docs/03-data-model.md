@@ -18,6 +18,7 @@
 - External account mapping (`cu12Id`, campus).
 - Stores encrypted CU12 password.
 - Stores account state (`CONNECTED`, `NEEDS_REAUTH`, `ERROR`).
+- Stores user automation flags such as scheduled auto-learn and quiz auto-solve opt-in.
 
 4. `JobQueue`
 - Async task queue for `SYNC`, `AUTOLEARN`, `NOTICE_SCAN`, `MAIL_DIGEST`.

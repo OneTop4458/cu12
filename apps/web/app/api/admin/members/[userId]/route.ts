@@ -18,6 +18,7 @@ const PatchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   localPassword: z.string().min(8).max(120).optional(),
   autoLearnEnabled: z.boolean().optional(),
+  quizAutoSolveEnabled: z.boolean().optional(),
   detectActivitiesEnabled: z.boolean().optional(),
   emailDigestEnabled: z.boolean().optional(),
   accountStatus: z.enum(["CONNECTED", "NEEDS_REAUTH", "ERROR"]).optional(),
@@ -84,6 +85,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const updateUser = Object.keys(userData).length > 0;
     const updateAccount =
       typeof body.autoLearnEnabled === "boolean"
+      || typeof body.quizAutoSolveEnabled === "boolean"
       || typeof body.detectActivitiesEnabled === "boolean"
       || typeof body.emailDigestEnabled === "boolean"
       || body.accountStatus
@@ -103,6 +105,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           where: { userId },
           data: {
             autoLearnEnabled: body.autoLearnEnabled,
+            quizAutoSolveEnabled: body.quizAutoSolveEnabled,
             detectActivitiesEnabled: body.detectActivitiesEnabled,
             emailDigestEnabled: body.emailDigestEnabled,
             accountStatus: body.accountStatus,
@@ -131,6 +134,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             accountStatus: true,
             statusReason: true,
             autoLearnEnabled: true,
+            quizAutoSolveEnabled: true,
             detectActivitiesEnabled: true,
             emailDigestEnabled: true,
           },

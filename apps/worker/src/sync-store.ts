@@ -309,13 +309,22 @@ export interface MailPreference {
 }
 
 export async function getUserCu12Credentials(userId: string) {
-  const account = await prisma.cu12Account.findUnique({ where: { userId } });
+  const account = await prisma.cu12Account.findUnique({
+    where: { userId },
+    select: {
+      cu12Id: true,
+      encryptedPassword: true,
+      campus: true,
+      quizAutoSolveEnabled: true,
+    },
+  });
   if (!account) return null;
 
   return {
     cu12Id: account.cu12Id,
     cu12Password: decryptSecret(account.encryptedPassword),
     campus: (account.campus === "SONGSIN" ? "SONGSIN" : "SONGSIM") as "SONGSIM" | "SONGSIN",
+    quizAutoSolveEnabled: account.quizAutoSolveEnabled,
   };
 }
 

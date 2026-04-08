@@ -5,6 +5,7 @@ import { updateAutomationSettings } from "@/server/cu12-account";
 
 const BodySchema = z.object({
   autoLearnEnabled: z.boolean().optional(),
+  quizAutoSolveEnabled: z.boolean().optional(),
   detectActivitiesEnabled: z.boolean().optional(),
   emailDigestEnabled: z.boolean().optional(),
 });
@@ -19,6 +20,7 @@ export async function PATCH(request: NextRequest) {
     return jsonOk({
       updated: true,
       autoLearnEnabled: account.autoLearnEnabled,
+      quizAutoSolveEnabled: account.quizAutoSolveEnabled,
       detectActivitiesEnabled: account.detectActivitiesEnabled,
       emailDigestEnabled: account.emailDigestEnabled,
     });

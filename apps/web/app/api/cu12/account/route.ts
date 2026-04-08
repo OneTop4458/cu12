@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       accountStatus: true,
       statusReason: true,
       autoLearnEnabled: true,
+      quizAutoSolveEnabled: true,
       detectActivitiesEnabled: true,
       emailDigestEnabled: true,
       updatedAt: true,

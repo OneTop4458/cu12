@@ -12,7 +12,12 @@ import {
 } from "@cu12/core";
 import { type Browser, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { getEnv } from "./env";
-import { generateQuizAnswer, type QuizPromptItem, type QuizPromptOption } from "./openai";
+import {
+  generateQuizAnswer,
+  isQuizAutoSolveConfigured,
+  type QuizPromptItem,
+  type QuizPromptOption,
+} from "./openai";
 
 export interface Cu12Credentials {
   cu12Id: string;
@@ -147,6 +152,7 @@ interface BuildTaskPlanInput {
   lectureSeq?: number;
   courseTitleBySeq: Map<number, string>;
   tasksByLecture: Map<number, LearningTask[]>;
+  quizAutoSolveEnabled?: boolean;
   nowMs?: number;
 }
 
@@ -232,8 +238,13 @@ function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (hi - lo + 1)) + lo;
 }
 
-function isSupportedAutoLearnActivityType(activityType: LearningTask["activityType"]): activityType is SupportedAutoLearnActivityType {
-  return activityType === "VOD" || activityType === "MATERIAL" || activityType === "QUIZ";
+function isSupportedAutoLearnActivityType(
+  activityType: LearningTask["activityType"],
+  quizAutoSolveEnabled = true,
+): activityType is SupportedAutoLearnActivityType {
+  return activityType === "VOD"
+    || activityType === "MATERIAL"
+    || (quizAutoSolveEnabled && activityType === "QUIZ");
 }
 
 function getTaskRemainingSeconds(task: LearningTask): number {
@@ -259,16 +270,16 @@ function isWithinLearningWindow(task: LearningTask, nowMs: number): boolean {
   return true;
 }
 
-function isAutoLearnableTask(task: LearningTask, nowMs: number): boolean {
+function isAutoLearnableTask(task: LearningTask, nowMs: number, quizAutoSolveEnabled = true): boolean {
   if (task.state !== "PENDING") return false;
-  if (!isSupportedAutoLearnActivityType(task.activityType)) return false;
+  if (!isSupportedAutoLearnActivityType(task.activityType, quizAutoSolveEnabled)) return false;
   if (task.activityType === "VOD" && task.requiredSeconds > 0 && task.learnedSeconds >= task.requiredSeconds) {
     return false;
   }
   return isWithinLearningWindow(task, nowMs);
 }
 
-function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
+export function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
   const lectureSeqs =
     input.mode === "ALL_COURSES"
       ? input.lectureSeqs
@@ -276,6 +287,7 @@ function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
         ? [input.lectureSeq]
         : input.lectureSeqs;
   const nowMs = input.nowMs ?? Date.now();
+  const quizAutoSolveEnabled = input.quizAutoSolveEnabled ?? true;
   const planned: PlannedTask[] = [];
   const courseGroups: Array<{ lectureSeq: number; courseTitle: string; tasks: LearningTask[] }> = [];
   let pendingTaskCount = 0;
@@ -287,13 +299,13 @@ function buildTaskPlan(input: BuildTaskPlanInput): PlanResult {
     for (const task of tasks) {
       if (task.state !== "PENDING") continue;
       pendingTaskCount += 1;
-      if (isSupportedAutoLearnActivityType(task.activityType)) {
+      if (isSupportedAutoLearnActivityType(task.activityType, quizAutoSolveEnabled)) {
         pendingSupportedTaskCount += 1;
       }
     }
 
     const pending = tasks
-      .filter((task) => isAutoLearnableTask(task, nowMs))
+      .filter((task) => isAutoLearnableTask(task, nowMs, quizAutoSolveEnabled))
       .sort((a, b) => (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo));
     availableSupportedTaskCount += pending.length;
 
@@ -1891,6 +1903,7 @@ async function planTasks(
   envBaseUrl: string,
   userId: string,
   mode: AutoLearnMode,
+  quizAutoSolveEnabled: boolean,
   lectureSeq?: number,
 ): Promise<PlanResult> {
   const courses = await getCourses(page, envBaseUrl, userId);
@@ -1924,6 +1937,7 @@ async function planTasks(
     lectureSeq,
     courseTitleBySeq,
     tasksByLecture,
+    quizAutoSolveEnabled,
   });
 }
 
@@ -1934,6 +1948,7 @@ export async function runAutoLearning(
   options: {
     mode: AutoLearnMode;
     lectureSeq?: number;
+    quizAutoSolveEnabled?: boolean;
   },
   onProgress?: (progress: AutoLearnProgress) => Promise<void> | void,
   onCancelCheck?: CancelCheck,
@@ -1949,8 +1964,16 @@ export async function runAutoLearning(
     await ensureLogin(page, creds);
 
     const mode = options.mode;
+    const quizAutoSolveEnabled = options.quizAutoSolveEnabled ?? isQuizAutoSolveConfigured(env);
     const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
-    const { planned: plannedAll, noOpReason } = await planTasks(page, env.CU12_BASE_URL, userId, mode, options.lectureSeq);
+    const { planned: plannedAll, noOpReason } = await planTasks(
+      page,
+      env.CU12_BASE_URL,
+      userId,
+      mode,
+      quizAutoSolveEnabled,
+      options.lectureSeq,
+    );
     const chunk = selectChunkTasks(plannedAll, env);
     const planned = chunk.planned;
     const truncated = chunk.truncated;

@@ -240,8 +240,8 @@ function formatAutoLearnNoOpReason(reason: string | null | undefined): string | 
   if (reason === "NO_PENDING_VOD_TASKS") return "미완료 VOD 차시가 없습니다.";
   if (reason === "NO_AVAILABLE_VOD_TASKS") return "현재 학습 가능 시간대의 VOD 차시가 없습니다.";
   if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 남은 차시가 없습니다.";
-  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 미완료 강의, 자료, 퀴즈가 없습니다.";
-  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능 기간에 있는 강의, 자료, 퀴즈가 없습니다.";
+  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 미완료 학습 항목이 없습니다.";
+  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능 기간에 있는 자동 처리 학습 항목이 없습니다.";
   return reason;
 }
 
@@ -871,7 +871,11 @@ async function processAutolearn(
       browser,
       userId,
       creds,
-      { mode, lectureSeq },
+      {
+        mode,
+        lectureSeq,
+        quizAutoSolveEnabled: creds.quizAutoSolveEnabled,
+      },
       async (progress) => {
         const nowIso = progress.heartbeatAt ?? new Date().toISOString();
         lastHeartbeatAt = nowIso;
