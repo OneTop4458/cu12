@@ -2,25 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseCyberCampusMainCoursesHtml, parseCyberCampusTodoListHtml } from "@cu12/core";
 
-test("Cyber Campus course parser normalizes oversized lecture ids into int32-safe lectureSeq values", () => {
+test("Cyber Campus course parser clamps oversized lecture ids into signed int32 range", () => {
+  const rawLectureId = "4552251044";
   const html = `
     <html>
       <body>
-        <em class="sub_open" kj="20260752701234567890">Distributed Systems</em>
+        <em class="sub_open" kj="${rawLectureId}">Distributed Systems</em>
       </body>
     </html>
   `;
 
   const courses = parseCyberCampusMainCoursesHtml(html, "user-1");
   assert.equal(courses.length, 1);
-  assert.equal(courses[0].externalLectureId, "20260752701234567890");
+  assert.equal(courses[0].externalLectureId, rawLectureId);
   assert.equal(Number.isInteger(courses[0].lectureSeq), true);
   assert.equal(courses[0].lectureSeq > 0, true);
   assert.equal(courses[0].lectureSeq <= 2147483647, true);
 });
 
-test("Cyber Campus todo parser uses the same normalized lectureSeq for oversized lecture ids", () => {
-  const rawLectureId = "20260752701234567890";
+test("Cyber Campus todo parser reuses the same signed int32-safe lectureSeq for oversized ids", () => {
+  const rawLectureId = "4552251044";
   const html = `
     <html>
       <body>

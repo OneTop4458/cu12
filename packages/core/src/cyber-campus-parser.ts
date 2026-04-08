@@ -11,26 +11,34 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-const MAX_INT32 = 2147483647;
+const MAX_INT32 = 2147483647n;
 
 function toStableInt32(raw: string): number {
   let hash = 0;
   for (let index = 0; index < raw.length; index += 1) {
-    hash = ((hash * 31) + raw.charCodeAt(index)) | 0;
+    hash = Math.imul(hash, 31) + raw.charCodeAt(index);
+    hash |= 0;
   }
-  return Math.abs(hash) || 1;
+
+  // Normalize the signed 32-bit hash into the Prisma/Postgres Int range 1..2147483647.
+  const normalized = (hash >>> 0) % Number(MAX_INT32);
+  return normalized === 0 ? 1 : normalized;
 }
 
 function toLectureSeq(rawKey: string): number {
   const digits = rawKey.replace(/\D+/g, "");
-  const parsed = Number(digits);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!digits) return 0;
+
+  try {
+    const parsed = BigInt(digits);
+    if (parsed <= 0n) return 0;
+    if (parsed <= MAX_INT32) {
+      return Number(parsed);
+    }
+    return toStableInt32(digits);
+  } catch {
     return 0;
   }
-  if (parsed <= MAX_INT32) {
-    return parsed;
-  }
-  return toStableInt32(digits);
 }
 
 function toIsoDate(raw: string | null | undefined): string | null {
