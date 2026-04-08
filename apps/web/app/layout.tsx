@@ -7,8 +7,8 @@ import { SiteFooter } from "./_components/site-footer";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "가톨릭대학교 공유대학 수강 지원 솔루션",
-  description: "가톨릭대학교 공유대학 수강 지원 솔루션의 로그인, 운영 대시보드, 작업 로그를 한 곳에서 관리합니다.",
+  title: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uC218\uAC15 \uC9C0\uC6D0 \uC194\uB8E8\uC158",
+  description: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uC218\uAC15 \uC9C0\uC6D0 \uC194\uB8E8\uC158\uC758 \uB85C\uADF8\uC778, \uC6B4\uC601 \uB300\uC2DC\uBCF4\uB4DC, \uC791\uC5C5 \uB85C\uADF8\uB97C \uD55C \uACF3\uC5D0\uC11C \uAD00\uB9AC\uD569\uB2C8\uB2E4.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
