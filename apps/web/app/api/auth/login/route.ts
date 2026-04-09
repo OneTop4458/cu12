@@ -15,6 +15,7 @@ import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk } from "@/lib/http"
 import { prisma } from "@/lib/prisma";
 import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
+import { withIsTestUserFallback } from "@/lib/test-user-compat";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 import {
   checkAuthThrottleBestEffort,
@@ -147,30 +148,59 @@ export async function POST(request: NextRequest) {
       timing.measure("local-user", () =>
         withWithdrawnAtFallback(
           () =>
-            prisma.user.findUnique({
-              where: { email: body.cu12Id },
-              select: {
-                id: true,
-                email: true,
-                role: true,
-                isActive: true,
-                withdrawnAt: true,
-                isTestUser: true,
-                passwordHash: true,
-              },
-            }),
+            withIsTestUserFallback(
+              () =>
+                prisma.user.findUnique({
+                  where: { email: body.cu12Id },
+                  select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    isActive: true,
+                    withdrawnAt: true,
+                    isTestUser: true,
+                    passwordHash: true,
+                  },
+                }),
+              () =>
+                prisma.user.findUnique({
+                  where: { email: body.cu12Id },
+                  select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    isActive: true,
+                    withdrawnAt: true,
+                    passwordHash: true,
+                  },
+                }),
+            ),
           () =>
-            prisma.user.findUnique({
-              where: { email: body.cu12Id },
-              select: {
-                id: true,
-                email: true,
-                role: true,
-                isActive: true,
-                isTestUser: true,
-                passwordHash: true,
-              },
-            }),
+            withIsTestUserFallback(
+              () =>
+                prisma.user.findUnique({
+                  where: { email: body.cu12Id },
+                  select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    isActive: true,
+                    isTestUser: true,
+                    passwordHash: true,
+                  },
+                }),
+              () =>
+                prisma.user.findUnique({
+                  where: { email: body.cu12Id },
+                  select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    isActive: true,
+                    passwordHash: true,
+                  },
+                }),
+            ),
         ),
       ),
     ]);
