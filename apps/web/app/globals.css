@@ -175,6 +175,63 @@ a {
   word-break: break-word;
 }
 
+.faq-main {
+  max-width: 980px;
+}
+
+.faq-hero,
+.faq-item {
+  display: grid;
+  gap: 12px;
+}
+
+.faq-hero-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.faq-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.faq-links .ghost-btn {
+  width: auto;
+}
+
+.faq-alert {
+  display: grid;
+  gap: 6px;
+  border-color: color-mix(in oklab, var(--warn) 34%, var(--border));
+  background: color-mix(in oklab, var(--warn-soft) 30%, var(--surface));
+}
+
+.faq-alert p {
+  margin: 0;
+}
+
+.faq-list {
+  display: grid;
+  gap: 12px;
+}
+
+.faq-question {
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+
+.faq-answer {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.faq-answer p {
+  margin: 0;
+}
+
 .session-banner-shell {
   position: sticky;
   top: 0;
@@ -912,6 +969,27 @@ textarea:focus {
   margin: -18px -18px 16px;
   border-radius: 12px 12px 0 0;
   background: linear-gradient(90deg, var(--warn), var(--primary), var(--primary));
+}
+
+.auth-card-links {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auth-card-link {
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-card-link:hover {
+  text-decoration: underline;
 }
 
 .brand-mark {
