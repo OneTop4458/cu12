@@ -1,10 +1,16 @@
 import {
+  parseCyberCampusCommunityNoticeDetailHtml,
   parseCyberCampusCommunityNoticeListHtml,
+  parseCyberCampusExamDetailHtml,
   parseCyberCampusMainCoursesHtml,
   parseCyberCampusMessageDetailHtml,
   parseCyberCampusMessageListHtml,
   parseCyberCampusNotificationListHtml,
+  parseCyberCampusOnlineWeekDetailHtml,
   parseCyberCampusTodoListHtml,
+  type CourseNotice,
+  type CourseState,
+  type LearningTask,
   type PortalMessage,
 } from "@cu12/core";
 import { type Browser, type BrowserContextOptions, type Page } from "playwright";
@@ -137,6 +143,70 @@ async function fetchText(
   );
 }
 
+function buildCyberCampusTaskKey(task: Pick<LearningTask, "externalLectureId" | "courseContentsSeq">): string | null {
+  const externalLectureId = task.externalLectureId?.trim() ?? "";
+  if (!externalLectureId || !Number.isFinite(task.courseContentsSeq) || task.courseContentsSeq <= 0) {
+    return null;
+  }
+
+  return `${externalLectureId}:${task.courseContentsSeq}`;
+}
+
+export function mergeCyberCampusTaskWithDetail(
+  baseTask: LearningTask,
+  detailTask?: LearningTask | null,
+): LearningTask {
+  if (!detailTask) {
+    return baseTask;
+  }
+
+  return {
+    ...baseTask,
+    weekNo: detailTask.weekNo > 0 ? detailTask.weekNo : baseTask.weekNo,
+    lessonNo: detailTask.lessonNo > 0 ? detailTask.lessonNo : baseTask.lessonNo,
+    taskTitle: detailTask.taskTitle?.trim() ? detailTask.taskTitle : baseTask.taskTitle,
+    activityType: detailTask.activityType,
+    requiredSeconds: detailTask.requiredSeconds,
+    learnedSeconds: detailTask.learnedSeconds,
+    state: detailTask.state,
+    availableFrom: detailTask.availableFrom ?? baseTask.availableFrom,
+    dueAt: detailTask.dueAt ?? baseTask.dueAt,
+  };
+}
+
+function mergeCyberCampusNoticeWithDetail(
+  notice: CourseNotice,
+  detail: Pick<CourseNotice, "author" | "postedAt" | "bodyText"> | null,
+): CourseNotice {
+  if (!detail) {
+    return notice;
+  }
+
+  return {
+    ...notice,
+    author: detail.author ?? notice.author,
+    postedAt: detail.postedAt ?? notice.postedAt,
+    bodyText: detail.bodyText.trim().length > 0 ? detail.bodyText : notice.bodyText,
+  };
+}
+
+function mergeCyberCampusCourseProgress(
+  courses: CourseState[],
+  progressPercentByLectureSeq: Map<number, number>,
+): CourseState[] {
+  return courses.map((course) => {
+    const progressPercent = progressPercentByLectureSeq.get(course.lectureSeq);
+    if (progressPercent === undefined) {
+      return course;
+    }
+
+    return {
+      ...course,
+      progressPercent,
+    };
+  });
+}
+
 function mergeCourses(
   base: ReturnType<typeof parseCyberCampusMainCoursesHtml>,
   tasks: ReturnType<typeof parseCyberCampusTodoListHtml>,
@@ -166,6 +236,156 @@ function mergeCourses(
   }
 
   return [...seen.values()];
+}
+
+async function waitForCyberCampusOnlineWeekDetail(page: Page): Promise<void> {
+  await page.waitForURL(/\/ilos\/st\/course\/online_list_form\.acl/i, { timeout: 10000 }).catch(() => {});
+  try {
+    await page.waitForFunction(
+      () => document.querySelectorAll("[id^='lecture-']").length > 0,
+      undefined,
+      { timeout: 10000 },
+    );
+  } catch {
+    await page.waitForTimeout(1500);
+  }
+}
+
+async function waitForCyberCampusExamDetail(page: Page): Promise<void> {
+  await page.waitForURL(/\/ilos\/st\/course\/test_view_form\.acl/i, { timeout: 10000 }).catch(() => {});
+  try {
+    await page.waitForSelector("table.bbsview, table", { timeout: 10000 });
+  } catch {
+    await page.waitForTimeout(1000);
+  }
+}
+
+async function enrichCyberCampusTasks(
+  contextPage: Page,
+  userId: string,
+  baseTasks: LearningTask[],
+  options?: {
+    activityTypes?: Array<LearningTask["activityType"]>;
+    onCancelCheck?: CancelCheck;
+  },
+): Promise<{
+  tasks: LearningTask[];
+  progressPercentByLectureSeq: Map<number, number>;
+}> {
+  const selectedTypes = new Set(options?.activityTypes ?? ["VOD", "QUIZ"]);
+  const shouldCancel = options?.onCancelCheck ?? (async () => false);
+  const progressPercentByLectureSeq = new Map<number, number>();
+  const detailByTaskKey = new Map<string, LearningTask>();
+  const parsedWeekCache = new Set<string>();
+  const detailPage = await contextPage.context().newPage();
+
+  try {
+    for (const task of baseTasks) {
+      if (!selectedTypes.has(task.activityType)) continue;
+      if (await shouldCancel()) throw new Error("JOB_CANCELLED");
+
+      const taskKey = buildCyberCampusTaskKey(task);
+      if (!taskKey || detailByTaskKey.has(taskKey)) continue;
+
+      const externalLectureId = task.externalLectureId?.trim();
+      if (!externalLectureId) continue;
+
+      try {
+        if (task.activityType === "VOD") {
+          await detailPage.goto(
+            `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${task.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(externalLectureId)}`,
+            { waitUntil: "domcontentloaded" },
+          );
+          await waitForCyberCampusOnlineWeekDetail(detailPage);
+
+          const redirectedUrl = new URL(detailPage.url());
+          const weekNo = Number(redirectedUrl.searchParams.get("WEEK_NO") ?? 0);
+          const weekCacheKey = `${externalLectureId}:${weekNo}`;
+          if (!parsedWeekCache.has(weekCacheKey)) {
+            parsedWeekCache.add(weekCacheKey);
+            const detail = parseCyberCampusOnlineWeekDetailHtml(await detailPage.content(), userId, externalLectureId);
+            progressPercentByLectureSeq.set(task.lectureSeq, detail.progressPercent);
+
+            for (const detailTask of detail.tasks) {
+              const detailTaskKey = buildCyberCampusTaskKey(detailTask);
+              if (!detailTaskKey || detailByTaskKey.has(detailTaskKey)) continue;
+              detailByTaskKey.set(detailTaskKey, detailTask);
+            }
+          }
+
+          continue;
+        }
+
+        if (task.activityType === "QUIZ") {
+          await detailPage.goto(
+            `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${task.courseContentsSeq}&gubun=test&KJKEY=${encodeURIComponent(externalLectureId)}`,
+            { waitUntil: "domcontentloaded" },
+          );
+          await waitForCyberCampusExamDetail(detailPage);
+          const detailTask = parseCyberCampusExamDetailHtml(
+            await detailPage.content(),
+            userId,
+            externalLectureId,
+            task.courseContentsSeq,
+          );
+          if (detailTask) {
+            detailByTaskKey.set(taskKey, detailTask);
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return {
+      tasks: baseTasks.map((task) => {
+        const taskKey = buildCyberCampusTaskKey(task);
+        return mergeCyberCampusTaskWithDetail(
+          task,
+          taskKey ? detailByTaskKey.get(taskKey) : null,
+        );
+      }),
+      progressPercentByLectureSeq,
+    };
+  } finally {
+    await detailPage.close();
+  }
+}
+
+async function enrichCyberCampusCommunityNotices(
+  page: Page,
+  notices: CourseNotice[],
+  onCancelCheck?: CancelCheck,
+): Promise<CourseNotice[]> {
+  const shouldCancel = onCancelCheck ?? (async () => false);
+  const detailByNoticeSeq = new Map<string, Pick<CourseNotice, "author" | "postedAt" | "bodyText"> | null>();
+  const merged: CourseNotice[] = [];
+
+  for (const notice of notices) {
+    if (await shouldCancel()) throw new Error("JOB_CANCELLED");
+
+    const noticeSeq = notice.noticeSeq?.trim();
+    if (!noticeSeq) {
+      merged.push(notice);
+      continue;
+    }
+
+    if (!detailByNoticeSeq.has(noticeSeq)) {
+      try {
+        const detailHtml = await fetchText(
+          page,
+          `/ilos/community/notice_view_form.acl?ARTL_NUM=${encodeURIComponent(noticeSeq)}`,
+        );
+        detailByNoticeSeq.set(noticeSeq, parseCyberCampusCommunityNoticeDetailHtml(detailHtml));
+      } catch {
+        detailByNoticeSeq.set(noticeSeq, null);
+      }
+    }
+
+    merged.push(mergeCyberCampusNoticeWithDetail(notice, detailByNoticeSeq.get(noticeSeq) ?? null));
+  }
+
+  return merged;
 }
 
 function sortCyberCampusTasks<T extends { weekNo: number; lessonNo: number }>(tasks: T[]): T[] {
@@ -243,10 +463,14 @@ export async function collectCyberCampusSnapshot(
       { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
     );
     const baseCourses = parseCyberCampusMainCoursesHtml(mainHtml, userId, "ACTIVE");
-    const notices = parseCyberCampusCommunityNoticeListHtml(mainHtml, userId);
+    const baseNotices = parseCyberCampusCommunityNoticeListHtml(mainHtml, userId);
     const notifications = parseCyberCampusNotificationListHtml(notificationHtml, userId);
-    const tasks = parseCyberCampusTodoListHtml(todoHtml, userId);
-    const courses = mergeCourses(baseCourses, tasks, userId);
+    const baseTasks = parseCyberCampusTodoListHtml(todoHtml, userId);
+    const { tasks, progressPercentByLectureSeq } = await enrichCyberCampusTasks(page, userId, baseTasks, {
+      onCancelCheck: shouldCancel,
+    });
+    const notices = await enrichCyberCampusCommunityNotices(page, baseNotices, shouldCancel);
+    const courses = mergeCyberCampusCourseProgress(mergeCourses(baseCourses, tasks, userId), progressPercentByLectureSeq);
     const messages = await collectMessages(page, userId);
 
     await reportProgress({
@@ -304,8 +528,13 @@ export async function runCyberCampusAutoLearning(
       "/ilos/mp/todo_list.acl",
       { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
     );
+    const baseTasks = parseCyberCampusTodoListHtml(todoHtml, userId);
+    const { tasks: enrichedTasks } = await enrichCyberCampusTasks(page, userId, baseTasks, {
+      activityTypes: ["VOD"],
+      onCancelCheck: shouldCancel,
+    });
     const allTasks = sortCyberCampusTasks(
-      parseCyberCampusTodoListHtml(todoHtml, userId)
+      enrichedTasks
         .filter((task) => task.activityType === "VOD"),
     );
 
