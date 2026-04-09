@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
         return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
 
-      let consent = await timing.measure("policy", () =>
+      const consent = await timing.measure("policy", () =>
         getPolicyConsentRequirement(localCandidate.id),
       ).catch((error) => {
         if (!isCompatibilityPrismaError(error)) {
