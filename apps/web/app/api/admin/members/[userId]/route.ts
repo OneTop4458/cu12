@@ -30,6 +30,13 @@ const DeleteSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
+function isPrismaCompatibilityError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2021" || error.code === "P2022";
+  }
+  return error instanceof Prisma.PrismaClientUnknownRequestError;
+}
+
 export async function PATCH(request: NextRequest, { params }: Params) {
   const context = await requireAdminActor(request);
   if (!context) return jsonError("Forbidden", 403);
@@ -202,21 +209,43 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     const anonymizedEmail = `withdrawn-${userId}@withdrawn.local`;
     const anonymizedName = `Withdrawn Account ${userId.slice(0, 8)}`;
     const anonymizedPasswordHash = await hashPassword(generateToken(48));
+    let cleanupStep = "start";
 
     await prisma.$transaction(async (tx) => {
+      cleanupStep = "delete-cu12-account";
       await tx.cu12Account.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-mail-subscription";
       await tx.mailSubscription.deleteMany({ where: { userId } });
-      await tx.mailDelivery.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-task-deadline-alerts";
       await tx.taskDeadlineAlert.deleteMany({ where: { userId } });
-      await tx.userPolicyConsent.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-course-notices";
       await tx.courseNotice.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-course-snapshots";
       await tx.courseSnapshot.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-learning-runs";
       await tx.learningRun.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-learning-tasks";
       await tx.learningTask.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-notification-events";
       await tx.notificationEvent.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-portal-messages";
       await tx.portalMessage.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-portal-approval-sessions";
       await tx.portalApprovalSession.deleteMany({ where: { userId } });
+
+      cleanupStep = "delete-portal-sessions";
       await tx.portalSession.deleteMany({ where: { userId } });
+
+      cleanupStep = "cancel-jobs";
       await tx.jobQueue.updateMany({
         where: {
           userId,
@@ -228,6 +257,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
           lastError: "Canceled due to member withdrawal",
         },
       });
+
+      cleanupStep = "withdraw-user";
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -241,22 +272,47 @@ export async function DELETE(request: NextRequest, { params }: Params) {
           withdrawnAt,
         },
       });
+    }).catch((error) => {
+      console.error("[admin] Member withdrawal failed during cleanup.", {
+        userId,
+        cleanupStep,
+        name: error instanceof Error ? error.name : typeof error,
+        code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
 
-    await writeAuditLog({
-      category: "ADMIN",
-      severity: "WARN",
-      actorUserId: context.actor.userId,
-      message: "Admin withdrew member",
-      meta: {
-        withdrawnUserId: userId,
-        withdrawnUserEmail: user.email,
-        withdrawnAt: withdrawnAt.toISOString(),
-        reason: body.reason ?? null,
-      },
-    });
+    try {
+      await writeAuditLog({
+        category: "ADMIN",
+        severity: "WARN",
+        actorUserId: context.actor.userId,
+        message: "Admin withdrew member",
+        meta: {
+          withdrawnUserId: userId,
+          withdrawnUserEmail: user.email,
+          withdrawnAt: withdrawnAt.toISOString(),
+          reason: body.reason ?? null,
+        },
+      });
+    } catch (error) {
+      console.warn("[admin] Member withdrawal audit log failed.", {
+        userId,
+        name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
-    invalidateCachedAuthState(userId);
+    try {
+      invalidateCachedAuthState(userId);
+    } catch (error) {
+      console.warn("[admin] Member withdrawal cache invalidation failed.", {
+        userId,
+        name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     return jsonOk({
       deleted: true,
@@ -274,6 +330,9 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       if (error.code === "P2003") {
         return jsonError("Failed to cleanup related member records", 409, "MEMBER_DELETE_CONSTRAINT");
       }
+    }
+    if (isPrismaCompatibilityError(error)) {
+      return jsonError("Failed to withdraw member due to legacy schema mismatch", 409, "MEMBER_DELETE_SCHEMA_MISMATCH");
     }
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
