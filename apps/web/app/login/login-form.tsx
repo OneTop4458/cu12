@@ -10,6 +10,7 @@ type SessionExpiredReason = "session-timeout" | "session-expired";
 type Campus = "SONGSIM" | "SONGSIN";
 type PortalProvider = "CU12" | "CYBER_CAMPUS";
 type PolicyType = "PRIVACY_POLICY" | "TERMS_OF_SERVICE";
+type PolicyConsentMode = "INITIAL_REQUIRED" | "UPDATED_REQUIRED";
 
 interface SessionPolicy {
   rememberSession: boolean;
@@ -41,9 +42,21 @@ interface PolicyDocumentResponse {
   content: string;
 }
 
+interface PolicyChangeResponse {
+  type: PolicyType;
+  title: string;
+  currentVersion: number;
+  previousVersion: number | null;
+  currentPath: string;
+  previousPath: string | null;
+  diffPath: string | null;
+}
+
 interface ConsentRequiredResponse {
   stage: "CONSENT_REQUIRED";
   consentToken: string;
+  consentMode: PolicyConsentMode;
+  policyChanges: PolicyChangeResponse[];
   policies: PolicyDocumentResponse[];
   user: {
     userId: string;
@@ -105,6 +118,9 @@ const COPY = {
   inviteVerificationFailed: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   consentTitle: "\uD544\uC218 \uC57D\uAD00 \uB3D9\uC758",
   consentIntro: "\uC11C\uBE44\uC2A4 \uC774\uC6A9\uC744 \uC704\uD574 \uD544\uC218 \uC57D\uAD00\uC5D0 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
+  consentUpdateTitle: "\uC57D\uAD00 \uC5C5\uB370\uC774\uD2B8 \uC7AC\uB3D9\uC758",
+  consentUpdateIntro: "\uAC1C\uC778\uC815\uBCF4 \uCC98\uB9AC \uBC29\uCE68 \uB610\uB294 \uC774\uC6A9\uC57D\uAD00\uC774 \uC5C5\uB370\uC774\uD2B8\uB418\uC5B4 \uCD5C\uC2E0 \uBC84\uC804\uC5D0 \uB2E4\uC2DC \uB3D9\uC758\uD574\uC57C \uD569\uB2C8\uB2E4.",
+  consentUpdateHint: "\uBC84\uC804 \uBE44\uAD50 \uB9C1\uD06C\uB85C \uC2E0\uAD6C \uB0B4\uC6A9\uC744 \uD655\uC778\uD55C \uB4A4 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
   consentRequired: "\uD544\uC218)",
   consentSubmit: "\uB3D9\uC758\uD558\uACE0 \uB85C\uADF8\uC778",
   consentDecline: "\uB3D9\uC758 \uAC70\uBD80",
@@ -215,6 +231,23 @@ export function toConsentErrorMessage(payload: ApiErrorResponse): string {
   return payload.error ?? COPY.consentFallback;
 }
 
+export function getConsentModalCopy(mode: PolicyConsentMode): {
+  title: string;
+  intro: string;
+} {
+  if (mode === "UPDATED_REQUIRED") {
+    return {
+      title: COPY.consentUpdateTitle,
+      intro: COPY.consentUpdateIntro,
+    };
+  }
+
+  return {
+    title: COPY.consentTitle,
+    intro: COPY.consentIntro,
+  };
+}
+
 export function LoginForm({
   sessionExpiredReason: initialSessionExpiredReason,
 }: {
@@ -258,6 +291,8 @@ export function LoginForm({
 
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentToken, setConsentToken] = useState<string | null>(null);
+  const [consentMode, setConsentMode] = useState<PolicyConsentMode>("INITIAL_REQUIRED");
+  const [policyChanges, setPolicyChanges] = useState<PolicyChangeResponse[]>([]);
   const [consentPolicies, setConsentPolicies] = useState<PolicyDocumentResponse[]>([]);
   const [policyChecks, setPolicyChecks] = useState<Record<string, boolean>>({});
   const [consentSubmitting, setConsentSubmitting] = useState(false);
@@ -280,6 +315,8 @@ export function LoginForm({
   function clearConsentState() {
     setShowConsentModal(false);
     setConsentToken(null);
+    setConsentMode("INITIAL_REQUIRED");
+    setPolicyChanges([]);
     setConsentPolicies([]);
     setPolicyChecks({});
     setConsentError(null);
@@ -302,11 +339,15 @@ export function LoginForm({
     setInviteError(null);
 
     setConsentToken(payload.consentToken);
+    setConsentMode(payload.consentMode);
+    setPolicyChanges(payload.policyChanges ?? []);
     setConsentPolicies(payload.policies ?? []);
     setPolicyChecks(nextChecks);
     setConsentError(null);
     setShowConsentModal(true);
   }
+
+  const consentCopy = getConsentModalCopy(consentMode);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -634,8 +675,40 @@ export function LoginForm({
             aria-label={COPY.consentTitle}
             onClick={(event) => event.stopPropagation()}
           >
-            <h2>{COPY.consentTitle}</h2>
-            <p className="muted">{COPY.consentIntro}</p>
+            <h2>{consentCopy.title}</h2>
+            <p className="muted">{consentCopy.intro}</p>
+            {consentMode === "UPDATED_REQUIRED" ? (
+              <p className="muted text-small">{COPY.consentUpdateHint}</p>
+            ) : null}
+
+            {consentMode === "UPDATED_REQUIRED" && policyChanges.length > 0 ? (
+              <div className="top-gap">
+                {policyChanges.map((change) => (
+                  <article key={`${change.type}:${change.currentVersion}`} className="card">
+                    <strong>{change.title}</strong>
+                    <p className="muted text-small">
+                      최신 v{change.currentVersion}
+                      {change.previousVersion ? ` / 이전 v${change.previousVersion}` : ""}
+                    </p>
+                    <div className="button-row" style={{ justifyContent: "flex-start" }}>
+                      <a className="ghost-btn" href={change.currentPath} target="_blank" rel="noreferrer">
+                        최신 보기
+                      </a>
+                      {change.previousPath ? (
+                        <a className="ghost-btn" href={change.previousPath} target="_blank" rel="noreferrer">
+                          이전 보기
+                        </a>
+                      ) : null}
+                      {change.diffPath ? (
+                        <a className="ghost-btn" href={change.diffPath} target="_blank" rel="noreferrer">
+                          신구 비교
+                        </a>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
 
             <form onSubmit={onSubmitConsent} className="form-stack top-gap">
               {consentPolicies.map((policy) => (

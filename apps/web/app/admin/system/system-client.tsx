@@ -17,6 +17,7 @@ interface AdminSystemProps {
     email: string;
     role: "ADMIN" | "USER";
   };
+  view?: "overview" | "policies";
 }
 
 interface ApiErrorPayload {
@@ -68,13 +69,22 @@ interface HealthPayload {
 }
 
 interface PolicyDocumentPayload {
+  id: string;
   type: PolicyDocumentType;
   title: string;
   version: number;
   content: string;
+  templateContent: string;
+  publishedContent: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface PolicyHistoryPayload {
+  type: PolicyDocumentType;
+  title: string;
+  documents: PolicyDocumentPayload[];
 }
 
 interface PolicyProfilePayload {
@@ -95,11 +105,25 @@ interface PolicyProfilePayload {
 interface AdminPoliciesPayload {
   requiredTypes: PolicyDocumentType[];
   policies: PolicyDocumentPayload[];
+  history: PolicyHistoryPayload[];
   profile: PolicyProfilePayload;
 }
 
 interface AdminPoliciesUpdatePayload extends AdminPoliciesPayload {
   updated: boolean;
+  publishedChanges: Array<{
+    type: PolicyDocumentType;
+    title: string;
+    currentVersion: number;
+    previousVersion: number | null;
+    currentPath: string;
+    previousPath: string | null;
+    diffPath: string | null;
+  }>;
+  mailQueue: {
+    queued: number;
+    skipped: number;
+  };
 }
 
 const JOB_STATUSES: JobStatus[] = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
@@ -113,6 +137,8 @@ const POLICY_TYPE_LABEL: Record<PolicyDocumentType, string> = {
   PRIVACY_POLICY: "개인정보 처리 방침",
   TERMS_OF_SERVICE: "이용약관",
 };
+
+const POLICY_TYPES: PolicyDocumentType[] = ["PRIVACY_POLICY", "TERMS_OF_SERVICE"];
 
 function parseError(payload: unknown): string {
   if (payload && typeof payload === "object" && "error" in payload) {
@@ -143,7 +169,7 @@ function toPolicyMap(policies: PolicyDocumentPayload[]): Map<PolicyDocumentType,
   return new Map(policies.map((policy) => [policy.type, policy]));
 }
 
-export function AdminSystemClient({ initialUser }: AdminSystemProps) {
+export function AdminSystemClient({ initialUser, view = "overview" }: AdminSystemProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -158,6 +184,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
 
   const [requiredPolicyTypes, setRequiredPolicyTypes] = useState<PolicyDocumentType[]>([]);
   const [policies, setPolicies] = useState<PolicyDocumentPayload[]>([]);
+  const [policyHistory, setPolicyHistory] = useState<PolicyHistoryPayload[]>([]);
   const [privacyContent, setPrivacyContent] = useState("");
   const [privacyActive, setPrivacyActive] = useState(true);
   const [termsContent, setTermsContent] = useState("");
@@ -165,6 +192,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
   const [policySaving, setPolicySaving] = useState(false);
   const [policyError, setPolicyError] = useState<string | null>(null);
   const [policySavedAt, setPolicySavedAt] = useState<string | null>(null);
+  const [policySaveSummary, setPolicySaveSummary] = useState<string | null>(null);
   const [profileCompanyName, setProfileCompanyName] = useState("");
   const [profileSupportEmail, setProfileSupportEmail] = useState("");
   const [profileCompanyAddress, setProfileCompanyAddress] = useState("");
@@ -199,14 +227,15 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
     const profile = payload.profile;
     setRequiredPolicyTypes(nextRequiredTypes);
     setPolicies(nextPolicies);
+    setPolicyHistory(payload.history ?? []);
 
     const byType = toPolicyMap(nextPolicies);
     const privacy = byType.get("PRIVACY_POLICY");
     const terms = byType.get("TERMS_OF_SERVICE");
 
-    setPrivacyContent(privacy?.content ?? "");
+    setPrivacyContent(privacy?.templateContent ?? privacy?.content ?? "");
     setPrivacyActive(privacy?.isActive ?? true);
-    setTermsContent(terms?.content ?? "");
+    setTermsContent(terms?.templateContent ?? terms?.content ?? "");
     setTermsActive(terms?.isActive ?? true);
 
     setProfileCompanyName(profile?.companyName ?? "");
@@ -311,6 +340,17 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
       return !current || !current.isActive || !current.content.trim();
     });
   }, [policyByType, requiredPolicyTypes]);
+  const latestPolicyVersions = useMemo(() => {
+    return POLICY_TYPES.map((type) => {
+      const current = policyByType.get(type);
+      return {
+        type,
+        title: POLICY_TYPE_LABEL[type],
+        version: current?.version ?? 0,
+        updatedAt: current?.updatedAt ?? null,
+      };
+    });
+  }, [policyByType]);
 
   const handleSavePolicies = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -357,6 +397,11 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
         });
         applyPolicies(payload);
         setPolicySavedAt(new Date().toISOString());
+        setPolicySaveSummary(
+          payload.publishedChanges.length > 0
+            ? `버전 발행 ${payload.publishedChanges.length}건 / 메일 큐 ${payload.mailQueue.queued}건 / 스킵 ${payload.mailQueue.skipped}건`
+            : "버전 발행 없이 설정만 저장되었습니다.",
+        );
       } catch (err) {
         setPolicyError(err instanceof Error ? err.message : "약관 저장에 실패했습니다.");
       } finally {
@@ -407,6 +452,9 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
             </button>
             <Link className="ghost-btn" href="/admin/site-notices">
               공지/점검 설정
+            </Link>
+            <Link className="ghost-btn" href="/admin/system/policies">
+              약관 관리
             </Link>
             <Link className="ghost-btn" href="/admin/operations">
               작업 운영
@@ -459,6 +507,21 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
       </section>
 
       <section className="card">
+        <div className="button-row" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+          <Link className="ghost-btn" href="/admin/system">
+            시스템 개요
+          </Link>
+          <Link className="ghost-btn" href="/admin/system/policies">
+            약관 버전/고지 관리
+          </Link>
+          <Link className="ghost-btn" href="/admin/site-notices">
+            공지/점검 관리
+          </Link>
+        </div>
+      </section>
+
+      {view === "overview" ? (
+      <section className="card">
         <div className="table-toolbar">
           <h2>작업별 상태</h2>
           <span className="muted text-small">FAILED/CANCELED는 실패 또는 중단된 작업 수입니다.</span>
@@ -472,7 +535,9 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           ))}
         </div>
       </section>
+      ) : null}
 
+      {view === "policies" ? (
       <section className="card">
         <div className="table-toolbar">
           <h2>개인정보 처리 방침/이용약관</h2>
@@ -488,6 +553,36 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
         {!policyError && policySavedAt ? (
           <p className="ok-text top-gap">저장 완료: {formatDate(policySavedAt)}</p>
         ) : null}
+        {!policyError && policySaveSummary ? (
+          <p className="muted text-small top-gap">{policySaveSummary}</p>
+        ) : null}
+
+        <div className="status-grid top-gap">
+          {latestPolicyVersions.map((policy) => (
+            <article key={policy.type} className="card admin-stat">
+              <p className="muted">{policy.title}</p>
+              <p className="metric">v{policy.version}</p>
+              <p className="muted">{formatDate(policy.updatedAt)}</p>
+            </article>
+          ))}
+        </div>
+
+        <section className="card top-gap">
+          <h3>버전 이력</h3>
+          <div className="button-row top-gap" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+            {policyHistory.flatMap((group) =>
+              group.documents.map((document) => (
+                <Link
+                  key={document.id}
+                  className="ghost-btn"
+                  href={`${document.type === "PRIVACY_POLICY" ? "/privacy" : "/terms"}?version=${document.version}`}
+                >
+                  {group.title} v{document.version}
+                </Link>
+              )),
+            )}
+          </div>
+        </section>
 
         <form className="form-grid top-gap" onSubmit={handleSavePolicies}>
           <article className="card" style={{ gridColumn: "1 / -1" }}>
@@ -599,7 +694,9 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           </div>
         </form>
       </section>
+      ) : null}
 
+      {view === "overview" ? (
       <section className="card">
         <div className="table-toolbar">
           <h2>워커 상태</h2>
@@ -657,7 +754,9 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           </table>
         </div>
       </section>
+      ) : null}
 
+      {view === "overview" ? (
       <section className="card">
         <h2>현재 공지/점검 목록</h2>
         <div className="table-wrap top-gap mobile-card-table">
@@ -693,6 +792,7 @@ export function AdminSystemClient({ initialUser }: AdminSystemProps) {
           </table>
         </div>
       </section>
+      ) : null}
     </main>
   );
 }

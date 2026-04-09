@@ -88,6 +88,15 @@ export interface MailDocument {
   html: string;
 }
 
+export interface PolicyUpdateMailChangeItem {
+  title: string;
+  currentVersion: number;
+  previousVersion: number | null;
+  currentUrl: string;
+  previousUrl: string | null;
+  diffUrl: string | null;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -858,6 +867,63 @@ export function buildAutoLearnTerminalMail(input: {
       primaryLink: {
         href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.OVERVIEW),
         label: "대시보드 보기",
+      },
+    }),
+  };
+}
+
+export function buildPolicyUpdateMail(input: {
+  dashboardBaseUrl: string;
+  generatedAt: Date;
+  changes: PolicyUpdateMailChangeItem[];
+}): MailDocument | null {
+  if (input.changes.length === 0) {
+    return null;
+  }
+
+  const sections = input.changes.map((change) =>
+    renderMailSection(
+      `${change.title} v${change.currentVersion}`,
+      `
+        <p style="margin:0 0 6px;color:#111827;">최신 버전이 게시되어 다시 동의가 필요합니다.</p>
+        <p style="margin:0;color:#4b5563;">
+          ${change.previousVersion ? `이전 동의 기준 v${change.previousVersion}` : "이전 동의 이력이 없습니다."}
+        </p>
+      `,
+      {
+        href: change.currentUrl,
+        label: "최신 약관 보기",
+      },
+    ) + (
+      change.previousUrl || change.diffUrl
+        ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:-4px;">
+            ${change.previousUrl
+              ? `<a href="${escapeHtml(change.previousUrl)}" style="display:inline-block;padding:8px 12px;border:1px solid #cbd5e1;border-radius:10px;color:#0f3b8a;text-decoration:none;">이전 약관 보기</a>`
+              : ""}
+            ${change.diffUrl
+              ? `<a href="${escapeHtml(change.diffUrl)}" style="display:inline-block;padding:8px 12px;border:1px solid #cbd5e1;border-radius:10px;color:#0f3b8a;text-decoration:none;">신구 비교 보기</a>`
+              : ""}
+          </div>
+        `
+        : ""
+    ),
+  );
+
+  const summaryRows: SummaryRow[] = [];
+  pushSummaryRow(summaryRows, "공지 시각", formatKoDateTime(input.generatedAt));
+  pushSummaryRow(summaryRows, "업데이트 문서", `${input.changes.length}건`);
+
+  return {
+    subject: "[CU12] 약관 업데이트 안내",
+    html: renderMailLayout({
+      title: "약관 업데이트 안내",
+      subtitle: "개인정보 처리 방침 또는 이용약관이 업데이트되어 최신 버전에 다시 동의해야 합니다.",
+      summaryRows,
+      sections,
+      primaryLink: {
+        href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.OVERVIEW),
+        label: "대시보드 열기",
       },
     }),
   };

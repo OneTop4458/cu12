@@ -330,6 +330,8 @@ export async function POST(request: NextRequest) {
       return jsonOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
+        consentMode: consent.consentMode ?? "INITIAL_REQUIRED",
+        policyChanges: consent.policyChanges,
         policies: consent.policies,
         user: {
           userId: user.id,

@@ -27,9 +27,11 @@ import {
   buildAutoLearnStartMail,
   buildAutoLearnTerminalMail,
   buildDigestMail,
+  buildPolicyUpdateMail,
   buildSyncAlertMail,
 } from "./mail-content";
 import {
+  getMandatoryMailRecipient,
   getUserCu12Credentials,
   getUserMailPreference,
   getPortalSessionCookieState,
@@ -316,6 +318,26 @@ function parseArgs() {
     if (k && v) map.set(k, v);
   }
   return map;
+}
+
+interface PolicyUpdateMailPayload {
+  userId: string;
+  mailKind: "POLICY_UPDATE";
+  policyChanges: Array<{
+    title: string;
+    currentVersion: number;
+    previousVersion: number | null;
+    currentPath: string;
+    previousPath: string | null;
+    diffPath: string | null;
+  }>;
+}
+
+function isPolicyUpdateMailPayload(value: unknown): value is PolicyUpdateMailPayload {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (record.mailKind !== "POLICY_UPDATE" || typeof record.userId !== "string") return false;
+  return Array.isArray(record.policyChanges);
 }
 
 const AUTOLEARN_CANCEL_ERROR = "AUTOLEARN_CANCELLED";
@@ -1114,7 +1136,7 @@ async function processAutolearn(
   }
 }
 
-async function processMailDigest(userId: string) {
+async function processDigestMail(userId: string) {
   const pref = await getUserMailPreference(userId);
   if (!pref || !pref.enabled || !pref.digestEnabled) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
@@ -1279,6 +1301,117 @@ async function processMailDigest(userId: string) {
     throw error;
   }
 }
+
+async function processPolicyUpdateMail(payload: PolicyUpdateMailPayload) {
+  const email = await getMandatoryMailRecipient(payload.userId);
+  if (!email) {
+    await recordMailDelivery(
+      payload.userId,
+      "missing-mail-subscription@example.invalid",
+      "[CU12] 약관 업데이트 안내",
+      "SKIPPED",
+      "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+    );
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: payload.userId,
+      message: "Policy update mail skipped",
+      meta: {
+        reason: "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+      },
+    });
+    return {
+      type: "MAIL_DIGEST",
+      userId: payload.userId,
+      sent: false,
+      reason: "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+      mailKind: payload.mailKind,
+    };
+  }
+
+  const mailDocument = buildPolicyUpdateMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: new Date(),
+    changes: payload.policyChanges.map((change) => ({
+      title: change.title,
+      currentVersion: change.currentVersion,
+      previousVersion: change.previousVersion,
+      currentUrl: `${getEnv().WEB_INTERNAL_BASE_URL.replace(/\/+$/, "")}${change.currentPath}`,
+      previousUrl: change.previousPath
+        ? `${getEnv().WEB_INTERNAL_BASE_URL.replace(/\/+$/, "")}${change.previousPath}`
+        : null,
+      diffUrl: change.diffPath
+        ? `${getEnv().WEB_INTERNAL_BASE_URL.replace(/\/+$/, "")}${change.diffPath}`
+        : null,
+    })),
+  });
+  if (!mailDocument) {
+    return {
+      type: "MAIL_DIGEST",
+      userId: payload.userId,
+      sent: false,
+      reason: "NO_POLICY_CHANGES",
+      mailKind: payload.mailKind,
+    };
+  }
+
+  try {
+    const result = await sendMail(email, mailDocument.subject, mailDocument.html);
+    if (result.sent) {
+      await recordMailDelivery(payload.userId, email, mailDocument.subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: payload.userId,
+        message: "Policy update mail sent",
+        meta: { to: email, subject: mailDocument.subject },
+      });
+      return {
+        type: "MAIL_DIGEST",
+        userId: payload.userId,
+        sent: true,
+        mailKind: payload.mailKind,
+      };
+    }
+
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(payload.userId, email, mailDocument.subject, "SKIPPED", reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: payload.userId,
+      message: "Policy update mail skipped",
+      meta: { to: email, subject: mailDocument.subject, reason },
+    });
+    return {
+      type: "MAIL_DIGEST",
+      userId: payload.userId,
+      sent: false,
+      reason,
+      mailKind: payload.mailKind,
+    };
+  } catch (error) {
+    await recordMailDelivery(payload.userId, email, mailDocument.subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: payload.userId,
+      message: "Policy update mail failed",
+      meta: { to: email, subject: mailDocument.subject, error: errMessage(error) },
+    });
+    throw error;
+  }
+}
+
+async function processMailJob(userId: string, payload: unknown) {
+  if (isPolicyUpdateMailPayload(payload)) {
+    return processPolicyUpdateMail(payload);
+  }
+
+  return processDigestMail(userId);
+}
+
 async function main() {
   const env = getEnv();
   const args = parseArgs();
@@ -1365,7 +1498,7 @@ async function main() {
               },
             );
           } else {
-            result = await processMailDigest(job.payload.userId);
+            result = await processMailJob(job.payload.userId, job.payload);
           }
 
           const terminalStatus = await getJobStatus(job.id);

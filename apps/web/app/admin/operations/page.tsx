@@ -20,6 +20,7 @@ export default async function AdminOperationsPage() {
           email: session.email,
           role: session.role,
         }}
+        view="overview"
       />
     </main>
   );

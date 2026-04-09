@@ -20,6 +20,7 @@ interface AdminOperationsClientProps {
     email: string;
     role: RoleType;
   };
+  view?: "overview" | "jobs" | "workers" | "reconcile" | "cleanup";
 }
 
 interface Pagination {
@@ -214,7 +215,7 @@ function statusClassForSchedule(status: ReconcileScheduleCheck["status"]): strin
   }
 }
 
-export function AdminOperationsClient({ initialUser }: AdminOperationsClientProps) {
+export function AdminOperationsClient({ initialUser, view = "overview" }: AdminOperationsClientProps) {
   const router = useRouter();
 
   const [jobs, setJobs] = useState<AdminJob[]>([]);
@@ -661,8 +662,60 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
         </article>
       </section>
 
+      <section className="card">
+        <div className="button-row" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+          <Link className="ghost-btn" href="/admin/operations">
+            작업 운영 개요
+          </Link>
+          <Link className="ghost-btn" href="/admin/operations/jobs">
+            작업 목록
+          </Link>
+          <Link className="ghost-btn" href="/admin/operations/workers">
+            워커 목록
+          </Link>
+          <Link className="ghost-btn" href="/admin/operations/reconcile">
+            정합성 점검
+          </Link>
+          <Link className="ghost-btn" href="/admin/operations/cleanup">
+            작업 정리
+          </Link>
+        </div>
+      </section>
+
       {error ? <p className="error-text">{error}</p> : null}
 
+      {view === "overview" ? (
+      <section className="card">
+        <div className="status-grid">
+          <article className="card admin-stat">
+            <p className="muted">작업 상세</p>
+            <p className="metric">{pagination?.total ?? 0}</p>
+            <p className="muted">필터와 재시도/취소 관리는 작업 목록 페이지에서 진행합니다.</p>
+            <Link className="ghost-btn" href="/admin/operations/jobs">작업 목록 열기</Link>
+          </article>
+          <article className="card admin-stat">
+            <p className="muted">워커 상태</p>
+            <p className="metric">{workerSummary?.active ?? 0}</p>
+            <p className="muted">heartbeat 조회와 정리는 워커 목록 페이지에서 진행합니다.</p>
+            <Link className="ghost-btn" href="/admin/operations/workers">워커 목록 열기</Link>
+          </article>
+          <article className="card admin-stat">
+            <p className="muted">정합성 점검</p>
+            <p className="metric">{reconcileResult?.summary.orphanedRunningJobsCount ?? 0}</p>
+            <p className="muted">DB RUNNING과 GitHub Action 불일치를 점검합니다.</p>
+            <Link className="ghost-btn" href="/admin/operations/reconcile">정합성 점검 열기</Link>
+          </article>
+          <article className="card admin-stat">
+            <p className="muted">작업 정리</p>
+            <p className="metric">{cleanupOlderDays}</p>
+            <p className="muted">오래된 작업 정리와 전체 초기화는 전용 페이지에서 실행합니다.</p>
+            <Link className="ghost-btn" href="/admin/operations/cleanup">정리 페이지 열기</Link>
+          </article>
+        </div>
+      </section>
+      ) : null}
+
+      {view === "jobs" ? (
       <section className="card">
         <div className="table-toolbar">
           <h2>작업 목록</h2>
@@ -806,7 +859,9 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </div>
         ) : null}
       </section>
+      ) : null}
 
+      {view === "workers" ? (
       <section className="card">
         <div className="table-toolbar">
           <h2>워커 목록</h2>
@@ -870,7 +925,9 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </table>
         </div>
       </section>
+      ) : null}
 
+      {view === "reconcile" ? (
       <section className="card">
         <div className="table-toolbar">
           <h2>RUNNING vs GitHub Action 불일치 점검</h2>
@@ -979,7 +1036,9 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           <p className="muted">점검 결과가 없습니다. 점검 버튼을 눌러주세요.</p>
         )}
       </section>
+      ) : null}
 
+      {view === "cleanup" ? (
       <section className="card">
         <div className="table-toolbar">
           <h2>작업 정리</h2>
@@ -1067,6 +1126,7 @@ export function AdminOperationsClient({ initialUser }: AdminOperationsClientProp
           </p>
         </div>
       </section>
+      ) : null}
     </main>
   );
 }
