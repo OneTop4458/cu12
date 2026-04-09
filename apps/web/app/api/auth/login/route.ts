@@ -69,6 +69,50 @@ function runInBackground(work: () => Promise<unknown>) {
   void work().catch(() => undefined);
 }
 
+async function loadAuthLookupFallback(cu12Id: string) {
+  console.warn(
+    "[auth] Falling back to legacy login lookup compatibility mode. Optional auth columns are missing in the DB.",
+  );
+
+  const [legacyAccount, legacyUser] = await Promise.all([
+    prisma.cu12Account.findFirst({
+      where: { cu12Id },
+      select: {
+        userId: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    }).catch(() => null),
+    prisma.user.findUnique({
+      where: { email: cu12Id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+        passwordHash: true,
+      },
+    }).catch(() => null),
+  ]);
+
+  return {
+    existingAccount: legacyAccount
+      ? {
+        userId: legacyAccount.userId,
+        provider: "CU12" as const,
+      }
+      : null,
+    localCandidate: legacyUser
+      ? {
+        ...legacyUser,
+        withdrawnAt: null,
+        isTestUser: false,
+      }
+      : null,
+  };
+}
+
 function attachTiming(response: Response, timing: ServerTiming): Response {
   return applyServerTimingHeader(response, timing);
 }
@@ -141,69 +185,97 @@ export async function POST(request: NextRequest) {
       return timedError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
     }
 
-    const [existingAccount, localCandidate] = await Promise.all([
-      timing.measure("provider-detect", () =>
-        getAccountProviderByCu12Id(body.cu12Id),
-      ),
-      timing.measure("local-user", () =>
-        withWithdrawnAtFallback(
-          () =>
-            withIsTestUserFallback(
-              () =>
-                prisma.user.findUnique({
-                  where: { email: body.cu12Id },
-                  select: {
-                    id: true,
-                    email: true,
-                    role: true,
-                    isActive: true,
-                    withdrawnAt: true,
-                    isTestUser: true,
-                    passwordHash: true,
-                  },
-                }),
-              () =>
-                prisma.user.findUnique({
-                  where: { email: body.cu12Id },
-                  select: {
-                    id: true,
-                    email: true,
-                    role: true,
-                    isActive: true,
-                    withdrawnAt: true,
-                    passwordHash: true,
-                  },
-                }),
-            ),
-          () =>
-            withIsTestUserFallback(
-              () =>
-                prisma.user.findUnique({
-                  where: { email: body.cu12Id },
-                  select: {
-                    id: true,
-                    email: true,
-                    role: true,
-                    isActive: true,
-                    isTestUser: true,
-                    passwordHash: true,
-                  },
-                }),
-              () =>
-                prisma.user.findUnique({
-                  where: { email: body.cu12Id },
-                  select: {
-                    id: true,
-                    email: true,
-                    role: true,
-                    isActive: true,
-                    passwordHash: true,
-                  },
-                }),
-            ),
+    let existingAccount:
+      | {
+        userId: string;
+        provider: "CU12" | "CYBER_CAMPUS";
+      }
+      | null;
+    let localCandidate:
+      | {
+        id: string;
+        email: string;
+        role: "ADMIN" | "USER";
+        isActive: boolean;
+        withdrawnAt: Date | null;
+        isTestUser: boolean;
+        passwordHash: string;
+      }
+      | null;
+
+    try {
+      [existingAccount, localCandidate] = await Promise.all([
+        timing.measure("provider-detect", () =>
+          getAccountProviderByCu12Id(body.cu12Id),
         ),
-      ),
-    ]);
+        timing.measure("local-user", () =>
+          withWithdrawnAtFallback(
+            () =>
+              withIsTestUserFallback(
+                () =>
+                  prisma.user.findUnique({
+                    where: { email: body.cu12Id },
+                    select: {
+                      id: true,
+                      email: true,
+                      role: true,
+                      isActive: true,
+                      withdrawnAt: true,
+                      isTestUser: true,
+                      passwordHash: true,
+                    },
+                  }),
+                () =>
+                  prisma.user.findUnique({
+                    where: { email: body.cu12Id },
+                    select: {
+                      id: true,
+                      email: true,
+                      role: true,
+                      isActive: true,
+                      withdrawnAt: true,
+                      passwordHash: true,
+                    },
+                  }),
+              ),
+            () =>
+              withIsTestUserFallback(
+                () =>
+                  prisma.user.findUnique({
+                    where: { email: body.cu12Id },
+                    select: {
+                      id: true,
+                      email: true,
+                      role: true,
+                      isActive: true,
+                      isTestUser: true,
+                      passwordHash: true,
+                    },
+                  }),
+                () =>
+                  prisma.user.findUnique({
+                    where: { email: body.cu12Id },
+                    select: {
+                      id: true,
+                      email: true,
+                      role: true,
+                      isActive: true,
+                      passwordHash: true,
+                    },
+                  }),
+              ),
+          ),
+        ),
+      ]);
+    } catch (error) {
+      if (!isPrismaError(error)) {
+        throw error;
+      }
+
+      const fallback = await loadAuthLookupFallback(body.cu12Id);
+      existingAccount = fallback.existingAccount;
+      localCandidate = fallback.localCandidate;
+    }
 
     const storedCurrentProvider = existingAccount?.provider
       ? normalizePortalProvider(existingAccount.provider)
