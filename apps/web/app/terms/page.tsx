@@ -29,10 +29,8 @@ export default async function TermsOfServicePage({
   const policy = requestedVersion
     ? await getPolicyDocumentVersion(PolicyDocumentType.TERMS_OF_SERVICE, requestedVersion)
     : await getActivePolicyDocument(PolicyDocumentType.TERMS_OF_SERVICE);
-  const comparePolicy = policy
-    ? compareToVersion
-      ? await getPolicyDocumentVersion(PolicyDocumentType.TERMS_OF_SERVICE, compareToVersion)
-      : null
+  const comparePolicy = policy && compareToVersion
+    ? await getPolicyDocumentVersion(PolicyDocumentType.TERMS_OF_SERVICE, compareToVersion)
     : null;
   const history = await getPolicyHistoryForPublic(PolicyDocumentType.TERMS_OF_SERVICE);
 

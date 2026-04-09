@@ -55,7 +55,15 @@ export function LegalDocumentPage({
               </a>
               {comparePolicy ? (
                 <a className="ghost-btn" href={buildPolicyVersionPath(comparePolicy.type, comparePolicy.version)}>
-                  비교 대상 보기
+                  비교 기준 보기
+                </a>
+              ) : null}
+              {!comparePolicy && history.length > 1 ? (
+                <a
+                  className="ghost-btn"
+                  href={buildPolicyDiffPath(policy.type, policy.version, history[1]!.version)}
+                >
+                  신구 비교
                 </a>
               ) : null}
               {comparePolicy ? (
@@ -80,9 +88,9 @@ export function LegalDocumentPage({
                   const previous = history[index + 1] ?? null;
                   return (
                     <div key={item.id} className="button-row" style={{ justifyContent: "flex-start" }}>
-                        <a className="ghost-btn" href={buildPolicyVersionPath(item.type, item.version)}>
-                          v{item.version}
-                        </a>
+                      <a className="ghost-btn" href={buildPolicyVersionPath(item.type, item.version)}>
+                        v{item.version}
+                      </a>
                       {previous ? (
                         <a
                           className="ghost-btn"
