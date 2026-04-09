@@ -2753,7 +2753,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <span>자동 수강 중 퀴즈 자동 풀이 사용</span>
                 </label>
                 <p className="muted text-small">
-                  AI를 사용해 자동 수강 시 퀴즈도 자동으로 처리합니다. 완벽한 정답이 아닐 수 있으니 최종 제출 결과는 반드시 직접 확인해 주세요.
+                  AI를 사용해 자동 수강 시 퀴즈 답안을 자동 제출합니다. 완벽한 정답이 아닐 수 있으니 최종 제출 결과는 반드시 직접 확인해 주세요.
                 </p>
                 <label className="field"><span>수신 이메일</span><input type="email" value={mailDraft.email} onChange={(event) => setMailDraft({ ...mailDraft, email: event.target.value })} required /></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>메일 알림 사용</span></label>
