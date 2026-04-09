@@ -126,6 +126,15 @@ interface AdminPoliciesUpdatePayload extends AdminPoliciesPayload {
   };
 }
 
+interface AdminPolicyMailPayload {
+  policyTypes: PolicyDocumentType[];
+  publishedChanges: AdminPoliciesUpdatePayload["publishedChanges"];
+  mailQueue: {
+    queued: number;
+    skipped: number;
+  };
+}
+
 const JOB_STATUSES: JobStatus[] = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
 
 const NOTICE_TYPE_LABEL: Record<NoticeType, string> = {
@@ -190,9 +199,11 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
   const [termsContent, setTermsContent] = useState("");
   const [termsActive, setTermsActive] = useState(true);
   const [policySaving, setPolicySaving] = useState(false);
+  const [policyMailSending, setPolicyMailSending] = useState(false);
   const [policyError, setPolicyError] = useState<string | null>(null);
   const [policySavedAt, setPolicySavedAt] = useState<string | null>(null);
   const [policySaveSummary, setPolicySaveSummary] = useState<string | null>(null);
+  const [policyMailSummary, setPolicyMailSummary] = useState<string | null>(null);
   const [profileCompanyName, setProfileCompanyName] = useState("");
   const [profileSupportEmail, setProfileSupportEmail] = useState("");
   const [profileCompanyAddress, setProfileCompanyAddress] = useState("");
@@ -351,6 +362,13 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
       };
     });
   }, [policyByType]);
+  const hasMissingHistoricalVersions = useMemo(() => {
+    return policyHistory.some((group) => {
+      const current = policyByType.get(group.type);
+      if (!current) return false;
+      return current.version > group.documents.length;
+    });
+  }, [policyByType, policyHistory]);
 
   const handleSavePolicies = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -364,6 +382,7 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
 
       setPolicySaving(true);
       setPolicyError(null);
+      setPolicyMailSummary(null);
       try {
         const payload = await fetchJson<AdminPoliciesUpdatePayload>("/api/admin/policies", {
           method: "PUT",
@@ -428,6 +447,29 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
       profileRevisionDate,
     ],
   );
+
+  const handleResendPolicyMail = useCallback(async () => {
+    if (policyMailSending) return;
+
+    setPolicyMailSending(true);
+    setPolicyError(null);
+    try {
+      const payload = await fetchJson<AdminPolicyMailPayload>("/api/admin/policies", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          policyTypes: POLICY_TYPES,
+        }),
+      });
+      setPolicyMailSummary(
+        `약관 메일 재발송 큐 ${payload.mailQueue.queued}건 / 스킵 ${payload.mailQueue.skipped}건`,
+      );
+    } catch (err) {
+      setPolicyError(err instanceof Error ? err.message : "약관 메일 재발송에 실패했습니다.");
+    } finally {
+      setPolicyMailSending(false);
+    }
+  }, [fetchJson, policyMailSending]);
 
   return (
     <main className="dashboard-main page-shell">
@@ -555,6 +597,14 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
         ) : null}
         {!policyError && policySaveSummary ? (
           <p className="muted text-small top-gap">{policySaveSummary}</p>
+        ) : null}
+        {!policyError && policyMailSummary ? (
+          <p className="muted text-small top-gap">{policyMailSummary}</p>
+        ) : null}
+        {hasMissingHistoricalVersions ? (
+          <p className="error-text top-gap">
+            일부 이전 약관 버전 데이터가 DB에 없습니다. 구조 개편 전 버전은 수동 복구 전까지 public 이력/비교 링크를 제공할 수 없습니다.
+          </p>
         ) : null}
 
         <div className="status-grid top-gap">
@@ -690,6 +740,9 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
           <div className="button-row" style={{ gridColumn: "1 / -1" }}>
             <button className="btn-success" type="submit" disabled={policySaving}>
               {policySaving ? "저장 중..." : "약관 저장"}
+            </button>
+            <button className="ghost-btn" type="button" onClick={() => void handleResendPolicyMail()} disabled={policyMailSending}>
+              {policyMailSending ? "메일 큐잉 중..." : "약관 메일 다시 발송"}
             </button>
           </div>
         </form>

@@ -550,6 +550,22 @@ export async function getPolicyHistoryForPublic(
     .map(toPolicyPayload);
 }
 
+export async function listCurrentPolicyNotificationChanges(
+  types: PolicyDocumentType[] = REQUIRED_POLICY_TYPES,
+): Promise<PolicyChangePayload[]> {
+  const rows = await listPolicyRows();
+
+  return types.flatMap((type) => {
+    const current = rows.find((row) => row.type === type && row.isActive) ?? null;
+    if (!current) {
+      return [];
+    }
+
+    const previous = rows.find((row) => row.type === type && row.version < current.version) ?? null;
+    return [toPolicyChangePayload(toPolicyPayload(current), previous?.version ?? null)];
+  });
+}
+
 export async function getPolicyConsentRequirement(userId: string): Promise<PolicyConsentRequirement> {
   const policies = await getActiveRequiredPolicies();
   const consents = await prisma.userPolicyConsent.findMany({
