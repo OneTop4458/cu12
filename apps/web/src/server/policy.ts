@@ -132,8 +132,9 @@ type PolicyDocumentRow = {
   id: string;
   type: PolicyDocumentType;
   version: number;
-  templateContent: string;
-  publishedContent: string;
+  content: string | null;
+  templateContent: string | null;
+  publishedContent: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -143,6 +144,7 @@ const policyDocumentSelect = {
   id: true,
   type: true,
   version: true,
+  content: true,
   templateContent: true,
   publishedContent: true,
   isActive: true,
@@ -343,14 +345,16 @@ function renderPolicyContent(template: string, profile: PolicyProfilePayload): s
 }
 
 function toPolicyPayload(row: PolicyDocumentRow): PolicyDocumentPayload {
+  const templateContent = row.templateContent ?? row.content ?? "";
+  const publishedContent = row.publishedContent ?? row.content ?? templateContent;
   return {
     id: row.id,
     type: row.type,
     title: policyTitle(row.type),
     version: row.version,
-    content: row.publishedContent,
-    templateContent: row.templateContent,
-    publishedContent: row.publishedContent,
+    content: publishedContent,
+    templateContent,
+    publishedContent,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -400,6 +404,7 @@ async function listPolicyRows(client: PolicyClient = prisma) {
       id: row.id,
       type: row.type,
       version: row.version,
+      content: row.content,
       templateContent: row.templateContent,
       publishedContent: row.publishedContent,
       isActive: row.isActive,
@@ -431,6 +436,7 @@ async function listPolicyRows(client: PolicyClient = prisma) {
       id: row.id,
       type: row.type,
       version: row.version,
+      content: row.content,
       templateContent: row.content,
       publishedContent: row.content,
       isActive: row.isActive,
@@ -441,16 +447,7 @@ async function listPolicyRows(client: PolicyClient = prisma) {
 }
 
 async function listActivePolicyRows(client: PolicyClient = prisma) {
-  const rows = await client.policyDocument.findMany({
-    where: {
-      type: { in: REQUIRED_POLICY_TYPES },
-      isActive: true,
-    },
-    orderBy: [{ type: "asc" }, { version: "desc" }],
-    select: policyDocumentSelect,
-  });
-
-  return [...groupLatestByType(rows).values()];
+  return [...groupLatestByType((await listPolicyRows(client)).filter((row) => row.isActive)).values()];
 }
 
 export async function getPolicyProfileForAdmin(): Promise<PolicyProfilePayload> {
@@ -732,6 +729,7 @@ export async function publishPoliciesByAdmin(
           data: {
             type,
             version: 1,
+            content: nextPublished,
             templateContent: nextTemplate,
             publishedContent: nextPublished,
             isActive: nextIsActive,
@@ -762,6 +760,7 @@ export async function publishPoliciesByAdmin(
           data: {
             type,
             version: currentRow.version + 1,
+            content: nextPublished,
             templateContent: nextTemplate,
             publishedContent: nextPublished,
             isActive: nextIsActive,
