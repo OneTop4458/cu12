@@ -249,6 +249,52 @@ function extractHrefFromLocationOnclick(rawOnclick: string | null | undefined): 
     ?? null;
 }
 
+function extractHrefFromPageMoveOnclick(rawOnclick: string | null | undefined): string | null {
+  const onclick = normalizeWhitespace(rawOnclick ?? "");
+  if (!onclick) return null;
+
+  return onclick.match(/pageMove\(\s*'([^']+)'/)?.[1]
+    ?? onclick.match(/pageMove\(\s*"([^"]+)"/)?.[1]
+    ?? null;
+}
+
+function findFirstTableValueByHeader($: ReturnType<typeof load>, headers: string[]): string {
+  let value = "";
+
+  $("tr").each((_, el) => {
+    const row = $(el);
+    const header = normalizeWhitespace(row.find("th").first().text());
+    if (!headers.includes(header)) return;
+
+    value = normalizeWhitespace(row.find("td").first().text());
+    return false;
+  });
+
+  return value;
+}
+
+function buildCourseNoticeKey(
+  lectureSeq: number,
+  rawNoticeId: string,
+  title: string,
+  postedAt: string | null,
+): string {
+  if (rawNoticeId) {
+    return `${lectureSeq}:seq:${rawNoticeId}`;
+  }
+
+  return `${lectureSeq}:title:${normalizeWhitespace(title).toLowerCase()}:${postedAt ?? ""}`;
+}
+
+export function parseCyberCampusPlanHtml(html: string): Pick<CourseState, "instructor"> {
+  const $ = load(html);
+  const instructor = findFirstTableValueByHeader($, ["교수"]);
+
+  return {
+    instructor: instructor || null,
+  };
+}
+
 export function parseCyberCampusCourseSubmainHtml(html: string): {
   progressPercent: number;
   onlineWeekNumbers: number[];
@@ -433,6 +479,86 @@ export function parseCyberCampusCommunityNoticeDetailHtml(
       ?? $(".artl_reg_info .writer, .artl_reg_info .author").first().text(),
     ) || null,
     postedAt: toIsoDate(metaText),
+    bodyText,
+  };
+}
+
+export function parseCyberCampusCourseNoticeListHtml(
+  html: string,
+  userId: string,
+  lectureSeq: number,
+  externalLectureId?: string | null,
+): CourseNotice[] {
+  const $ = load(html);
+  const syncedAt = new Date().toISOString();
+  const seen = new Set<string>();
+  const items: CourseNotice[] = [];
+
+  $("table.bbslist tbody tr, table.new_bbslist tbody tr").each((_, el) => {
+    const row = $(el);
+    const titleCell = row.find("td.left").first();
+    if (!titleCell.length) return;
+
+    const link = titleCell.find("a").first();
+    const href = link.attr("href")
+      ?? extractHrefFromPageMoveOnclick(titleCell.attr("onclick"))
+      ?? extractHrefFromPageMoveOnclick(link.attr("onclick"))
+      ?? extractHrefFromLocationOnclick(titleCell.attr("onclick"))
+      ?? "";
+    const rawNoticeId = href.match(/ARTL_NUM=(\d+)/i)?.[1] ?? "";
+    const title = normalizeWhitespace(
+      titleCell.find(".subjt_top").first().text()
+      || link.text()
+      || titleCell.text(),
+    );
+    if (!title) return;
+
+    const postedAt = toIsoDateTime(
+      row.find("td.number").last().text()
+      || row.find("td").last().text(),
+    );
+    const author = normalizeWhitespace(titleCell.find(".subjt_bottom span").first().text()) || null;
+    const noticeKey = buildCourseNoticeKey(lectureSeq, rawNoticeId, title, postedAt);
+    if (seen.has(noticeKey)) return;
+    seen.add(noticeKey);
+
+    items.push({
+      userId,
+      lectureSeq,
+      externalLectureId: externalLectureId ?? null,
+      noticeKey,
+      noticeSeq: rawNoticeId || undefined,
+      title,
+      author,
+      postedAt,
+      bodyText: "",
+      isNew:
+        row.find(".notice_new_icon, .new, .icon-new, img[alt*='new']").length > 0
+        || /\bnew\b/i.test(titleCell.text()),
+      syncedAt,
+    });
+  });
+
+  return items;
+}
+
+export function parseCyberCampusCourseNoticeDetailHtml(
+  html: string,
+): Pick<CourseNotice, "title" | "author" | "postedAt" | "bodyText"> {
+  const $ = load(html);
+  const title = findFirstTableValueByHeader($, ["제목"]);
+  const author = findFirstTableValueByHeader($, ["작성자"]);
+  const postedAt = toIsoDateTime(findFirstTableValueByHeader($, ["게시일"]));
+  const bodyText = pickLongestText([
+    $("td.textviewer").first().text(),
+    $(".textviewer").first().text(),
+    $(".bbsview .textviewer").first().text(),
+  ]);
+
+  return {
+    title,
+    author: author || null,
+    postedAt,
     bodyText,
   };
 }

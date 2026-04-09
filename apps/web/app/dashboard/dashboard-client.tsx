@@ -8,6 +8,10 @@ import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { RotateCw } from "lucide-react";
 import { toast } from "sonner";
+import {
+  formatDashboardDeadlineRemainingLabel,
+  type DashboardDeadlineActivityType,
+} from "../../src/lib/dashboard-deadline";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
@@ -91,12 +95,18 @@ interface Deadline {
   courseContentsSeq: number;
   weekNo: number;
   lessonNo: number;
+  activityType: DashboardDeadlineActivityType;
   courseTitle: string;
   isCompleted: boolean;
   availableFrom: string | null;
   dueAt: string | null;
   remainingSeconds: number;
   daysLeft: number | null;
+}
+
+interface AllDeadlinesState {
+  status: "idle" | "loading" | "loaded";
+  items: Deadline[] | null;
 }
 
 interface Notice {
@@ -457,13 +467,6 @@ function formatSeconds(value: number): string {
   return `${s}초`;
 }
 
-function formatDays(days: number | null): string {
-  if (days === null) return "-";
-  if (days < 0) return "마감 지남";
-  if (days === 0) return "오늘 마감";
-  return `D-${days}`;
-}
-
 function parseAutoProgress(value: unknown): AutoProgress | null {
   if (!value || typeof value !== "object") return null;
   const maybe = value as Partial<AutoProgress>;
@@ -814,9 +817,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [deadlinesLoading, setDeadlinesLoading] = useState(true);
-  const [allDeadlines, setAllDeadlines] = useState<Deadline[] | null>(null);
+  const [allDeadlinesState, setAllDeadlinesState] = useState<AllDeadlinesState>({
+    status: "idle",
+    items: null,
+  });
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
-  const [deadlineLoading, setDeadlineLoading] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -866,6 +871,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalCode, setApprovalCode] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const autoLearnProviderHydratedRef = useRef(false);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -947,13 +953,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }),
     [courses],
   );
+  const deadlineLoading = deadlineFilter === "ALL" && allDeadlinesState.status === "loading";
   const deadlineD7Items = useMemo(
     () => deadlines.filter((item) => item.daysLeft !== null && item.daysLeft >= 0 && item.daysLeft <= 7),
     [deadlines],
   );
-  const deadlineAllItems = deadlineFilter === "ALL"
-    ? allDeadlines ?? deadlines
-    : deadlines;
+  const deadlineAllItems = allDeadlinesState.items ?? deadlines;
   const displayedDeadlines = deadlineFilter === "D7"
     ? deadlineD7Items
     : deadlineAllItems;
@@ -1135,7 +1140,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           };
         }),
       );
-      setLectureSeq((prev) => prev ?? nextCourses.find((course) => course.provider === autoLearnProvider)?.lectureSeq ?? nextCourses[0]?.lectureSeq ?? null);
+      setLectureSeq((prev) => prev ?? nextCourses.find((course) => course.provider === autoLearnProvider)?.lectureSeq ?? null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1151,7 +1156,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=${limit}`)),
       );
       setDeadlines(payloads.flatMap((payload) => payload.deadlines));
-      setAllDeadlines(null);
+      setAllDeadlinesState({
+        status: "idle",
+        items: null,
+      });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1298,7 +1306,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setProviderSyncQueues(payload.providerSyncQueues);
       setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
-      setAutoLearnProvider(payload.account?.provider ?? "CU12");
+      if (!autoLearnProviderHydratedRef.current) {
+        setAutoLearnProvider(payload.account?.provider ?? "CU12");
+        autoLearnProviderHydratedRef.current = true;
+      }
       setCyberCampus(payload.cyberCampus ?? {
         session: {
           available: false,
@@ -1620,25 +1631,33 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [trackingJobId, fetchJson, refreshAll, refreshStatus]);
 
   useEffect(() => {
-    if (deadlineFilter !== "ALL" || allDeadlines || deadlineLoading) return;
+    if (deadlineFilter !== "ALL" || allDeadlinesState.status !== "idle") return;
 
     let cancelled = false;
     const load = async () => {
-      setDeadlineLoading(true);
+      setAllDeadlinesState((prev) => ({
+        status: "loading",
+        items: prev.items,
+      }));
       try {
         const payloads = await Promise.all(
           PORTAL_PROVIDERS.map((provider) =>
             fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=100`)),
         );
         if (!cancelled) {
-          setAllDeadlines(payloads.flatMap((payload) => payload.deadlines));
+          setAllDeadlinesState({
+            status: "loaded",
+            items: payloads.flatMap((payload) => payload.deadlines),
+          });
         }
       } catch (err) {
         if (!cancelled) {
           setError((err as Error).message);
+          setAllDeadlinesState({
+            status: "loaded",
+            items: null,
+          });
         }
-      } finally {
-        setDeadlineLoading(false);
       }
     };
 
@@ -1646,7 +1665,22 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [deadlineFilter, allDeadlines, deadlineLoading, fetchJson]);
+  }, [allDeadlinesState.status, deadlineFilter, fetchJson]);
+
+  const handleAutoLearnProviderChange = useCallback((provider: PortalProvider) => {
+    setAutoLearnProvider(provider);
+    setLectureSeq(providerCourses[provider][0]?.lectureSeq ?? null);
+  }, [providerCourses]);
+
+  const handleDeadlineFilterChange = useCallback((nextFilter: DeadlineFilter) => {
+    setDeadlineFilter(nextFilter);
+    if (nextFilter === "ALL" && allDeadlinesState.status === "loaded" && allDeadlinesState.items === null) {
+      setAllDeadlinesState({
+        status: "idle",
+        items: null,
+      });
+    }
+  }, [allDeadlinesState.items, allDeadlinesState.status]);
 
   async function cancelSyncQueueJobs() {
     if (!syncQueueStaleJobIds.length || syncQueueCleanupSubmitting) return;
@@ -2282,7 +2316,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <div className="form-grid top-gap">
           <label className="field">
             <span>서비스</span>
-            <select value={autoLearnProvider} onChange={(event) => setAutoLearnProvider(event.target.value as PortalProvider)}>
+            <select value={autoLearnProvider} onChange={(event) => handleAutoLearnProviderChange(event.target.value as PortalProvider)}>
               <option value="CU12">CU12</option>
               <option value="CYBER_CAMPUS">사이버캠퍼스</option>
             </select>
@@ -2424,14 +2458,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <button
               type="button"
               className={`ghost-btn ${deadlineFilter === "D7" ? "is-active" : ""}`}
-              onClick={() => setDeadlineFilter("D7")}
+              onClick={() => handleDeadlineFilterChange("D7")}
             >
               D-7 이내
             </button>
             <button
               type="button"
               className={`ghost-btn ${deadlineFilter === "ALL" ? "is-active" : ""}`}
-              onClick={() => setDeadlineFilter("ALL")}
+              onClick={() => handleDeadlineFilterChange("ALL")}
             >
               전체
             </button>
@@ -2453,7 +2487,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               {`현재주차 미완료 ${currentWeekPendingStats.total}개 (${currentWeekPendingStats.courseCount}개 강좌)가 있지만, D-7 기준 마감 임박 항목은 없습니다.`}
             </p>
             <div className="button-row">
-              <button type="button" className="ghost-btn" onClick={() => setDeadlineFilter("ALL")}>
+              <button type="button" className="ghost-btn" onClick={() => handleDeadlineFilterChange("ALL")}>
                 {"전체 보기"}
               </button>
             </div>
@@ -2473,7 +2507,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   </td>
                   <td data-label="주차/차시">{item.weekNo}주차 {item.lessonNo}차시</td>
                   <td data-label="학습인정기간">{toDateTime(item.availableFrom)} ~ {toDateTime(item.dueAt)}</td>
-                  <td data-label="남은 시간">{formatDays(item.daysLeft)} / {formatSeconds(item.remainingSeconds)}</td>
+                  <td data-label="남은 시간">{formatDashboardDeadlineRemainingLabel(item)}</td>
                 </tr>
               ))}
             </tbody>
