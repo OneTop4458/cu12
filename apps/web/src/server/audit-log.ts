@@ -104,6 +104,7 @@ function buildAuditLogWhere(input?: ListAuditLogInput) {
       OR: [
         { targetUserId: query },
         { target: { is: { email: query } } },
+        { target: { is: { cu12Account: { is: { cu12Id: query } } } } },
         { target: { is: { name: { contains: query, mode: "insensitive" } } } },
       ],
     });
@@ -114,6 +115,7 @@ function buildAuditLogWhere(input?: ListAuditLogInput) {
       OR: [
         { actorUserId: query },
         { actor: { is: { email: query } } },
+        { actor: { is: { cu12Account: { is: { cu12Id: query } } } } },
         { actor: { is: { name: { contains: query, mode: "insensitive" } } } },
       ],
     });

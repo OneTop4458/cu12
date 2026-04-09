@@ -60,6 +60,16 @@ export async function queuePolicyUpdateMailJobs(
   for (const user of users) {
     const email = user.mailSubs[0]?.email?.trim() ?? "";
     if (!email) {
+      await prisma.mailDelivery.create({
+        data: {
+          userId: user.id,
+          toEmail: "missing-mail-subscription@example.invalid",
+          subject: "[CU12] 약관 업데이트 안내",
+          status: "SKIPPED",
+          error: "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+          sentAt: null,
+        },
+      });
       skippedUsers.push({
         userId: user.id,
         reason: "MAIL_SUBSCRIPTION_EMAIL_MISSING",
