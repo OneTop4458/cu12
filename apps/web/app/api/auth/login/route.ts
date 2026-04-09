@@ -177,6 +177,17 @@ async function loadExistingUserByIdFallback(userId: string) {
     : null;
 }
 
+function emptyPolicyConsentRequirement(): Awaited<ReturnType<typeof getPolicyConsentRequirement>> {
+  return {
+    configured: false,
+    required: false,
+    policies: [],
+    pendingTypes: [],
+    consentMode: null,
+    policyChanges: [],
+  };
+}
+
 function attachTiming(response: Response, timing: ServerTiming): Response {
   return applyServerTimingHeader(response, timing);
 }
@@ -370,14 +381,7 @@ export async function POST(request: NextRequest) {
         console.warn(
           "[auth] Test-user login skipped policy consent lookup because legacy policy/consent DB structures are incompatible.",
         );
-        return {
-          configured: false,
-          required: false,
-          policies: [],
-          pendingTypes: [],
-          consentMode: null,
-          policyChanges: [],
-        } satisfies Awaited<ReturnType<typeof getPolicyConsentRequirement>>;
+        return emptyPolicyConsentRequirement();
       });
       if (!consent.configured && localCandidate.role !== "ADMIN") {
         if (!localCandidate.isTestUser) {
@@ -677,7 +681,17 @@ export async function POST(request: NextRequest) {
 
     const consent = await timing.measure("policy", () =>
       getPolicyConsentRequirement(user.id),
-    );
+    ).catch((error) => {
+      if (!isPrismaError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        "[auth] Existing-user login skipped policy consent lookup because legacy policy/consent DB structures are incompatible.",
+        describePrismaError(error),
+      );
+      return emptyPolicyConsentRequirement();
+    });
     if (!consent.configured && user.role !== "ADMIN") {
       return timedError(
         "Required policy documents are not configured by an administrator.",
