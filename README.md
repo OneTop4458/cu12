@@ -1,224 +1,256 @@
 # Catholic University Automation
 
-Catholic University Automation is a cloud-first service that verifies portal credentials, tracks course and notice status, and executes queue-based auto-learning jobs across CU12 and Cyber Campus.
+Catholic University Automation is a cloud-native control plane for a small invited group using CU12 and Cyber Campus. It verifies real portal credentials at login time, keeps course and notice data synchronized, queues long-running learning jobs, and exposes admin/operator tooling without requiring an always-on local machine.
 
-## 1. Product Summary
+## Product Snapshot
 
-The project is designed for a small private group (about 5 users) where only approved CU12 IDs can access the system.
+| Area | Current behavior |
+| --- | --- |
+| Authentication | Real-time portal verification, invite-only first login, policy-consent gate, idle/session cookies |
+| Providers | CU12 and Cyber Campus provider-aware sync and dashboard views |
+| Learning automation | Queue-based auto-learning with VOD, material, and optional OpenAI-backed quiz execution |
+| Worker runtime | GitHub Actions orchestration with HTTP sync paths plus Playwright execution where browser automation is required |
+| Notifications | Dashboard notices/messages plus optional immediate mail alerts and hourly digest dispatch |
+| Admin operations | Member management, invite issuance, worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
 
-Core goals:
+## Architecture
 
-1. Real CU12 login verification on every sign-in.
-2. One-time invite verification for first login only.
-3. Dashboard visibility for progress/notices/jobs.
-4. Cloud-only execution for long-running auto-learning tasks.
-5. Email alerts for new notices, deadline risk, and auto-learning lifecycle (start + end).
+### System topology
 
-## 2. Architecture at a Glance
-
-```text
-Browser (User)
-  -> Next.js Web App (Vercel)
-     -> PostgreSQL (Neon)
-     -> GitHub API (workflow_dispatch)
-           -> GitHub Actions Worker (Playwright)
-                -> CU12 Website
+```mermaid
+flowchart LR
+  Browser["User Browser"] --> Web["Next.js App Router\napps/web on Vercel"]
+  Web --> DB["Neon PostgreSQL\nPrisma schema"]
+  Web --> Dispatch["GitHub Actions dispatch\nworker-consume.yml"]
+  Web --> Mail["SMTP provider\noptional"]
+  Dispatch --> Worker["apps/worker\nHTTP sync + Playwright runtime"]
+  Worker --> DB
+  Worker --> Mail
+  Worker --> CU12["CU12"]
+  Worker --> Cyber["Cyber Campus"]
+  Worker --> OpenAI["OpenAI API\noptional quiz assist"]
+  Core["packages/core\nparsers + shared types"] --> Web
+  Core --> Worker
 ```
 
-### Components
+### Login and onboarding flow
 
-1. `apps/web`
-- Next.js App Router UI + API endpoints.
-- Auth/session management (`session`, login challenge, admin impersonation).
-- Queue writes and worker dispatch calls.
-- User dashboard + admin operations center.
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant Web as Web API
+  participant Portal as Portal
+  participant DB as Database
 
-2. `apps/worker`
-- Node.js + Playwright automation runtime.
-- CU12 login, snapshot sync, auto-learning execution.
-- Notice detail fetch + deadline alert evaluation + mail dispatch.
+  U->>Web: POST /api/auth/login
+  Web->>Portal: Verify credentials
+  Portal-->>Web: Auth result
+  alt Existing approved account
+    Web->>DB: Check policy-consent requirement
+    alt Consent required
+      Web-->>U: CONSENT_REQUIRED + consentToken
+      U->>Web: POST /api/auth/consent
+      Web->>DB: Record consent history
+      Web-->>U: AUTHENTICATED + session cookies
+    else Consent already current
+      Web-->>U: AUTHENTICATED + session cookies
+    end
+  else First login
+    Web-->>U: INVITE_REQUIRED + challengeToken
+    U->>Web: POST /api/auth/login/invite
+    Web->>DB: Consume invite, link account
+    Web->>DB: Check policy-consent requirement
+    alt Consent required
+      Web-->>U: CONSENT_REQUIRED + consentToken
+    else Consent already current
+      Web-->>U: AUTHENTICATED + session cookies
+    end
+  end
+```
 
-3. `prisma`
-- Shared PostgreSQL schema.
-- Queue state, account state, invite tokens, snapshots, audit logs, deadline alert dedupe.
+### Queue dispatch and worker execution
 
-4. `.github/workflows`
-- CI validation, DB bootstrap, deploy, scheduled/manual worker execution.
+```mermaid
+sequenceDiagram
+  participant U as User/Admin
+  participant API as Web API
+  participant Queue as JobQueue
+  participant Dispatch as Dispatch policy
+  participant GH as GitHub Actions
+  participant Worker as Worker runtime
+  participant Portal as Portal
+  participant DB as Database
 
-## 3. Authentication Model
+  U->>API: Request sync or auto-learning
+  API->>Queue: Enqueue job with idempotency key
+  API->>Dispatch: Evaluate duplicate/stale redispatch policy
+  alt Dispatch required
+    Dispatch->>GH: workflow_dispatch / internal fan-out
+    GH->>Worker: Start worker-consume run
+  else In-flight duplicate
+    Dispatch-->>API: SKIPPED_DUPLICATE
+  end
+  Worker->>API: Claim pending job via internal API
+  Worker->>Portal: Run HTTP sync or Playwright flow
+  Worker->>DB: Persist snapshots, learning runs, mail logs
+  Worker->>API: Progress / finish / fail callbacks
+```
 
-### Step 1: CU12 Credential Verification
+### Cyber Campus approval-required auto-learning
 
-`POST /api/auth/login`
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant API as Web API
+  participant Cyber as Cyber Campus
+  participant DB as Database
+  participant Worker as Worker runtime
 
-- Validates `cu12Id + cu12Password + campus` against CU12.
-- Existing account mapping returns `AUTHENTICATED` and sets `cu12_session` cookie.
-- New account returns `INVITE_REQUIRED` + short-lived `challengeToken`.
+  U->>API: POST /api/jobs/autolearn-request { provider: CYBER_CAMPUS }
+  API->>Cyber: Reuse or establish session
+  alt Reusable session available
+    API->>DB: Queue AUTOLEARN job
+    API->>Worker: Dispatch worker run
+    API-->>U: approvalRequired=false
+  else Secondary auth required
+    API->>DB: Create BLOCKED job + PortalApprovalSession
+    API-->>U: approvalRequired=true + methods
+    U->>API: POST /api/cyber-campus/approval/{id}/start
+    API->>Cyber: Start selected method
+    U->>API: POST /api/cyber-campus/approval/{id}/confirm
+    API->>Cyber: Confirm code / approval state
+    API->>DB: Mark approval completed, unblock job
+    API->>Worker: Dispatch worker run
+    API-->>U: state=COMPLETED
+  end
+```
 
-### Step 2: Invite Verification (First Login Only)
+## Runtime Surfaces
 
-`POST /api/auth/login/invite`
+| Surface | Responsibility |
+| --- | --- |
+| `apps/web` | Next.js UI + API routes, auth/session handling, admin tools, job enqueue/dispatch, public/legal pages |
+| `apps/worker` | Queue consumer, HTTP snapshot sync, Playwright auto-learning, mail rendering/delivery hooks |
+| `packages/core` | Parser logic, provider helpers, queue payload types, shared contracts |
+| `prisma` | PostgreSQL schema for users, jobs, snapshots, policies, portal sessions, approvals, mail, audit |
+| `.github/workflows` | CI, deploy, bootstrap, schedule dispatch, reconcile, retention, secret scan |
 
-- Validates `challengeToken + inviteCode`.
-- Invite code must be unexpired, unused, and bound to the same `cu12Id`.
-- On success, creates user mapping and sets session cookie.
-
-### Error Handling Policy
-
-- Login API responses use generalized auth failure codes to reduce account/enrollment enumeration risk.
-- `POST /api/auth/login` returns `errorCode = AUTH_FAILED` for authentication failures.
-- `POST /api/auth/login/invite` returns `errorCode = INVITE_VERIFICATION_FAILED` for invite validation failures.
-- Expired/invalid challenge tokens remain explicit as `errorCode = LOGIN_CHALLENGE_INVALID`.
-- Detailed root causes (invalid CU12 credentials, inactive/expired invite, unapproved CU12 ID) are captured in audit logs for operators.
-
-## 4. Queue and Concurrency
-
-Queue table: `JobQueue`
-
-Supported job types:
-
-- `SYNC`
-- `AUTOLEARN`
-- `NOTICE_SCAN`
-- `MAIL_DIGEST`
-
-Concurrency model:
-
-1. Worker claims jobs atomically (`PENDING -> RUNNING`).
-2. Per-user serialization avoids session collisions.
-3. Retry policy uses backoff for transient failures.
-4. Idempotency keys reduce duplicate queue requests.
-5. Auto-learning progress is persisted to job `result` during RUNNING state.
-
-## 5. Runtime Features
-
-1. First-login auto sync: the dashboard auto-queues one SYNC job if no successful sync exists.
-2. Smart polling refresh: dashboard data refreshes adaptively (120s active / 300s idle/background) and on tab re-focus.
-3. Auto-learning modes:
-- `ALL_COURSES`
-- `SINGLE_ALL`
-- `SINGLE_NEXT`
-4. Scheduled auto-learning dispatch:
-- Runs every 2 hours (`20 */2 * * *`, UTC).
-- Scheduled dispatch only enqueues users who currently have available pending VOD tasks.
-5. In-dashboard email preferences:
-- destination email
-- notice/deadline/autolearn immediate alerts (autolearn start + end)
-- daily digest toggle + digest hour (KST, dispatched hourly and filtered by user digest hour)
-6. Admin-only capabilities:
-- member creation/update with CU12 credential verification
-- one-time invite code issue and tracking
-- admin-to-user impersonation view for troubleshooting
-- audit log search (`AUTH`, `ADMIN`, `JOB`, `WORKER`, `MAIL`, `IMPERSONATION`, etc.)
-
-## 6. Cloud Deployment Topology
-
-- **Web/API**: Vercel (`apps/web`)
-- **DB**: Neon PostgreSQL
-- **Worker**: GitHub Actions (`worker-consume.yml`)
-- **Source + CI/CD**: GitHub
-
-No always-on local server is required.
-
-## 7. Repository Layout
+## Repository Layout
 
 ```text
 apps/
-  web/       # Next.js UI + API
-  worker/    # Playwright worker
+  web/          Next.js App Router UI + API
+  worker/       Queue consumer and automation runtime
 packages/
-  core/      # shared parser/types
-prisma/      # schema and migrations
+  core/         Shared parsers and type contracts
+prisma/         PostgreSQL schema
+docs/           Living docs, runbooks, ADRs, historical snapshots
+scripts/        Repo automation, validation, AI workflow helpers
 .github/
-  workflows/ # CI/CD and operations automation
-docs/        # architecture, API, runbooks, ADRs
+  workflows/    CI/CD and operational workflows
 ```
 
-## 8. Local Validation Commands
+## Local Setup and Validation
 
 ```bash
 corepack enable pnpm
-pnpm install --frozen-lockfile
-pnpm run prisma:generate
-pnpm run check:text
-pnpm run check:openapi
-pnpm run typecheck
-pnpm run test:web
-pnpm run test:ops
-pnpm run build:web
+corepack pnpm install --frozen-lockfile
+corepack pnpm run prisma:generate
+corepack pnpm run check:text
+corepack pnpm run check:openapi
+corepack pnpm run typecheck
+corepack pnpm run test:web
+corepack pnpm run test:ops
+corepack pnpm run build:web
 ```
 
-Reuse the existing install between worktrees unless `pnpm-lock.yaml` or the active Node version changes.
-Re-run `pnpm run prisma:generate` after a fresh install and whenever `prisma/schema.prisma` or Prisma model usage changes.
+Notes:
 
-### Codex Worktree Workflow
+- Re-run `corepack pnpm install --frozen-lockfile` when `pnpm-lock.yaml` changes, the Node version changes, or the worktree has no usable install yet.
+- Re-run `corepack pnpm run prisma:generate` after a fresh install and whenever `prisma/schema.prisma` or Prisma model usage changes.
+- `pnpm` may not be on `PATH` yet on Windows. The repository standard is `corepack pnpm`.
 
-- In a Codex-linked worktree, `pnpm run ai:start -- --task "<task-slug>"` reuses the current linked worktree and creates or reuses `ai/session-<thread-id>` instead of nesting another repo-local worktree.
-- Use `pnpm run ai:worktree -- --task "<task-slug>"` only for manual fallback parallel work outside the default Codex flow.
-- After merge or abandonment, run `pnpm run ai:clean` to remove merged clean repo-local worktrees and stale locks.
+## Codex / AI Workflow
 
-When changes are made by AI-assisted workflows, commits and pushes must only happen after:
-- `pnpm run check:text`
-- `pnpm run check:openapi`
-- `pnpm run typecheck`
-- `pnpm run test:web`
-- `pnpm run test:ops`
-- `pnpm run build:web` (when web scope is touched)
+The repository uses the PowerShell-based helper scripts in `scripts/` for isolated AI work:
 
-## 2026-03-04 UI/UX Modernization
-- Added a modernized web shell in `apps/web` with shared visual tokens in `apps/web/app/globals.css`.
-- Added theme system support with `next-themes` (`light`, `dark`, `system`) and a reusable theme provider.
-- Modernized dashboard and admin headers into a unified topbar with quick actions, notification center, and user menu.
-- Introduced reusable UI modules:
-  - `apps/web/components/theme/theme-provider.tsx`
-  - `apps/web/components/theme/theme-toggle.tsx`
-  - `apps/web/components/layout/user-menu.tsx`
-  - `apps/web/components/notifications/notification-center.tsx`
-- Updated login shell for consistent visual framing and preserved core auth flow behavior.
-- Validation commands executed:
-  - `pnpm run check:text`
-  - `pnpm run check:openapi` (current baseline requirement)
-  - `pnpm run prisma:generate`
-  - `pnpm run typecheck`
-  - `pnpm run build:web`
+```bash
+corepack pnpm run ai:start --task "docs-refresh"
+corepack pnpm run ai:ship --commit "docs(platform): refresh architecture and runbooks" --title "docs(platform): refresh architecture and runbooks"
+corepack pnpm run ai:clean
+```
 
-## 9. Required Environment Variables
+Use named arguments directly. Do not use the legacy double-dash forwarding form.
 
-### Common
+## Scheduled Workflows
 
-- `DATABASE_URL`
-- `APP_MASTER_KEY`
-- `AUTH_JWT_SECRET`
-- `WORKER_SHARED_TOKEN`
-- `CU12_BASE_URL`
+| Workflow | Schedule | Current behavior |
+| --- | --- | --- |
+| `sync-schedule.yml` | `0 */2 * * *` UTC | Enqueue provider-aware sync work every 2 hours, then request centralized worker dispatch |
+| `mail-digest-schedule.yml` | `0 * * * *` UTC | Enqueue digest jobs hourly and filter delivery by each user's KST `digestHour` |
+| `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
+| `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs and fail on divergence |
+| `db-retention-cleanup.yml` | see workflow file | Remove rows past retention policy windows |
 
-### Web Dispatch
+## Environment and Configuration
 
-- `GITHUB_OWNER`
-- `GITHUB_REPO`
-- `GITHUB_WORKFLOW_ID`
-- `GITHUB_WORKFLOW_REF`
-- `GITHUB_TOKEN`
+### Required application secrets
 
-### SMTP (optional but recommended for alerts)
+| Surface | Variables |
+| --- | --- |
+| Shared | `DATABASE_URL`, `APP_MASTER_KEY` |
+| Web / Vercel | `AUTH_JWT_SECRET`, `WORKER_SHARED_TOKEN`, `CU12_BASE_URL`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_WORKFLOW_ID`, `GITHUB_WORKFLOW_REF`, `GITHUB_TOKEN` |
+| Worker / GitHub Actions | `WEB_INTERNAL_BASE_URL`, `WORKER_SHARED_TOKEN`, `CU12_BASE_URL`, `DATABASE_URL`, `APP_MASTER_KEY` |
 
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USER`
-- `SMTP_PASS`
-- `SMTP_FROM`
+### Optional provider and dispatch overrides
 
-## 10. Operations Quick Start
+| Variable | Surface | Purpose |
+| --- | --- | --- |
+| `CYBER_CAMPUS_BASE_URL` | web, worker | Override Cyber Campus upstream base URL (defaults to the production campus URL) |
+| `TRUST_PROXY_HEADERS` | web | Honor forwarded headers when deployed behind a trusted proxy |
+| `WORKER_DISPATCH_MAX_PARALLEL` | web | Cap centralized worker fan-out from `/internal/worker/dispatch` |
+| `AUTOLEARN_CHAIN_MAX_SECONDS` | web | Cap total chained AUTOLEARN runtime across continuation jobs |
 
-1. Configure GitHub Secrets and Vercel environment variables.
-2. Run `DB Bootstrap` workflow.
-3. For fresh setup, run `Auth Reset Bootstrap` with `inviteCodeHash` (SHA-256 hash of your chosen invite code).
-4. Deploy web app and verify `/api/health`.
-5. Trigger `worker-consume.yml` once to validate queue consumption.
-6. Admin logs in and issues invite codes for users.
+### Optional mail and AI features
 
-## 11. Documentation
+| Variable | Surface | Purpose |
+| --- | --- | --- |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | Enable immediate alerts, digest mail, policy/test mail flows |
+| `OPENAI_API_KEY` | worker | Enable quiz auto-solve for eligible users |
+| `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS` | worker | Tune the quiz-answering model request |
 
-- Main docs index: [`docs/00-index.md`](docs/00-index.md)
+### Worker runtime tuning commonly adjusted in operations
+
+| Variable | Purpose |
+| --- | --- |
+| `WORKER_ONCE_IDLE_GRACE_MS` | Shorten the tail after a one-shot worker run when the queue is empty |
+| `AUTOLEARN_CHUNK_TARGET_SECONDS` | Limit one AUTOLEARN chunk before continuation |
+| `AUTOLEARN_MAX_TASKS` | Cap tasks processed in a single worker run |
+| `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS` | Control heartbeat updates during long runs |
+| `AUTOLEARN_STALL_TIMEOUT_SECONDS` | Declare a stalled auto-learning run after prolonged silence |
+| `AUTOLEARN_TIME_FACTOR` | Adjust watch-time pacing factor |
+| `PLAYWRIGHT_ACCEPT_LANGUAGE`, `PLAYWRIGHT_LOCALE`, `PLAYWRIGHT_TIMEZONE` | Keep browser locale behavior consistent |
+| `PLAYWRIGHT_VIEWPORT_WIDTH`, `PLAYWRIGHT_VIEWPORT_HEIGHT` | Set deterministic viewport defaults |
+| `AUTOLEARN_HUMANIZATION_ENABLED`, `AUTOLEARN_DELAY_*`, `AUTOLEARN_NAV_SETTLE_*`, `AUTOLEARN_TYPING_DELAY_*` | Keep interactions conservative and stable |
+
+See `.env.example`, `apps/web/src/lib/env.ts`, and `apps/worker/src/env.ts` for the current source-of-truth variable set.
+
+## Operations Quick Start
+
+1. Configure GitHub Secrets and Vercel production environment variables.
+2. Run `DB Bootstrap`.
+3. Run `Auth Reset Bootstrap` with `inviteCodeHash` for the initial admin invite.
+4. Deploy the web application and confirm `/api/health` returns `200`.
+5. Log in as admin, publish the required policy documents, and issue user invite codes.
+6. Trigger `worker-consume.yml` once and confirm queue jobs progress to a terminal state.
+7. Review `Reconcile Health Check` and `secret-scan` as part of normal operations.
+
+## Documentation
+
+- Main index: [`docs/00-index.md`](docs/00-index.md)
+- Product requirements: [`docs/01-prd.md`](docs/01-prd.md)
+- Architecture: [`docs/02-architecture.md`](docs/02-architecture.md)
+- Data model: [`docs/03-data-model.md`](docs/03-data-model.md)
 - API contract: [`docs/04-api/openapi.yaml`](docs/04-api/openapi.yaml)
+- Workflow and operations runbook: [`docs/09-github-actions-runbook.md`](docs/09-github-actions-runbook.md)
 - Korean summary: [`README.ko.md`](README.ko.md)

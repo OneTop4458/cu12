@@ -2,62 +2,50 @@
 
 ## Queue States
 
-- `PENDING`
-- `RUNNING`
-- `SUCCEEDED`
-- `FAILED`
-- `CANCELED`
+- `PENDING`: queued and eligible once `runAfter <= now`
+- `BLOCKED`: waiting for an external prerequisite such as Cyber Campus secondary authentication
+- `RUNNING`: claimed by a worker
+- `SUCCEEDED`: completed successfully
+- `FAILED`: terminal failure after retries or terminal portal error
+- `CANCELED`: canceled by operator flow or business rule
 
-## Claim Strategy
+## Dispatch and Claim Model
 
-1. Worker polls runnable jobs (`PENDING` and `runAfter <= now`).
-2. Claim is atomic (`updateMany where id + status=PENDING`).
-3. If claim fails, worker skips and retries next poll.
+1. Web APIs enqueue jobs with idempotency keys.
+2. Manual user actions run a stale-window redispatch check before calling GitHub Actions.
+3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` only when there is pending work.
+4. Centralized dispatch fans out user-scoped worker runs and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`.
+5. Each worker claims runnable `PENDING` jobs atomically through the internal API surface.
 
 ## Queue Policy (Current)
 
-- Priority order (when a worker receives multiple types): `SYNC` and `NOTICE_SCAN` first, then `AUTOLEARN`, then `MAIL_DIGEST`.
-- `SYNC` and `NOTICE_SCAN` jobs are not blocked by any other job type for the same user.
-- `AUTOLEARN` is restricted to one concurrent job per user. If another AUTOLEARN job is already `RUNNING` for that user, the job is delayed with a short retry backoff.
-- `AUTOLEARN` can chain continuation jobs when a chunk is truncated; continuation keeps mode/target lecture and increments chain segment metadata.
-- Continuation chain is capped by cumulative elapsed seconds (`AUTOLEARN_CHAIN_MAX_SECONDS`, default 12h). When cap is reached, no further continuation job is created.
-- Multiple workers can run SYNC jobs for different users (and the same user when deduplication allows a new row) while AUTOLEARN is running.
-- Worker dispatch is user-scoped: a consume run can be pinned to one user via `userId`, and claim filters to that user's runnable jobs.
-- Global worker fan-out is capped by centralized dispatch (`WORKER_DISPATCH_MAX_PARALLEL`, default `12`) to avoid runner over-commit.
-- Manual SYNC/AUTOLEARN API requests use idempotency keys but are always evaluated against a re-dispatch policy:
-  - If the same request is duplicated while a related job is still `RUNNING` or `PENDING` for a short window, no new Actions dispatch is sent.
-  - `PENDING` stale for 5 minutes or `RUNNING` stale for 10 minutes triggers a forced re-dispatch of the same trigger (to recover worker stalls).
-  - This keeps queue pressure controlled while still allowing recovery from stuck jobs.
+- Priority order is `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, then `MAIL_DIGEST`.
+- `SYNC` and `NOTICE_SCAN` can run even when AUTOLEARN exists for the same user.
+- `AUTOLEARN` is serialized per user.
+- `BLOCKED` AUTOLEARN is reserved for Cyber Campus approval-required flows and is not claimable until approval completion returns it to `PENDING`.
+- AUTOLEARN continuation jobs keep mode/target metadata and increment chain-segment metadata.
+- Continuation chains are capped by cumulative elapsed time using `AUTOLEARN_CHAIN_MAX_SECONDS`.
+- Manual duplicates can force redispatch when:
+  - `PENDING` work is stale for at least 5 minutes
+  - `RUNNING` work is stale for at least 10 minutes
 
 ## Claim Strategy
 
-1. Worker polls runnable jobs (`PENDING` and `runAfter <= now`) for requested types.
-2. Candidates are scanned using type-priority then FIFO (`createdAt`) ordering.
-3. Claim is attempted atomically (`updateMany where id + status=PENDING`) for each candidate.
-4. If claim fails due to race, worker scans the next candidate.
-5. If claim succeeds but the AUTOLEARN user-level policy blocks it, the job is requeued after a short delay.
-6. If claim succeeds without conflict, worker starts execution.
-7. In `--once` mode, worker performs handoff dispatch when pending jobs remain for the requested type set.
-8. Handoff dispatch uses centralized fan-out and can start other pending users when capacity is available.
+1. Worker requests the allowed job types for the current run.
+2. The queue scans runnable candidates in type-priority order and FIFO creation order.
+3. Claim uses an atomic `updateMany where id + status=PENDING`.
+4. If another worker wins the race, scanning continues.
+5. If AUTOLEARN is claimed but violates per-user execution rules, it is requeued with a short delay.
+6. In `--once` mode, the worker can request follow-up dispatch when matching pending work remains.
 
 ## Retry Policy
 
-- Retry up to 4 attempts.
-- Backoff schedule: 1m -> 5m -> 15m -> 60m.
-- Persist failure reason for operator visibility.
-
-## Idempotency
-
-- Queue creation includes `idempotencyKey`.
-- Prevents duplicate enqueue when repeated button clicks or retries occur.
-- In manual user actions, idempotency is supplemented by stale-window checks before dispatch:
-  - `SYNC` and `AUTOLEARN` requests call Actions dispatch only when either:
-    - request is a new unique job, or
-    - duplicate request maps to a stale `PENDING` (`>=5m`) or stale `RUNNING` (`>=10m`) row.
-- Reconciliation checks (`/internal/admin/jobs/reconcile`) are treated as read-only; any mismatch (`orphanedRunningJobs` or `ghostRuns`) is surfaced to operators and the `reconcile-health-check` workflow.
-
+- Up to 4 attempts.
+- Backoff schedule: 1 minute -> 5 minutes -> 15 minutes -> 60 minutes.
+- Failure reason remains attached to the queue row for operator review.
 
 ## Capacity Guidance
 
-- Keep `WORKER_DISPATCH_MAX_PARALLEL` below your GitHub plan ceiling with headroom for CI jobs.
-- Recommended default is `12` on personal-account repositories with mixed CI/ops workloads.
+- Keep `WORKER_DISPATCH_MAX_PARALLEL` below the repository's GitHub Actions capacity ceiling.
+- The default `12` assumes the same repository also needs room for CI and deploy jobs.
+- Reconcile checks are the primary guard against silent divergence between `RUNNING` jobs and active Actions runs.

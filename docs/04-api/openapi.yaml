@@ -222,7 +222,7 @@ paths:
       tags: [Auth]
       summary: Submit required policy consent and complete login
       description: >-
-        Finalizes login after required policy consent.
+        Finalizes login after required policy consent and issues the session cookies.
         Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       requestBody:
         required: true
@@ -261,7 +261,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Consent challenge token invalid/expired
+          description: Consent challenge token invalid/expired or account disabled
           content:
             application/json:
               schema:
@@ -702,16 +702,29 @@ paths:
   /api/jobs/sync-now:
     post:
       tags: [Jobs]
-      summary: Queue SYNC job
+      summary: Queue SYNC jobs for one or more providers
       security:
         - cookieAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                providers:
+                  type: array
+                  maxItems: 2
+                  items:
+                    type: string
+                    enum: [CU12, CYBER_CAMPUS]
       responses:
         "200":
-          description: Job dispatch status
+          description: Multi-provider sync queue and dispatch status
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JobDispatchResponse"
+                $ref: "#/components/schemas/SyncDispatchResponse"
         "409":
           description: Sync is blocked for test users (`TEST_USER_SYNC_BLOCKED`)
           content:
@@ -722,7 +735,7 @@ paths:
   /api/jobs/autolearn-request:
     post:
       tags: [Jobs]
-      summary: Queue AUTOLEARN job
+      summary: Queue AUTOLEARN job or return Cyber Campus approval state
       security:
         - cookieAuth: []
       requestBody:
@@ -732,6 +745,9 @@ paths:
             schema:
               type: object
               properties:
+                provider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
                 mode:
                   type: string
                   enum: [SINGLE_NEXT, SINGLE_ALL, ALL_COURSES]
@@ -742,11 +758,11 @@ paths:
                   type: string
       responses:
         "200":
-          description: Job dispatch status
+          description: AUTOLEARN queue status or Cyber Campus approval-required response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JobDispatchResponse"
+                $ref: "#/components/schemas/AutolearnDispatchResponse"
 
   /api/jobs:
     get:
@@ -764,7 +780,7 @@ paths:
           name: status
           schema:
             type: string
-            enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+            enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         - in: query
           name: limit
           schema:
@@ -1185,6 +1201,11 @@ paths:
         - cookieAuth: []
       parameters:
         - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [CU12, CYBER_CAMPUS]
+        - in: query
           name: unreadOnly
           schema:
             type: string
@@ -1223,6 +1244,12 @@ paths:
       summary: Archive selected notifications for effective user
       security:
         - cookieAuth: []
+      parameters:
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [CU12, CYBER_CAMPUS]
       requestBody:
         required: true
         content:
@@ -1256,6 +1283,11 @@ paths:
       security:
         - cookieAuth: []
       parameters:
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [CU12, CYBER_CAMPUS]
         - in: query
           name: limit
           schema:
@@ -1297,7 +1329,7 @@ paths:
   /api/site-notices:
     get:
       tags: [SiteNotice]
-      summary: List active site notices (optionally by type)
+      summary: List active and currently visible site notices
       parameters:
         - in: query
           name: type
@@ -1520,7 +1552,7 @@ paths:
           name: status
           schema:
             type: string
-            enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+            enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         - in: query
           name: userId
           schema:
@@ -1604,7 +1636,7 @@ paths:
                     type: boolean
                   status:
                     type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                    enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
                   jobId:
                     type: string
                   userId:
@@ -1644,7 +1676,7 @@ paths:
                   maxItems: 5
                   items:
                     type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                    enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
                 userId:
                   type: string
                   format: uuid
@@ -1694,7 +1726,7 @@ paths:
                     type: array
                     items:
                       type: string
-                      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                      enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
                   scope:
                     type: string
                     enum: [safe, full]
@@ -1845,7 +1877,7 @@ paths:
                     type: boolean
                   status:
                     type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                    enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         "400":
           description: Validation error
         "403":
@@ -1879,7 +1911,7 @@ paths:
                     type: boolean
                   status:
                     type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                    enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         "400":
           description: Validation error
         "403":
@@ -1980,7 +2012,7 @@ paths:
   /api/admin/workers:
     get:
       tags: [Admin]
-      summary: List worker heartbeats and summaries
+      summary: List worker heartbeats and stale summary
       security:
         - cookieAuth: []
       parameters:
@@ -2039,7 +2071,7 @@ paths:
           description: Invalid request
     delete:
       tags: [Admin]
-      summary: Purge all worker heartbeats
+      summary: Purge worker heartbeat rows
       security:
         - cookieAuth: []
       responses:
@@ -2326,7 +2358,7 @@ paths:
                     type: string
                   status:
                     type: string
-                    enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                    enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
                   deduplicated:
                     type: boolean
                   dispatched:
@@ -3556,7 +3588,7 @@ components:
           enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         createdAt:
           type: string
           format: date-time
@@ -3678,6 +3710,9 @@ components:
           $ref: "#/components/schemas/CyberCampusApproval"
         jobId:
           type: string
+          nullable: true
+        dispatch:
+          $ref: "#/components/schemas/WorkerDispatchResult"
           nullable: true
 
     DashboardProviderSummaryMap:
@@ -4058,23 +4093,9 @@ components:
         deduplicated:
           type: boolean
 
-    JobDispatchResponse:
+    SyncDispatchResponse:
       type: object
-      required:
-        [
-          providers,
-          results,
-          provider,
-          jobId,
-          status,
-          deduplicated,
-          dispatched,
-          dispatchState,
-          dispatchErrorCode,
-          notice,
-          approvalRequired,
-          approval,
-        ]
+      required: [providers, results, jobId, status, deduplicated, dispatched, dispatchState, notice]
       properties:
         providers:
           type: array
@@ -4085,18 +4106,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SyncDispatchJobResult"
-        provider:
-          type: string
-          enum: [CU12, CYBER_CAMPUS]
-          description: Service target selected for the queued job.
-          nullable: true
         jobId:
           type: string
           nullable: true
         status:
           type: string
-          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, RUNNING]
           nullable: true
+        deduplicated:
+          type: boolean
+        dispatched:
+          type: boolean
+        dispatchState:
+          type: string
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE, SKIPPED_CAPACITY, SKIPPED_NO_PENDING]
+        dispatchError:
+          type: string
+          nullable: true
+        dispatchErrorCode:
+          type: string
+          nullable: true
+        notice:
+          type: string
+
+    AutolearnDispatchResponse:
+      type: object
+      required: [provider, jobId, status, deduplicated, dispatched, dispatchState, dispatchErrorCode, notice, approvalRequired, approval]
+      properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, BLOCKED]
         deduplicated:
           type: boolean
         dispatched:
@@ -4117,6 +4161,34 @@ components:
         approval:
           allOf:
             - $ref: "#/components/schemas/CyberCampusApproval"
+          nullable: true
+
+    WorkerDispatchResult:
+      type: object
+      required: [state, dispatched, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [DISPATCHED, NOT_CONFIGURED, FAILED, SKIPPED_DUPLICATE, SKIPPED_CAPACITY, SKIPPED_NO_PENDING]
+        dispatched:
+          type: boolean
+        errorCode:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        statusCode:
+          type: integer
+          nullable: true
+        dispatchCount:
+          type: integer
+          nullable: true
+        capacity:
+          type: integer
+          nullable: true
+        activeRunCount:
+          type: integer
           nullable: true
 
     WorkerRunCancelResult:
@@ -4147,7 +4219,7 @@ components:
           type: boolean
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         runCancel:
           $ref: "#/components/schemas/WorkerRunCancelResult"
 
@@ -4186,7 +4258,7 @@ components:
           enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         payload:
           type: object
           nullable: true
@@ -4465,7 +4537,7 @@ components:
           type: string
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         type:
           type: string
           enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
@@ -4517,7 +4589,7 @@ components:
           enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         payload:
           type: object
           nullable: true
@@ -4661,7 +4733,7 @@ components:
           enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
         status:
           type: string
-          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
         workerId:
           type: string
           nullable: true

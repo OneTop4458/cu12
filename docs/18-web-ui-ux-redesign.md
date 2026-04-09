@@ -1,5 +1,7 @@
 # Web UI/UX Modernization (2026-03-04)
 
+> Historical note: This document captures the 2026-03-04 redesign pass. Use `README.md` and the living docs for the current product and operational baseline.
+
 ## Scope
 
 - Modernized web experience inside `apps/web` while keeping existing behavior and API contracts intact.

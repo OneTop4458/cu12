@@ -1,102 +1,102 @@
 # Data Model
 
-## Core Tables
+## Core Domains
+
+### Identity, auth, and policy
 
 1. `User`
-- Application user identity and role (`ADMIN`/`USER`).
-- Linked to a single CU12 account in normal operation.
-- Includes `isTestUser` for admin-driven test onboarding.
-- Uses `withdrawnAt` to mark withdrawn members without hard-deleting the identity row.
-- Admin withdrawal flow anonymizes identity fields (`email`, `name`, `passwordHash`) and clears login traces (`lastLoginAt`, `lastLoginIp`).
+   - Application identity, role, activity flags, and last-login metadata.
+   - Supports logical withdrawal through `withdrawnAt` instead of destructive hard delete.
 
 2. `InviteToken`
-- One-time onboarding token, bound to `cu12Id`.
-- Stores `tokenHash` only (never plaintext token).
-- Tracks lifecycle with `expiresAt`, `usedAt`, `usedByUserId`.
+   - One-time onboarding token bound to `cu12Id`.
+   - Stores only `tokenHash`, lifecycle timestamps, and role assignment.
 
 3. `Cu12Account`
-- External account mapping (`cu12Id`, campus).
-- Stores encrypted CU12 password.
-- Stores account state (`CONNECTED`, `NEEDS_REAUTH`, `ERROR`).
-- Stores user automation flags such as scheduled auto-learn and quiz auto-solve opt-in.
+   - Shared portal-account mapping for the user.
+   - Stores encrypted portal password, current provider, campus, account status, and automation toggles such as quiz auto-solve and digest enablement.
 
-4. `JobQueue`
-- Async task queue for `SYNC`, `AUTOLEARN`, `NOTICE_SCAN`, `MAIL_DIGEST`.
-- Includes retry metadata and scheduling (`runAfter`, `attempts`, `status`).
+4. `AuthRateLimit`
+   - Persistent throttle buckets for login/invite abuse protection.
 
-5. `SiteNotice`
-- Admin-managed public/internal notice board content (`BROADCAST`, `MAINTENANCE`).
-- Supports active flag, visibility window, priority, and creator traceability.
+5. `PolicyDocument`, `PolicyProfile`, `UserPolicyConsent`
+   - Published policy versions are append-only by `(type, version)`.
+   - `PolicyProfile` supplies rendered placeholders for the legal documents.
+   - `UserPolicyConsent` stores immutable per-user version acceptance history.
 
-6. `PolicyDocument` and `PolicyProfile`
-- `PolicyDocument` is append-only by `(type, version)` and stores both admin template text and immutable published snapshot text.
-- Only one latest active version per policy type is used for public pages and consent checks.
-- `PolicyProfile` still stores placeholder variables, and profile changes can publish a new policy snapshot version when rendered output changes.
-- Supports admin update traceability via `updatedByUserId`.
-- Production rollout must preflight duplicate `(type, version)` groups before enforcing the unique key during schema sync.
+### Queue, sessions, and operations
 
-7. `UserPolicyConsent`
-- Immutable per-user consent version history keyed by `(userId, policyType, policyVersion)`.
-- Tracks consent time and source IP.
-- Consent rows for withdrawn users are retained for policy/audit purposes and deleted by retention cleanup after 3 years from `User.withdrawnAt`.
-- Production rollout must preflight duplicate `(userId, policyType, policyVersion)` groups before enforcing the unique key during schema sync.
+6. `JobQueue`
+   - Stores `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, and `MAIL_DIGEST`.
+   - Uses `PENDING`, `BLOCKED`, `RUNNING`, `SUCCEEDED`, `FAILED`, and `CANCELED`.
+   - `BLOCKED` is used for approval-gated Cyber Campus AUTOLEARN flows.
 
-8. `AuthRateLimit`
-- Persistent throttle buckets for login/invite failure windows and temporary blocks.
+7. `WorkerHeartbeat`
+   - Records active worker liveness for stale-run detection and admin visibility.
 
-9. Snapshot tables
-- `CourseSnapshot`, `CourseNotice`, `NotificationEvent`, `LearningTask`, `LearningRun`.
-- `LearningTask.activityType` supports future extension (`VOD`, `QUIZ`, `ASSIGNMENT`, `ETC`).
-- Notice and notification rows include read/unread state for UX-level acknowledgement.
+8. `PortalSession`
+   - Provider-scoped encrypted cookie-state cache for reusable upstream sessions.
+   - Used primarily to avoid repeating Cyber Campus approval when a valid session can be reused.
 
-10. `MailSubscription`
-- One row per user (`userId` unique).
-- Stores destination email and per-event toggles:
-  - `alertOnNotice`
-  - `alertOnDeadline`
-  - `alertOnAutolearn`
-  - `digestEnabled`, `digestHour`
+9. `PortalApprovalSession`
+   - Provider-scoped approval workflow state tied to one blocked job.
+   - Stores encrypted cookie state, available methods, selected method, request/display code, expiry, and terminal status.
 
-11. `MailDelivery`
-- Immutable log of send attempts (`SENT`, `FAILED`, `SKIPPED`) for audit and troubleshooting.
-- Includes mandatory legal-notice deliveries triggered by policy version publication.
+10. `AuditLog`
+    - Immutable operational log for auth, admin, job, worker, mail, parser, and impersonation actions.
 
-12. `WorkerHeartbeat`
-- Tracks worker liveness for operational visibility.
+### Snapshot, learning, and communication data
 
-13. `TaskDeadlineAlert`
-- Dedupe table for deadline alert notifications.
-- Unique key: `(userId, lectureSeq, courseContentsSeq, thresholdDays, dueAt)`.
-- Prevents duplicate D-7/3/1/0 notifications.
+11. `CourseSnapshot`
+    - Provider-scoped course roster and progress data.
 
-14. `AuditLog`
-- Immutable operational log for `AUTH`, `ADMIN`, `JOB`, `WORKER`, `MAIL`, `IMPERSONATION`, etc.
-- Supports actor/target user linkage and optional JSON metadata.
+12. `CourseNotice`
+    - Provider-scoped course notice snapshots, unread state, and body content.
+
+13. `NotificationEvent`
+    - Provider-scoped notification feed items, unread/archive state, and dashboard history.
+
+14. `PortalMessage`
+    - Provider-scoped inbox/message snapshots with read state.
+
+15. `LearningTask`
+    - Provider-scoped task inventory across `VOD`, `MATERIAL`, `QUIZ`, `ASSIGNMENT`, and `ETC`.
+    - Tracks availability windows, due times, progress counters, and execution eligibility.
+
+16. `LearningRun`
+    - Immutable execution log for AUTOLEARN runs, including result metadata.
+
+17. `TaskDeadlineAlert`
+    - Dedupe table for deadline notifications by user, provider, task identity, threshold, and due time.
+
+18. `MailSubscription` and `MailDelivery`
+    - User-configured mail delivery preferences and immutable delivery history.
+
+19. `SiteNotice`
+    - Admin-managed public/internal notices shown on login and dashboard surfaces.
 
 ## Data Boundaries
 
-- Web app writes queue requests and account metadata.
-- Worker owns CU12 scraping outputs and job final state transitions.
-- Admin-only APIs own invite token issuance, member management, and impersonation control.
-- Audit logging is shared: both web and worker append logs.
+- The web app owns user/session/auth state, admin writes, job enqueue, policy publishing, and provider-session orchestration.
+- The worker owns scraping outputs, learning execution, mail generation side effects, and job terminal transitions.
+- `packages/core` defines shared parser/type contracts but does not own persistence.
+- Internal web APIs are the boundary between GitHub Actions execution and persistent application state.
 
 ## Withdrawal Lifecycle
 
-- Member withdrawal is implemented as logical withdrawal plus cleanup, not hard delete of `User`.
-- Immediate cleanup removes service-linked personal activity data:
-  - `Cu12Account`
-  - `MailSubscription`
-  - `TaskDeadlineAlert`
-  - `CourseSnapshot`
-  - `CourseNotice`
-  - `LearningTask`
-  - `LearningRun`
-  - `NotificationEvent`
-- Pending/running `JobQueue` rows are canceled during withdrawal.
-- `UserPolicyConsent` and `AuditLog` are retained under retention policy windows.
+1. User withdrawal is logical first (`User.withdrawnAt`).
+2. Immediate cleanup removes service-linked operational data such as:
+   - `Cu12Account`
+   - `MailSubscription`
+   - `TaskDeadlineAlert`
+   - snapshot and task tables
+3. Pending or running jobs are canceled during withdrawal.
+4. Policy-consent history and audit data remain under retention policy rules.
 
-## Data Protection
+## Data Protection and Retention
 
-- CU12 password: encrypted at rest via app master key.
-- Invite token: one-way hash in DB.
-- Session token: signed cookie with bounded TTL.
+- Portal passwords are encrypted at rest using `APP_MASTER_KEY`.
+- Invite codes are stored only as hashes.
+- `PortalSession` and `PortalApprovalSession` store encrypted cookie-state payloads, not plaintext cookies.
+- Session cookies are signed JWTs with bounded TTL plus a separate idle-session token.
+- Retention cleanup removes old terminal job rows, mail logs, and aged withdrawn-user consent history according to the scheduled workflow.
