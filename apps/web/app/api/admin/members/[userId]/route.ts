@@ -37,6 +37,26 @@ function isPrismaCompatibilityError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientUnknownRequestError;
 }
 
+async function runWithdrawalCleanupStep(
+  userId: string,
+  step: string,
+  work: () => Promise<unknown>,
+  failures: string[],
+) {
+  try {
+    await work();
+  } catch (error) {
+    failures.push(step);
+    console.error("[admin] Member withdrawal cleanup step failed.", {
+      userId,
+      step,
+      name: error instanceof Error ? error.name : typeof error,
+      code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function PATCH(request: NextRequest, { params }: Params) {
   const context = await requireAdminActor(request);
   if (!context) return jsonError("Forbidden", 403);
@@ -209,44 +229,45 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     const anonymizedEmail = `withdrawn-${userId}@withdrawn.local`;
     const anonymizedName = `Withdrawn Account ${userId.slice(0, 8)}`;
     const anonymizedPasswordHash = await hashPassword(generateToken(48));
-    let cleanupStep = "start";
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: anonymizedEmail,
+        name: anonymizedName,
+        passwordHash: anonymizedPasswordHash,
+        isActive: false,
+        isTestUser: false,
+        lastLoginAt: null,
+        lastLoginIp: null,
+        withdrawnAt,
+      },
+    });
 
-    await prisma.$transaction(async (tx) => {
-      cleanupStep = "delete-cu12-account";
-      await tx.cu12Account.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-mail-subscription";
-      await tx.mailSubscription.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-task-deadline-alerts";
-      await tx.taskDeadlineAlert.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-course-notices";
-      await tx.courseNotice.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-course-snapshots";
-      await tx.courseSnapshot.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-learning-runs";
-      await tx.learningRun.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-learning-tasks";
-      await tx.learningTask.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-notification-events";
-      await tx.notificationEvent.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-portal-messages";
-      await tx.portalMessage.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-portal-approval-sessions";
-      await tx.portalApprovalSession.deleteMany({ where: { userId } });
-
-      cleanupStep = "delete-portal-sessions";
-      await tx.portalSession.deleteMany({ where: { userId } });
-
-      cleanupStep = "cancel-jobs";
-      await tx.jobQueue.updateMany({
+    const cleanupFailures: string[] = [];
+    await runWithdrawalCleanupStep(userId, "delete-cu12-account", () =>
+      prisma.cu12Account.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-mail-subscription", () =>
+      prisma.mailSubscription.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-task-deadline-alerts", () =>
+      prisma.taskDeadlineAlert.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-course-notices", () =>
+      prisma.courseNotice.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-course-snapshots", () =>
+      prisma.courseSnapshot.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-learning-runs", () =>
+      prisma.learningRun.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-learning-tasks", () =>
+      prisma.learningTask.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-notification-events", () =>
+      prisma.notificationEvent.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-portal-messages", () =>
+      prisma.portalMessage.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-portal-approval-sessions", () =>
+      prisma.portalApprovalSession.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "delete-portal-sessions", () =>
+      prisma.portalSession.deleteMany({ where: { userId } }), cleanupFailures);
+    await runWithdrawalCleanupStep(userId, "cancel-jobs", () =>
+      prisma.jobQueue.updateMany({
         where: {
           userId,
           status: { in: ["PENDING", "BLOCKED", "RUNNING"] },
@@ -256,32 +277,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
           finishedAt: withdrawnAt,
           lastError: "Canceled due to member withdrawal",
         },
-      });
-
-      cleanupStep = "withdraw-user";
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          email: anonymizedEmail,
-          name: anonymizedName,
-          passwordHash: anonymizedPasswordHash,
-          isActive: false,
-          isTestUser: false,
-          lastLoginAt: null,
-          lastLoginIp: null,
-          withdrawnAt,
-        },
-      });
-    }).catch((error) => {
-      console.error("[admin] Member withdrawal failed during cleanup.", {
-        userId,
-        cleanupStep,
-        name: error instanceof Error ? error.name : typeof error,
-        code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    });
+      }), cleanupFailures);
 
     try {
       await writeAuditLog({
@@ -294,6 +290,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
           withdrawnUserEmail: user.email,
           withdrawnAt: withdrawnAt.toISOString(),
           reason: body.reason ?? null,
+          cleanupFailures,
         },
       });
     } catch (error) {
@@ -318,6 +315,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       deleted: true,
       deactivated: true,
       userId,
+      cleanupFailures,
     });
   } catch (error) {
     if (error instanceof SyntaxError) {
