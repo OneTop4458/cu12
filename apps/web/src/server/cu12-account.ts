@@ -64,6 +64,11 @@ type Cu12AccountMutationRecord = {
   campus: PortalCampus | null;
 };
 
+type Cu12AccountProviderRecord = {
+  userId: string;
+  provider: PortalProvider;
+};
+
 const accountMutationSelect = {
   provider: true,
   cu12Id: true,
@@ -139,6 +144,44 @@ function toDashboardAccountRecord(
       withProvider as Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled">,
     )
     : withProvider as Cu12DashboardAccountRecord;
+}
+
+export async function getAccountProviderByCu12Id(cu12Id: string): Promise<Cu12AccountProviderRecord | null> {
+  try {
+    const account = await prisma.cu12Account.findUnique({
+      where: { cu12Id },
+      select: {
+        userId: true,
+        provider: true,
+      },
+    });
+
+    return account
+      ? {
+        userId: account.userId,
+        provider: account.provider as PortalProvider,
+      }
+      : null;
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    const legacy = await prisma.cu12Account.findUnique({
+      where: { cu12Id },
+      select: {
+        userId: true,
+      },
+    });
+
+    return legacy
+      ? {
+        userId: legacy.userId,
+        provider: "CU12",
+      }
+      : null;
+  }
 }
 
 export async function upsertCu12Account(userId: string, input: Cu12AccountInput) {
