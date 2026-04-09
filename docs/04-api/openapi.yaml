@@ -28,15 +28,17 @@ paths:
       summary: Health check
       responses:
         "200":
-          description: Service is healthy
+          description: Service is reachable and core database connectivity is healthy
           content:
             application/json:
               schema:
-                type: object
-                required: [ok]
-                properties:
-                  ok:
-                    type: boolean
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Critical dependency failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
 
   /api/session/context:
     get:
@@ -2828,6 +2830,141 @@ components:
           type: string
         errorCode:
           type: string
+
+    HealthStatus:
+      type: string
+      enum: [ok, degraded, error]
+
+    HealthDatabaseCheck:
+      type: object
+      required: [ok, latencyMs, error]
+      properties:
+        ok:
+          type: boolean
+        latencyMs:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    HealthWorkerDispatchCheck:
+      type: object
+      required: [ok, configured, owner, repo, workflowId, workflowRef, maxParallel]
+      properties:
+        ok:
+          type: boolean
+        configured:
+          type: boolean
+        owner:
+          type: string
+          nullable: true
+        repo:
+          type: string
+          nullable: true
+        workflowId:
+          type: string
+          nullable: true
+        workflowRef:
+          type: string
+          nullable: true
+        maxParallel:
+          type: integer
+
+    HealthWorkerCheck:
+      type: object
+      required:
+        [ok, activeWorkerCount, latestWorkerId, latestHeartbeatAt, latestHeartbeatAgeSeconds, staleAfterSeconds]
+      properties:
+        ok:
+          type: boolean
+        activeWorkerCount:
+          type: integer
+        latestWorkerId:
+          type: string
+          nullable: true
+        latestHeartbeatAt:
+          type: string
+          format: date-time
+          nullable: true
+        latestHeartbeatAgeSeconds:
+          type: integer
+          nullable: true
+        staleAfterSeconds:
+          type: integer
+
+    HealthQueueCheck:
+      type: object
+      required:
+        [
+          ok,
+          runningCount,
+          pendingCount,
+          blockedCount,
+          staleRunningCount,
+          stalePendingCount,
+          oldestPendingAgeSeconds,
+          oldestPendingType,
+          backlogWarningThreshold,
+        ]
+      properties:
+        ok:
+          type: boolean
+        runningCount:
+          type: integer
+        pendingCount:
+          type: integer
+        blockedCount:
+          type: integer
+        staleRunningCount:
+          type: integer
+        stalePendingCount:
+          type: integer
+        oldestPendingAgeSeconds:
+          type: integer
+          nullable: true
+        oldestPendingType:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+          nullable: true
+        backlogWarningThreshold:
+          type: integer
+
+    HealthChecks:
+      type: object
+      required: [database, workerDispatch, worker, queue]
+      properties:
+        database:
+          $ref: "#/components/schemas/HealthDatabaseCheck"
+        workerDispatch:
+          $ref: "#/components/schemas/HealthWorkerDispatchCheck"
+        worker:
+          $ref: "#/components/schemas/HealthWorkerCheck"
+        queue:
+          $ref: "#/components/schemas/HealthQueueCheck"
+
+    HealthResponse:
+      type: object
+      required: [ok, status, service, ts, responseTimeMs, checks, issues]
+      properties:
+        ok:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/HealthStatus"
+        service:
+          type: string
+          enum: [cu12-web]
+        ts:
+          type: string
+          format: date-time
+        responseTimeMs:
+          type: integer
+        checks:
+          $ref: "#/components/schemas/HealthChecks"
+        issues:
+          type: array
+          items:
+            type: string
 
     InternalWorkerJobPayload:
       type: object
