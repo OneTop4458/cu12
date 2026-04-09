@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { getServerActiveSession } from "@/lib/session-user";
@@ -55,6 +57,11 @@ export default async function LoginPage({
             <LoginNotices />
           </Suspense>
           <LoginForm sessionExpiredReason={sessionExpiredReason} />
+          <div className="auth-card-links" aria-label="로그인 도움말">
+            <Link href={"/faq" as Route} className="auth-card-link">
+              서비스 FAQ 보기
+            </Link>
+          </div>
         </section>
       </section>
     </main>
