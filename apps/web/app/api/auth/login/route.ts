@@ -79,6 +79,14 @@ function isCompatibilityPrismaError(error: unknown): boolean {
   return false;
 }
 
+function describePrismaError(error: unknown) {
+  return {
+    name: error instanceof Error ? error.name : typeof error,
+    code: prismaErrorCode(error),
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
 async function loadAuthLookupFallback(cu12Id: string) {
   console.warn(
     "[auth] Falling back to legacy login lookup compatibility mode. Optional auth columns are missing in the DB.",
@@ -121,6 +129,52 @@ async function loadAuthLookupFallback(cu12Id: string) {
       }
       : null,
   };
+}
+
+async function loadExistingUserByEmailFallback(cu12Id: string) {
+  console.warn(
+    "[auth] Falling back to legacy existing-user lookup by email during portal-auth reconciliation.",
+  );
+
+  const legacyUser = await prisma.user.findUnique({
+    where: { email: cu12Id },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      isActive: true,
+    },
+  }).catch(() => null);
+
+  return legacyUser
+    ? {
+      ...legacyUser,
+      withdrawnAt: null,
+    }
+    : null;
+}
+
+async function loadExistingUserByIdFallback(userId: string) {
+  console.warn(
+    "[auth] Falling back to legacy existing-user lookup by id during account-link reconciliation.",
+  );
+
+  const legacyUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      isActive: true,
+    },
+  }).catch(() => null);
+
+  return legacyUser
+    ? {
+      ...legacyUser,
+      withdrawnAt: null,
+    }
+    : null;
 }
 
 function attachTiming(response: Response, timing: ServerTiming): Response {
@@ -451,20 +505,39 @@ export async function POST(request: NextRequest) {
     const verifiedProvider = validation.verifiedProvider ?? explicitProviderHint ?? "CU12";
     const currentProvider = resolvedCurrentProvider ?? verifiedProvider;
     const verifiedCampus = verifiedProvider === "CU12" ? campus : undefined;
-    const existingUserByEmail = await timing.measure("portal-user", () =>
-      withWithdrawnAtFallback(
-        () =>
-          prisma.user.findUnique({
-            where: { email: body.cu12Id },
-            select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-          }),
-        () =>
-          prisma.user.findUnique({
-            where: { email: body.cu12Id },
-            select: { id: true, email: true, role: true, isActive: true },
-          }),
-      ),
-    );
+    let existingUserByEmail:
+      | {
+        id: string;
+        email: string;
+        role: "ADMIN" | "USER";
+        isActive: boolean;
+        withdrawnAt: Date | null;
+      }
+      | null;
+
+    try {
+      existingUserByEmail = await timing.measure("portal-user", () =>
+        withWithdrawnAtFallback(
+          () =>
+            prisma.user.findUnique({
+              where: { email: body.cu12Id },
+              select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+            }),
+          () =>
+            prisma.user.findUnique({
+              where: { email: body.cu12Id },
+              select: { id: true, email: true, role: true, isActive: true },
+            }),
+        ),
+      );
+    } catch (error) {
+      if (!isPrismaError(error)) {
+        throw error;
+      }
+
+      console.warn("[auth] Portal-user lookup hit a Prisma compatibility error.", describePrismaError(error));
+      existingUserByEmail = await loadExistingUserByEmailFallback(body.cu12Id);
+    }
 
     let user:
       | {
@@ -475,20 +548,39 @@ export async function POST(request: NextRequest) {
       | undefined;
 
     if (existingAccount) {
-      const found = await timing.measure("account-user", () =>
-        withWithdrawnAtFallback(
-          () =>
-            prisma.user.findUnique({
-              where: { id: existingAccount.userId },
-              select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
-            }),
-          () =>
-            prisma.user.findUnique({
-              where: { id: existingAccount.userId },
-              select: { id: true, email: true, role: true, isActive: true },
-            }),
-        ),
-      );
+      let found:
+        | {
+          id: string;
+          email: string;
+          role: "ADMIN" | "USER";
+          isActive: boolean;
+          withdrawnAt: Date | null;
+        }
+        | null;
+
+      try {
+        found = await timing.measure("account-user", () =>
+          withWithdrawnAtFallback(
+            () =>
+              prisma.user.findUnique({
+                where: { id: existingAccount.userId },
+                select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+              }),
+            () =>
+              prisma.user.findUnique({
+                where: { id: existingAccount.userId },
+                select: { id: true, email: true, role: true, isActive: true },
+              }),
+          ),
+        );
+      } catch (error) {
+        if (!isPrismaError(error)) {
+          throw error;
+        }
+
+        console.warn("[auth] Account-user lookup hit a Prisma compatibility error.", describePrismaError(error));
+        found = await loadExistingUserByIdFallback(existingAccount.userId);
+      }
 
       if (!found) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
@@ -507,14 +599,22 @@ export async function POST(request: NextRequest) {
         }),
       );
 
-      await timing.measure("account-upsert", () =>
-        upsertCu12Account(user!.id, {
-          currentProvider,
-          cu12Id: body.cu12Id,
-          cu12Password: body.cu12Password,
-          campus: verifiedCampus,
-        }),
-      );
+      try {
+        await timing.measure("account-upsert", () =>
+          upsertCu12Account(user!.id, {
+            currentProvider,
+            cu12Id: body.cu12Id,
+            cu12Password: body.cu12Password,
+            campus: verifiedCampus,
+          }),
+        );
+      } catch (error) {
+        if (!isPrismaError(error)) {
+          throw error;
+        }
+
+        console.warn("[auth] Skipping account credential refresh after successful portal auth due to Prisma compatibility error.", describePrismaError(error));
+      }
     } else if (existingUserByEmail) {
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
@@ -522,14 +622,22 @@ export async function POST(request: NextRequest) {
       }
 
       user = existingUserByEmail;
-      await timing.measure("account-upsert", () =>
-        upsertCu12Account(user!.id, {
-          currentProvider,
-          cu12Id: body.cu12Id,
-          cu12Password: body.cu12Password,
-          campus: verifiedCampus,
-        }),
-      );
+      try {
+        await timing.measure("account-upsert", () =>
+          upsertCu12Account(user!.id, {
+            currentProvider,
+            cu12Id: body.cu12Id,
+            cu12Password: body.cu12Password,
+            campus: verifiedCampus,
+          }),
+        );
+      } catch (error) {
+        if (!isPrismaError(error)) {
+          throw error;
+        }
+
+        console.warn("[auth] Skipping account credential refresh after successful portal auth due to Prisma compatibility error.", describePrismaError(error));
+      }
     } else {
       const challengeToken = await timing.measure("session", () =>
         signLoginChallengeToken({
