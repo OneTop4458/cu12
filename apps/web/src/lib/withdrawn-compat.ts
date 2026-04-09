@@ -16,13 +16,25 @@ function getErrorColumn(meta: unknown): string {
 }
 
 export function isMissingWithdrawnAtColumnError(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code !== "P2022") return false;
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code !== "P2022") return false;
 
-  const column = getErrorColumn(error.meta);
-  if (column.includes("withdrawnat")) return true;
+    const column = getErrorColumn(error.meta);
+    if (column.includes("withdrawnat")) return true;
 
-  return error.message.toLowerCase().includes("withdrawnat");
+    return error.message.toLowerCase().includes("withdrawnat");
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return error.message.toLowerCase().includes("withdrawnat");
+  }
+
+  if (error instanceof Error) {
+    return error.message.toLowerCase().includes("withdrawnat")
+      && /(column|does not exist|unknown column)/i.test(error.message);
+  }
+
+  return false;
 }
 
 function warnMissingWithdrawnAtColumn() {
