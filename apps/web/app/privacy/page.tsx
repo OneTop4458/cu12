@@ -29,10 +29,8 @@ export default async function PrivacyPolicyPage({
   const policy = requestedVersion
     ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, requestedVersion)
     : await getActivePolicyDocument(PolicyDocumentType.PRIVACY_POLICY);
-  const comparePolicy = policy
-    ? compareToVersion
-      ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, compareToVersion)
-      : null
+  const comparePolicy = policy && compareToVersion
+    ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, compareToVersion)
     : null;
   const history = await getPolicyHistoryForPublic(PolicyDocumentType.PRIVACY_POLICY);
 
