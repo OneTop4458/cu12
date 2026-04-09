@@ -60,6 +60,14 @@ function normalizeNoticeFingerprintText(value: string | null | undefined): strin
     .toLowerCase();
 }
 
+function normalizeCourseFingerprintText(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function extractNoticeSeqFromKey(noticeKey: string): string | null {
   return noticeKey.match(/:seq:(\d+)/)?.[1] ?? null;
 }
@@ -277,6 +285,80 @@ async function cleanupDuplicateCourseNotices(
         }),
       );
     }
+  }
+}
+
+async function cleanupLegacyCyberCampusCourseSnapshots(
+  userId: string,
+  provider: PortalProvider,
+  titles: string[],
+): Promise<void> {
+  if (provider !== "CYBER_CAMPUS") return;
+
+  const normalizedTitles = Array.from(
+    new Set(
+      titles
+        .map((title) => normalizeCourseFingerprintText(title))
+        .filter((title) => title.length > 0),
+    ),
+  );
+  if (normalizedTitles.length === 0) return;
+
+  const rows = await prisma.courseSnapshot.findMany({
+    where: {
+      userId,
+      provider,
+    },
+    select: {
+      id: true,
+      lectureSeq: true,
+      title: true,
+      externalLectureId: true,
+      syncedAt: true,
+      updatedAt: true,
+    },
+  });
+  const filteredRows = rows.filter((row) => normalizedTitles.includes(normalizeCourseFingerprintText(row.title)));
+  if (filteredRows.length === 0) return;
+
+  const taskCounts = await prisma.learningTask.groupBy({
+    by: ["lectureSeq"],
+    where: {
+      userId,
+      provider,
+      lectureSeq: { in: filteredRows.map((row) => row.lectureSeq) },
+    },
+    _count: { _all: true },
+  });
+  const taskCountByLectureSeq = new Map(taskCounts.map((row) => [row.lectureSeq, row._count._all]));
+
+  const rowsByTitle = new Map<string, typeof filteredRows>();
+  for (const row of filteredRows) {
+    const key = normalizeCourseFingerprintText(row.title);
+    const list = rowsByTitle.get(key) ?? [];
+    list.push(row);
+    rowsByTitle.set(key, list);
+  }
+
+  for (const duplicates of rowsByTitle.values()) {
+    const hasCurrentExternalLectureId = duplicates.some((row) => (row.externalLectureId ?? "").trim().length > 0);
+    if (!hasCurrentExternalLectureId) continue;
+
+    const staleRows = duplicates.filter((row) =>
+      (row.externalLectureId ?? "").trim().length === 0
+      && (taskCountByLectureSeq.get(row.lectureSeq) ?? 0) === 0,
+    );
+    if (staleRows.length === 0) continue;
+
+    await runWithPrismaRetry(() =>
+      prisma.courseSnapshot.deleteMany({
+        where: {
+          userId,
+          provider,
+          id: { in: staleRows.map((row) => row.id) },
+        },
+      }),
+    );
   }
 }
 
@@ -546,6 +628,7 @@ export async function persistSnapshot(
         },
         update: {
           provider,
+          externalLectureId: course.externalLectureId ?? null,
           title: course.title,
           instructor: course.instructor,
           progressPercent: course.progressPercent,
@@ -560,6 +643,7 @@ export async function persistSnapshot(
           userId,
           provider,
           lectureSeq: course.lectureSeq,
+          externalLectureId: course.externalLectureId ?? null,
           title: course.title,
           instructor: course.instructor,
           progressPercent: course.progressPercent,
@@ -573,6 +657,12 @@ export async function persistSnapshot(
       }),
     );
   }
+
+  await cleanupLegacyCyberCampusCourseSnapshots(
+    userId,
+    provider,
+    data.courses.map((course) => course.title),
+  );
 
   for (const notice of notices) {
     const isNewRecord = !existingNoticeSet.has(notice.noticeKey);
