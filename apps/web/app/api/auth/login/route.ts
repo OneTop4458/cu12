@@ -69,6 +69,16 @@ function runInBackground(work: () => Promise<unknown>) {
   void work().catch(() => undefined);
 }
 
+function isCompatibilityPrismaError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2021" || error.code === "P2022";
+  }
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return true;
+  }
+  return false;
+}
+
 async function loadAuthLookupFallback(cu12Id: string) {
   console.warn(
     "[auth] Falling back to legacy login lookup compatibility mode. Optional auth columns are missing in the DB.",
@@ -296,15 +306,33 @@ export async function POST(request: NextRequest) {
         return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
 
-      const consent = await timing.measure("policy", () =>
+      let consent = await timing.measure("policy", () =>
         getPolicyConsentRequirement(localCandidate.id),
-      );
-      if (!consent.configured && localCandidate.role !== "ADMIN") {
-        return timedError(
-          "Required policy documents are not configured by an administrator.",
-          503,
-          "POLICY_NOT_CONFIGURED",
+      ).catch((error) => {
+        if (!isCompatibilityPrismaError(error)) {
+          throw error;
+        }
+
+        console.warn(
+          "[auth] Test-user login skipped policy consent lookup because legacy policy/consent DB structures are incompatible.",
         );
+        return {
+          configured: false,
+          required: false,
+          policies: [],
+          pendingTypes: [],
+          consentMode: null,
+          policyChanges: [],
+        } satisfies Awaited<ReturnType<typeof getPolicyConsentRequirement>>;
+      });
+      if (!consent.configured && localCandidate.role !== "ADMIN") {
+        if (!localCandidate.isTestUser) {
+          return timedError(
+            "Required policy documents are not configured by an administrator.",
+            503,
+            "POLICY_NOT_CONFIGURED",
+          );
+        }
       }
       if (consent.configured && consent.required) {
         const consentToken = await timing.measure("session", () =>

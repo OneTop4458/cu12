@@ -168,6 +168,7 @@ const policyProfileSelect = {
 } as const satisfies Prisma.PolicyProfileSelect;
 
 let warnedLegacyPolicyDocumentSchema = false;
+let warnedLegacyPolicyConsentSchema = false;
 
 function getErrorColumn(meta: unknown): string {
   if (!meta || typeof meta !== "object") return "";
@@ -203,6 +204,30 @@ function warnLegacyPolicyDocumentSchema() {
   warnedLegacyPolicyDocumentSchema = true;
   console.warn(
     "[policy] DB policy snapshot columns are missing. Falling back to legacy single-document compatibility mode. Run prisma db push.",
+  );
+}
+
+function isPolicyConsentStorageError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2021" || error.code === "P2022";
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    return /(userpolicyconsent|policyversion|policytype)/i.test(error.message);
+  }
+
+  return false;
+}
+
+function warnLegacyPolicyConsentSchema() {
+  if (warnedLegacyPolicyConsentSchema) return;
+  warnedLegacyPolicyConsentSchema = true;
+  console.warn(
+    "[policy] User policy consent storage is unavailable or uses a legacy schema. Falling back to empty-consent compatibility mode.",
   );
 }
 
@@ -535,23 +560,28 @@ export async function getPolicyHistoryForPublic(
 }
 
 export async function getPolicyConsentRequirement(userId: string): Promise<PolicyConsentRequirement> {
-  const [policies, consents] = await Promise.all([
-    getActiveRequiredPolicies(),
-    prisma.userPolicyConsent.findMany({
-      where: {
-        userId,
-        policyType: { in: REQUIRED_POLICY_TYPES },
-      },
-      select: {
-        policyType: true,
-        policyVersion: true,
-      },
-      orderBy: [
-        { policyType: "asc" },
-        { policyVersion: "desc" },
-      ],
-    }),
-  ]);
+  const policies = await getActiveRequiredPolicies();
+  const consents = await prisma.userPolicyConsent.findMany({
+    where: {
+      userId,
+      policyType: { in: REQUIRED_POLICY_TYPES },
+    },
+    select: {
+      policyType: true,
+      policyVersion: true,
+    },
+    orderBy: [
+      { policyType: "asc" },
+      { policyVersion: "desc" },
+    ],
+  }).catch((error) => {
+    if (!isPolicyConsentStorageError(error)) {
+      throw error;
+    }
+
+    warnLegacyPolicyConsentSchema();
+    return [];
+  });
 
   const configured = policies.length === REQUIRED_POLICY_TYPES.length;
   if (!configured) {
