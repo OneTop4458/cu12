@@ -105,7 +105,7 @@ function Test-BranchHasMergedPr([string]$Branch, [string]$Base) {
 
 function Assert-BranchCanShip([string]$Branch, [string]$Base) {
   if (Test-BranchHasMergedPr -Branch $Branch -Base $Base) {
-    throw "Current branch '$Branch' already has a merged PR into '$Base'. Start a fresh branch with pnpm run ai:start -- --task <next-task> before committing more changes."
+    throw "Current branch '$Branch' already has a merged PR into '$Base'. Start a fresh branch with pnpm run ai:start --task <next-task> before committing more changes."
   }
 }
 
@@ -145,6 +145,8 @@ Invoke-Checked "Validate text quality" { Invoke-Pnpm @('run', 'check:text') }
 Invoke-Checked "Validate OpenAPI sync" { Invoke-Pnpm @('run', 'check:openapi') }
 Invoke-Checked "Generate Prisma client" { Invoke-Pnpm @('run', 'prisma:generate') }
 Invoke-Checked "Typecheck all workspaces" { Invoke-Pnpm @('run', 'typecheck') }
+Invoke-Checked "Run web regression tests" { Invoke-Pnpm @('run', 'test:web') }
+Invoke-Checked "Run workflow and release guard tests" { Invoke-Pnpm @('run', 'test:ops') }
 if (-not $SkipBuildWeb) {
   Invoke-Checked "Build web app" { Invoke-Pnpm @('run', 'build:web') }
 }
@@ -179,6 +181,8 @@ Validation executed in order:
 - pnpm run check:openapi
 - pnpm run prisma:generate
 - pnpm run typecheck
+- pnpm run test:web
+- pnpm run test:ops
 - pnpm run build:web
 "@
 }

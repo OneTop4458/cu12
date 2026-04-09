@@ -43,7 +43,9 @@
 1. `pnpm run check:text`
 2. `pnpm run check:openapi`
 3. `pnpm run typecheck`
-4. `pnpm run build:web`
+4. `pnpm run test:web`
+5. `pnpm run test:ops`
+6. `pnpm run build:web`
 
 ## End-to-End
 

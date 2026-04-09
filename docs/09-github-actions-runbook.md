@@ -3,12 +3,14 @@
 ## Core Workflows
 
 1. `ci.yml`
-- Runs text quality checks, type checks, and build validation.
+- Runs text quality checks, OpenAPI sync, workspace type checks, web tests, workflow/release guard tests, and build validation.
 
 2. `deploy-vercel.yml`
 - Deploys web application to Vercel from `main`.
 - Runs automatically for direct `push(main)` events that touch deploy-relevant paths.
 - Also runs when an auto-merged PR into `main` changes deploy-relevant files because `codex-auto-merge-on-approval.yml` explicitly dispatches `Deploy Vercel` after merge.
+- The deploy-relevant path contract covers app code plus shared build/config files (`scripts/**`, `pnpm-workspace.yaml`, `tsconfig.base.json`, `.npmrc`) and is guarded by repository tests so auto-dispatch and direct push triggers stay aligned.
+- Runs the same validation/test gate as CI before DB sync and production deploy.
 
 3. `worker-consume.yml`
 - Claims and processes queue jobs via worker runtime.

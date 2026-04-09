@@ -143,6 +143,8 @@ pnpm run prisma:generate
 pnpm run check:text
 pnpm run check:openapi
 pnpm run typecheck
+pnpm run test:web
+pnpm run test:ops
 pnpm run build:web
 ```
 
@@ -159,6 +161,8 @@ When changes are made by AI-assisted workflows, commits and pushes must only hap
 - `pnpm run check:text`
 - `pnpm run check:openapi`
 - `pnpm run typecheck`
+- `pnpm run test:web`
+- `pnpm run test:ops`
 - `pnpm run build:web` (when web scope is touched)
 
 ## 2026-03-04 UI/UX Modernization

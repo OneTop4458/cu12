@@ -128,19 +128,8 @@ export interface PolicyPublishResult {
 }
 
 type PolicyClient = typeof prisma | Prisma.TransactionClient;
-type PolicyDocumentRow = {
-  id: string;
-  type: PolicyDocumentType;
-  version: number;
-  content: string | null;
-  templateContent: string | null;
-  publishedContent: string | null;
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-};
 
-const policyDocumentSelect = {
+const policyDocumentSelect = Prisma.validator<Prisma.PolicyDocumentSelect>()({
   id: true,
   type: true,
   version: true,
@@ -150,9 +139,11 @@ const policyDocumentSelect = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
-} as const satisfies Prisma.PolicyDocumentSelect;
+});
 
-const policyProfileSelect = {
+type PolicyDocumentRow = Prisma.PolicyDocumentGetPayload<{ select: typeof policyDocumentSelect }>;
+
+const policyProfileSelect = Prisma.validator<Prisma.PolicyProfileSelect>()({
   companyName: true,
   supportEmail: true,
   companyAddress: true,
@@ -165,7 +156,7 @@ const policyProfileSelect = {
   revisionDate: true,
   createdAt: true,
   updatedAt: true,
-} as const satisfies Prisma.PolicyProfileSelect;
+});
 
 let warnedLegacyPolicyDocumentSchema = false;
 let warnedLegacyPolicyConsentSchema = false;
