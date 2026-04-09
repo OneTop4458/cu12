@@ -24,6 +24,7 @@ export function LegalDocumentPage({
   const diffLines = policy && comparePolicy
     ? buildPolicyDiffLines(comparePolicy.content, policy.content)
     : [];
+  const missingHistoricalVersions = policy ? policy.version > history.length : false;
 
   return (
     <main className="dashboard-main page-shell legal-main">
@@ -69,6 +70,11 @@ export function LegalDocumentPage({
 
             <section className="card top-gap">
               <h2>버전 이력</h2>
+              {missingHistoricalVersions ? (
+                <p className="error-text top-gap">
+                  일부 이전 버전 데이터가 현재 시스템에 없습니다. 구조 개편 전 약관은 수동 복구 전까지 이력 링크를 제공할 수 없습니다.
+                </p>
+              ) : null}
               <div className="button-row top-gap" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
                 {history.map((item, index) => {
                   const previous = history[index + 1] ?? null;

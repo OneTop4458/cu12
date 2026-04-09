@@ -466,6 +466,43 @@ paths:
                     $ref: "#/components/schemas/PolicyProfile"
         "403":
           description: Forbidden
+    post:
+      tags: [Admin]
+      summary: Manually re-queue policy update mails for current active policies
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                policyTypes:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/PolicyDocumentType"
+      responses:
+        "200":
+          description: Policy update mail jobs queued
+        "400":
+          description: No active policy versions available or invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to queue policy update mails
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     put:
       tags: [Admin]
       summary: Upsert required policy documents (admin only)
