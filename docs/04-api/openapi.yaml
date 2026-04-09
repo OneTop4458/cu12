@@ -3453,6 +3453,7 @@ components:
           courseContentsSeq,
           weekNo,
           lessonNo,
+          activityType,
           courseTitle,
           availableFrom,
           dueAt,
@@ -3471,6 +3472,9 @@ components:
           type: integer
         lessonNo:
           type: integer
+        activityType:
+          type: string
+          enum: [VOD, MATERIAL, QUIZ, ASSIGNMENT, ETC]
         courseTitle:
           type: string
         availableFrom:

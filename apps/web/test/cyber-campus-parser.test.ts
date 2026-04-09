@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   parseCyberCampusCommunityNoticeDetailHtml,
+  parseCyberCampusCourseNoticeDetailHtml,
+  parseCyberCampusCourseNoticeListHtml,
   parseCyberCampusCourseSubmainHtml,
   parseCyberCampusExamDetailHtml,
   parseCyberCampusMainCoursesHtml,
   parseCyberCampusNotificationListHtml,
   parseCyberCampusOnlineWeekDetailHtml,
+  parseCyberCampusPlanHtml,
   parseCyberCampusTodoListHtml,
 } from "@cu12/core";
 
@@ -296,4 +299,98 @@ test("Cyber Campus community notice detail parser returns non-empty body text", 
   assert.equal(detail.author, "\uD559\uC0AC\uC9C0\uC6D0\uD300");
   assert.equal(detail.postedAt, "2026-03-03");
   assert.match(detail.bodyText, /\uCCAD\uAC15/);
+});
+
+test("Cyber Campus plan parser extracts the instructor from the plan table", () => {
+  const html = `
+    <html>
+      <body>
+        <table class="bbsview">
+          <tbody>
+            <tr><th>교과목명(국문)</th><td>IT조직행동론</td></tr>
+            <tr><th>교수</th><td>조진욱</td></tr>
+            <tr><th>연락처</th><td>010-7755-9226</td></tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const parsed = parseCyberCampusPlanHtml(html);
+  assert.equal(parsed.instructor, "조진욱");
+});
+
+test("Cyber Campus course notice list parser extracts course-bound rows from pageMove markup", () => {
+  const html = `
+    <html>
+      <body>
+        <table class="bbslist new_bbslist">
+          <tbody>
+            <tr style="cursor: pointer;">
+              <td class="number">4주차</td>
+              <td class="center impt impt_off" title="중요글 추가" impt_seq="5562111"></td>
+              <td class="left" onclick="pageMove('/ilos/st/course/notice_view_form.acl?ARTL_NUM=5562111&amp;SCH_KEY=&amp;SCH_VALUE=&amp;display=1&amp;start=1'); return false;">
+                <a class="site-link" title="상세보기">
+                  <div class="subjt_top">4주차 핼프세션 안내</div>
+                  <div class="subjt_bottom">
+                    <span>조진욱</span>
+                    <span>조회 18</span>
+                  </div>
+                </a>
+              </td>
+              <td>&nbsp;</td>
+              <td class="number">2026.03.20 오후 1:42</td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const notices = parseCyberCampusCourseNoticeListHtml(html, "user-1", 752701, "A202610752701");
+  assert.equal(notices.length, 1);
+  assert.deepEqual(notices[0], {
+    userId: "user-1",
+    lectureSeq: 752701,
+    externalLectureId: "A202610752701",
+    noticeKey: "752701:seq:5562111",
+    noticeSeq: "5562111",
+    title: "4주차 핼프세션 안내",
+    author: "조진욱",
+    postedAt: "2026-03-20T13:42:00+09:00",
+    bodyText: "",
+    isNew: false,
+    syncedAt: notices[0]?.syncedAt,
+  });
+});
+
+test("Cyber Campus course notice detail parser extracts title, author, postedAt, and body text", () => {
+  const html = `
+    <html>
+      <body>
+        <table class="bbsview" border="1">
+          <tbody>
+            <tr><th scope="row">주차</th><td>미지정</td></tr>
+            <tr><th scope="row">제목</th><td class="first impt-wrap">4주차 핼프세션 안내</td></tr>
+            <tr><th scope="row">작성자</th><td>조진욱</td></tr>
+            <tr><th scope="row">게시일</th><td>2026.03.20 오후 1:42</td></tr>
+            <tr>
+              <td class="textviewer" colspan="4">
+                <div>
+                  <p>안녕하세요. IT조직행동론 조진욱입니다.</p>
+                  <p>3.26 핼프세션을 줌을 통해 진행할 예정입니다.</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const detail = parseCyberCampusCourseNoticeDetailHtml(html);
+  assert.equal(detail.title, "4주차 핼프세션 안내");
+  assert.equal(detail.author, "조진욱");
+  assert.equal(detail.postedAt, "2026-03-20T13:42:00+09:00");
+  assert.match(detail.bodyText, /핼프세션/);
 });

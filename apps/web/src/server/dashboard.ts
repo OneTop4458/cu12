@@ -614,7 +614,14 @@ export async function getUpcomingDeadlines(userId: string, limit = 30, provider:
   const titleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
 
   return tasks.map((task) => ({
-    ...task,
+    lectureSeq: task.lectureSeq,
+    courseContentsSeq: task.courseContentsSeq,
+    weekNo: task.weekNo,
+    lessonNo: task.lessonNo,
+    activityType: task.activityType,
+    isCompleted: task.isCompleted,
+    availableFrom: task.availableFrom,
+    dueAt: task.dueAt,
     courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
     remainingSeconds: Math.max(0, task.requiredSeconds - task.learnedSeconds),
     daysLeft: task.dueAt ? daysUntil(task.dueAt, now) : null,
