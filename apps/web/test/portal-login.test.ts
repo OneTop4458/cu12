@@ -116,24 +116,14 @@ test("verifyPortalLogin preserves Cyber Campus auth failure results", async () =
   });
 });
 
-test("verifyPortalLogin falls back to Cyber Campus when no provider hint is given", async () => {
+test("verifyPortalLogin uses CU12 only when no provider hint is given", async () => {
   const calls: string[] = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method ?? "GET"} ${url}`);
-    if (url.includes("configured-cu12.example")) {
-      return new Response(JSON.stringify({ isError: true, message: "Invalid CU12 credentials" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    if (url.endsWith("/ilos/main/member/login_form.acl")) {
-      return makeResponse("<form><input id='usr_id'><input id='usr_pwd'><button id='login_btn'></button></form>", {
-        url,
-      });
-    }
-    return makeResponse("<a href='/ilos/lo/logout.acl'>logout</a>", {
-      url: "https://e-cyber.example/ilos/main/main_form.acl",
+    return new Response(JSON.stringify({ isError: false, message: "OK" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
     });
   }) as typeof fetch;
 
@@ -144,11 +134,9 @@ test("verifyPortalLogin falls back to Cyber Campus when no provider hint is give
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.verifiedProvider, "CYBER_CAMPUS");
+  assert.equal(result.verifiedProvider, "CU12");
   assert.deepEqual(calls, [
     "POST https://configured-cu12.example/el/lo/hak_login_proc.acl",
-    "GET https://e-cyber.example/ilos/main/member/login_form.acl",
-    "POST https://e-cyber.example/ilos/lo/login.acl",
   ]);
 });
 

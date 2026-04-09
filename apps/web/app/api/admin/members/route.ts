@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
 
     if (!isTestUser) {
       const validation = await verifyPortalLogin({
+        provider: currentProvider,
         cu12Id: body.cu12Id,
         cu12Password: body.cu12Password ?? "",
         campus,
