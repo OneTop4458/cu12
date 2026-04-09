@@ -148,11 +148,14 @@ function toDashboardAccountRecord(
 
 export async function getAccountProviderByCu12Id(cu12Id: string): Promise<Cu12AccountProviderRecord | null> {
   try {
-    const account = await prisma.cu12Account.findUnique({
+    const account = await prisma.cu12Account.findFirst({
       where: { cu12Id },
       select: {
         userId: true,
         provider: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
       },
     });
 
@@ -168,10 +171,13 @@ export async function getAccountProviderByCu12Id(cu12Id: string): Promise<Cu12Ac
     }
 
     warnMissingProviderColumn();
-    const legacy = await prisma.cu12Account.findUnique({
+    const legacy = await prisma.cu12Account.findFirst({
       where: { cu12Id },
       select: {
         userId: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
       },
     });
 

@@ -60,6 +60,14 @@ function normalizeNoticeFingerprintText(value: string | null | undefined): strin
     .toLowerCase();
 }
 
+function normalizeCourseFingerprintText(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function extractNoticeSeqFromKey(noticeKey: string): string | null {
   return noticeKey.match(/:seq:(\d+)/)?.[1] ?? null;
 }
@@ -273,6 +281,123 @@ async function cleanupDuplicateCourseNotices(
             userId,
             provider,
             id: { in: duplicateIds },
+          },
+        }),
+      );
+    }
+  }
+}
+
+async function cleanupLegacyCyberCampusCourseSnapshots(
+  userId: string,
+  provider: PortalProvider,
+  titles: string[],
+): Promise<void> {
+  if (provider !== "CYBER_CAMPUS") return;
+
+  const normalizedTitles = Array.from(
+    new Set(
+      titles
+        .map((title) => normalizeCourseFingerprintText(title))
+        .filter((title) => title.length > 0),
+    ),
+  );
+  if (normalizedTitles.length === 0) return;
+
+  const rows = await prisma.courseSnapshot.findMany({
+    where: {
+      userId,
+      provider,
+    },
+    select: {
+      id: true,
+      lectureSeq: true,
+      title: true,
+      externalLectureId: true,
+      syncedAt: true,
+      updatedAt: true,
+    },
+  });
+  const filteredRows = rows.filter((row) => normalizedTitles.includes(normalizeCourseFingerprintText(row.title)));
+  if (filteredRows.length === 0) return;
+
+  const taskRows = await prisma.learningTask.findMany({
+    where: {
+      userId,
+      provider,
+      lectureSeq: { in: filteredRows.map((row) => row.lectureSeq) },
+    },
+    select: {
+      id: true,
+      lectureSeq: true,
+      courseContentsSeq: true,
+    },
+  });
+  const taskCountByLectureSeq = new Map<number, number>();
+  const taskIdsByLectureSeq = new Map<number, string[]>();
+  const taskContentsByLectureSeq = new Map<number, Set<number>>();
+  for (const row of taskRows) {
+    taskCountByLectureSeq.set(row.lectureSeq, (taskCountByLectureSeq.get(row.lectureSeq) ?? 0) + 1);
+    const ids = taskIdsByLectureSeq.get(row.lectureSeq) ?? [];
+    ids.push(row.id);
+    taskIdsByLectureSeq.set(row.lectureSeq, ids);
+    const contents = taskContentsByLectureSeq.get(row.lectureSeq) ?? new Set<number>();
+    contents.add(row.courseContentsSeq);
+    taskContentsByLectureSeq.set(row.lectureSeq, contents);
+  }
+
+  const rowsByTitle = new Map<string, typeof filteredRows>();
+  for (const row of filteredRows) {
+    const key = normalizeCourseFingerprintText(row.title);
+    const list = rowsByTitle.get(key) ?? [];
+    list.push(row);
+    rowsByTitle.set(key, list);
+  }
+
+  for (const duplicates of rowsByTitle.values()) {
+    const currentRows = duplicates.filter((row) => (row.externalLectureId ?? "").trim().length > 0);
+    if (currentRows.length === 0) continue;
+    const keeper = currentRows
+      .slice()
+      .sort((a, b) =>
+        ((taskCountByLectureSeq.get(b.lectureSeq) ?? 0) - (taskCountByLectureSeq.get(a.lectureSeq) ?? 0))
+        || (b.syncedAt.getTime() - a.syncedAt.getTime())
+        || (b.updatedAt.getTime() - a.updatedAt.getTime()),
+      )[0];
+    if (!keeper) continue;
+
+    const keeperTaskContents = taskContentsByLectureSeq.get(keeper.lectureSeq) ?? new Set<number>();
+    const staleRows = duplicates.filter((row) => (row.externalLectureId ?? "").trim().length === 0);
+
+    for (const staleRow of staleRows) {
+      const staleTaskIds = taskIdsByLectureSeq.get(staleRow.lectureSeq) ?? [];
+      const staleTaskContents = taskContentsByLectureSeq.get(staleRow.lectureSeq) ?? new Set<number>();
+      const canDeleteStaleTasks =
+        staleTaskIds.length === 0
+        || (
+          keeperTaskContents.size > 0
+          && [...staleTaskContents].every((courseContentsSeq) => keeperTaskContents.has(courseContentsSeq))
+        );
+      if (!canDeleteStaleTasks) continue;
+
+      if (staleTaskIds.length > 0) {
+        await runWithPrismaRetry(() =>
+          prisma.learningTask.deleteMany({
+            where: {
+              userId,
+              provider,
+              id: { in: staleTaskIds },
+            },
+          }),
+        );
+      }
+
+      await runWithPrismaRetry(() =>
+        prisma.courseSnapshot.deleteMany({
+          where: {
+            userId,
+            provider,
+            id: staleRow.id,
           },
         }),
       );
@@ -546,6 +671,7 @@ export async function persistSnapshot(
         },
         update: {
           provider,
+          externalLectureId: course.externalLectureId ?? null,
           title: course.title,
           instructor: course.instructor,
           progressPercent: course.progressPercent,
@@ -560,6 +686,7 @@ export async function persistSnapshot(
           userId,
           provider,
           lectureSeq: course.lectureSeq,
+          externalLectureId: course.externalLectureId ?? null,
           title: course.title,
           instructor: course.instructor,
           progressPercent: course.progressPercent,
@@ -573,6 +700,12 @@ export async function persistSnapshot(
       }),
     );
   }
+
+  await cleanupLegacyCyberCampusCourseSnapshots(
+    userId,
+    provider,
+    data.courses.map((course) => course.title),
+  );
 
   for (const notice of notices) {
     const isNewRecord = !existingNoticeSet.has(notice.noticeKey);

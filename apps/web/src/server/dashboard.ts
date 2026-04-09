@@ -189,6 +189,58 @@ function mapNoticeCountsByLecture(
   return new Map(rows.map((row) => [row.lectureSeq, row._count._all]));
 }
 
+function normalizeCyberCampusCourseTitle(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+async function getStaleCyberCampusLectureSeqs(userId: string): Promise<Set<number>> {
+  const rows = await prisma.courseSnapshot.findMany({
+    where: {
+      userId,
+      provider: "CYBER_CAMPUS",
+    },
+    select: {
+      lectureSeq: true,
+      title: true,
+      externalLectureId: true,
+    },
+  });
+
+  const rowsByTitle = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = normalizeCyberCampusCourseTitle(row.title);
+    if (!key) continue;
+    const list = rowsByTitle.get(key) ?? [];
+    list.push(row);
+    rowsByTitle.set(key, list);
+  }
+
+  const staleLectureSeqs = new Set<number>();
+  for (const duplicates of rowsByTitle.values()) {
+    const hasCurrentExternalLectureId = duplicates.some((row) => (row.externalLectureId ?? "").trim().length > 0);
+    if (!hasCurrentExternalLectureId) continue;
+
+    for (const row of duplicates) {
+      if ((row.externalLectureId ?? "").trim().length > 0) continue;
+      staleLectureSeqs.add(row.lectureSeq);
+    }
+  }
+
+  return staleLectureSeqs;
+}
+
+function filterOutStaleCyberCampusLectureSeqs<T extends { lectureSeq: number }>(
+  rows: T[],
+  staleLectureSeqs: Set<number>,
+): T[] {
+  if (staleLectureSeqs.size === 0) return rows;
+  return rows.filter((row) => !staleLectureSeqs.has(row.lectureSeq));
+}
+
 export function combineDashboardSummaries(
   byProvider: Record<PortalProvider, DashboardSummary>,
 ): DashboardSummary {
@@ -229,20 +281,25 @@ export async function getDashboardSummaries(userId: string): Promise<Record<Port
 export async function getDashboardSummary(userId: string, provider: PortalProvider = "CU12"): Promise<DashboardSummary> {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
-  const upcomingWindowTasks = await fetchLearningTasksRaw({
-    userId,
-    provider,
-    dueAtGte: now,
-    dueAtLte: soon,
-    orderBy: "dueAtAsc",
-  });
+  const staleLectureSeqs = provider === "CYBER_CAMPUS"
+    ? await getStaleCyberCampusLectureSeqs(userId)
+    : new Set<number>();
+  const upcomingWindowTasks = filterOutStaleCyberCampusLectureSeqs(
+    await fetchLearningTasksRaw({
+      userId,
+      provider,
+      dueAtGte: now,
+      dueAtLte: soon,
+      orderBy: "dueAtAsc",
+    }),
+    staleLectureSeqs,
+  );
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
-  const [activeCourseCount, progressAgg, unreadNoticeCount, syncJobs, user] = await Promise.all([
-    prisma.courseSnapshot.count({ where: { userId, provider, status: CourseStatus.ACTIVE } }),
-    prisma.courseSnapshot.aggregate({
+  const [activeCourses, unreadNoticeCount, syncJobs, user] = await Promise.all([
+    prisma.courseSnapshot.findMany({
       where: { userId, provider, status: CourseStatus.ACTIVE },
-      _avg: { progressPercent: true },
+      select: { lectureSeq: true, progressPercent: true },
     }),
     prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
     prisma.jobQueue.findMany({
@@ -261,6 +318,11 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
       select: { isTestUser: true },
     }),
   ]);
+  const filteredActiveCourses = filterOutStaleCyberCampusLectureSeqs(activeCourses, staleLectureSeqs);
+  const activeCourseCount = filteredActiveCourses.length;
+  const avgProgress = activeCourseCount > 0
+    ? filteredActiveCourses.reduce((sum, course) => sum + course.progressPercent, 0) / activeCourseCount
+    : 0;
 
   const providerSyncJobs = syncJobs.filter((job) => getJobPayloadProvider(job.payload) === provider);
   const lastSync = providerSyncJobs
@@ -272,7 +334,7 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
 
   return {
     activeCourseCount,
-    avgProgress: progressAgg._avg.progressPercent ?? 0,
+    avgProgress,
     unreadNoticeCount,
     upcomingDeadlines: upcomingPendingTasks.length,
     urgentTaskCount: upcomingPendingTasks.length,
@@ -287,6 +349,9 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
 export async function getCourses(userId: string, provider: PortalProvider = "CU12") {
   const now = new Date();
   const nowMs = now.getTime();
+  const staleLectureSeqs = provider === "CYBER_CAMPUS"
+    ? await getStaleCyberCampusLectureSeqs(userId)
+    : new Set<number>();
 
   const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
     prisma.courseSnapshot.findMany({
@@ -309,9 +374,11 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
       _count: { _all: true },
     }),
   ]);
+  const filteredCourses = filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs);
+  const filteredTasks = filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs);
 
   const grouped = new Map<number, typeof tasks>();
-  for (const task of tasks) {
+  for (const task of filteredTasks) {
     const list = grouped.get(task.lectureSeq) ?? [];
     list.push(task);
     grouped.set(task.lectureSeq, list);
@@ -320,7 +387,7 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
   const noticeCountByLectureSeq = mapNoticeCountsByLecture(noticeCounts);
   const unreadNoticeCountByLectureSeq = new Map<number, number>(unreadNoticeCounts.map((row) => [row.lectureSeq, row._count._all]));
 
-  return courses.map((course) => {
+  return filteredCourses.map((course) => {
     const rawTaskList = grouped.get(course.lectureSeq) ?? [];
     const taskList = rawTaskList;
     const isTaskPending = (task: typeof taskList[number]) => !isTaskCompletedByProgress(task);
@@ -500,13 +567,19 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
 
 export async function getUpcomingDeadlines(userId: string, limit = 30, provider: PortalProvider) {
   const now = new Date();
-  const tasksRaw = await fetchLearningTasksRaw({
-    userId,
-    provider,
-    dueAtGte: now,
-    limit: Math.min(Math.max(limit, 1), 100),
-    orderBy: "dueAtAsc",
-  });
+  const staleLectureSeqs = provider === "CYBER_CAMPUS"
+    ? await getStaleCyberCampusLectureSeqs(userId)
+    : new Set<number>();
+  const tasksRaw = filterOutStaleCyberCampusLectureSeqs(
+    await fetchLearningTasksRaw({
+      userId,
+      provider,
+      dueAtGte: now,
+      limit: Math.min(Math.max(limit, 1), 100),
+      orderBy: "dueAtAsc",
+    }),
+    staleLectureSeqs,
+  );
   const tasks = tasksRaw
     .map((task) => ({
       ...task,
@@ -560,6 +633,9 @@ export async function getDashboardDiagnostics(
   const nowMs = now.getTime();
   const sampleLimit = Math.min(Math.max(options?.sampleLimit ?? 20, 1), 100);
   const lectureFilter = options?.lectureSeq ? { lectureSeq: options.lectureSeq } : {};
+  const staleLectureSeqs = provider === "CYBER_CAMPUS"
+    ? await getStaleCyberCampusLectureSeqs(userId)
+    : new Set<number>();
 
   const [courses, tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
     prisma.courseSnapshot.findMany({
@@ -613,10 +689,12 @@ export async function getDashboardDiagnostics(
       },
     }),
   ]);
+  const filteredCourses = filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs);
+  const filteredTasks = filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs);
 
-  const titleByLectureSeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
+  const titleByLectureSeq = new Map(filteredCourses.map((course) => [course.lectureSeq, course.title]));
   const groupedTasks = new Map<number, typeof tasks>();
-  for (const task of tasks) {
+  for (const task of filteredTasks) {
     const list = groupedTasks.get(task.lectureSeq) ?? [];
     list.push(task);
     groupedTasks.set(task.lectureSeq, list);
@@ -624,8 +702,8 @@ export async function getDashboardDiagnostics(
 
   const lectureSeqs = Array.from(
     new Set([
-      ...courses.map((course) => course.lectureSeq),
-      ...tasks.map((task) => task.lectureSeq),
+      ...filteredCourses.map((course) => course.lectureSeq),
+      ...filteredTasks.map((task) => task.lectureSeq),
     ]),
   ).sort((a, b) => a - b);
 
@@ -673,22 +751,22 @@ export async function getDashboardDiagnostics(
     };
   });
 
-  const pendingTaskCount = tasks.filter((task) => !isTaskCompletedByProgress(task)).length;
-  const pendingWithDueAtCount = tasks.filter(
+  const pendingTaskCount = filteredTasks.filter((task) => !isTaskCompletedByProgress(task)).length;
+  const pendingWithDueAtCount = filteredTasks.filter(
     (task) => !isTaskCompletedByProgress(task) && Boolean(task.dueAt),
   ).length;
-  const pendingWithWindowCount = tasks.filter(
+  const pendingWithWindowCount = filteredTasks.filter(
     (task) => !isTaskCompletedByProgress(task) && Boolean(task.dueAt || task.availableFrom),
   ).length;
-  const pendingWithoutWindowCount = tasks.filter(
+  const pendingWithoutWindowCount = filteredTasks.filter(
     (task) => !isTaskCompletedByProgress(task) && !task.dueAt && !task.availableFrom,
   ).length;
 
   return {
     generatedAt: now.toISOString(),
     summary: {
-      courseCount: courses.length,
-      taskCount: tasks.length,
+      courseCount: filteredCourses.length,
+      taskCount: filteredTasks.length,
       pendingTaskCount,
       pendingWithDueAtCount,
       pendingWithWindowCount,
