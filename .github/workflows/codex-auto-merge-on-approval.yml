@@ -97,7 +97,7 @@ jobs:
           while IFS= read -r path; do
             [ -n "$path" ] || continue
             case "$path" in
-              apps/web/*|apps/worker/*|packages/*|prisma/*|package.json|pnpm-lock.yaml|.github/workflows/deploy-vercel.yml)
+              apps/web/*|apps/worker/*|packages/*|prisma/*|scripts/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json|.npmrc|.github/workflows/deploy-vercel.yml)
                 should_deploy=true
                 break
                 ;;

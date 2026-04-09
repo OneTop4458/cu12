@@ -11,6 +11,8 @@ pnpm run prisma:generate
 pnpm run check:text
 pnpm run check:openapi
 pnpm run typecheck
+pnpm run test:web
+pnpm run test:ops
 pnpm run build:web
 ```
 
