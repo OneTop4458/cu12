@@ -33,7 +33,17 @@ jobs:
             exit 0
           fi
 
-          labels="$(gh pr view "$number" -R "$GH_REPO" --json labels --jq '.labels[].name')"
+          labels=""
+          for attempt in 1 2 3 4 5 6; do
+            labels="$(gh pr view "$number" -R "$GH_REPO" --json labels --jq '.labels[].name')"
+            if grep -Fxq "automerge" <<< "$labels"; then
+              break
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "PR #$number has no automerge label yet. Retry $attempt/6 after labeler settles."
+              sleep 5
+            fi
+          done
           if ! grep -Fxq "automerge" <<< "$labels"; then
             echo "PR #$number has no automerge label. Skip."
             exit 0
