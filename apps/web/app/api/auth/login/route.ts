@@ -22,7 +22,7 @@ import {
   recordAuthFailureBestEffort,
   writeAuditLogBestEffort,
 } from "@/server/auth-best-effort";
-import { upsertCu12Account } from "@/server/cu12-account";
+import { getAccountProviderByCu12Id, upsertCu12Account } from "@/server/cu12-account";
 import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-login";
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { getPolicyConsentRequirement } from "@/server/policy";
@@ -142,10 +142,7 @@ export async function POST(request: NextRequest) {
 
     const [existingAccount, localCandidate] = await Promise.all([
       timing.measure("provider-detect", () =>
-        prisma.cu12Account.findUnique({
-          where: { cu12Id: body.cu12Id },
-          select: { userId: true, provider: true },
-        }),
+        getAccountProviderByCu12Id(body.cu12Id),
       ),
       timing.measure("local-user", () =>
         withWithdrawnAtFallback(
