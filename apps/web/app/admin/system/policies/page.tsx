@@ -1,9 +1,9 @@
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getServerActiveSession } from "@/lib/session-user";
-import { AdminSystemClient } from "./system-client";
+import { AdminSystemClient } from "../system-client";
 
-export default async function AdminSystemPage() {
+export default async function AdminSystemPoliciesPage() {
   const session = await getServerActiveSession();
   if (!session) {
     redirect("/login" as Route);
@@ -15,8 +15,7 @@ export default async function AdminSystemPage() {
 
   return (
     <main className="dashboard-main page-shell">
-      <AdminSystemClient initialUser={{ email: session.email, role: session.role }} view="overview" />
+      <AdminSystemClient initialUser={{ email: session.email, role: session.role }} view="policies" />
     </main>
   );
 }
-

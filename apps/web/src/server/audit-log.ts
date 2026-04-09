@@ -38,6 +38,8 @@ export interface ListAuditLogInput {
   severity?: AuditSeverity;
   targetUserId?: string;
   actorUserId?: string;
+  targetUserQuery?: string;
+  actorUserQuery?: string;
   createdAfter?: Date;
   createdBefore?: Date;
 }
@@ -82,6 +84,7 @@ export async function countAuditLogs(input?: ListAuditLogInput) {
 
 function buildAuditLogWhere(input?: ListAuditLogInput) {
   const where: Prisma.AuditLogWhereInput = {};
+  const and: Prisma.AuditLogWhereInput[] = [];
 
   if (input?.category) {
     where.category = input.category;
@@ -95,6 +98,28 @@ function buildAuditLogWhere(input?: ListAuditLogInput) {
   if (input?.actorUserId) {
     where.actorUserId = input.actorUserId;
   }
+  if (input?.targetUserQuery?.trim()) {
+    const query = input.targetUserQuery.trim();
+    and.push({
+      OR: [
+        { targetUserId: query },
+        { target: { is: { email: query } } },
+        { target: { is: { cu12Account: { is: { cu12Id: query } } } } },
+        { target: { is: { name: { contains: query, mode: "insensitive" } } } },
+      ],
+    });
+  }
+  if (input?.actorUserQuery?.trim()) {
+    const query = input.actorUserQuery.trim();
+    and.push({
+      OR: [
+        { actorUserId: query },
+        { actor: { is: { email: query } } },
+        { actor: { is: { cu12Account: { is: { cu12Id: query } } } } },
+        { actor: { is: { name: { contains: query, mode: "insensitive" } } } },
+      ],
+    });
+  }
   if (input?.createdAfter || input?.createdBefore) {
     where.createdAt = {};
     if (input.createdAfter) {
@@ -103,6 +128,9 @@ function buildAuditLogWhere(input?: ListAuditLogInput) {
     if (input.createdBefore) {
       where.createdAt.lte = input.createdBefore;
     }
+  }
+  if (and.length > 0) {
+    where.AND = and;
   }
 
   return where;

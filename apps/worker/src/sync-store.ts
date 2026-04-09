@@ -466,6 +466,18 @@ export async function getUserCu12Credentials(userId: string) {
   };
 }
 
+export async function getMandatoryMailRecipient(userId: string): Promise<string | null> {
+  const subscription = await prisma.mailSubscription.findUnique({
+    where: { userId },
+    select: {
+      email: true,
+    },
+  });
+
+  const email = subscription?.email?.trim() ?? "";
+  return email.length > 0 ? email : null;
+}
+
 export interface PortalSessionCookieState {
   name: string;
   value: string;

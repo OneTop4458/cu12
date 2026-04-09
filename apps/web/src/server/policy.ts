@@ -1,4 +1,4 @@
-import { PolicyDocumentType } from "@prisma/client";
+import { PolicyDocumentType, Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
@@ -28,6 +28,8 @@ export type PolicyErrorCode =
   | "POLICY_CONSENT_INCOMPLETE"
   | "POLICY_VERSION_MISMATCH";
 
+export type PolicyConsentMode = "INITIAL_REQUIRED" | "UPDATED_REQUIRED";
+
 export class PolicyError extends Error {
   readonly code: PolicyErrorCode;
 
@@ -38,13 +40,22 @@ export class PolicyError extends Error {
 }
 
 export interface PolicyDocumentPayload {
+  id: string;
   type: PolicyDocumentType;
   title: string;
   version: number;
   content: string;
+  templateContent: string;
+  publishedContent: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PolicyHistoryPayload {
+  type: PolicyDocumentType;
+  title: string;
+  documents: PolicyDocumentPayload[];
 }
 
 export interface PolicyProfilePayload {
@@ -80,22 +91,101 @@ export interface UserConsentInput {
   version: number;
 }
 
+export interface PolicyChangePayload {
+  type: PolicyDocumentType;
+  title: string;
+  currentVersion: number;
+  previousVersion: number | null;
+  currentPath: string;
+  previousPath: string | null;
+  diffPath: string | null;
+}
+
 export interface PolicyConsentRequirement {
   configured: boolean;
   required: boolean;
   policies: PolicyDocumentPayload[];
   pendingTypes: PolicyDocumentType[];
+  consentMode: PolicyConsentMode | null;
+  policyChanges: PolicyChangePayload[];
 }
+
+export interface PolicyPublishInput {
+  policies?: Array<{
+    type: PolicyDocumentType;
+    content: string;
+    isActive: boolean;
+  }>;
+  profile?: PolicyProfileInput;
+}
+
+export interface PolicyPublishResult {
+  updated: boolean;
+  policies: PolicyDocumentPayload[];
+  history: PolicyHistoryPayload[];
+  profile: PolicyProfilePayload;
+  publishedChanges: PolicyChangePayload[];
+}
+
+type PolicyClient = typeof prisma | Prisma.TransactionClient;
+
+type PolicyDocumentRow = Prisma.PolicyDocumentGetPayload<{
+  select: typeof policyDocumentSelect;
+}>;
+
+const policyDocumentSelect = {
+  id: true,
+  type: true,
+  version: true,
+  templateContent: true,
+  publishedContent: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+} as const satisfies Prisma.PolicyDocumentSelect;
+
+const policyProfileSelect = {
+  companyName: true,
+  supportEmail: true,
+  companyAddress: true,
+  dpoName: true,
+  dpoTitle: true,
+  dpoEmail: true,
+  dpoPhone: true,
+  jurisdictionCourt: true,
+  effectiveDate: true,
+  revisionDate: true,
+  createdAt: true,
+  updatedAt: true,
+} as const satisfies Prisma.PolicyProfileSelect;
 
 function policyTitle(type: PolicyDocumentType): string {
   if (type === PolicyDocumentType.PRIVACY_POLICY) return "개인정보 처리 방침";
   return "이용약관";
 }
 
+function policyBasePath(type: PolicyDocumentType): string {
+  return type === PolicyDocumentType.PRIVACY_POLICY ? "/privacy" : "/terms";
+}
+
+export function buildPolicyVersionPath(type: PolicyDocumentType, version?: number | null): string {
+  const basePath = policyBasePath(type);
+  if (!version || version < 1) return basePath;
+  return `${basePath}?version=${version}`;
+}
+
+export function buildPolicyDiffPath(
+  type: PolicyDocumentType,
+  version: number,
+  compareTo: number,
+): string {
+  return `${policyBasePath(type)}?version=${version}&compareTo=${compareTo}`;
+}
+
 function trimOrNull(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
-  const next = value.trim();
-  return next.length > 0 ? next : null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function emptyProfilePayload(): PolicyProfilePayload {
@@ -115,20 +205,9 @@ function emptyProfilePayload(): PolicyProfilePayload {
   };
 }
 
-function mapProfileRow(row: {
-  companyName: string | null;
-  supportEmail: string | null;
-  companyAddress: string | null;
-  dpoName: string | null;
-  dpoTitle: string | null;
-  dpoEmail: string | null;
-  dpoPhone: string | null;
-  jurisdictionCourt: string | null;
-  effectiveDate: string | null;
-  revisionDate: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-} | null): PolicyProfilePayload {
+function mapProfileRow(
+  row: Prisma.PolicyProfileGetPayload<{ select: typeof policyProfileSelect }> | null,
+): PolicyProfilePayload {
   if (!row) return emptyProfilePayload();
   return {
     companyName: row.companyName,
@@ -146,18 +225,53 @@ function mapProfileRow(row: {
   };
 }
 
-function sanitizeProfileInput(input: PolicyProfileInput): Omit<PolicyProfilePayload, "createdAt" | "updatedAt"> {
+function mergeProfileInput(current: PolicyProfilePayload, input: PolicyProfileInput | undefined) {
+  if (!input) {
+    return {
+      companyName: current.companyName,
+      supportEmail: current.supportEmail,
+      companyAddress: current.companyAddress,
+      dpoName: current.dpoName,
+      dpoTitle: current.dpoTitle,
+      dpoEmail: current.dpoEmail,
+      dpoPhone: current.dpoPhone,
+      jurisdictionCourt: current.jurisdictionCourt,
+      effectiveDate: current.effectiveDate,
+      revisionDate: current.revisionDate,
+    };
+  }
+
   return {
-    companyName: trimOrNull(input.companyName),
-    supportEmail: trimOrNull(input.supportEmail),
-    companyAddress: trimOrNull(input.companyAddress),
-    dpoName: trimOrNull(input.dpoName),
-    dpoTitle: trimOrNull(input.dpoTitle),
-    dpoEmail: trimOrNull(input.dpoEmail),
-    dpoPhone: trimOrNull(input.dpoPhone),
-    jurisdictionCourt: trimOrNull(input.jurisdictionCourt),
-    effectiveDate: trimOrNull(input.effectiveDate),
-    revisionDate: trimOrNull(input.revisionDate),
+    companyName: Object.prototype.hasOwnProperty.call(input, "companyName")
+      ? trimOrNull(input.companyName)
+      : current.companyName,
+    supportEmail: Object.prototype.hasOwnProperty.call(input, "supportEmail")
+      ? trimOrNull(input.supportEmail)
+      : current.supportEmail,
+    companyAddress: Object.prototype.hasOwnProperty.call(input, "companyAddress")
+      ? trimOrNull(input.companyAddress)
+      : current.companyAddress,
+    dpoName: Object.prototype.hasOwnProperty.call(input, "dpoName")
+      ? trimOrNull(input.dpoName)
+      : current.dpoName,
+    dpoTitle: Object.prototype.hasOwnProperty.call(input, "dpoTitle")
+      ? trimOrNull(input.dpoTitle)
+      : current.dpoTitle,
+    dpoEmail: Object.prototype.hasOwnProperty.call(input, "dpoEmail")
+      ? trimOrNull(input.dpoEmail)
+      : current.dpoEmail,
+    dpoPhone: Object.prototype.hasOwnProperty.call(input, "dpoPhone")
+      ? trimOrNull(input.dpoPhone)
+      : current.dpoPhone,
+    jurisdictionCourt: Object.prototype.hasOwnProperty.call(input, "jurisdictionCourt")
+      ? trimOrNull(input.jurisdictionCourt)
+      : current.jurisdictionCourt,
+    effectiveDate: Object.prototype.hasOwnProperty.call(input, "effectiveDate")
+      ? trimOrNull(input.effectiveDate)
+      : current.effectiveDate,
+    revisionDate: Object.prototype.hasOwnProperty.call(input, "revisionDate")
+      ? trimOrNull(input.revisionDate)
+      : current.revisionDate,
   };
 }
 
@@ -179,100 +293,99 @@ function renderPolicyContent(template: string, profile: PolicyProfilePayload): s
   for (const [token, value] of replacements) {
     content = content.split(token).join(value);
   }
+
   return content;
 }
 
-function toPolicyPayload(
-  row: {
-    type: PolicyDocumentType;
-    version: number;
-    content: string;
-    isActive: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-  },
-  options?: {
-    profile?: PolicyProfilePayload;
-    renderTemplate?: boolean;
-  },
-): PolicyDocumentPayload {
-  const renderTemplate = options?.renderTemplate === true;
-  const profile = options?.profile ?? emptyProfilePayload();
-
+function toPolicyPayload(row: PolicyDocumentRow): PolicyDocumentPayload {
   return {
+    id: row.id,
     type: row.type,
     title: policyTitle(row.type),
     version: row.version,
-    content: renderTemplate ? renderPolicyContent(row.content, profile) : row.content,
+    content: row.publishedContent,
+    templateContent: row.templateContent,
+    publishedContent: row.publishedContent,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-async function getPolicyProfileRow() {
-  return prisma.policyProfile.findUnique({
+function groupLatestByType(rows: PolicyDocumentRow[]): Map<PolicyDocumentType, PolicyDocumentRow> {
+  const byType = new Map<PolicyDocumentType, PolicyDocumentRow>();
+  for (const row of rows) {
+    if (!byType.has(row.type)) {
+      byType.set(row.type, row);
+    }
+  }
+  return byType;
+}
+
+function toPolicyChangePayload(
+  policy: Pick<PolicyDocumentPayload, "type" | "title" | "version">,
+  previousVersion: number | null,
+): PolicyChangePayload {
+  return {
+    type: policy.type,
+    title: policy.title,
+    currentVersion: policy.version,
+    previousVersion,
+    currentPath: buildPolicyVersionPath(policy.type, policy.version),
+    previousPath: previousVersion ? buildPolicyVersionPath(policy.type, previousVersion) : null,
+    diffPath: previousVersion ? buildPolicyDiffPath(policy.type, policy.version, previousVersion) : null,
+  };
+}
+
+async function getPolicyProfileRow(client: PolicyClient = prisma) {
+  return client.policyProfile.findUnique({
     where: { id: POLICY_PROFILE_ID },
-    select: {
-      companyName: true,
-      supportEmail: true,
-      companyAddress: true,
-      dpoName: true,
-      dpoTitle: true,
-      dpoEmail: true,
-      dpoPhone: true,
-      jurisdictionCourt: true,
-      effectiveDate: true,
-      revisionDate: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: policyProfileSelect,
   });
+}
+
+async function listPolicyRows(client: PolicyClient = prisma) {
+  return client.policyDocument.findMany({
+    where: { type: { in: REQUIRED_POLICY_TYPES } },
+    orderBy: [{ type: "asc" }, { version: "desc" }],
+    select: policyDocumentSelect,
+  });
+}
+
+async function listActivePolicyRows(client: PolicyClient = prisma) {
+  const rows = await client.policyDocument.findMany({
+    where: {
+      type: { in: REQUIRED_POLICY_TYPES },
+      isActive: true,
+    },
+    orderBy: [{ type: "asc" }, { version: "desc" }],
+    select: policyDocumentSelect,
+  });
+
+  return [...groupLatestByType(rows).values()];
 }
 
 export async function getPolicyProfileForAdmin(): Promise<PolicyProfilePayload> {
-  const row = await getPolicyProfileRow();
-  return mapProfileRow(row);
+  return mapProfileRow(await getPolicyProfileRow());
 }
 
 export async function listPoliciesForAdmin(): Promise<PolicyDocumentPayload[]> {
-  const rows = await prisma.policyDocument.findMany({
-    where: { type: { in: REQUIRED_POLICY_TYPES } },
-    orderBy: { type: "asc" },
-    select: {
-      type: true,
-      version: true,
-      content: true,
-      isActive: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const latestRows = [...groupLatestByType(await listPolicyRows()).values()];
+  return latestRows.map(toPolicyPayload);
+}
 
-  return rows.map((row) => toPolicyPayload(row));
+export async function listPolicyHistoryForAdmin(): Promise<PolicyHistoryPayload[]> {
+  const rows = await listPolicyRows();
+  return REQUIRED_POLICY_TYPES.map((type) => ({
+    type,
+    title: policyTitle(type),
+    documents: rows.filter((row) => row.type === type).map(toPolicyPayload),
+  }));
 }
 
 async function loadActiveRequiredPolicies(): Promise<PolicyDocumentPayload[]> {
-  const [rows, profile] = await Promise.all([
-    prisma.policyDocument.findMany({
-      where: {
-        type: { in: REQUIRED_POLICY_TYPES },
-        isActive: true,
-      },
-      orderBy: { type: "asc" },
-      select: {
-        type: true,
-        version: true,
-        content: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    getPolicyProfileForAdmin(),
-  ]);
-
-  return rows.map((row) => toPolicyPayload(row, { profile, renderTemplate: true }));
+  const activeRows = await listActivePolicyRows();
+  return activeRows.map(toPolicyPayload);
 }
 
 const getCachedActiveRequiredPoliciesInner = unstable_cache(
@@ -297,6 +410,83 @@ export async function getCachedActiveRequiredPolicies(): Promise<PolicyDocumentP
   return getCachedActiveRequiredPoliciesInner();
 }
 
+export async function getPolicyDocumentVersion(
+  type: PolicyDocumentType,
+  version: number,
+): Promise<PolicyDocumentPayload | null> {
+  const row = await prisma.policyDocument.findUnique({
+    where: {
+      type_version: {
+        type,
+        version,
+      },
+    },
+    select: policyDocumentSelect,
+  });
+
+  return row ? toPolicyPayload(row) : null;
+}
+
+export async function getLatestPolicyDocument(
+  type: PolicyDocumentType,
+): Promise<PolicyDocumentPayload | null> {
+  const [row] = await prisma.policyDocument.findMany({
+    where: { type },
+    orderBy: { version: "desc" },
+    take: 1,
+    select: policyDocumentSelect,
+  });
+
+  return row ? toPolicyPayload(row) : null;
+}
+
+export async function getActivePolicyDocument(
+  type: PolicyDocumentType,
+): Promise<PolicyDocumentPayload | null> {
+  const [row] = await prisma.policyDocument.findMany({
+    where: {
+      type,
+      isActive: true,
+    },
+    orderBy: { version: "desc" },
+    take: 1,
+    select: policyDocumentSelect,
+  });
+
+  return row ? toPolicyPayload(row) : null;
+}
+
+export async function getPreviousPolicyDocument(
+  type: PolicyDocumentType,
+  version: number,
+): Promise<PolicyDocumentPayload | null> {
+  const [row] = await prisma.policyDocument.findMany({
+    where: {
+      type,
+      version: {
+        lt: version,
+      },
+    },
+    orderBy: { version: "desc" },
+    take: 1,
+    select: policyDocumentSelect,
+  });
+
+  return row ? toPolicyPayload(row) : null;
+}
+
+export async function getPolicyHistoryForPublic(
+  type: PolicyDocumentType,
+): Promise<PolicyDocumentPayload[]> {
+  const rows = await prisma.policyDocument.findMany({
+    where: { type },
+    orderBy: { version: "desc" },
+    select: policyDocumentSelect,
+  });
+
+  return rows.map(toPolicyPayload);
+}
+
 export async function getPolicyConsentRequirement(userId: string): Promise<PolicyConsentRequirement> {
   const [policies, consents] = await Promise.all([
     getActiveRequiredPolicies(),
@@ -309,6 +499,10 @@ export async function getPolicyConsentRequirement(userId: string): Promise<Polic
         policyType: true,
         policyVersion: true,
       },
+      orderBy: [
+        { policyType: "asc" },
+        { policyVersion: "desc" },
+      ],
     }),
   ]);
 
@@ -319,19 +513,39 @@ export async function getPolicyConsentRequirement(userId: string): Promise<Polic
       required: true,
       policies: [],
       pendingTypes: [...REQUIRED_POLICY_TYPES],
+      consentMode: null,
+      policyChanges: [],
     };
   }
 
-  const consentByType = new Map(consents.map((row) => [row.policyType, row.policyVersion]));
-  const pendingTypes = policies
-    .filter((policy) => consentByType.get(policy.type) !== policy.version)
-    .map((policy) => policy.type);
+  const latestConsentByType = new Map<PolicyDocumentType, number>();
+  for (const consent of consents) {
+    if (!latestConsentByType.has(consent.policyType)) {
+      latestConsentByType.set(consent.policyType, consent.policyVersion);
+    }
+  }
+
+  const pendingPolicies = policies.filter((policy) => latestConsentByType.get(policy.type) !== policy.version);
+  const hasPriorConsent = latestConsentByType.size > 0;
+  const consentMode = pendingPolicies.length === 0
+    ? null
+    : hasPriorConsent
+      ? "UPDATED_REQUIRED"
+      : "INITIAL_REQUIRED";
+
+  const policyChanges = pendingPolicies.map((policy) =>
+    toPolicyChangePayload(
+      policy,
+      latestConsentByType.get(policy.type) ?? null,
+    ));
 
   return {
     configured: true,
-    required: pendingTypes.length > 0,
+    required: pendingPolicies.length > 0,
     policies,
-    pendingTypes,
+    pendingTypes: pendingPolicies.map((policy) => policy.type),
+    consentMode,
+    policyChanges,
   };
 }
 
@@ -378,13 +592,13 @@ export async function recordUserPolicyConsent(
     for (const policy of activePolicies) {
       await tx.userPolicyConsent.upsert({
         where: {
-          userId_policyType: {
+          userId_policyType_policyVersion: {
             userId,
             policyType: policy.type,
+            policyVersion: policy.version,
           },
         },
         update: {
-          policyVersion: policy.version,
           consentedAt: now,
           consentIp,
         },
@@ -400,81 +614,144 @@ export async function recordUserPolicyConsent(
   });
 }
 
-export async function upsertPoliciesByAdmin(
+export async function publishPoliciesByAdmin(
   actorUserId: string,
-  input: Array<{
-    type: PolicyDocumentType;
-    content: string;
-    isActive: boolean;
-  }>,
-): Promise<PolicyDocumentPayload[]> {
-  const dedup = new Map<PolicyDocumentType, { content: string; isActive: boolean }>();
-  for (const row of input) {
-    dedup.set(row.type, { content: row.content.trim(), isActive: row.isActive });
-  }
+  input: PolicyPublishInput,
+): Promise<PolicyPublishResult> {
+  const publishedChanges = await prisma.$transaction(async (tx) => {
+    const currentProfile = mapProfileRow(await getPolicyProfileRow(tx));
+    const nextProfileCore = mergeProfileInput(currentProfile, input.profile);
 
-  await prisma.$transaction(async (tx) => {
-    for (const type of REQUIRED_POLICY_TYPES) {
-      const next = dedup.get(type);
-      if (!next) continue;
+    await tx.policyProfile.upsert({
+      where: { id: POLICY_PROFILE_ID },
+      create: {
+        id: POLICY_PROFILE_ID,
+        ...nextProfileCore,
+        updatedByUserId: actorUserId,
+      },
+      update: {
+        ...nextProfileCore,
+        updatedByUserId: actorUserId,
+      },
+    });
 
-      const existing = await tx.policyDocument.findUnique({
-        where: { type },
-        select: {
-          id: true,
-          version: true,
-          content: true,
+    const nextProfile: PolicyProfilePayload = {
+      ...nextProfileCore,
+      createdAt: currentProfile.createdAt,
+      updatedAt: currentProfile.updatedAt,
+    };
+
+    const existingRows = await listPolicyRows(tx);
+    const latestByType = groupLatestByType(existingRows);
+    const inputByType = new Map(
+      (input.policies ?? []).map((policy) => [
+        policy.type,
+        {
+          content: policy.content.trim(),
+          isActive: policy.isActive,
         },
-      });
+      ]),
+    );
 
-      if (!existing) {
-        await tx.policyDocument.create({
+    const changes: PolicyChangePayload[] = [];
+
+    for (const type of REQUIRED_POLICY_TYPES) {
+      const currentRow = latestByType.get(type) ?? null;
+      const currentPayload = currentRow ? toPolicyPayload(currentRow) : null;
+      const nextTemplate = inputByType.get(type)?.content ?? currentRow?.templateContent ?? "";
+      const nextIsActive = inputByType.get(type)?.isActive ?? currentRow?.isActive ?? false;
+      const nextPublished = renderPolicyContent(nextTemplate, nextProfile);
+
+      if (!currentRow) {
+        if (!nextTemplate.trim()) continue;
+        const created = await tx.policyDocument.create({
           data: {
             type,
             version: 1,
-            content: next.content,
-            isActive: next.isActive,
+            templateContent: nextTemplate,
+            publishedContent: nextPublished,
+            isActive: nextIsActive,
             updatedByUserId: actorUserId,
           },
+          select: policyDocumentSelect,
         });
+        changes.push(toPolicyChangePayload(toPolicyPayload(created), null));
         continue;
       }
 
-      const contentChanged = existing.content !== next.content;
-      const nextVersion = contentChanged ? existing.version + 1 : existing.version;
-      await tx.policyDocument.update({
-        where: { id: existing.id },
-        data: {
-          version: nextVersion,
-          content: next.content,
-          isActive: next.isActive,
-          updatedByUserId: actorUserId,
-        },
-      });
+      const contentChanged =
+        currentRow.templateContent !== nextTemplate
+        || currentRow.publishedContent !== nextPublished;
+
+      if (contentChanged) {
+        await tx.policyDocument.updateMany({
+          where: {
+            type,
+            isActive: true,
+          },
+          data: {
+            isActive: false,
+          },
+        });
+
+        const created = await tx.policyDocument.create({
+          data: {
+            type,
+            version: currentRow.version + 1,
+            templateContent: nextTemplate,
+            publishedContent: nextPublished,
+            isActive: nextIsActive,
+            updatedByUserId: actorUserId,
+          },
+          select: policyDocumentSelect,
+        });
+
+        changes.push(
+          toPolicyChangePayload(
+            toPolicyPayload(created),
+            currentPayload?.version ?? null,
+          ),
+        );
+        continue;
+      }
+
+      if (currentRow.isActive !== nextIsActive) {
+        if (nextIsActive) {
+          await tx.policyDocument.updateMany({
+            where: {
+              type,
+              isActive: true,
+            },
+            data: {
+              isActive: false,
+            },
+          });
+        }
+
+        await tx.policyDocument.update({
+          where: { id: currentRow.id },
+          data: {
+            isActive: nextIsActive,
+            updatedByUserId: actorUserId,
+          },
+        });
+      }
     }
+
+    return changes;
   });
 
-  return listPoliciesForAdmin();
-}
+  const [policies, history, profile] = await Promise.all([
+    listPoliciesForAdmin(),
+    listPolicyHistoryForAdmin(),
+    getPolicyProfileForAdmin(),
+  ]);
 
-export async function upsertPolicyProfileByAdmin(
-  actorUserId: string,
-  input: PolicyProfileInput,
-): Promise<PolicyProfilePayload> {
-  const next = sanitizeProfileInput(input);
-
-  await prisma.policyProfile.upsert({
-    where: { id: POLICY_PROFILE_ID },
-    create: {
-      id: POLICY_PROFILE_ID,
-      ...next,
-      updatedByUserId: actorUserId,
-    },
-    update: {
-      ...next,
-      updatedByUserId: actorUserId,
-    },
-  });
-
-  return getPolicyProfileForAdmin();
+  return {
+    updated: Boolean(input.policies?.length || input.profile),
+    policies,
+    history,
+    profile,
+    publishedChanges,
+  };
 }

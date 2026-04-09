@@ -2714,7 +2714,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <div className="table-wrap">
               <table>
                 <tbody>
-                  <tr><th>현재 서비스</th><td>{account ? (account.provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "CU12") : "-"}</td></tr>
                   <tr><th>통합 포털 ID</th><td>{account?.cu12Id ?? "-"}</td></tr>
                   <tr><th>CU12 교정 설정</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
@@ -2730,7 +2729,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </div>
             {mailDraft ? (
               <form onSubmit={saveMail} className="form-stack top-gap">
-                <label className="field">
+                <label className="field" style={{ display: "none" }}>
                   <span>현재 서비스</span>
                   <select
                     value={currentProviderDraft}
@@ -2741,7 +2740,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     <option value="CYBER_CAMPUS">사이버캠퍼스</option>
                   </select>
                 </label>
-                <p className="muted text-small">
+                <p className="muted text-small" style={{ display: "none" }}>
                   통합 포털 계정은 하나로 유지되며, 이 설정은 대시보드와 동기화가 우선 표시할 현재 서비스만 바꿉니다.
                 </p>
                 <label className="check-field">
@@ -2754,7 +2753,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <span>자동 수강 중 퀴즈 자동 풀이 사용</span>
                 </label>
                 <p className="muted text-small">
-                  퀴즈 자동 풀이를 끄면 자동 수강은 영상과 자료만 처리하고 퀴즈는 남겨 둡니다. 작업 환경에 `OPENAI_API_KEY`가 없을 때도 퀴즈는 자동으로 건너뜁니다.
+                  AI를 사용해 자동 수강 시 퀴즈 답안을 자동 제출합니다. 완벽한 답이 아닐 수 있으니 주의해 사용해 주세요.
                 </p>
                 <label className="field"><span>수신 이메일</span><input type="email" value={mailDraft.email} onChange={(event) => setMailDraft({ ...mailDraft, email: event.target.value })} required /></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>메일 알림 사용</span></label>

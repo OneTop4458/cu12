@@ -221,15 +221,18 @@ model SiteNotice {
 
 model PolicyDocument {
   id               String             @id @default(cuid())
-  type             PolicyDocumentType @unique
-  version          Int                @default(1)
-  content          String
+  type             PolicyDocumentType
+  version          Int
+  templateContent  String
+  publishedContent String
   isActive         Boolean            @default(true)
   updatedByUserId  String?
   updatedByUser    User?              @relation("PolicyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
+  @@unique([type, version])
+  @@index([type, isActive, version(sort: Desc)])
   @@index([isActive, updatedAt])
 }
 
@@ -260,7 +263,8 @@ model UserPolicyConsent {
   consentIp      String?
   user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, policyType])
+  @@unique([userId, policyType, policyVersion])
+  @@index([userId, policyType, policyVersion(sort: Desc)])
   @@index([policyType, policyVersion])
   @@index([consentedAt])
 }

@@ -448,7 +448,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [requiredTypes, policies, profile]
+                required: [requiredTypes, policies, history, profile]
                 properties:
                   requiredTypes:
                     type: array
@@ -458,6 +458,10 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/PolicyDocument"
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyHistoryGroup"
                   profile:
                     $ref: "#/components/schemas/PolicyProfile"
         "403":
@@ -499,7 +503,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [updated, requiredTypes, policies, profile]
+                required: [updated, requiredTypes, policies, history, profile, publishedChanges, mailQueue]
                 properties:
                   updated:
                     type: boolean
@@ -511,8 +515,18 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/PolicyDocument"
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyHistoryGroup"
                   profile:
                     $ref: "#/components/schemas/PolicyProfile"
+                  publishedChanges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PolicyChange"
+                  mailQueue:
+                    $ref: "#/components/schemas/PolicyMailQueueSummary"
         "400":
           description: Validation error
           content:
@@ -2332,6 +2346,16 @@ paths:
           schema:
             type: string
         - in: query
+          name: targetQuery
+          schema:
+            type: string
+          description: Portal ID, internal user ID, or partial display name
+        - in: query
+          name: actorQuery
+          schema:
+            type: string
+          description: Portal ID, internal user ID, or partial display name
+        - in: query
           name: from
           schema:
             type: string
@@ -2575,13 +2599,19 @@ components:
 
     LoginConsentRequired:
       type: object
-      required: [stage, consentToken, policies, user, firstLogin, session]
+      required: [stage, consentToken, consentMode, policyChanges, policies, user, firstLogin, session]
       properties:
         stage:
           type: string
           enum: [CONSENT_REQUIRED]
         consentToken:
           type: string
+        consentMode:
+          $ref: "#/components/schemas/PolicyConsentMode"
+        policyChanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyChange"
         policies:
           type: array
           items:
@@ -2603,8 +2633,10 @@ components:
 
     PolicyDocument:
       type: object
-      required: [type, title, version, content, isActive, createdAt, updatedAt]
+      required: [id, type, title, version, content, templateContent, publishedContent, isActive, createdAt, updatedAt]
       properties:
+        id:
+          type: string
         type:
           $ref: "#/components/schemas/PolicyDocumentType"
         title:
@@ -2614,6 +2646,10 @@ components:
           minimum: 1
         content:
           type: string
+        templateContent:
+          type: string
+        publishedContent:
+          type: string
         isActive:
           type: boolean
         createdAt:
@@ -2622,6 +2658,67 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    PolicyConsentMode:
+      type: string
+      enum: [INITIAL_REQUIRED, UPDATED_REQUIRED]
+
+    PolicyChange:
+      type: object
+      required: [type, title, currentVersion, currentPath]
+      properties:
+        type:
+          $ref: "#/components/schemas/PolicyDocumentType"
+        title:
+          type: string
+        currentVersion:
+          type: integer
+          minimum: 1
+        previousVersion:
+          type: integer
+          minimum: 1
+          nullable: true
+        currentPath:
+          type: string
+        previousPath:
+          type: string
+          nullable: true
+        diffPath:
+          type: string
+          nullable: true
+
+    PolicyHistoryGroup:
+      type: object
+      required: [type, title, documents]
+      properties:
+        type:
+          $ref: "#/components/schemas/PolicyDocumentType"
+        title:
+          type: string
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyDocument"
+
+    PolicyMailQueueSummary:
+      type: object
+      required: [queued, skipped, dispatch]
+      properties:
+        queued:
+          type: integer
+        skipped:
+          type: integer
+        dispatch:
+          type: object
+          required: [state, dispatched, errorCode]
+          properties:
+            state:
+              type: string
+            dispatched:
+              type: boolean
+            errorCode:
+              type: string
+              nullable: true
 
     PolicyProfileInput:
       type: object

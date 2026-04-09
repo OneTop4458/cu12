@@ -29,11 +29,13 @@
 - Supports active flag, visibility window, priority, and creator traceability.
 
 6. `PolicyDocument` and `PolicyProfile`
-- Stores required policy content/version and profile metadata shown in consent flow.
+- `PolicyDocument` is append-only by `(type, version)` and stores both admin template text and immutable published snapshot text.
+- Only one latest active version per policy type is used for public pages and consent checks.
+- `PolicyProfile` still stores placeholder variables, and profile changes can publish a new policy snapshot version when rendered output changes.
 - Supports admin update traceability via `updatedByUserId`.
 
 7. `UserPolicyConsent`
-- Immutable per-user consent version record for required policy types.
+- Immutable per-user consent version history keyed by `(userId, policyType, policyVersion)`.
 - Tracks consent time and source IP.
 - Consent rows for withdrawn users are retained for policy/audit purposes and deleted by retention cleanup after 3 years from `User.withdrawnAt`.
 
@@ -55,6 +57,7 @@
 
 11. `MailDelivery`
 - Immutable log of send attempts (`SENT`, `FAILED`, `SKIPPED`) for audit and troubleshooting.
+- Includes mandatory legal-notice deliveries triggered by policy version publication.
 
 12. `WorkerHeartbeat`
 - Tracks worker liveness for operational visibility.

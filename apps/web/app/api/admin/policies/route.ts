@@ -7,11 +7,12 @@ import { writeAuditLog } from "@/server/audit-log";
 import {
   PUBLIC_ACTIVE_POLICIES_TAG,
   getPolicyProfileForAdmin,
+  listPolicyHistoryForAdmin,
   listPoliciesForAdmin,
+  publishPoliciesByAdmin,
   REQUIRED_POLICY_TYPES,
-  upsertPoliciesByAdmin,
-  upsertPolicyProfileByAdmin,
 } from "@/server/policy";
+import { queuePolicyUpdateMailJobs } from "@/server/policy-update-mail";
 
 const PolicyProfileSchema = z.object({
   companyName: z.string().trim().max(200).optional().nullable(),
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
     return jsonOk({
       requiredTypes: REQUIRED_POLICY_TYPES,
       policies,
+      history: await listPolicyHistoryForAdmin(),
       profile,
     });
   } catch {
@@ -66,21 +68,18 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await parseBody(request, UpsertPolicySchema);
-
-    const policies = body.policies
-      ? await upsertPoliciesByAdmin(
-        context.actor.userId,
-        body.policies.map((row) => ({
-          type: row.type,
-          content: row.content,
-          isActive: row.isActive ?? true,
-        })),
-      )
-      : await listPoliciesForAdmin();
-
-    const profile = body.profile
-      ? await upsertPolicyProfileByAdmin(context.actor.userId, body.profile)
-      : await getPolicyProfileForAdmin();
+    const publishResult = await publishPoliciesByAdmin(context.actor.userId, {
+      policies: body.policies?.map((row) => ({
+        type: row.type,
+        content: row.content,
+        isActive: row.isActive ?? true,
+      })),
+      profile: body.profile,
+    });
+    const activePublishedChanges = publishResult.publishedChanges.filter((change) =>
+      publishResult.policies.find((policy) => policy.type === change.type)?.isActive === true,
+    );
+    const mailQueue = await queuePolicyUpdateMailJobs(activePublishedChanges);
 
     await writeAuditLog({
       category: "ADMIN",
@@ -90,16 +89,22 @@ export async function PUT(request: NextRequest) {
       meta: {
         policyTypes: body.policies?.map((row) => row.type) ?? [],
         profileUpdated: Boolean(body.profile),
+        publishedChanges: activePublishedChanges,
+        queuedPolicyUpdateMails: mailQueue.queued,
+        skippedPolicyUpdateMails: mailQueue.skipped,
       },
     });
 
     revalidateTag(PUBLIC_ACTIVE_POLICIES_TAG, "max");
 
     return jsonOk({
-      updated: true,
+      updated: publishResult.updated,
       requiredTypes: REQUIRED_POLICY_TYPES,
-      policies,
-      profile,
+      policies: publishResult.policies,
+      history: publishResult.history,
+      profile: publishResult.profile,
+      publishedChanges: activePublishedChanges,
+      mailQueue,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

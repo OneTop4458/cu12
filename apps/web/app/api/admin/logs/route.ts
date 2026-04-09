@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
   const category = parseCategory(url.searchParams.get("category"));
   const severity = parseSeverity(url.searchParams.get("severity"));
   const actorUserId = url.searchParams.get("actorUserId") ?? undefined;
+  const actorUserQuery = url.searchParams.get("actorQuery") ?? undefined;
   const createdAfter = parseDate(url.searchParams.get("from"));
   const createdBefore = parseDate(url.searchParams.get("to"));
   if (url.searchParams.get("from") && !createdAfter) {
@@ -57,6 +58,8 @@ export async function GET(request: NextRequest) {
     severity,
     targetUserId: url.searchParams.get("targetUserId") ?? undefined,
     actorUserId,
+    targetUserQuery: url.searchParams.get("targetQuery") ?? undefined,
+    actorUserQuery,
     createdAfter,
     createdBefore,
   };

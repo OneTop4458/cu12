@@ -340,8 +340,8 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     });
     if (filters.category) query.set("category", filters.category);
     if (filters.severity) query.set("severity", filters.severity);
-    if (filters.targetUserId) query.set("targetUserId", filters.targetUserId);
-    if (filters.actorUserId) query.set("actorUserId", filters.actorUserId);
+    if (filters.targetUserId) query.set("targetQuery", filters.targetUserId);
+    if (filters.actorUserId) query.set("actorQuery", filters.actorUserId);
     const from = formatFilterDate(filters.from);
     if (from) query.set("from", from);
     const to = formatFilterDate(filters.to);
@@ -1238,19 +1238,19 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             </select>
           </label>
           <label className="field">
-            <span>행위자 사용자 ID</span>
+            <span>행위자 포털 ID / 내부 ID</span>
             <input
               value={logFilterDraft.actorUserId}
               onChange={(event) => updateLogFilterDraft("actorUserId", event.target.value)}
-              placeholder="UUID"
+              placeholder="예: byungjun4458 또는 사용자 ID"
             />
           </label>
           <label className="field">
-            <span>대상 사용자 ID</span>
+            <span>대상 포털 ID / 내부 ID</span>
             <input
               value={logFilterDraft.targetUserId}
               onChange={(event) => updateLogFilterDraft("targetUserId", event.target.value)}
-              placeholder="UUID"
+              placeholder="예: byungjun4458 또는 사용자 ID"
             />
           </label>
           <label className="field">

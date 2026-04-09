@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  getConsentModalCopy,
   toConsentErrorMessage,
   toInviteErrorMessage,
   toLoginErrorMessage,
@@ -51,4 +52,11 @@ test("toConsentErrorMessage uses the internal error payload", () => {
     }),
     "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   );
+});
+
+test("getConsentModalCopy returns update copy for renewed consent", () => {
+  assert.deepEqual(getConsentModalCopy("UPDATED_REQUIRED"), {
+    title: "\uC57D\uAD00 \uC5C5\uB370\uC774\uD2B8 \uC7AC\uB3D9\uC758",
+    intro: "\uAC1C\uC778\uC815\uBCF4 \uCC98\uB9AC \uBC29\uCE68 \uB610\uB294 \uC774\uC6A9\uC57D\uAD00\uC774 \uC5C5\uB370\uC774\uD2B8\uB418\uC5B4 \uCD5C\uC2E0 \uBC84\uC804\uC5D0 \uB2E4\uC2DC \uB3D9\uC758\uD574\uC57C \uD569\uB2C8\uB2E4.",
+  });
 });
