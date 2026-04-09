@@ -93,6 +93,27 @@ function isMissingQuizAutoSolveEnabledColumnError(error: unknown): boolean {
   return false;
 }
 
+function isMissingCu12AccountStateColumnError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2022") {
+    const column = String(error.meta?.column ?? "");
+    return column.includes("accountStatus")
+      || column.includes("statusReason")
+      || error.message.includes("accountStatus")
+      || error.message.includes("statusReason");
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return error.message.includes("accountStatus") || error.message.includes("statusReason");
+  }
+
+  if (error instanceof Error) {
+    return (error.message.includes("accountStatus") || error.message.includes("statusReason"))
+      && /(column|does not exist|Unknown column)/i.test(error.message);
+  }
+
+  return false;
+}
+
 function withQuizDefault<T extends { quizAutoSolveEnabled?: boolean }>(record: Omit<T, "quizAutoSolveEnabled">): T {
   return {
     ...record,
@@ -253,20 +274,26 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
       primeCachedCurrentProvider(userId, updated.provider as PortalProvider);
       return updated;
     } catch (error) {
-      if (!isMissingProviderColumnError(error)) {
+      const missingProvider = isMissingProviderColumnError(error);
+      const missingState = isMissingCu12AccountStateColumnError(error);
+      if (!missingProvider && !missingState) {
         throw error;
       }
 
-      warnMissingProviderColumn();
+      if (missingProvider) {
+        warnMissingProviderColumn();
+      }
       const legacy = await prisma.cu12Account.update({
         where: { userId },
         data: {
           cu12Id: input.cu12Id,
           encryptedPassword: encryptSecret(input.cu12Password),
           campus,
-          accountStatus: "CONNECTED",
-          statusReason: null,
-          updatedAt: new Date(),
+          ...(missingState ? {} : {
+            accountStatus: "CONNECTED",
+            statusReason: null,
+            updatedAt: new Date(),
+          }),
         },
         select: {
           cu12Id: true,
@@ -297,18 +324,22 @@ export async function upsertCu12Account(userId: string, input: Cu12AccountInput)
     primeCachedCurrentProvider(userId, created.provider as PortalProvider);
     return created;
   } catch (error) {
-    if (!isMissingProviderColumnError(error)) {
+    const missingProvider = isMissingProviderColumnError(error);
+    const missingState = isMissingCu12AccountStateColumnError(error);
+    if (!missingProvider && !missingState) {
       throw error;
     }
 
-    warnMissingProviderColumn();
+    if (missingProvider) {
+      warnMissingProviderColumn();
+    }
     const legacy = await prisma.cu12Account.create({
       data: {
         userId,
         cu12Id: input.cu12Id,
         encryptedPassword: encryptSecret(input.cu12Password),
         campus,
-        accountStatus: "CONNECTED",
+        ...(missingState ? {} : { accountStatus: "CONNECTED" }),
       },
       select: {
         cu12Id: true,
