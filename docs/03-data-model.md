@@ -33,11 +33,13 @@
 - Only one latest active version per policy type is used for public pages and consent checks.
 - `PolicyProfile` still stores placeholder variables, and profile changes can publish a new policy snapshot version when rendered output changes.
 - Supports admin update traceability via `updatedByUserId`.
+- Production rollout must preflight duplicate `(type, version)` groups before enforcing the unique key during schema sync.
 
 7. `UserPolicyConsent`
 - Immutable per-user consent version history keyed by `(userId, policyType, policyVersion)`.
 - Tracks consent time and source IP.
 - Consent rows for withdrawn users are retained for policy/audit purposes and deleted by retention cleanup after 3 years from `User.withdrawnAt`.
+- Production rollout must preflight duplicate `(userId, policyType, policyVersion)` groups before enforcing the unique key during schema sync.
 
 8. `AuthRateLimit`
 - Persistent throttle buckets for login/invite failure windows and temporary blocks.

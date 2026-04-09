@@ -66,8 +66,12 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
+      - name: Ensure auth/policy unique constraints are safe to apply
+        run: node scripts/db-ensure-auth-policy-constraints.mjs
       - name: Push Prisma schema (non-destructive by default)
         run: pnpm exec prisma db push --schema prisma/schema.prisma
+      - name: Backfill auth/policy columns after schema sync
+        run: node scripts/db-backfill-auth-policy-columns.mjs
 
   deploy:
     needs: db-sync

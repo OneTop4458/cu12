@@ -114,6 +114,16 @@ function isMissingCu12AccountStateColumnError(error: unknown): boolean {
   return false;
 }
 
+let warnedMissingCu12AccountState = false;
+
+function warnMissingCu12AccountStateColumns() {
+  if (warnedMissingCu12AccountState) return;
+  warnedMissingCu12AccountState = true;
+  console.warn(
+    "[portal] DB account state columns are missing. Falling back to legacy connected-account defaults. Run prisma db push.",
+  );
+}
+
 function withQuizDefault<T extends { quizAutoSolveEnabled?: boolean }>(record: Omit<T, "quizAutoSolveEnabled">): T {
   return {
     ...record,
@@ -121,50 +131,78 @@ function withQuizDefault<T extends { quizAutoSolveEnabled?: boolean }>(record: O
   } as T;
 }
 
+function withAccountStateDefaults<T extends { accountStatus?: "CONNECTED" | "NEEDS_REAUTH" | "ERROR"; statusReason?: string | null }>(
+  record: Omit<T, "accountStatus" | "statusReason">,
+): T {
+  return {
+    ...record,
+    accountStatus: "CONNECTED",
+    statusReason: null,
+  } as T;
+}
+
+type Cu12AutomationSettingsFallbackRecord =
+  Omit<Cu12AutomationSettingsRecord, "provider" | "quizAutoSolveEnabled" | "accountStatus" | "statusReason">
+  & Partial<Pick<Cu12AutomationSettingsRecord, "provider" | "quizAutoSolveEnabled" | "accountStatus" | "statusReason">>;
+
 function toAutomationSettingsRecord(
-  fallback: Omit<Cu12AutomationSettingsRecord, "provider" | "quizAutoSolveEnabled">
-    | Omit<Cu12AutomationSettingsRecord, "provider">
-    | Omit<Cu12AutomationSettingsRecord, "quizAutoSolveEnabled">
-    | Cu12AutomationSettingsRecord,
+  fallback: Cu12AutomationSettingsFallbackRecord,
   options: {
     missingProvider: boolean;
     missingQuiz: boolean;
+    missingState: boolean;
   },
 ): Cu12AutomationSettingsRecord {
   const withProvider = options.missingProvider
-    ? withDefaultProvider<Omit<Cu12AutomationSettingsRecord, "quizAutoSolveEnabled"> & { quizAutoSolveEnabled?: boolean }>(
-      fallback as Omit<Cu12AutomationSettingsRecord, "provider">,
-    )
-    : fallback as Cu12AutomationSettingsRecord;
+    ? {
+      ...fallback,
+      provider: "CU12" as const,
+    }
+    : fallback;
 
-  return options.missingQuiz
-    ? withQuizDefault<Cu12AutomationSettingsRecord>(
-      withProvider as Omit<Cu12AutomationSettingsRecord, "quizAutoSolveEnabled">,
+  const withQuiz = options.missingQuiz
+    ? withQuizDefault<Cu12AutomationSettingsFallbackRecord>(
+      withProvider as Omit<Cu12AutomationSettingsFallbackRecord, "quizAutoSolveEnabled">,
     )
-    : withProvider as Cu12AutomationSettingsRecord;
+    : withProvider;
+
+  return options.missingState
+    ? withAccountStateDefaults<Cu12AutomationSettingsRecord>(
+      withQuiz as Omit<Cu12AutomationSettingsRecord, "accountStatus" | "statusReason">,
+    )
+    : withQuiz as Cu12AutomationSettingsRecord;
 }
 
+type Cu12DashboardAccountFallbackRecord =
+  Omit<Cu12DashboardAccountRecord, "provider" | "quizAutoSolveEnabled" | "accountStatus" | "statusReason">
+  & Partial<Pick<Cu12DashboardAccountRecord, "provider" | "quizAutoSolveEnabled" | "accountStatus" | "statusReason">>;
+
 function toDashboardAccountRecord(
-  fallback: Omit<Cu12DashboardAccountRecord, "provider" | "quizAutoSolveEnabled">
-    | Omit<Cu12DashboardAccountRecord, "provider">
-    | Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled">
-    | Cu12DashboardAccountRecord,
+  fallback: Cu12DashboardAccountFallbackRecord,
   options: {
     missingProvider: boolean;
     missingQuiz: boolean;
+    missingState: boolean;
   },
 ): Cu12DashboardAccountRecord {
   const withProvider = options.missingProvider
-    ? withDefaultProvider<Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled"> & { quizAutoSolveEnabled?: boolean }>(
-      fallback as Omit<Cu12DashboardAccountRecord, "provider">,
-    )
-    : fallback as Cu12DashboardAccountRecord;
+    ? {
+      ...fallback,
+      provider: "CU12" as const,
+    }
+    : fallback;
 
-  return options.missingQuiz
-    ? withQuizDefault<Cu12DashboardAccountRecord>(
-      withProvider as Omit<Cu12DashboardAccountRecord, "quizAutoSolveEnabled">,
+  const withQuiz = options.missingQuiz
+    ? withQuizDefault<Cu12DashboardAccountFallbackRecord>(
+      withProvider as Omit<Cu12DashboardAccountFallbackRecord, "quizAutoSolveEnabled">,
     )
-    : withProvider as Cu12DashboardAccountRecord;
+    : withProvider;
+
+  return options.missingState
+    ? withAccountStateDefaults<Cu12DashboardAccountRecord>(
+      withQuiz as Omit<Cu12DashboardAccountRecord, "accountStatus" | "statusReason">,
+    )
+    : withQuiz as Cu12DashboardAccountRecord;
 }
 
 export async function getAccountProviderByCu12Id(cu12Id: string): Promise<Cu12AccountProviderRecord | null> {
@@ -419,12 +457,16 @@ export async function getAutomationSettingsAccount(userId: string): Promise<Cu12
   } catch (error) {
     const missingProvider = isMissingProviderColumnError(error);
     const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
-    if (!missingProvider && !missingQuiz) {
+    const missingState = isMissingCu12AccountStateColumnError(error);
+    if (!missingProvider && !missingQuiz && !missingState) {
       throw error;
     }
 
     if (missingProvider) {
       warnMissingProviderColumn();
+    }
+    if (missingState) {
+      warnMissingCu12AccountStateColumns();
     }
 
     const fallback = await prisma.cu12Account.findUnique({
@@ -433,8 +475,7 @@ export async function getAutomationSettingsAccount(userId: string): Promise<Cu12
         ...(missingProvider ? {} : { provider: true }),
         cu12Id: true,
         campus: true,
-        accountStatus: true,
-        statusReason: true,
+        ...(missingState ? {} : { accountStatus: true, statusReason: true }),
         autoLearnEnabled: true,
         ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
         detectActivitiesEnabled: true,
@@ -444,7 +485,7 @@ export async function getAutomationSettingsAccount(userId: string): Promise<Cu12
     });
     if (!fallback) return null;
 
-    return toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz });
+    return toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz, missingState });
   }
 }
 
@@ -457,12 +498,16 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
   } catch (error) {
     const missingProvider = isMissingProviderColumnError(error);
     const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
-    if (!missingProvider && !missingQuiz) {
+    const missingState = isMissingCu12AccountStateColumnError(error);
+    if (!missingProvider && !missingQuiz && !missingState) {
       throw error;
     }
 
     if (missingProvider) {
       warnMissingProviderColumn();
+    }
+    if (missingState) {
+      warnMissingCu12AccountStateColumns();
     }
 
     const fallback = await prisma.cu12Account.findUnique({
@@ -471,8 +516,7 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
         ...(missingProvider ? {} : { provider: true }),
         cu12Id: true,
         campus: true,
-        accountStatus: true,
-        statusReason: true,
+        ...(missingState ? {} : { accountStatus: true, statusReason: true }),
         autoLearnEnabled: true,
         ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
         user: {
@@ -485,7 +529,7 @@ export async function getDashboardAccount(userId: string): Promise<Cu12Dashboard
     });
     if (!fallback) return null;
 
-    return toDashboardAccountRecord(fallback, { missingProvider, missingQuiz });
+    return toDashboardAccountRecord(fallback, { missingProvider, missingQuiz, missingState });
   }
 }
 
@@ -532,12 +576,16 @@ export async function updateAutomationSettings(userId: string, input: Automation
   } catch (error) {
     const missingProvider = isMissingProviderColumnError(error);
     const missingQuiz = isMissingQuizAutoSolveEnabledColumnError(error);
-    if (!missingProvider && !missingQuiz) {
+    const missingState = isMissingCu12AccountStateColumnError(error);
+    if (!missingProvider && !missingQuiz && !missingState) {
       throw error;
     }
 
     if (missingProvider) {
       warnMissingProviderColumn();
+    }
+    if (missingState) {
+      warnMissingCu12AccountStateColumns();
     }
 
     const fallback = await prisma.cu12Account.update({
@@ -553,8 +601,7 @@ export async function updateAutomationSettings(userId: string, input: Automation
         ...(missingProvider ? {} : { provider: true }),
         cu12Id: true,
         campus: true,
-        accountStatus: true,
-        statusReason: true,
+        ...(missingState ? {} : { accountStatus: true, statusReason: true }),
         autoLearnEnabled: true,
         ...(missingQuiz ? {} : { quizAutoSolveEnabled: true }),
         detectActivitiesEnabled: true,
@@ -562,7 +609,7 @@ export async function updateAutomationSettings(userId: string, input: Automation
         updatedAt: true,
       },
     });
-    const next = toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz });
+    const next = toAutomationSettingsRecord(fallback, { missingProvider, missingQuiz, missingState });
     primeCachedCurrentProvider(userId, next.provider as PortalProvider);
     return next;
   }
@@ -581,14 +628,30 @@ export async function setCurrentPortalProvider(userId: string, provider: PortalP
 }
 
 export async function markCu12Status(userId: string, accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR", reason?: string) {
-  const updated = await prisma.cu12Account.update({
-    where: { userId },
-    data: {
-      accountStatus,
-      statusReason: reason ?? null,
-      updatedAt: new Date(),
-    },
-  });
-  invalidateCachedAuthState(userId);
-  return updated;
+  try {
+    const updated = await prisma.cu12Account.update({
+      where: { userId },
+      data: {
+        accountStatus,
+        statusReason: reason ?? null,
+        updatedAt: new Date(),
+      },
+    });
+    invalidateCachedAuthState(userId);
+    return updated;
+  } catch (error) {
+    if (!isMissingCu12AccountStateColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingCu12AccountStateColumns();
+    const updated = await prisma.cu12Account.update({
+      where: { userId },
+      data: {
+        updatedAt: new Date(),
+      },
+    });
+    invalidateCachedAuthState(userId);
+    return updated;
+  }
 }
