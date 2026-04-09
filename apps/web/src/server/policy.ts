@@ -171,6 +171,7 @@ const policyProfileSelect = Prisma.validator<Prisma.PolicyProfileSelect>()({
 
 let warnedLegacyPolicyDocumentSchema = false;
 let warnedLegacyPolicyConsentSchema = false;
+let warnedPolicyReadFallback = false;
 
 function getErrorColumn(meta: unknown): string {
   if (!meta || typeof meta !== "object") return "";
@@ -206,6 +207,15 @@ function warnLegacyPolicyDocumentSchema() {
   warnedLegacyPolicyDocumentSchema = true;
   console.warn(
     "[policy] DB policy snapshot columns are missing. Falling back to legacy single-document compatibility mode. Run prisma db push.",
+  );
+}
+
+function warnPolicyReadFallback(error: unknown) {
+  if (warnedPolicyReadFallback) return;
+  warnedPolicyReadFallback = true;
+  console.warn(
+    "[policy] Falling back to raw policy reads because ORM-based policy reads failed.",
+    error instanceof Error ? error.message : String(error),
   );
 }
 
@@ -414,10 +424,46 @@ function toPolicyChangePayload(
 }
 
 async function getPolicyProfileRow(client: PolicyClient = prisma) {
-  return client.policyProfile.findUnique({
-    where: { id: POLICY_PROFILE_ID },
-    select: policyProfileSelect,
-  });
+  try {
+    return await client.policyProfile.findUnique({
+      where: { id: POLICY_PROFILE_ID },
+      select: policyProfileSelect,
+    });
+  } catch (error) {
+    warnPolicyReadFallback(error);
+    const rows = await client.$queryRaw<Array<{
+      companyName: string | null;
+      supportEmail: string | null;
+      companyAddress: string | null;
+      dpoName: string | null;
+      dpoTitle: string | null;
+      dpoEmail: string | null;
+      dpoPhone: string | null;
+      jurisdictionCourt: string | null;
+      effectiveDate: string | null;
+      revisionDate: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>>(Prisma.sql`
+      SELECT
+        "companyName",
+        "supportEmail",
+        "companyAddress",
+        "dpoName",
+        "dpoTitle",
+        "dpoEmail",
+        "dpoPhone",
+        "jurisdictionCourt",
+        "effectiveDate",
+        "revisionDate",
+        "createdAt",
+        "updatedAt"
+      FROM "PolicyProfile"
+      WHERE "id" = ${POLICY_PROFILE_ID}
+      LIMIT 1
+    `);
+    return rows[0] ?? null;
+  }
 }
 
 async function listPolicyRows(client: PolicyClient = prisma) {
@@ -439,21 +485,32 @@ async function listPolicyRows(client: PolicyClient = prisma) {
       updatedAt: row.updatedAt,
     }));
   } catch (error) {
-    if (!isMissingPolicySnapshotColumnError(error)) {
-      throw error;
+    if (isMissingPolicySnapshotColumnError(error)) {
+      warnLegacyPolicyDocumentSchema();
+    } else {
+      warnPolicyReadFallback(error);
     }
-
-    warnLegacyPolicyDocumentSchema();
     const rows = await client.$queryRaw<Array<{
       id: string;
       type: PolicyDocumentType;
       version: number;
       content: string;
+      templateContent?: string | null;
+      publishedContent?: string | null;
       isActive: boolean;
       createdAt: Date;
       updatedAt: Date;
     }>>(Prisma.sql`
-      SELECT "id", "type", "version", "content", "isActive", "createdAt", "updatedAt"
+      SELECT
+        "id",
+        "type",
+        "version",
+        "content",
+        COALESCE("templateContent", "content") AS "templateContent",
+        COALESCE("publishedContent", "content", "templateContent") AS "publishedContent",
+        "isActive",
+        "createdAt",
+        "updatedAt"
       FROM "PolicyDocument"
       WHERE "type" IN (${Prisma.join(REQUIRED_POLICY_TYPES)})
       ORDER BY "type" ASC, "version" DESC
@@ -464,8 +521,8 @@ async function listPolicyRows(client: PolicyClient = prisma) {
       type: row.type,
       version: row.version,
       content: row.content,
-      templateContent: row.content,
-      publishedContent: row.content,
+      templateContent: row.templateContent ?? row.content,
+      publishedContent: row.publishedContent ?? row.content,
       isActive: row.isActive,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
