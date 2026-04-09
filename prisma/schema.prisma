@@ -223,8 +223,9 @@ model PolicyDocument {
   id               String             @id @default(cuid())
   type             PolicyDocumentType
   version          Int
-  templateContent  String
-  publishedContent String
+  content          String?
+  templateContent  String?
+  publishedContent String?
   isActive         Boolean            @default(true)
   updatedByUserId  String?
   updatedByUser    User?              @relation("PolicyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
