@@ -1,6 +1,8 @@
 import { PORTAL_PROVIDERS, type PortalProvider } from "@cu12/core";
 import { CourseStatus } from "@prisma/client";
+import { isMissingProviderColumnError, warnMissingProviderColumn } from "@/lib/provider-compat";
 import { prisma } from "@/lib/prisma";
+import { getCurrentPortalProvider } from "@/server/current-provider";
 
 interface ActivityTypeCounts {
   VOD: number;
@@ -33,6 +35,11 @@ interface LearningTaskRow {
   learnedSeconds: number;
   availableFrom: Date | null;
   dueAt: Date | null;
+}
+
+interface CourseNoticeCountGroup {
+  lectureSeq: number;
+  _count: { _all: number };
 }
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
@@ -131,6 +138,33 @@ function normalizeLearningTaskRow(row: LearningTaskRow): LearningTaskRow & { act
   };
 }
 
+async function isLegacyProviderMatch(userId: string, provider: PortalProvider): Promise<boolean> {
+  return (await getCurrentPortalProvider(userId)) === provider;
+}
+
+async function withProviderCompatibility<T>(
+  userId: string,
+  provider: PortalProvider,
+  loadScoped: () => Promise<T>,
+  loadLegacy: () => Promise<T>,
+  emptyValue: T,
+): Promise<T> {
+  try {
+    return await loadScoped();
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    if (!(await isLegacyProviderMatch(userId, provider))) {
+      return emptyValue;
+    }
+
+    return loadLegacy();
+  }
+}
+
 async function fetchLearningTasksRaw(input: {
   userId: string;
   provider: PortalProvider;
@@ -140,27 +174,26 @@ async function fetchLearningTasksRaw(input: {
   limit?: number;
   orderBy?: "dueAtAsc" | "lectureWeekLessonAsc";
 }): Promise<Array<LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState }>> {
-  const rows = await prisma.learningTask.findMany({
-    where: {
-      userId: input.userId,
-      provider: input.provider,
-      ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
-      ...(input.dueAtGte || input.dueAtLte
-        ? {
-          dueAt: {
-            ...(input.dueAtGte ? { gte: input.dueAtGte } : {}),
-            ...(input.dueAtLte ? { lte: input.dueAtLte } : {}),
-          },
-        }
-        : {}),
-    },
+  const sharedWhere = {
+    userId: input.userId,
+    ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+    ...(input.dueAtGte || input.dueAtLte
+      ? {
+        dueAt: {
+          ...(input.dueAtGte ? { gte: input.dueAtGte } : {}),
+          ...(input.dueAtLte ? { lte: input.dueAtLte } : {}),
+        },
+      }
+      : {}),
+  };
+  const sharedArgs = {
     orderBy: input.orderBy === "lectureWeekLessonAsc"
       ? [
-        { lectureSeq: "asc" },
-        { weekNo: "asc" },
-        { lessonNo: "asc" },
+        { lectureSeq: "asc" as const },
+        { weekNo: "asc" as const },
+        { lessonNo: "asc" as const },
       ]
-      : [{ dueAt: "asc" }],
+      : [{ dueAt: "asc" as const }],
     ...(typeof input.limit === "number" ? { take: Math.max(1, Math.floor(input.limit)) } : {}),
     select: {
       lectureSeq: true,
@@ -174,7 +207,23 @@ async function fetchLearningTasksRaw(input: {
       availableFrom: true,
       dueAt: true,
     },
-  });
+  };
+  const rows = await withProviderCompatibility(
+    input.userId,
+    input.provider,
+    () => prisma.learningTask.findMany({
+      where: {
+        ...sharedWhere,
+        provider: input.provider,
+      },
+      ...sharedArgs,
+    }),
+    () => prisma.learningTask.findMany({
+      where: sharedWhere,
+      ...sharedArgs,
+    }),
+    [] as Array<LearningTaskRow>,
+  );
 
   return rows.map((row) => normalizeLearningTaskRow({
     ...row,
@@ -184,9 +233,21 @@ async function fetchLearningTasksRaw(input: {
 }
 
 function mapNoticeCountsByLecture(
-  rows: Array<{ lectureSeq: number; _count: { _all: number } }>,
+  rows: CourseNoticeCountGroup[],
 ): Map<number, number> {
   return new Map(rows.map((row) => [row.lectureSeq, row._count._all]));
+}
+
+function groupCourseNoticesByLecture(where: {
+  userId: string;
+  provider?: PortalProvider;
+  isRead?: boolean;
+}): Promise<CourseNoticeCountGroup[]> {
+  return prisma.courseNotice.groupBy({
+    by: ["lectureSeq"],
+    where,
+    _count: { _all: true },
+  } as never) as Promise<CourseNoticeCountGroup[]>;
 }
 
 function normalizeCyberCampusCourseTitle(value: string | null | undefined): string {
@@ -198,17 +259,32 @@ function normalizeCyberCampusCourseTitle(value: string | null | undefined): stri
 }
 
 async function getStaleCyberCampusLectureSeqs(userId: string): Promise<Set<number>> {
-  const rows = await prisma.courseSnapshot.findMany({
-    where: {
-      userId,
-      provider: "CYBER_CAMPUS",
-    },
-    select: {
-      lectureSeq: true,
-      title: true,
-      externalLectureId: true,
-    },
-  });
+  const rows = await withProviderCompatibility(
+    userId,
+    "CYBER_CAMPUS",
+    () => prisma.courseSnapshot.findMany({
+      where: {
+        userId,
+        provider: "CYBER_CAMPUS",
+      },
+      select: {
+        lectureSeq: true,
+        title: true,
+        externalLectureId: true,
+      },
+    }),
+    () => prisma.courseSnapshot.findMany({
+      where: {
+        userId,
+      },
+      select: {
+        lectureSeq: true,
+        title: true,
+        externalLectureId: true,
+      },
+    }),
+    [] as Array<{ lectureSeq: number; title: string; externalLectureId: string | null }>,
+  );
 
   const rowsByTitle = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -297,11 +373,26 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
   const [activeCourses, unreadNoticeCount, syncJobs, user] = await Promise.all([
-    prisma.courseSnapshot.findMany({
-      where: { userId, provider, status: CourseStatus.ACTIVE },
-      select: { lectureSeq: true, progressPercent: true },
-    }),
-    prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, provider, status: CourseStatus.ACTIVE },
+        select: { lectureSeq: true, progressPercent: true },
+      }),
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, status: CourseStatus.ACTIVE },
+        select: { lectureSeq: true, progressPercent: true },
+      }),
+      [] as Array<{ lectureSeq: number; progressPercent: number }>,
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
+      () => prisma.courseNotice.count({ where: { userId, isRead: false } }),
+      0,
+    ),
     prisma.jobQueue.findMany({
       where: {
         userId,
@@ -354,25 +445,38 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
     : new Set<number>();
 
   const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
-    prisma.courseSnapshot.findMany({
-      where: { userId, provider },
-      orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
-    }),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, provider },
+        orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
+      }),
+      () => prisma.courseSnapshot.findMany({
+        where: { userId },
+        orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
+      }),
+      [] as Awaited<ReturnType<typeof prisma.courseSnapshot.findMany>>,
+    ),
     fetchLearningTasksRaw({
       userId,
       provider,
       orderBy: "lectureWeekLessonAsc",
     }),
-    prisma.courseNotice.groupBy({
-      by: ["lectureSeq"],
-      where: { userId, provider },
-      _count: { _all: true },
-    }),
-    prisma.courseNotice.groupBy({
-      by: ["lectureSeq"],
-      where: { userId, provider, isRead: false },
-      _count: { _all: true },
-    }),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => groupCourseNoticesByLecture({ userId, provider }),
+      () => groupCourseNoticesByLecture({ userId }),
+      [] as CourseNoticeCountGroup[],
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => groupCourseNoticesByLecture({ userId, provider, isRead: false }),
+      () => groupCourseNoticesByLecture({ userId, isRead: false }),
+      [] as CourseNoticeCountGroup[],
+    ),
   ]);
   const filteredCourses = filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs);
   const filteredTasks = filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs);
@@ -599,17 +703,32 @@ export async function getUpcomingDeadlines(userId: string, limit = 30, provider:
 
   const seqs = Array.from(new Set(tasks.map((task) => task.lectureSeq)));
   const courses = seqs.length > 0
-    ? await prisma.courseSnapshot.findMany({
-      where: {
-        userId,
-        provider,
-        lectureSeq: { in: seqs },
-      },
-      select: {
-        lectureSeq: true,
-        title: true,
-      },
-    })
+    ? await withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseSnapshot.findMany({
+        where: {
+          userId,
+          provider,
+          lectureSeq: { in: seqs },
+        },
+        select: {
+          lectureSeq: true,
+          title: true,
+        },
+      }),
+      () => prisma.courseSnapshot.findMany({
+        where: {
+          userId,
+          lectureSeq: { in: seqs },
+        },
+        select: {
+          lectureSeq: true,
+          title: true,
+        },
+      }),
+      [] as Array<{ lectureSeq: number; title: string }>,
+    )
     : [];
   const titleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
 
@@ -645,39 +764,93 @@ export async function getDashboardDiagnostics(
     : new Set<number>();
 
   const [courses, tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
-    prisma.courseSnapshot.findMany({
-      where: { userId, provider, ...lectureFilter },
-      select: {
-        lectureSeq: true,
-        title: true,
-      },
-      orderBy: { lectureSeq: "asc" },
-    }),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, provider, ...lectureFilter },
+        select: {
+          lectureSeq: true,
+          title: true,
+        },
+        orderBy: { lectureSeq: "asc" },
+      }),
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, ...lectureFilter },
+        select: {
+          lectureSeq: true,
+          title: true,
+        },
+        orderBy: { lectureSeq: "asc" },
+      }),
+      [] as Array<{ lectureSeq: number; title: string }>,
+    ),
     fetchLearningTasksRaw({
       userId,
       provider,
       lectureSeq: options?.lectureSeq,
       orderBy: "lectureWeekLessonAsc",
     }),
-    prisma.courseNotice.count({
-      where: { userId, provider, ...lectureFilter },
-    }),
-    prisma.courseNotice.count({
-      where: { userId, provider, ...lectureFilter, bodyText: "" },
-    }),
-    prisma.courseNotice.findMany({
-      where: { userId, provider, ...lectureFilter },
-      take: sampleLimit,
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        lectureSeq: true,
-        title: true,
-        postedAt: true,
-        bodyText: true,
-        updatedAt: true,
-      },
-    }),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseNotice.count({
+        where: { userId, provider, ...lectureFilter },
+      }),
+      () => prisma.courseNotice.count({
+        where: { userId, ...lectureFilter },
+      }),
+      0,
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseNotice.count({
+        where: { userId, provider, ...lectureFilter, bodyText: "" },
+      }),
+      () => prisma.courseNotice.count({
+        where: { userId, ...lectureFilter, bodyText: "" },
+      }),
+      0,
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseNotice.findMany({
+        where: { userId, provider, ...lectureFilter },
+        take: sampleLimit,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          lectureSeq: true,
+          title: true,
+          postedAt: true,
+          bodyText: true,
+          updatedAt: true,
+        },
+      }),
+      () => prisma.courseNotice.findMany({
+        where: { userId, ...lectureFilter },
+        take: sampleLimit,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          lectureSeq: true,
+          title: true,
+          postedAt: true,
+          bodyText: true,
+          updatedAt: true,
+        },
+      }),
+      [] as Array<{
+        id: string;
+        lectureSeq: number;
+        title: string;
+        postedAt: Date | null;
+        bodyText: string;
+        updatedAt: Date;
+      }>,
+    ),
     prisma.jobQueue.findMany({
       where: {
         userId,
@@ -886,10 +1059,19 @@ function dedupeNoticeRows(rows: CourseNoticeRow[]): CourseNoticeRow[] {
 }
 
 export async function getNotices(userId: string, lectureSeq: number, provider: PortalProvider = "CU12") {
-  const rows = await prisma.courseNotice.findMany({
-    where: { userId, provider, lectureSeq },
-    orderBy: [{ isRead: "asc" }, { postedAt: "desc" }],
-  });
+  const rows = await withProviderCompatibility(
+    userId,
+    provider,
+    () => prisma.courseNotice.findMany({
+      where: { userId, provider, lectureSeq },
+      orderBy: [{ isRead: "asc" }, { postedAt: "desc" }],
+    }),
+    () => prisma.courseNotice.findMany({
+      where: { userId, lectureSeq },
+      orderBy: [{ isRead: "asc" }, { postedAt: "desc" }],
+    }),
+    [] as CourseNoticeRow[],
+  );
   return dedupeNoticeRows(rows);
 }
 
@@ -905,24 +1087,46 @@ export async function getNotifications(
 ) {
   const historyOnly = options?.historyOnly ?? false;
 
-  return prisma.notificationEvent.findMany({
-    where: {
-      userId,
-      provider,
-      ...(!historyOnly && !(options?.includeArchived ?? false) ? { isArchived: false } : {}),
-      ...(options?.unreadOnly ? { isUnread: true } : {}),
-      ...(historyOnly
-        ? {
-          OR: [
-            { isUnread: false },
-            { isArchived: true },
-          ],
-        }
-        : {}),
-    },
-    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
-    take: options?.limit ?? 200,
-  });
+  return withProviderCompatibility(
+    userId,
+    provider,
+    () => prisma.notificationEvent.findMany({
+      where: {
+        userId,
+        provider,
+        ...(!historyOnly && !(options?.includeArchived ?? false) ? { isArchived: false } : {}),
+        ...(options?.unreadOnly ? { isUnread: true } : {}),
+        ...(historyOnly
+          ? {
+            OR: [
+              { isUnread: false },
+              { isArchived: true },
+            ],
+          }
+          : {}),
+      },
+      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      take: options?.limit ?? 200,
+    }),
+    () => prisma.notificationEvent.findMany({
+      where: {
+        userId,
+        ...(!historyOnly && !(options?.includeArchived ?? false) ? { isArchived: false } : {}),
+        ...(options?.unreadOnly ? { isUnread: true } : {}),
+        ...(historyOnly
+          ? {
+            OR: [
+              { isUnread: false },
+              { isArchived: true },
+            ],
+          }
+          : {}),
+      },
+      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      take: options?.limit ?? 200,
+    }),
+    [],
+  );
 }
 
 export async function getMessages(
@@ -930,9 +1134,19 @@ export async function getMessages(
   provider: PortalProvider = "CU12",
   limit = 50,
 ) {
-  return prisma.portalMessage.findMany({
-    where: { userId, provider },
-    orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
-    take: Math.min(Math.max(limit, 1), 100),
-  });
+  return withProviderCompatibility(
+    userId,
+    provider,
+    () => prisma.portalMessage.findMany({
+      where: { userId, provider },
+      orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+      take: Math.min(Math.max(limit, 1), 100),
+    }),
+    () => prisma.portalMessage.findMany({
+      where: { userId },
+      orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+      take: Math.min(Math.max(limit, 1), 100),
+    }),
+    [],
+  );
 }
