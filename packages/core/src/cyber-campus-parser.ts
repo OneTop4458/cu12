@@ -240,6 +240,82 @@ function buildCommunityNoticeKey(rawNoticeId: string, title: string): string {
   return rawNoticeId ? `community:${rawNoticeId}` : `community:${title.toLowerCase()}`;
 }
 
+function extractHrefFromLocationOnclick(rawOnclick: string | null | undefined): string | null {
+  const onclick = normalizeWhitespace(rawOnclick ?? "");
+  if (!onclick) return null;
+
+  return onclick.match(/location\.href\s*=\s*'([^']+)'/)?.[1]
+    ?? onclick.match(/location\.href\s*=\s*"([^"]+)"/)?.[1]
+    ?? null;
+}
+
+export function parseCyberCampusCourseSubmainHtml(html: string): {
+  progressPercent: number;
+  onlineWeekNumbers: number[];
+  quizRefs: Array<{
+    weekNo: number;
+    examSetupSeq: number;
+    href: string;
+    title: string;
+  }>;
+} {
+  const $ = load(html);
+  const onlineWeekNumbers = new Set<number>();
+  const quizRefs: Array<{
+    weekNo: number;
+    examSetupSeq: number;
+    href: string;
+    title: string;
+  }> = [];
+  let onlineProgressTotal = 0;
+  let onlineProgressCount = 0;
+
+  $("[id^='week_list_wrap_']").each((_, el) => {
+    const wrap = $(el);
+    const weekNo = Number(wrap.attr("id")?.match(/week_list_wrap_(\d+)/)?.[1] ?? 0);
+    if (!Number.isFinite(weekNo) || weekNo <= 0) return;
+
+    wrap.find(".week-list").each((__, itemEl) => {
+      const item = $(itemEl);
+      const href = item.find("a").first().attr("href")
+        ?? extractHrefFromLocationOnclick(item.attr("onclick"))
+        ?? "";
+      const label = normalizeWhitespace(item.find(".week-div").first().text()).replace(/^&nbsp;/, "").trim();
+      const title = normalizeWhitespace(item.find(".week-title").first().text());
+      const progressPercent = Number(item.find(".wb-status").first().text().match(/(\d+)\s*%/)?.[1] ?? 0);
+
+      if (/\/ilos\/st\/course\/online_list_form\.acl/i.test(href) || /온라인\s*강의/.test(label)) {
+        onlineWeekNumbers.add(weekNo);
+        onlineProgressTotal += progressPercent;
+        onlineProgressCount += 1;
+        return;
+      }
+
+      const examSetupSeq = Number(
+        href.match(/[?&]exam_setup_seq=(\d+)/i)?.[1]
+        ?? href.match(/[?&]EXAM_SETUP_SEQ=(\d+)/i)?.[1]
+        ?? 0,
+      );
+      if (examSetupSeq > 0) {
+        quizRefs.push({
+          weekNo,
+          examSetupSeq,
+          href,
+          title,
+        });
+      }
+    });
+  });
+
+  return {
+    progressPercent: onlineProgressCount > 0
+      ? Math.round(onlineProgressTotal / onlineProgressCount)
+      : 0,
+    onlineWeekNumbers: [...onlineWeekNumbers].sort((a, b) => a - b),
+    quizRefs,
+  };
+}
+
 function pickLongestText(values: Array<string | null | undefined>): string {
   return values
     .map((value) => normalizeWhitespace(value ?? ""))
