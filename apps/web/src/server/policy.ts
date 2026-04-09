@@ -128,10 +128,16 @@ export interface PolicyPublishResult {
 }
 
 type PolicyClient = typeof prisma | Prisma.TransactionClient;
-
-type PolicyDocumentRow = Prisma.PolicyDocumentGetPayload<{
-  select: typeof policyDocumentSelect;
-}>;
+type PolicyDocumentRow = {
+  id: string;
+  type: PolicyDocumentType;
+  version: number;
+  templateContent: string;
+  publishedContent: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 const policyDocumentSelect = {
   id: true,
@@ -158,6 +164,45 @@ const policyProfileSelect = {
   createdAt: true,
   updatedAt: true,
 } as const satisfies Prisma.PolicyProfileSelect;
+
+let warnedLegacyPolicyDocumentSchema = false;
+
+function getErrorColumn(meta: unknown): string {
+  if (!meta || typeof meta !== "object") return "";
+  const record = meta as Record<string, unknown>;
+  const column = record.column;
+  return typeof column === "string" ? column.toLowerCase() : "";
+}
+
+function isMissingPolicySnapshotColumnError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code !== "P2022") return false;
+    const column = getErrorColumn(error.meta);
+    if (column.includes("templatecontent") || column.includes("publishedcontent")) {
+      return true;
+    }
+    return /templatecontent|publishedcontent/i.test(error.message);
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return /templatecontent|publishedcontent/i.test(error.message);
+  }
+
+  if (error instanceof Error) {
+    return /templatecontent|publishedcontent/i.test(error.message)
+      && /(column|does not exist|unknown column)/i.test(error.message);
+  }
+
+  return false;
+}
+
+function warnLegacyPolicyDocumentSchema() {
+  if (warnedLegacyPolicyDocumentSchema) return;
+  warnedLegacyPolicyDocumentSchema = true;
+  console.warn(
+    "[policy] DB policy snapshot columns are missing. Falling back to legacy single-document compatibility mode. Run prisma db push.",
+  );
+}
 
 function policyTitle(type: PolicyDocumentType): string {
   if (type === PolicyDocumentType.PRIVACY_POLICY) return "개인정보 처리 방침";
@@ -345,11 +390,54 @@ async function getPolicyProfileRow(client: PolicyClient = prisma) {
 }
 
 async function listPolicyRows(client: PolicyClient = prisma) {
-  return client.policyDocument.findMany({
-    where: { type: { in: REQUIRED_POLICY_TYPES } },
-    orderBy: [{ type: "asc" }, { version: "desc" }],
-    select: policyDocumentSelect,
-  });
+  try {
+    const rows = await client.policyDocument.findMany({
+      where: { type: { in: REQUIRED_POLICY_TYPES } },
+      orderBy: [{ type: "asc" }, { version: "desc" }],
+      select: policyDocumentSelect,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      version: row.version,
+      templateContent: row.templateContent,
+      publishedContent: row.publishedContent,
+      isActive: row.isActive,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }));
+  } catch (error) {
+    if (!isMissingPolicySnapshotColumnError(error)) {
+      throw error;
+    }
+
+    warnLegacyPolicyDocumentSchema();
+    const rows = await client.$queryRaw<Array<{
+      id: string;
+      type: PolicyDocumentType;
+      version: number;
+      content: string;
+      isActive: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+    }>>(Prisma.sql`
+      SELECT "id", "type", "version", "content", "isActive", "createdAt", "updatedAt"
+      FROM "PolicyDocument"
+      WHERE "type" IN (${Prisma.join(REQUIRED_POLICY_TYPES)})
+      ORDER BY "type" ASC, "version" DESC
+    `);
+
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      version: row.version,
+      templateContent: row.content,
+      publishedContent: row.content,
+      isActive: row.isActive,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    }));
+  }
 }
 
 async function listActivePolicyRows(client: PolicyClient = prisma) {
@@ -414,45 +502,22 @@ export async function getPolicyDocumentVersion(
   type: PolicyDocumentType,
   version: number,
 ): Promise<PolicyDocumentPayload | null> {
-  const row = await prisma.policyDocument.findUnique({
-    where: {
-      type_version: {
-        type,
-        version,
-      },
-    },
-    select: policyDocumentSelect,
-  });
-
+  const rows = await listPolicyRows();
+  const row = rows.find((item) => item.type === type && item.version === version) ?? null;
   return row ? toPolicyPayload(row) : null;
 }
 
 export async function getLatestPolicyDocument(
   type: PolicyDocumentType,
 ): Promise<PolicyDocumentPayload | null> {
-  const [row] = await prisma.policyDocument.findMany({
-    where: { type },
-    orderBy: { version: "desc" },
-    take: 1,
-    select: policyDocumentSelect,
-  });
-
+  const row = (await listPolicyRows()).find((item) => item.type === type) ?? null;
   return row ? toPolicyPayload(row) : null;
 }
 
 export async function getActivePolicyDocument(
   type: PolicyDocumentType,
 ): Promise<PolicyDocumentPayload | null> {
-  const [row] = await prisma.policyDocument.findMany({
-    where: {
-      type,
-      isActive: true,
-    },
-    orderBy: { version: "desc" },
-    take: 1,
-    select: policyDocumentSelect,
-  });
-
+  const row = (await listPolicyRows()).find((item) => item.type === type && item.isActive) ?? null;
   return row ? toPolicyPayload(row) : null;
 }
 
@@ -460,31 +525,16 @@ export async function getPreviousPolicyDocument(
   type: PolicyDocumentType,
   version: number,
 ): Promise<PolicyDocumentPayload | null> {
-  const [row] = await prisma.policyDocument.findMany({
-    where: {
-      type,
-      version: {
-        lt: version,
-      },
-    },
-    orderBy: { version: "desc" },
-    take: 1,
-    select: policyDocumentSelect,
-  });
-
+  const row = (await listPolicyRows()).find((item) => item.type === type && item.version < version) ?? null;
   return row ? toPolicyPayload(row) : null;
 }
 
 export async function getPolicyHistoryForPublic(
   type: PolicyDocumentType,
 ): Promise<PolicyDocumentPayload[]> {
-  const rows = await prisma.policyDocument.findMany({
-    where: { type },
-    orderBy: { version: "desc" },
-    select: policyDocumentSelect,
-  });
-
-  return rows.map(toPolicyPayload);
+  return (await listPolicyRows())
+    .filter((row) => row.type === type)
+    .map(toPolicyPayload);
 }
 
 export async function getPolicyConsentRequirement(userId: string): Promise<PolicyConsentRequirement> {
@@ -590,19 +640,33 @@ export async function recordUserPolicyConsent(
   await prisma.$transaction(async (tx) => {
     const now = new Date();
     for (const policy of activePolicies) {
-      await tx.userPolicyConsent.upsert({
+      const existing = await tx.userPolicyConsent.findFirst({
         where: {
-          userId_policyType_policyVersion: {
-            userId,
-            policyType: policy.type,
-            policyVersion: policy.version,
+          userId,
+          policyType: policy.type,
+          policyVersion: policy.version,
+        },
+        select: {
+          id: true,
+        },
+        orderBy: {
+          consentedAt: "desc",
+        },
+      });
+
+      if (existing) {
+        await tx.userPolicyConsent.update({
+          where: { id: existing.id },
+          data: {
+            consentedAt: now,
+            consentIp,
           },
-        },
-        update: {
-          consentedAt: now,
-          consentIp,
-        },
-        create: {
+        });
+        continue;
+      }
+
+      await tx.userPolicyConsent.create({
+        data: {
           userId,
           policyType: policy.type,
           policyVersion: policy.version,
