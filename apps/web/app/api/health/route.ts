@@ -1,9 +1,15 @@
 import { jsonOk } from "@/lib/http";
+import { getServiceHealth } from "@/server/health";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return jsonOk({
-    ok: true,
-    service: "cu12-web",
-    ts: new Date().toISOString(),
+  const health = await getServiceHealth();
+
+  return jsonOk(health, {
+    status: health.status === "error" ? 503 : 200,
+    headers: {
+      "cache-control": "no-store",
+    },
   });
 }
