@@ -4,7 +4,6 @@ import {
   getActivePolicyDocument,
   getPolicyDocumentVersion,
   getPolicyHistoryForPublic,
-  getPreviousPolicyDocument,
 } from "@/server/policy";
 
 function parsePositiveInt(value: string | string[] | undefined): number | null {
@@ -33,7 +32,7 @@ export default async function PrivacyPolicyPage({
   const comparePolicy = policy
     ? compareToVersion
       ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, compareToVersion)
-      : await getPreviousPolicyDocument(PolicyDocumentType.PRIVACY_POLICY, policy.version)
+      : null
     : null;
   const history = await getPolicyHistoryForPublic(PolicyDocumentType.PRIVACY_POLICY);
 
