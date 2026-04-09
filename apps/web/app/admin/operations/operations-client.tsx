@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import type { Route } from "next";
 import Link from "next/link";
 import { ChevronLeft, RefreshCw, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -667,16 +668,16 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
           <Link className="ghost-btn" href="/admin/operations">
             작업 운영 개요
           </Link>
-          <Link className="ghost-btn" href="/admin/operations/jobs">
+          <Link className="ghost-btn" href={"/admin/operations/jobs" as Route}>
             작업 목록
           </Link>
-          <Link className="ghost-btn" href="/admin/operations/workers">
+          <Link className="ghost-btn" href={"/admin/operations/workers" as Route}>
             워커 목록
           </Link>
-          <Link className="ghost-btn" href="/admin/operations/reconcile">
+          <Link className="ghost-btn" href={"/admin/operations/reconcile" as Route}>
             정합성 점검
           </Link>
-          <Link className="ghost-btn" href="/admin/operations/cleanup">
+          <Link className="ghost-btn" href={"/admin/operations/cleanup" as Route}>
             작업 정리
           </Link>
         </div>
@@ -691,25 +692,25 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
             <p className="muted">작업 상세</p>
             <p className="metric">{pagination?.total ?? 0}</p>
             <p className="muted">필터와 재시도/취소 관리는 작업 목록 페이지에서 진행합니다.</p>
-            <Link className="ghost-btn" href="/admin/operations/jobs">작업 목록 열기</Link>
+            <Link className="ghost-btn" href={"/admin/operations/jobs" as Route}>작업 목록 열기</Link>
           </article>
           <article className="card admin-stat">
             <p className="muted">워커 상태</p>
             <p className="metric">{workerSummary?.active ?? 0}</p>
             <p className="muted">heartbeat 조회와 정리는 워커 목록 페이지에서 진행합니다.</p>
-            <Link className="ghost-btn" href="/admin/operations/workers">워커 목록 열기</Link>
+            <Link className="ghost-btn" href={"/admin/operations/workers" as Route}>워커 목록 열기</Link>
           </article>
           <article className="card admin-stat">
             <p className="muted">정합성 점검</p>
             <p className="metric">{reconcileResult?.summary.orphanedRunningJobsCount ?? 0}</p>
             <p className="muted">DB RUNNING과 GitHub Action 불일치를 점검합니다.</p>
-            <Link className="ghost-btn" href="/admin/operations/reconcile">정합성 점검 열기</Link>
+            <Link className="ghost-btn" href={"/admin/operations/reconcile" as Route}>정합성 점검 열기</Link>
           </article>
           <article className="card admin-stat">
             <p className="muted">작업 정리</p>
             <p className="metric">{cleanupOlderDays}</p>
             <p className="muted">오래된 작업 정리와 전체 초기화는 전용 페이지에서 실행합니다.</p>
-            <Link className="ghost-btn" href="/admin/operations/cleanup">정리 페이지 열기</Link>
+            <Link className="ghost-btn" href={"/admin/operations/cleanup" as Route}>정리 페이지 열기</Link>
           </article>
         </div>
       </section>

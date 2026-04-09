@@ -129,7 +129,7 @@ export interface PolicyPublishResult {
 
 type PolicyClient = typeof prisma | Prisma.TransactionClient;
 
-const policyDocumentSelect = Prisma.validator<Prisma.PolicyDocumentSelect>()({
+const policyDocumentSelect = {
   id: true,
   type: true,
   version: true,
@@ -139,9 +139,20 @@ const policyDocumentSelect = Prisma.validator<Prisma.PolicyDocumentSelect>()({
   isActive: true,
   createdAt: true,
   updatedAt: true,
-});
+} as const;
 
-type PolicyDocumentRow = Prisma.PolicyDocumentGetPayload<{ select: typeof policyDocumentSelect }>;
+type PolicyDocumentRow = {
+  id: string;
+  type: PolicyDocumentType;
+  version: number;
+  content: string | null;
+  templateContent: string | null;
+  publishedContent: string | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  updatedByUserId?: string | null;
+};
 
 const policyProfileSelect = Prisma.validator<Prisma.PolicyProfileSelect>()({
   companyName: true,
@@ -411,11 +422,11 @@ async function getPolicyProfileRow(client: PolicyClient = prisma) {
 
 async function listPolicyRows(client: PolicyClient = prisma) {
   try {
-    const rows = await client.policyDocument.findMany({
-      where: { type: { in: REQUIRED_POLICY_TYPES } },
-      orderBy: [{ type: "asc" }, { version: "desc" }],
-      select: policyDocumentSelect,
-    });
+      const rows = await client.policyDocument.findMany({
+        where: { type: { in: REQUIRED_POLICY_TYPES } },
+        orderBy: [{ type: "asc" }, { version: "desc" }],
+        select: policyDocumentSelect as unknown as Prisma.PolicyDocumentSelect,
+      });
     return rows.map((row) => ({
       id: row.id,
       type: row.type,
@@ -771,8 +782,8 @@ export async function publishPoliciesByAdmin(
             publishedContent: nextPublished,
             isActive: nextIsActive,
             updatedByUserId: actorUserId,
-          },
-          select: policyDocumentSelect,
+          } as unknown as Prisma.PolicyDocumentCreateInput,
+          select: policyDocumentSelect as unknown as Prisma.PolicyDocumentSelect,
         });
         changes.push(toPolicyChangePayload(toPolicyPayload(created), null));
         continue;
@@ -802,8 +813,8 @@ export async function publishPoliciesByAdmin(
             publishedContent: nextPublished,
             isActive: nextIsActive,
             updatedByUserId: actorUserId,
-          },
-          select: policyDocumentSelect,
+          } as unknown as Prisma.PolicyDocumentCreateInput,
+          select: policyDocumentSelect as unknown as Prisma.PolicyDocumentSelect,
         });
 
         changes.push(

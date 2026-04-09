@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import type { Route } from "next";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -495,7 +496,7 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
             <Link className="ghost-btn" href="/admin/site-notices">
               공지/점검 설정
             </Link>
-            <Link className="ghost-btn" href="/admin/system/policies">
+            <Link className="ghost-btn" href={"/admin/system/policies" as Route}>
               약관 관리
             </Link>
             <Link className="ghost-btn" href="/admin/operations">
@@ -553,7 +554,7 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
           <Link className="ghost-btn" href="/admin/system">
             시스템 개요
           </Link>
-          <Link className="ghost-btn" href="/admin/system/policies">
+          <Link className="ghost-btn" href={"/admin/system/policies" as Route}>
             약관 버전/고지 관리
           </Link>
           <Link className="ghost-btn" href="/admin/site-notices">
