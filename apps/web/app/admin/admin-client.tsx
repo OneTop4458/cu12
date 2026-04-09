@@ -817,6 +817,9 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <Link className="ghost-btn" href={"/admin/system" as any}>
               시스템 상태
             </Link>
+            <Link className="ghost-btn" href={"/admin/system/policies" as any}>
+              약관/고지
+            </Link>
             <ThemeToggle />
             <NotificationCenter
               notifications={recentLogNotifications}
