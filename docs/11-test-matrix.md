@@ -2,55 +2,46 @@
 
 ## API and Auth
 
-1. Login with valid CU12 credentials and existing mapping.
-2. Login with invalid CU12 credentials -> `AUTH_FAILED`.
-3. First login valid CU12 credentials -> `INVITE_REQUIRED`.
-4. Login while CU12 upstream is unavailable -> `CU12_UNAVAILABLE` (`503`) without counting as credential failure.
-5. Invite step with invalid/expired token -> `LOGIN_CHALLENGE_INVALID`.
-6. Invite step with invalid/unbound invite code -> `INVITE_VERIFICATION_FAILED`.
-7. Invite step still completes expected response when throttle/audit persistence fails.
-8. Consent step still returns expected policy/app errors and does not fail only because audit persistence fails.
-9. Admin invite create/list authorization (ADMIN vs USER).
-10. Verify detailed auth failure reasons are recorded in audit logs even when API responses are generalized.
+1. Login with valid portal credentials and an existing mapping.
+2. Login with invalid credentials returns generalized `AUTH_FAILED`.
+3. First login with valid credentials returns `INVITE_REQUIRED`.
+4. Invite verification rejects invalid, expired, inactive, mismatched, or already-used invite codes with generalized failure responses.
+5. Policy consent returns:
+   - `LOGIN_CHALLENGE_INVALID` for expired/invalid consent token
+   - `POLICY_VERSION_MISMATCH` when the client submits a stale version
+   - `POLICY_NOT_CONFIGURED` for non-admin bootstrap cases where documents are missing
+6. Upstream portal unavailability returns the expected temporary error behavior and does not count as a credential failure.
 
 ## Queue and Worker
 
 1. Queue claim is atomic under concurrent workers.
-2. Duplicate idempotency key does not create duplicate effective jobs.
-3. Retry/backoff schedule executes as defined.
-4. Worker heartbeat updates at expected interval.
-5. Auto-learning run records success/failure and metadata.
-6. Sync queue stale classification keeps `RUNNING` when worker heartbeat is fresh.
-7. Job tracking poll recovers from repeated API fetch failures and resynchronizes dashboard state.
-8. Truncated AUTOLEARN result enqueues continuation job with incremented chain segment.
-9. AUTOLEARN continuation stops when cumulative chain elapsed reaches configured max cap.
-10. Worker `--once` handoff dispatches follow-up consume run when pending AUTOLEARN jobs remain.
-11. User-scoped consume run (`--userId`) claims only that user's jobs.
-12. Centralized dispatch enforces parallel cap and returns `SKIPPED_CAPACITY` when full.
-13. Parser maps CU12 `C03` links to `MATERIAL` and `C02` links to `QUIZ`.
-14. AUTOLEARN planner includes pending material and quiz tasks in lecture order.
-15. Material execution verifies completion by refreshed todo/snapshot state instead of calling hidden attend endpoints directly.
-16. Quiz retry logic re-prompts only while attempts remain and stops with a terminal failure when attempts are exhausted.
+2. Duplicate idempotency keys do not create duplicate effective jobs.
+3. Manual redispatch respects the stale duplicate windows.
+4. `BLOCKED` AUTOLEARN jobs are used only for approval-required Cyber Campus flows and return to `PENDING` after approval completion.
+5. Worker heartbeat updates at the expected interval.
+6. Reconcile detects mismatches between DB `RUNNING` jobs and live workflow runs.
+7. AUTOLEARN continuation stops when the chain cap is reached.
+8. `--once` handoff requests follow-up dispatch when matching pending work remains.
 
 ## Dashboard Data
 
-1. Summary endpoint reflects latest snapshots.
-2. Course list and notices align with synced data.
-3. Job history endpoint includes latest state transitions.
+1. Bootstrap payload includes actor/effective context, provider summaries, queue state, account settings, Cyber Campus state, and mail preference.
+2. Notifications and messages respect explicit or inferred provider scope.
+3. Site notices and maintenance notice surfaces align with the active visibility window.
 
-### Validation Gate (AI-assisted or release validation)
+## Provider-Specific Automation
 
-1. `pnpm run check:text`
-2. `pnpm run check:openapi`
-3. `pnpm run typecheck`
-4. `pnpm run test:web`
-5. `pnpm run test:ops`
-6. `pnpm run build:web`
+1. CU12 parser maps current task/link contracts to `VOD`, `MATERIAL`, `QUIZ`, `ASSIGNMENT`, or `ETC`.
+2. CU12 AUTOLEARN completes pending material items through the page flow, not hidden side effects.
+3. Quiz retry logic stops when attempts are exhausted or the contract is unsupported.
+4. Cyber Campus AUTOLEARN returns `approvalRequired=true` when secondary auth is needed, then resumes after approval confirmation.
 
-## End-to-End
+## Validation Gate
 
-1. New environment bootstrap -> admin first login -> invite issuance -> user first login.
-2. User sync request -> queue -> worker consume -> dashboard update.
-3. User auto-learning request -> queue -> worker consume -> learning log update.
-4. User auto-learning request processes pending material activity to completion.
-5. User auto-learning request solves a pending quiz and clears it from the todo list.
+1. `corepack pnpm run check:text`
+2. `corepack pnpm run check:openapi`
+3. `corepack pnpm run prisma:generate`
+4. `corepack pnpm run typecheck`
+5. `corepack pnpm run test:web`
+6. `corepack pnpm run test:ops`
+7. `corepack pnpm run build:web`

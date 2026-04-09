@@ -1,39 +1,41 @@
 # Documentation Index
 
-This repository uses **English as the default documentation language**.
-A Korean summary is available only in `README.ko.md`.
+This repository uses **English as the default documentation language**. A Korean summary is provided only in `README.ko.md`.
 
-## Document Map
+## Living Docs
 
-- `docs/01-prd.md`: Product requirements and success metrics
-- `docs/02-architecture.md`: Runtime architecture and execution flow
-- `docs/03-data-model.md`: Prisma data model and ownership boundaries
-- `docs/04-api/openapi.yaml`: API contract (source of truth for route behavior)
-- `docs/05-cu12-endpoint-catalog.md`: External CU12 endpoint inventory
-- `docs/06-session-token-lifecycle.md`: Session/challenge/invite token lifecycle
-- `docs/07-concurrency-queue-spec.md`: Queue claim and concurrency control
-- `docs/08-autolearn-engine-spec.md`: Auto-learning worker behavior
-- `docs/09-github-actions-runbook.md`: CI/CD and workflow operations
-- `docs/10-security-checklist.md`: Security hardening checklist
-- `docs/11-test-matrix.md`: Test coverage matrix
-- `docs/12-operational-runbook.md`: Incident and day-2 operations
-- `docs/13-roadmap-todo.md`: Delivery roadmap
-- `docs/14-cloud-setup-playbook.md`: Full cloud deployment setup
-- `docs/15-audit-report.md`: Change audit snapshot
-- `docs/16-documentation-style-guide.md`: Writing and maintenance rules
-- `docs/17-free-tier-optimization-plan.md`: Free-tier usage optimization policy
-- `docs/18-web-ui-ux-redesign.md`: Web UI modernization details and component reference
-- `docs/adr/0001-hybrid-worker-model.md`: ADR for cloud worker model
-- `docs/adr/0002-token-strategy.md`: ADR for token strategy
+- `docs/01-prd.md`: Current product scope, requirements, and success metrics
+- `docs/02-architecture.md`: Runtime architecture, provider flows, dispatch model, and internal API boundaries
+- `docs/03-data-model.md`: Prisma domain model, ownership boundaries, retention, and protection rules
+- `docs/04-api/openapi.yaml`: Public and internal HTTP contract
+- `docs/05-cu12-endpoint-catalog.md`: Observed CU12 endpoint inventory used by sync and automation
+- `docs/06-session-token-lifecycle.md`: Cookie, challenge-token, portal-session, and approval-session lifecycle
+- `docs/07-concurrency-queue-spec.md`: Queue states, dispatch rules, claim order, and retry behavior
+- `docs/08-autolearn-engine-spec.md`: CU12-specific auto-learning execution details inside the worker
+- `docs/09-github-actions-runbook.md`: CI/CD, dispatch, bootstrap, and workflow operations
+- `docs/10-security-checklist.md`: Security controls and incident baseline
+- `docs/11-test-matrix.md`: Test coverage and validation gate
+- `docs/12-operational-runbook.md`: Day-2 operational procedures and incident handling
+- `docs/13-roadmap-todo.md`: Current delivery roadmap
+- `docs/14-cloud-setup-playbook.md`: Cloud deployment and environment setup guide
+- `docs/16-documentation-style-guide.md`: Documentation policy and editing rules
+- `docs/17-free-tier-optimization-plan.md`: Runtime cost-control guardrails
+- `docs/adr/0001-hybrid-worker-model.md`: ADR for the worker architecture
+- `docs/adr/0002-token-strategy.md`: ADR for the token strategy
+
+## Historical Snapshots
+
+- `docs/15-audit-report.md`: Point-in-time audit snapshot from 2026-03-03
+- `docs/18-web-ui-ux-redesign.md`: Point-in-time UI refresh notes from 2026-03-04
 
 ## Maintenance Rules
 
-1. Update docs in the same PR when changing behavior.
-2. Keep `docs/04-api/openapi.yaml` synchronized with implementation.
-3. Preserve end-to-end consistency across web app, worker, DB schema, and workflows.
-4. Validate with `pnpm run check:text` and `pnpm run check:openapi` before push.
+1. Update docs in the same PR as behavior changes.
+2. Keep `docs/04-api/openapi.yaml` aligned with request/response semantics, not just route presence.
+3. Keep environment-variable names synchronized with `.env.example`, `apps/web/src/lib/env.ts`, and `apps/worker/src/env.ts`.
+4. Keep workflow schedules and operational notes synchronized with `.github/workflows/*.yml`.
+5. Preserve dated docs as historical records and mark them clearly when they are no longer the primary current source.
 
 ## Baseline Date
 
-- Current baseline: **2026-03-07**
-- docs/18-web-ui-ux-redesign.md: Web UI modernization details and component reference
+- Current living-doc baseline: **2026-04-09**

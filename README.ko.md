@@ -1,40 +1,59 @@
 # CU12 자동화
 
-CU12 자동화는 CU12 자격 증명을 검증하고, 강의/공지 상태를 추적하며, 큐 기반 자동 학습 작업을 클라우드 환경에서 실행하는 서비스입니다.
+CU12 자동화는 CU12와 사이버캠퍼스를 대상으로 동작하는 초대제 소규모 운영용 자동화 서비스입니다. 로그인 시 실제 포털 자격 증명을 즉시 검증하고, 강의/공지/메시지 데이터를 동기화하며, 장시간 학습 작업은 GitHub Actions 워커로 분리해 실행합니다.
+
+## 핵심 요약
+
+- 로그인: 실시간 포털 인증 + 최초 1회 초대 코드 + 정책 동의 단계
+- 지원 범위: CU12, Cyber Campus
+- 자동 학습: VOD, 자료, 선택적 퀴즈 자동 풀이
+- 운영 방식: Vercel 웹 앱 + Neon PostgreSQL + GitHub Actions 워커
+- 알림: 대시보드 알림/메시지, 즉시 메일, 시간대 기반 다이제스트
 
 ## 빠른 시작
 
 ```bash
 corepack enable pnpm
-pnpm install --frozen-lockfile
-pnpm run prisma:generate
-pnpm run check:text
-pnpm run check:openapi
-pnpm run typecheck
-pnpm run test:web
-pnpm run test:ops
-pnpm run build:web
+corepack pnpm install --frozen-lockfile
+corepack pnpm run prisma:generate
+corepack pnpm run check:text
+corepack pnpm run check:openapi
+corepack pnpm run typecheck
+corepack pnpm run test:web
+corepack pnpm run test:ops
+corepack pnpm run build:web
 ```
 
-- `pnpm-lock.yaml` 또는 Node 버전이 바뀌지 않았다면 worktree마다 매번 재설치하지 말고 기존 설치를 재사용합니다.
-- `prisma/schema.prisma` 또는 Prisma 모델 사용 코드가 바뀌면 `pnpm run prisma:generate`를 다시 실행합니다.
+## 운영 스케줄
+
+- 동기화: `sync-schedule.yml` 이 2시간마다 실행됩니다.
+- 다이제스트: `mail-digest-schedule.yml` 이 매시간 실행됩니다.
+- 자동 학습 예약: `autolearn-dispatch.yml` 이 매일 `00:20 UTC` 에 실행됩니다.
+- 상태 점검: `reconcile-health-check.yml` 이 4시간마다 실행됩니다.
 
 ## Codex 작업 흐름
 
-- Codex가 linked worktree에서 실행 중이면 `pnpm run ai:start -- --task "<task-slug>"` 는 현재 worktree에서 `ai/session-<thread-id>` 브랜치를 만들거나 재사용합니다.
-- 이 기본 흐름에서는 저장소 내부에 또 다른 `.worktrees/session-*` 를 만들지 않습니다.
-- 수동 병렬 작업이 정말 필요할 때만 `pnpm run ai:worktree -- --task "<task-slug>"` 를 사용합니다.
-- 작업이 끝나면 `pnpm run ai:clean` 으로 병합된 repo-local worktree, stale lock, 불필요한 `ai/*` 브랜치를 정리합니다.
+```bash
+corepack pnpm run ai:start --task "docs-refresh"
+corepack pnpm run ai:ship --commit "docs(platform): refresh architecture and runbooks" --title "docs(platform): refresh architecture and runbooks"
+corepack pnpm run ai:clean
+```
 
-## 운영 시작 순서
+- 스크립트 인자는 `--task` 처럼 바로 넘깁니다.
+- 예전 이중 대시 포워딩 형식은 더 이상 사용하지 않습니다.
 
-1. GitHub Secrets 와 Vercel 환경 변수를 설정합니다.
-2. `DB Bootstrap` 워크플로우를 실행합니다.
-3. 새 환경이면 `Auth Reset Bootstrap` 을 실행해 관리자 초대 코드를 준비합니다.
-4. 웹을 배포하고 `/api/health` 를 확인합니다.
-5. `worker-consume.yml` 을 한 번 실행해 큐 처리와 작업 흐름을 검증합니다.
+## 설정 포인트
+
+- 필수 비밀값: `DATABASE_URL`, `APP_MASTER_KEY`, `AUTH_JWT_SECRET`, `WORKER_SHARED_TOKEN`
+- 웹 디스패치: `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_WORKFLOW_ID`, `GITHUB_WORKFLOW_REF`, `GITHUB_TOKEN`
+- 선택적 확장: `CYBER_CAMPUS_BASE_URL`, `WORKER_DISPATCH_MAX_PARALLEL`, `AUTOLEARN_CHAIN_MAX_SECONDS`
+- 메일/AI 기능: `SMTP_*`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS`
+
+자세한 변수 설명은 `README.md`, `.env.example`, `apps/web/src/lib/env.ts`, `apps/worker/src/env.ts` 를 함께 확인하면 됩니다.
 
 ## 문서
 
-- 기본 문서는 영어(`README.md`, `docs/*`)를 기준으로 유지합니다.
-- 한국어 요약은 이 파일(`README.ko.md`)에만 둡니다.
+- 문서 인덱스: `docs/00-index.md`
+- 아키텍처: `docs/02-architecture.md`
+- API 계약: `docs/04-api/openapi.yaml`
+- 워크플로/운영: `docs/09-github-actions-runbook.md`

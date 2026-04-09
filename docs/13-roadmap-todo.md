@@ -2,26 +2,28 @@
 
 ## Completed
 
-- [x] Two-step login model (CU12 verification + invite modal)
-- [x] Challenge token handoff for first login
+- [x] Real-time CU12 credential verification
+- [x] Invite-only first-login flow
+- [x] Policy consent gating and consent history
+- [x] Provider-aware dashboard surfaces for CU12 and Cyber Campus
 - [x] Queue-based sync and auto-learning orchestration
-- [x] Cloud-only deployment baseline (Vercel + GitHub Actions + Neon)
-- [x] Documentation and runbook baseline
+- [x] Cyber Campus approval-session flow for secondary authentication
+- [x] Mail alerts and hourly digest dispatch
+- [x] Admin operations center for workers, jobs, members, policies, and site notices
 
 ## Near Term
 
-- [ ] Email digest scheduler and templates
-- [ ] Notice read/unread UX improvements
-- [ ] Admin operational dashboard refinements
-- [ ] Better queue observability (latency/throughput/fail rate)
+- [ ] Better queue observability for latency, throughput, and stale-run patterns
+- [ ] Admin workflow refinements for approval/session recovery
+- [ ] UX improvements for notice/message history and provider switching
 
 ## Mid Term
 
-- [ ] Adaptive auto-learning pacing controls
-- [ ] Per-course policy settings
-- [ ] Job deduplication analytics and guardrails
+- [ ] Adaptive auto-learning pacing controls by provider or task type
+- [ ] Per-course or per-user automation policy overrides
+- [ ] Stronger end-to-end smoke coverage for deploy and schedule workflows
 
 ## Long Term
 
-- [ ] Policy-safe AI assistance for summary/drafting only
-- [ ] Human-in-the-loop approval workflows for sensitive actions
+- [ ] Human-in-the-loop approval flows for more sensitive automation paths
+- [ ] Limited AI-assisted summarization or drafting features that do not mutate portal state automatically

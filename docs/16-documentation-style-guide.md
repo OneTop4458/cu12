@@ -31,6 +31,7 @@
 2. Prefer numbered steps for procedures.
 3. Keep architecture docs implementation-linked, not abstract.
 4. Record exact endpoint and workflow IDs when relevant.
+5. Prefer Mermaid for architecture and flow diagrams when a diagram materially helps readers.
 
 ## Update Policy
 
@@ -44,16 +45,18 @@
 Run before pushing:
 
 ```bash
-pnpm run check:text
-pnpm run check:openapi
-pnpm run typecheck
-pnpm run build:web
+corepack pnpm run check:text
+corepack pnpm run check:openapi
+corepack pnpm run prisma:generate
+corepack pnpm run typecheck
+corepack pnpm run build:web
 ```
 
-For AI-assisted changes, pushing is allowed only after this check sequence completes successfully.
+For AI-assisted changes, pushing is allowed only after the required validation sequence completes successfully. If the change did not affect Prisma or did not require a fresh install, `prisma:generate` is still safe and remains the repository default in CI and documented validation flows.
 
 ## Review Checklist
 
 - Does this doc match the current code path?
 - Does it include enough detail for operator handoff?
 - Are all secrets/keys referenced by canonical names?
+- If the document is historical, is that status made explicit near the top?

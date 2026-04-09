@@ -2,47 +2,52 @@
 
 ## Scope
 
-- Target: CU12 online learning flows for VOD and materials, plus quizzes when quiz auto-solve is enabled for the user and OpenAI credentials are configured.
-- Excluded: assignments, debates, surveys, attendance-only items, and unsupported quiz DOM contracts.
+- This document describes the **CU12 execution path inside the worker**.
+- Cyber Campus AUTOLEARN uses the same queue envelope but adds provider-session reuse and approval-session orchestration before the worker can proceed.
+- Current supported CU12 task types are `VOD`, `MATERIAL`, and `QUIZ` when quiz auto-solve is enabled and OpenAI credentials are configured.
+- Excluded task types include assignments, debates, surveys, attendance-only items, and unsupported quiz DOM contracts.
 
 ## Execution Steps
 
-1. Authenticate to CU12 with mapped credentials.
-2. Resolve target lecture(s) from request payload or active list.
+1. Authenticate to CU12 with the mapped encrypted credentials.
+2. Resolve the target lecture set from the queued request.
 3. Parse pending learning tasks from todo/course pages.
-4. For VOD tasks, open the player page, keep playback context alive for the required duration, and exit with the CU12 player routine.
-5. For material tasks, open `contents_material_view_form.acl` and verify the follow-up todo snapshot no longer lists that material as pending.
-6. For quiz tasks, open the quiz runner, parse each question from the live DOM, generate an answer with OpenAI, and submit through the page’s own JS/DOM flow.
-7. Retry quiz questions while CU12 reports attempts remain; stop with a clear failure when attempts are exhausted or the DOM contract is unsupported.
-8. If run chunk is truncated, enqueue continuation AUTOLEARN job automatically.
-9. Refresh snapshots and record learning run result.
+4. For VOD tasks, keep the player context alive for the required duration and exit through the normal page flow.
+5. For material tasks, open `contents_material_view_form.acl` and verify the follow-up snapshot no longer reports the item as pending.
+6. For quiz tasks, open the quiz runner, parse each question from the live DOM, generate an answer with OpenAI, and submit through the page's own JS/DOM flow.
+7. If the run exceeds the chunk budget, enqueue a continuation AUTOLEARN job.
+8. Refresh snapshots and record the `LearningRun` result.
 
 ## Runtime Controls
 
-- `AUTOLEARN_TIME_FACTOR`: speed factor against nominal remaining time.
-- `AUTOLEARN_CHUNK_TARGET_SECONDS`: per-run chunk target budget in seconds (default 5400).
-- `AUTOLEARN_MAX_TASKS`: maximum tasks processed per run.
-- `AUTOLEARN_CHAIN_MAX_SECONDS`: total continuation chain cap across chunks (default 43200).
-- `PLAYWRIGHT_ACCEPT_LANGUAGE`: request-language header consistency.
-- `AUTOLEARN_HUMANIZATION_ENABLED`: enables conservative human-like timing variation.
-- `AUTOLEARN_DELAY_MIN_MS` / `AUTOLEARN_DELAY_MAX_MS`: per-step interaction delay range.
-- `AUTOLEARN_NAV_SETTLE_MIN_MS` / `AUTOLEARN_NAV_SETTLE_MAX_MS`: post-navigation settle delay range.
-- `AUTOLEARN_TYPING_DELAY_MIN_MS` / `AUTOLEARN_TYPING_DELAY_MAX_MS`: per-character typing delay range.
-- `OPENAI_API_KEY`: required when quiz auto-solving is enabled.
-- `OPENAI_MODEL`: OpenAI model name used for quiz answers (`gpt-5.4` default).
-- `OPENAI_TIMEOUT_MS`: per-request OpenAI timeout.
-- Safe default is conservative (close to real watch time).
-- `worker --once` hands off pending AUTOLEARN jobs by requesting the next Actions dispatch.
-- This module does not implement anti-bot bypass logic or fingerprint spoofing.
+- `AUTOLEARN_TIME_FACTOR`
+- `AUTOLEARN_CHUNK_TARGET_SECONDS`
+- `AUTOLEARN_MAX_TASKS`
+- `AUTOLEARN_CHAIN_MAX_SECONDS`
+- `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`
+- `AUTOLEARN_STALL_TIMEOUT_SECONDS`
+- `WORKER_ONCE_IDLE_GRACE_MS`
+- `PLAYWRIGHT_ACCEPT_LANGUAGE`
+- `PLAYWRIGHT_LOCALE`
+- `PLAYWRIGHT_TIMEZONE`
+- `PLAYWRIGHT_VIEWPORT_WIDTH` / `PLAYWRIGHT_VIEWPORT_HEIGHT`
+- `AUTOLEARN_HUMANIZATION_ENABLED`
+- `AUTOLEARN_DELAY_MIN_MS` / `AUTOLEARN_DELAY_MAX_MS`
+- `AUTOLEARN_NAV_SETTLE_MIN_MS` / `AUTOLEARN_NAV_SETTLE_MAX_MS`
+- `AUTOLEARN_TYPING_DELAY_MIN_MS` / `AUTOLEARN_TYPING_DELAY_MAX_MS`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_TIMEOUT_MS`
 
 ## Failure Handling
 
-- Handle duplicate-play dialogs and unexpected modal prompts.
-- If page contract changes, fail fast with clear error capture.
-- If quiz auto-solve is disabled for the user or OpenAI credentials are missing, quiz tasks are excluded from the plan and the run continues with supported non-quiz tasks.
-- Queue retry policy handles transient failures.
+- Duplicate-play dialogs and unexpected prompts are handled explicitly where the current DOM contract allows.
+- If the portal contract changes, the worker fails fast with clear error codes.
+- If quiz auto-solve is disabled or OpenAI credentials are missing, quiz tasks are excluded and the run continues with the remaining supported tasks.
+- Queue retry policy handles transient failures; terminal portal/contract errors surface as queue failure reasons.
 
 ## Output
 
-- Updated learning snapshots.
-- `LearningRun` logs with status, processed counts, and error details.
+- Updated snapshots and task state
+- `LearningRun` rows with processed counts and error metadata
+- Optional continuation queue rows for truncated AUTOLEARN chains

@@ -3,171 +3,160 @@
 ## Core Workflows
 
 1. `ci.yml`
-- Runs text quality checks, OpenAPI sync, workspace type checks, web tests, workflow/release guard tests, and build validation.
+   - Runs text quality, OpenAPI sync, Prisma generate, lint, typecheck, tests, and `build:web`.
 
 2. `deploy-vercel.yml`
-- Deploys web application to Vercel from `main`.
-- Runs automatically for direct `push(main)` events that touch deploy-relevant paths.
-- Also runs when an auto-merged PR into `main` changes deploy-relevant files because `codex-auto-merge-on-approval.yml` explicitly dispatches `Deploy Vercel` after merge.
-- The deploy-relevant path contract covers app code plus shared build/config files (`scripts/**`, `pnpm-workspace.yaml`, `tsconfig.base.json`, `.npmrc`) and is guarded by repository tests so auto-dispatch and direct push triggers stay aligned.
-- Runs the same validation/test gate as CI before DB sync and production deploy.
+   - Runs the same validation gate as CI, then performs DB safety checks, `prisma db push`, backfill scripts, and production Vercel deploy.
+   - Triggers on `main` pushes affecting deploy-relevant paths and on manual dispatch.
 
 3. `worker-consume.yml`
-- Claims and processes queue jobs via worker runtime.
-- Can be scheduled or manually dispatched.
-- Job timeout is capped at 120 minutes.
-- Uses queue-level concurrency control in `/apps/web/src/server/queue.ts` as the primary guard.
-- Accepts optional `userId` input so a single consume run can be pinned to one user queue.
-- `AUTOLEARN_CHUNK_TARGET_SECONDS` is tuned for 60-minute chunks to reduce long single-user slot holding.
-- Uses `pnpm install --frozen-lockfile` and Playwright cache for faster startup.
-- Supports `WORKER_ONCE_IDLE_GRACE_MS` to shorten idle tail when running `--once`.
-- Supports auto-learn heartbeat/stall controls (`AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`, `AUTOLEARN_STALL_TIMEOUT_SECONDS`).
-- Supports AUTOLEARN chunk controls (`AUTOLEARN_CHUNK_TARGET_SECONDS`, `AUTOLEARN_MAX_TASKS`) and continuation chain cap (`AUTOLEARN_CHAIN_MAX_SECONDS`).
-- Internal API calls are protected by timeout/retry controls (`WORKER_INTERNAL_API_TIMEOUT_MS`, `WORKER_INTERNAL_API_MAX_RETRIES`, `WORKER_INTERNAL_API_RETRY_BASE_MS`).
-- Supports conservative browser/session realism controls (`PLAYWRIGHT_ACCEPT_LANGUAGE`, `AUTOLEARN_HUMANIZATION_ENABLED`, delay ranges).
-- In `--once`, AUTOLEARN run exits after one completed chunk and hands off pending AUTOLEARN work by requesting a follow-up dispatch.
-- Manual action dispatch treats SYNC as priority: if a job is duplicate and still running/pending within stale windows, dispatch can be skipped (`SKIPPED_DUPLICATE`) to avoid storming GitHub API; stale duplicates are force-redispatched.
-- Internal dispatch is centralized through `/internal/worker/dispatch` with capped parallel fan-out (`WORKER_DISPATCH_MAX_PARALLEL`, default `12`).
+   - Main queue consumer workflow.
+   - Supports `trigger`, `jobTypes`, and optional `userId` inputs.
+   - Resolves required job types and installs Playwright only when the requested job set needs browser automation.
+   - Runs the worker in `--once` mode with internal API callbacks and heartbeat reporting.
 
 4. `sync-schedule.yml`
-- Dispatches periodic `SYNC` jobs every 2 hours.
-- Enqueues jobs first, then calls `/internal/worker/dispatch` only when new/pending work exists.
+   - Schedule: `0 */2 * * *` UTC.
+   - Enqueues provider-aware sync work and requests centralized dispatch only when pending work exists.
 
 5. `mail-digest-schedule.yml`
-- Dispatches hourly `MAIL_DIGEST` jobs and then requests centralized worker dispatch.
-- Worker dispatch filters users by KST hour (`digestHour`) so each user receives digest at the configured hour.
-- Calls centralized dispatch only when new digest jobs were enqueued or pending jobs already exist from an earlier incomplete run.
-- Digest and alert mails are rendered as HTML with actionable detail blocks (last 24h notice/notification changes, upcoming deadlines) and dashboard deep links.
+   - Schedule: `0 * * * *` UTC.
+   - Enqueues digest jobs hourly and lets the worker filter by each user's KST `digestHour`.
 
 6. `autolearn-dispatch.yml`
-- Dispatches periodic AUTOLEARN jobs daily (`20 0 * * *`, UTC) and supports manual dispatch.
-- Scheduled dispatch uses `--min-interval-minutes=1440` and `--eligible-window-only=true` so only users with currently available pending VOD tasks are queued.
-- Manual dispatch keeps operator-trigger behavior for explicit AUTOLEARN execution.
-- Calls centralized dispatch only when new jobs were enqueued or pending jobs already exist from an earlier incomplete run.
+   - Schedule: `20 0 * * *` UTC.
+   - Queues AUTOLEARN only for users who currently have eligible pending work.
+   - Manual dispatch keeps operator-trigger behavior for explicit runs.
 
 7. `reconcile-health-check.yml`
-- Calls `/internal/admin/jobs/reconcile` every 4 hours using `WORKER_SHARED_TOKEN`.
-- Fails the workflow when active job/run divergence is detected (`orphanedRunningJobsCount > 0` or `ghostRunsCount > 0`).
-- Fails also when reconciliation could not be performed with GitHub API (`canReconcileWithGitHub = false`).
-- Includes workflow schedule consistency checks for `sync-schedule.yml` and `autolearn-dispatch.yml` in reconcile payload (`scheduleChecks`).
+   - Schedule: `0 */4 * * *` UTC.
+   - Calls `/internal/admin/jobs/reconcile`.
+   - Fails when GitHub run visibility is unavailable or when DB `RUNNING` jobs diverge from active Actions runs.
 
 8. `db-retention-cleanup.yml`
-- Deletes old rows by retention policy:
-  - `AuditLog`: 30 days
-  - `JobQueue` terminal states: 14 days
-  - `MailDelivery`: 30 days
-  - `UserPolicyConsent` for withdrawn members: 3 years after `User.withdrawnAt`
+   - Deletes rows according to retention windows for audit logs, terminal jobs, mail delivery, and withdrawn-user policy-consent history.
 
-9. `actions-usage-forecast.yml`
-- Forecasts monthly Actions usage and writes utilization summary.
+9. `db-bootstrap.yml`
+   - Applies Prisma schema and post-sync backfill scripts for a new environment.
 
-10. `db-bootstrap.yml`
-- Applies DB schema initialization (`prisma db push`).
+10. `auth-reset-bootstrap.yml`
+    - Resets auth bootstrap state and provisions a fresh admin invite from `inviteCodeHash`.
 
-11. `auth-reset-bootstrap.yml`
-- Resets auth-related data and creates a fresh admin invite record from a provided invite code hash.
+## Auxiliary Repository Workflows
 
-## Auxiliary/Repository Workflows
+1. `secret-scan.yml`
+   - Runs gitleaks on pull requests, protected-branch pushes, scheduled scans, and manual dispatch.
 
-1. `codeql.yml`
-- Weekly static security analysis with manual run support.
-
-2. `dependabot-auto-review.yml`
-- Applies automated review/label flow for Dependabot pull requests.
+2. `codeql.yml`
+   - Scheduled static security analysis with manual support.
 
 3. `labeler.yml`
-- Applies PR labels based on changed paths.
-- Ensures the `automerge` label exists and auto-applies it only for safe same-repo AI/Codex PRs.
-- Safe auto-merge labeling requires:
-  - branch name starts with `ai/` or `codex/`
-  - PR is not draft
-  - changed files stay within `apps/web/**`, `apps/worker/**`, `packages/core/**`, `docs/**`, `README.md`, `package.json`, `pnpm-lock.yaml`
-- If a PR later becomes ineligible, the workflow removes the `automerge` label again.
+   - Applies labels and controls `automerge` eligibility by changed-path policy.
 
 4. `codex-auto-merge-on-approval.yml`
-- Enables squash auto-merge only for repository PRs labeled `automerge`.
-- Refuses auto-merge for sensitive path changes (`.github/workflows/**`, `prisma/**`, `scripts/**`, `AGENTS.md`) even when the label is present.
-- After a PR is merged into `main`, dispatches `Deploy Vercel` when the merged file set includes deploy-relevant paths.
+   - Enables squash auto-merge for safe same-repo AI/Codex PRs and dispatches deploy after merge when appropriate.
 
-5. `secret-scan.yml`
-- Runs gitleaks-based secret scan on pull requests, protected branch pushes, daily schedule, and manual dispatch.
-- Uploads SARIF findings and fails the check when leaks are detected.
+5. `actions-usage-forecast.yml`
+   - Estimates monthly Actions usage against the repository's current workload.
 
-5. `stale.yml`
-- Marks and closes stale issues/PRs according to repository policy.
+## Required Configuration
 
-## Bootstrap Invite Hash Input
+### GitHub repository secrets
 
-For `admin-bootstrap.yml` and `auth-reset-bootstrap.yml`, set `inviteCodeHash` with SHA-256 (lowercase hex) of your intended invite code.
+- Required for worker or deploy:
+  - `DATABASE_URL`
+  - `APP_MASTER_KEY`
+  - `WORKER_SHARED_TOKEN`
+  - `WEB_INTERNAL_BASE_URL`
+  - `CU12_BASE_URL`
+  - `GITHUB_TOKEN`
+- Required for deploy workflow:
+  - `VERCEL_TOKEN`
+  - `VERCEL_ORG_ID`
+  - `VERCEL_PROJECT_ID`
+- Optional but commonly used:
+  - `CYBER_CAMPUS_BASE_URL`
+  - `OPENAI_API_KEY`
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM`
+  - `AUTOLEARN_TIME_FACTOR`
+  - `AUTOLEARN_MAX_TASKS`
 
-Example (Node.js):
+### Vercel production environment variables
 
-```bash
-node -e "const c=require('node:crypto');const code='replace-with-invite-code';console.log(c.createHash('sha256').update(code).digest('hex'))"
-```
+- Required:
+  - `DATABASE_URL`
+  - `APP_MASTER_KEY`
+  - `AUTH_JWT_SECRET`
+  - `WORKER_SHARED_TOKEN`
+  - `CU12_BASE_URL`
+  - `GITHUB_OWNER`
+  - `GITHUB_REPO`
+  - `GITHUB_WORKFLOW_ID`
+  - `GITHUB_WORKFLOW_REF`
+  - `GITHUB_TOKEN`
+- Optional:
+  - `CYBER_CAMPUS_BASE_URL`
+  - `TRUST_PROXY_HEADERS`
+  - `WORKER_DISPATCH_MAX_PARALLEL`
+  - `AUTOLEARN_CHAIN_MAX_SECONDS`
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM`
 
-## Required Secrets
+### Worker runtime defaults baked into workflow env
 
-### GitHub
-
-- `DATABASE_URL`
-- `APP_MASTER_KEY`
-- `AUTH_JWT_SECRET`
-- `WORKER_SHARED_TOKEN`
-- `WEB_INTERNAL_BASE_URL`
-- `CU12_BASE_URL`
-- `OPENAI_API_KEY`
-- `GITHUB_TOKEN` (or PAT for workflow dispatch when required)
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USER`
-- `SMTP_PASS`
-- `SMTP_FROM`
-
-### Vercel
-
-- `DATABASE_URL`
-- `APP_MASTER_KEY`
-- `AUTH_JWT_SECRET`
-- `WORKER_SHARED_TOKEN`
-- `CU12_BASE_URL`
-- `GITHUB_OWNER`
-- `GITHUB_REPO`
-- `GITHUB_WORKFLOW_ID`
-- `GITHUB_WORKFLOW_REF`
-- `GITHUB_TOKEN`
+- `PLAYWRIGHT_ACCEPT_LANGUAGE`
+- `AUTOLEARN_HUMANIZATION_ENABLED`
+- `AUTOLEARN_DELAY_MIN_MS`
+- `AUTOLEARN_DELAY_MAX_MS`
+- `AUTOLEARN_NAV_SETTLE_MIN_MS`
+- `AUTOLEARN_NAV_SETTLE_MAX_MS`
+- `AUTOLEARN_TYPING_DELAY_MIN_MS`
+- `AUTOLEARN_TYPING_DELAY_MAX_MS`
+- `POLL_INTERVAL_MS`
+- `WORKER_INTERNAL_API_TIMEOUT_MS`
+- `WORKER_INTERNAL_API_MAX_RETRIES`
+- `WORKER_INTERNAL_API_RETRY_BASE_MS`
+- `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`
+- `AUTOLEARN_STALL_TIMEOUT_SECONDS`
+- `AUTOLEARN_CHUNK_TARGET_SECONDS`
+- `WORKER_ONCE_IDLE_GRACE_MS`
 
 ## Operator Sequence
 
-1. Run `DB Bootstrap`.
-2. Run `Auth Reset Bootstrap` on new environment with `inviteCodeHash`.
-3. Deploy web app (`Deploy Vercel`).
-4. Confirm `/api/health`.
-5. Trigger `Worker Consume` once and validate queue updates.
-6. Verify `Actions Usage Forecast` summary stays below monthly threshold.
+1. Set GitHub secrets and Vercel env vars.
+2. Run `DB Bootstrap`.
+3. Run `Auth Reset Bootstrap` with the SHA-256 `inviteCodeHash` for the initial admin invite.
+4. Deploy the web app.
+5. Verify `/api/health`.
+6. Log in as admin, publish the required policy documents, and issue invite codes for users.
+7. Trigger `worker-consume.yml` once and confirm the queue transitions as expected.
+8. Review `Reconcile Health Check` before declaring the environment healthy.
 
 ## Common Failures
 
 ### Worker env validation failed
 
-1. Verify `APP_MASTER_KEY`, `WORKER_SHARED_TOKEN`, `DATABASE_URL`, and `OPENAI_API_KEY` when quiz auto-solve is expected.
-2. Ensure values are aligned across GitHub and Vercel.
-3. Redeploy web app and rerun worker.
+1. Verify `APP_MASTER_KEY`, `WORKER_SHARED_TOKEN`, `DATABASE_URL`, and `WEB_INTERNAL_BASE_URL`.
+2. If quiz auto-solve is expected, verify `OPENAI_API_KEY`.
+3. Confirm GitHub and Vercel share the same internal base URL and worker token.
 
 ### Vercel deployment returns 404
 
-1. Verify Vercel project Root Directory is `apps/web`.
-2. Confirm environment variables exist in production scope.
-3. Redeploy and check `/api/health`.
+1. Confirm the Vercel project Root Directory is `apps/web`.
+2. Confirm production env vars are present.
+3. Re-run `Deploy Vercel` and re-check `/api/health`.
 
 ### Dispatch succeeded but no processing
 
-1. Check queue status via `/api/jobs`.
-2. Confirm API response `dispatchState` is `DISPATCHED` (not `NOT_CONFIGURED` / `FAILED`).
-3. Review failed logs with `gh run view <run_id> --log-failed`.
-4. Confirm `WEB_INTERNAL_BASE_URL` points to production URL.
-5. If job state and Actions are mismatched, call `GET /internal/admin/jobs/reconcile` (or `GET /api/admin/jobs/reconcile` in admin UI) to identify orphaned `RUNNING` jobs or ghost runs.
-6. `RUNNING_STALE` for sync queue now requires both elapsed-time threshold and stale/missing worker heartbeat.
+1. Check queue rows through `/api/jobs` or the admin job view.
+2. Confirm `dispatchState` is not `NOT_CONFIGURED`.
+3. Review failed workflow logs with `gh run view <run_id> --log-failed`.
+4. Run or inspect `Reconcile Health Check` for orphaned jobs and ghost runs.
+5. If Cyber Campus jobs remain `BLOCKED`, inspect the related approval session instead of retrying blindly.

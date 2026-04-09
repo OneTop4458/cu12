@@ -1,5 +1,7 @@
 # Audit Report (2026-03-03)
 
+> Historical note: This document is a point-in-time snapshot from 2026-03-03. Use the living docs in `docs/00-index.md` for current behavior and operational guidance.
+
 ## Scope
 
 This audit validates alignment between code, API contract, workflows, and documentation for:
