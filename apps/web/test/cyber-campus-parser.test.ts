@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   parseCyberCampusCommunityNoticeDetailHtml,
+  parseCyberCampusCourseSubmainHtml,
   parseCyberCampusExamDetailHtml,
   parseCyberCampusMainCoursesHtml,
   parseCyberCampusNotificationListHtml,
@@ -117,6 +118,98 @@ test("Cyber Campus online week detail parser extracts authoritative week, lesson
       },
     ],
   );
+});
+
+test("Cyber Campus submain parser discovers all online weeks and quiz refs", () => {
+  const html = `
+    <html>
+      <body>
+        <table class="week_list">
+          <tr>
+            <td week_no="1">1</td>
+            <td week_no="2">2</td>
+            <td week_no="3">3</td>
+            <td week_no="4">4</td>
+            <td week_no="5">5</td>
+            <td week_no="6">6</td>
+          </tr>
+        </table>
+
+        <div id="week_list_wrap_1" class="submain-week">
+          <div class="week-list" onclick="location.href='/ilos/st/course/lecture_material_view_form.acl?ARTL_NUM=5532926'">
+            <span class="week-div">강의자료</span>
+            <span class="week-title">강의자료__0306</span>
+          </div>
+        </div>
+
+        <div id="week_list_wrap_2" class="submain-week">
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=2'">
+            <span class="week-div">2주 1차시 온라인 강의</span>
+            <span class="wb-status">100%</span>
+            <span class="week-title">2026.03.10 오전 12:00 ~ 2026.03.27 오후 10:00</span>
+          </div>
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=2'">
+            <span class="week-div">2주 2차시 온라인 강의</span>
+            <span class="wb-status">100%</span>
+            <span class="week-title">2026.03.10 오전 12:00 ~ 2026.03.27 오후 10:00</span>
+          </div>
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=2'">
+            <span class="week-div">2주 3차시 온라인 강의</span>
+            <span class="wb-status">100%</span>
+            <span class="week-title">2026.03.10 오전 12:00 ~ 2026.03.27 오후 10:00</span>
+          </div>
+          <div class="week-list" onclick="location.href='/ilos/st/course/test_view_form.acl?exam_setup_seq=1&SCH_KEY=&SCH_VALUE='">
+            <span class="week-div">시험</span>
+            <span class="week-title">과학기술시대의 삶_0313</span>
+          </div>
+        </div>
+
+        <div id="week_list_wrap_3" class="submain-week">
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=3'">
+            <span class="week-div">3주 1차시 온라인 강의</span>
+            <span class="wb-status">100%</span>
+            <span class="week-title">2026.03.20 오전 12:00 ~ 2026.03.29 오후 11:59</span>
+          </div>
+        </div>
+
+        <div id="week_list_wrap_4" class="submain-week">
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=4'">
+            <span class="week-div">4주 1차시 온라인 강의</span>
+            <span class="wb-status">100%</span>
+            <span class="week-title">2026.03.27 오전 12:00 ~ 2026.04.05 오후 11:59</span>
+          </div>
+        </div>
+
+        <div id="week_list_wrap_5" class="submain-week">
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=5'">
+            <span class="week-div">5주 1차시 온라인 강의</span>
+            <span class="wb-status">0%</span>
+            <span class="week-title">2026.04.03 오전 12:00 ~ 2026.04.12 오후 11:59</span>
+          </div>
+        </div>
+
+        <div id="week_list_wrap_6" class="submain-week">
+          <div class="week-list" onclick="location.href='/ilos/st/course/online_list_form.acl?WEEK_NO=6'">
+            <span class="week-div">6주 1차시 온라인 강의</span>
+            <span class="wb-status">0%</span>
+            <span class="week-title">2026.04.10 오전 12:00 ~ 2026.04.19 오후 11:59</span>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const parsed = parseCyberCampusCourseSubmainHtml(html);
+  assert.equal(parsed.progressPercent, 71);
+  assert.deepEqual(parsed.onlineWeekNumbers, [2, 3, 4, 5, 6]);
+  assert.deepEqual(parsed.quizRefs, [
+    {
+      weekNo: 2,
+      examSetupSeq: 1,
+      href: "/ilos/st/course/test_view_form.acl?exam_setup_seq=1&SCH_KEY=&SCH_VALUE=",
+      title: "과학기술시대의 삶_0313",
+    },
+  ]);
 });
 
 test("Cyber Campus exam detail parser extracts authoritative quiz timing", () => {
