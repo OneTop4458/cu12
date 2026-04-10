@@ -761,8 +761,10 @@ paths:
           description: >-
             AUTOLEARN queue status. For Cyber Campus, the first response may only acknowledge
             blocked job creation while the worker checks real lecture contexts, determines whether
-            secondary auth is needed, and prepares approval methods asynchronously. The dashboard
-            polling endpoint later surfaces `cyberCampus.approval` only when user action is required.
+            secondary auth is needed, and prepares approval methods asynchronously. Once a Cyber Campus
+            VOD starts, the worker keeps the live player context open for the full remaining watch time
+            and handles provider dialogs before treating the task as complete. The dashboard polling
+            endpoint later surfaces `cyberCampus.approval` only when user action is required.
           content:
             application/json:
               schema:
@@ -4404,8 +4406,12 @@ components:
               type: integer
             elapsedSeconds:
               type: integer
+              description: Real elapsed execution time accumulated so far.
             estimatedRemainingSeconds:
               type: integer
+              description: >-
+                Estimated remaining runtime. For Cyber Campus VOD playback this tracks real watch time
+                and never applies a factor below 1x.
             heartbeatAt:
               type: string
               format: date-time
@@ -4500,6 +4506,9 @@ components:
           minimum: 1
         estimatedTotalSeconds:
           type: integer
+          description: >-
+            Estimated end-to-end runtime. For Cyber Campus VOD playback this is based on the full
+            remaining watch time and never applies a factor below 1x.
         noOpReason:
           allOf:
             - $ref: "#/components/schemas/AutoLearnNoOpReason"
