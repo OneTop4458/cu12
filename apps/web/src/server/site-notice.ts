@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 import { SiteNoticeType } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import {
+  isMissingSiteNoticeStoreError,
+  warnMissingSiteNoticeStore,
+} from "@/lib/site-notice-compat";
 
 export type SiteNoticePayload = {
   id: string;
@@ -77,21 +81,30 @@ function buildBaseWhere(type?: SiteNoticeType, options?: VisibilityDateFilter): 
 
 export async function listSiteNotices(type?: SiteNoticeType, includeInactive = false) {
   const now = new Date();
-  const records = await prisma.siteNotice.findMany({
-    where: buildBaseWhere(type, { includeInactive, now }),
-    orderBy: [
-      { priority: "desc" },
-      { createdAt: "desc" },
-    ],
-    include: {
-      createdByUser: {
-        select: {
-          id: true,
-          email: true,
+  let records: SiteNoticeModel[];
+  try {
+    records = await prisma.siteNotice.findMany({
+      where: buildBaseWhere(type, { includeInactive, now }),
+      orderBy: [
+        { priority: "desc" },
+        { createdAt: "desc" },
+      ],
+      include: {
+        createdByUser: {
+          select: {
+            id: true,
+            email: true,
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    if (!isMissingSiteNoticeStoreError(error)) {
+      throw error;
+    }
+    warnMissingSiteNoticeStore();
+    return [];
+  }
 
   return records.map((record) => ({
     id: record.id,
@@ -120,25 +133,45 @@ const listPublicSiteNoticesCached = unstable_cache(
     }
 
     const now = new Date();
-    const records = await prisma.siteNotice.findMany({
-      where: buildBaseWhere(type ?? undefined, { includeInactive: false, now }),
-      orderBy: [
-        { priority: "desc" },
-        { createdAt: "desc" },
-      ],
-      select: {
-        id: true,
-        title: true,
-        message: true,
-        type: true,
-        isActive: true,
-        priority: true,
-        visibleFrom: true,
-        visibleTo: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    let records: Array<{
+      id: string;
+      title: string;
+      message: string;
+      type: SiteNoticeType;
+      isActive: boolean;
+      priority: number;
+      visibleFrom: Date | null;
+      visibleTo: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
+    try {
+      records = await prisma.siteNotice.findMany({
+        where: buildBaseWhere(type ?? undefined, { includeInactive: false, now }),
+        orderBy: [
+          { priority: "desc" },
+          { createdAt: "desc" },
+        ],
+        select: {
+          id: true,
+          title: true,
+          message: true,
+          type: true,
+          isActive: true,
+          priority: true,
+          visibleFrom: true,
+          visibleTo: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      if (!isMissingSiteNoticeStoreError(error)) {
+        throw error;
+      }
+      warnMissingSiteNoticeStore();
+      return [] satisfies PublicSiteNoticePayload[];
+    }
 
     return records.map((record) => ({
       id: record.id,

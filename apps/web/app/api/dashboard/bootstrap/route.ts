@@ -1,11 +1,20 @@
 import { SiteNoticeType } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
+import {
+  isMissingMailSubscriptionStoreError,
+  warnMissingMailSubscriptionStore,
+} from "@/lib/mail-subscription-compat";
 import { prisma } from "@/lib/prisma";
 import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { getDashboardAccount } from "@/server/cu12-account";
 import { getCyberCampusApprovalState } from "@/server/cyber-campus-autolearn";
 import { combineDashboardSummaries, getDashboardSummaries } from "@/server/dashboard";
+import {
+  EMPTY_CYBER_CAMPUS_APPROVAL_STATE,
+  IDLE_SYNC_QUEUE_SUMMARY,
+  loadOptionalDashboardSegment,
+} from "@/server/dashboard-fallback";
 import { getSyncQueueSummaryForUser, getSyncQueueSummaryForUserByProvider } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
 
@@ -16,20 +25,27 @@ function parseLimit(value: string | null, fallback: number, max: number): number
 }
 
 async function resolveMailPreference(userId: string) {
-  const [user, subscription] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        email: true,
-        cu12Account: {
-          select: {
-            emailDigestEnabled: true,
-          },
+  const userPromise = prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      email: true,
+      cu12Account: {
+        select: {
+          emailDigestEnabled: true,
         },
       },
-    }),
-    prisma.mailSubscription.findUnique({ where: { userId } }),
-  ]);
+    },
+  });
+  const subscriptionPromise = prisma.mailSubscription.findUnique({ where: { userId } })
+    .catch((error) => {
+      if (!isMissingMailSubscriptionStoreError(error)) {
+        throw error;
+      }
+      warnMissingMailSubscriptionStore();
+      return null;
+    });
+
+  const [user, subscription] = await Promise.all([userPromise, subscriptionPromise]);
 
   if (!user) {
     return null;
@@ -74,18 +90,46 @@ export async function GET(request: NextRequest) {
     void parseLimit(url.searchParams.get("messagesLimit"), 20, 100);
     void parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
     const userId = context.effective.userId;
-    const account = await timing.measure("account", () => getDashboardAccount(userId));
+    const account = await timing.measure("account", () => loadOptionalDashboardSegment(
+      "dashboard/bootstrap",
+      "account",
+      () => getDashboardAccount(userId),
+      null,
+    ));
 
     const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues] = await Promise.all([
       timing.measure("summary", () => getDashboardSummaries(userId)),
-      timing.measure("sync-queue", () => getSyncQueueSummaryForUser(userId)),
-      timing.measure("site-notices", () => listSiteNotices(undefined, false)),
+      timing.measure("sync-queue", () => loadOptionalDashboardSegment(
+        "dashboard/bootstrap",
+        "sync-queue",
+        () => getSyncQueueSummaryForUser(userId),
+        IDLE_SYNC_QUEUE_SUMMARY,
+      )),
+      timing.measure("site-notices", () => loadOptionalDashboardSegment(
+        "dashboard/bootstrap",
+        "site-notices",
+        () => listSiteNotices(undefined, false),
+        [],
+      )),
       timing.measure("mail-pref", () => resolveMailPreference(userId)),
-      timing.measure("cyber-campus", () => getCyberCampusApprovalState(userId)),
-      timing.measure("provider-sync-queue", async () => ({
-        CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
-        CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
-      })),
+      timing.measure("cyber-campus", () => loadOptionalDashboardSegment(
+        "dashboard/bootstrap",
+        "cyber-campus",
+        () => getCyberCampusApprovalState(userId),
+        EMPTY_CYBER_CAMPUS_APPROVAL_STATE,
+      )),
+      timing.measure("provider-sync-queue", () => loadOptionalDashboardSegment(
+        "dashboard/bootstrap",
+        "provider-sync-queue",
+        async () => ({
+          CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
+          CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
+        }),
+        {
+          CU12: IDLE_SYNC_QUEUE_SUMMARY,
+          CYBER_CAMPUS: IDLE_SYNC_QUEUE_SUMMARY,
+        },
+      )),
     ]);
     const summary = combineDashboardSummaries(providerSummaries);
 
@@ -131,6 +175,6 @@ export async function GET(request: NextRequest) {
     ), timing);
   } catch (error) {
     console.error("[dashboard/bootstrap] failed", error);
-    return jsonError("대시보드 데이터를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.", 503, "DASHBOARD_BOOTSTRAP_FAILED");
+    return jsonError("Dashboard bootstrap failed. Please refresh and try again.", 503, "DASHBOARD_BOOTSTRAP_FAILED");
   }
 }

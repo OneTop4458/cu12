@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combineDashboardSummaries, type DashboardSummary } from "../src/server/dashboard";
+import { combineDashboardSummaries, createEmptyDashboardSummary, type DashboardSummary } from "../src/server/dashboard";
 
 function makeSummary(input: Partial<DashboardSummary>): DashboardSummary {
   return {
@@ -52,4 +52,34 @@ test("combineDashboardSummaries sums counts and keeps weighted progress", () => 
   assert.equal(combined.lastSyncAt?.toISOString(), "2026-04-08T03:00:00.000Z");
   assert.equal(combined.nextAutoSyncAt.toISOString(), "2026-04-08T02:00:00.000Z");
   assert.equal(combined.initialSyncRequired, true);
+});
+
+test("createEmptyDashboardSummary returns zeroed counts", () => {
+  const summary = createEmptyDashboardSummary(new Date("2026-04-10T00:15:00.000Z"));
+
+  assert.deepEqual(
+    {
+      activeCourseCount: summary.activeCourseCount,
+      avgProgress: summary.avgProgress,
+      unreadNoticeCount: summary.unreadNoticeCount,
+      upcomingDeadlines: summary.upcomingDeadlines,
+      urgentTaskCount: summary.urgentTaskCount,
+      nextDeadlineAt: summary.nextDeadlineAt,
+      lastSyncAt: summary.lastSyncAt,
+      autoSyncIntervalHours: summary.autoSyncIntervalHours,
+      initialSyncRequired: summary.initialSyncRequired,
+    },
+    {
+      activeCourseCount: 0,
+      avgProgress: 0,
+      unreadNoticeCount: 0,
+      upcomingDeadlines: 0,
+      urgentTaskCount: 0,
+      nextDeadlineAt: null,
+      lastSyncAt: null,
+      autoSyncIntervalHours: 2,
+      initialSyncRequired: false,
+    },
+  );
+  assert.equal(summary.nextAutoSyncAt.toISOString(), "2026-04-10T02:00:00.000Z");
 });

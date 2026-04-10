@@ -5,6 +5,11 @@ import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { getDashboardAccount } from "@/server/cu12-account";
 import { getCyberCampusApprovalState } from "@/server/cyber-campus-autolearn";
 import { combineDashboardSummaries, getDashboardSummaries } from "@/server/dashboard";
+import {
+  EMPTY_CYBER_CAMPUS_APPROVAL_STATE,
+  IDLE_SYNC_QUEUE_SUMMARY,
+  loadOptionalDashboardSegment,
+} from "@/server/dashboard-fallback";
 import { getSyncQueueSummaryForUser, getSyncQueueSummaryForUserByProvider, listJobsForUser } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
 
@@ -23,18 +28,51 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const jobsLimit = parseLimit(url.searchParams.get("jobsLimit"), 10, 50);
     const userId = context.effective.userId;
-    await timing.measure("account", () => getDashboardAccount(userId));
+    await timing.measure("account", () => loadOptionalDashboardSegment(
+      "dashboard/status",
+      "account",
+      () => getDashboardAccount(userId),
+      null,
+    ));
 
     const [providerSummaries, syncQueue, siteNotices, jobs, cyberCampus, providerSyncQueues] = await Promise.all([
       timing.measure("summary", () => getDashboardSummaries(userId)),
-      timing.measure("sync-queue", () => getSyncQueueSummaryForUser(userId)),
-      timing.measure("site-notices", () => listSiteNotices(undefined, false)),
-      timing.measure("jobs", () => listJobsForUser(userId, jobsLimit)),
-      timing.measure("cyber-campus", () => getCyberCampusApprovalState(userId)),
-      timing.measure("provider-sync-queue", async () => ({
-        CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
-        CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
-      })),
+      timing.measure("sync-queue", () => loadOptionalDashboardSegment(
+        "dashboard/status",
+        "sync-queue",
+        () => getSyncQueueSummaryForUser(userId),
+        IDLE_SYNC_QUEUE_SUMMARY,
+      )),
+      timing.measure("site-notices", () => loadOptionalDashboardSegment(
+        "dashboard/status",
+        "site-notices",
+        () => listSiteNotices(undefined, false),
+        [],
+      )),
+      timing.measure("jobs", () => loadOptionalDashboardSegment(
+        "dashboard/status",
+        "jobs",
+        () => listJobsForUser(userId, jobsLimit),
+        [],
+      )),
+      timing.measure("cyber-campus", () => loadOptionalDashboardSegment(
+        "dashboard/status",
+        "cyber-campus",
+        () => getCyberCampusApprovalState(userId),
+        EMPTY_CYBER_CAMPUS_APPROVAL_STATE,
+      )),
+      timing.measure("provider-sync-queue", () => loadOptionalDashboardSegment(
+        "dashboard/status",
+        "provider-sync-queue",
+        async () => ({
+          CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
+          CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
+        }),
+        {
+          CU12: IDLE_SYNC_QUEUE_SUMMARY,
+          CYBER_CAMPUS: IDLE_SYNC_QUEUE_SUMMARY,
+        },
+      )),
     ]);
     const summary = combineDashboardSummaries(providerSummaries);
 
@@ -56,6 +94,6 @@ export async function GET(request: NextRequest) {
     }), timing);
   } catch (error) {
     console.error("[dashboard/status] failed", error);
-    return jsonError("대시보드 상태를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.", 503, "DASHBOARD_STATUS_FAILED");
+    return jsonError("Dashboard status failed. Please refresh and try again.", 503, "DASHBOARD_STATUS_FAILED");
   }
 }
