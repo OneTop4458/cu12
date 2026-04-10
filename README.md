@@ -130,6 +130,7 @@ sequenceDiagram
 ```
 
 If a stored Cyber Campus session still looks authenticated but yields an empty `todo_list` response, the worker retries task planning once with a fresh portal login. When AUTOLEARN was resumed from a completed Cyber Campus approval, the worker restores the approval-backed cookie state before entering lecture playback so the fresh planning login does not discard the approved session.
+Cyber Campus can serve the login form from `/ilos/main/main_form.acl` without changing the URL, so the worker now verifies authenticated content markers before trusting that landing page as a reusable portal session.
 Approval completion now re-checks the exact target lecture context before unblocking AUTOLEARN, and AUTOLEARN uses the same secondary-auth readiness signal as the approval worker instead of relying only on redirect heuristics.
 When approval completes with a runnable Cyber Campus queue item, the same worker run now claims that AUTOLEARN job and continues playback in the live Playwright session instead of closing the browser and handing off to a fresh worker run.
 If the approval worker discovers there are no runnable target tasks left, it now closes the blocked AUTOLEARN job as a no-op instead of reviving it as another stale `PENDING` job.
