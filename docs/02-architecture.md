@@ -43,14 +43,18 @@
    - session actor/effective context
    - cross-provider summary
    - overall and per-provider sync queue state
-   - site notices and maintenance notice
+   - dashboard-top site notices and maintenance notice
    - account automation settings
    - Cyber Campus portal/approval-session state
    - mail preferences
-2. Provider-specific dashboard endpoints such as notifications and messages can resolve provider from either:
+2. Public notice surfaces are filtered centrally:
+   - login page shows only `BROADCAST` notices targeted to `LOGIN` or `BOTH`
+   - dashboard top area shows `BROADCAST` notices targeted to `TOPBAR` or `BOTH`
+   - `MAINTENANCE` notices remain fixed to the dashboard top area
+3. Provider-specific dashboard endpoints such as notifications and messages can resolve provider from either:
    - explicit `?provider=CU12|CYBER_CAMPUS`
    - the user's currently selected provider context
-3. First-login users with no successful sync can auto-trigger a single SYNC request from the dashboard shell.
+4. First-login users with no successful sync can auto-trigger a single SYNC request from the dashboard shell.
 
 ## Queue, Dispatch, and Internal APIs
 

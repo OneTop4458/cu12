@@ -73,7 +73,9 @@
     - User-configured mail delivery preferences and immutable delivery history.
 
 19. `SiteNotice`
-    - Admin-managed public/internal notices shown on login and dashboard surfaces.
+    - Admin-managed notices shown on login and dashboard surfaces.
+    - `BROADCAST` notices include a persisted `displayTarget` (`LOGIN`, `TOPBAR`, `BOTH`).
+    - `MAINTENANCE` notices are persisted and normalized as dashboard-top-only notices.
 
 ## Data Boundaries
 

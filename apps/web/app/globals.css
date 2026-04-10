@@ -992,6 +992,61 @@ textarea:focus {
   text-decoration: underline;
 }
 
+.login-notice-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.login-notice-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--bg-soft) 72%, var(--surface));
+  overflow: hidden;
+}
+
+.login-notice-trigger {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+
+.login-notice-trigger:hover {
+  transform: none;
+  background: color-mix(in oklab, var(--primary-soft) 22%, var(--surface));
+}
+
+.login-notice-trigger-title {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-notice-trigger-meta {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.login-notice-body {
+  padding: 0 14px 14px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .brand-mark {
   margin-top: 20px;
   font-size: 0.9rem;
@@ -1096,9 +1151,7 @@ textarea:focus {
   justify-content: space-between;
 }
 
-.session-notice-card .topbar-notice-body,
-.session-notice-card .muted,
-.session-notice-card .error-text {
+.session-notice-card .topbar-notice-body {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
@@ -1110,15 +1163,12 @@ textarea:focus {
   word-break: break-word;
 }
 
-.session-notice-card.is-expanded .topbar-notice-body,
-.session-notice-card.is-expanded .muted,
-.session-notice-card.is-expanded .error-text {
+.session-notice-card.is-expanded .topbar-notice-body {
   max-height: 320px;
   opacity: 1;
   pointer-events: auto;
   margin-top: 2px;
   margin-bottom: 0;
-  white-space: normal;
 }
 
 .session-notice-card .topbar-notice-title {
@@ -1149,25 +1199,14 @@ textarea:focus {
   word-break: break-word;
 }
 
-.topbar-notice-summary {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--text);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.maintenance-notice-card .topbar-notice-summary {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.session-notice-card.is-collapsed .topbar-notice-subtitle {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.maintenance-notice-card.is-expanded .topbar-notice-summary {
-  -webkit-line-clamp: unset;
-  overflow: visible;
+.session-notice-card.is-expanded .topbar-notice-subtitle {
+  white-space: normal;
 }
 
 .topbar-notice-body {

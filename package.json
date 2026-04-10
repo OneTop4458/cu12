@@ -32,6 +32,7 @@
     "prisma:generate": "node scripts/prisma-cli.mjs generate",
     "prisma:migrate": "node scripts/prisma-cli.mjs migrate dev",
     "prisma:push": "node scripts/prisma-cli.mjs db push",
+    "site-notices:backfill-display-target": "node scripts/backfill-site-notice-display-target.mjs",
     "ai:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-start.ps1",
     "ai:worktree": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-worktree-create.ps1",
     "ai:ship": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-pr.ps1",

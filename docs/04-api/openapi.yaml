@@ -1405,6 +1405,8 @@ paths:
               properties:
                 type:
                   $ref: "#/components/schemas/SiteNoticeType"
+                displayTarget:
+                  $ref: "#/components/schemas/SiteNoticeDisplayTarget"
                 title:
                   type: string
                   minLength: 1
@@ -1465,6 +1467,8 @@ paths:
               properties:
                 type:
                   $ref: "#/components/schemas/SiteNoticeType"
+                displayTarget:
+                  $ref: "#/components/schemas/SiteNoticeDisplayTarget"
                 title:
                   type: string
                   minLength: 1
@@ -3998,6 +4002,10 @@ components:
       type: string
       enum: [BROADCAST, MAINTENANCE]
 
+    SiteNoticeDisplayTarget:
+      type: string
+      enum: [LOGIN, TOPBAR, BOTH]
+
     SiteNotice:
       type: object
       required:
@@ -4006,6 +4014,7 @@ components:
           title,
           message,
           type,
+          displayTarget,
           isActive,
           priority,
           visibleFrom,
@@ -4022,6 +4031,8 @@ components:
           type: string
         type:
           $ref: "#/components/schemas/SiteNoticeType"
+        displayTarget:
+          $ref: "#/components/schemas/SiteNoticeDisplayTarget"
         isActive:
           type: boolean
         priority:
@@ -4058,6 +4069,7 @@ components:
           title,
           message,
           type,
+          displayTarget,
           isActive,
           priority,
           visibleFrom,
@@ -4074,6 +4086,8 @@ components:
           type: string
         type:
           $ref: "#/components/schemas/SiteNoticeType"
+        displayTarget:
+          $ref: "#/components/schemas/SiteNoticeDisplayTarget"
         isActive:
           type: boolean
         priority:
