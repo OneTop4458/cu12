@@ -131,6 +131,7 @@ sequenceDiagram
 
 If a stored Cyber Campus session still looks authenticated but yields an empty `todo_list` response, the worker retries task planning once with a fresh portal login. When AUTOLEARN was resumed from a completed Cyber Campus approval, the worker restores the approval-backed cookie state before entering lecture playback so the fresh planning login does not discard the approved session.
 Approval completion now re-checks the exact target lecture context before unblocking AUTOLEARN, and AUTOLEARN uses the same secondary-auth readiness signal as the approval worker instead of relying only on redirect heuristics.
+When approval completes with a runnable Cyber Campus queue item, the same worker run now claims that AUTOLEARN job and continues playback in the live Playwright session instead of closing the browser and handing off to a fresh worker run.
 If the saved Cyber Campus session is missing, expired, or already marked invalid, AUTOLEARN also falls back to a fresh credential login instead of failing immediately with a session-required error.
 User-action failures such as `CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED` are left in `FAILED` instead of being blindly re-queued as a new `PENDING` AUTOLEARN job.
 

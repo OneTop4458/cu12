@@ -869,10 +869,13 @@ export async function runCyberCampusAutoLearning(
     cookieState?: CyberCampusCookieStateEntry[];
     requireVerifiedSession?: boolean;
     restoreCookieStateAfterPlanningRefresh?: CyberCampusCookieStateEntry[];
+    existingPage?: Page;
   },
 ): Promise<AutoLearnResult> {
-  const context = await browser.newContext(createBrowserContextOptions());
-  const page = await context.newPage();
+  const context = sessionOptions?.existingPage
+    ? null
+    : await browser.newContext(createBrowserContextOptions());
+  const page = sessionOptions?.existingPage ?? await context!.newPage();
   const shouldCancel = onCancelCheck ?? (async () => false);
   try {
     await ensureCyberCampusSession(page, creds, sessionOptions);
@@ -1048,6 +1051,8 @@ export async function runCyberCampusAutoLearning(
       planned,
     };
   } finally {
-    await context.close();
+    if (context) {
+      await context.close();
+    }
   }
 }
