@@ -33,6 +33,10 @@ interface DashboardClientProps {
   };
 }
 
+interface DashboardLoadOptions {
+  reportError?: boolean;
+}
+
 interface SessionContext {
   actor: { userId: string; email: string; role: "ADMIN" | "USER" };
   effective: { userId: string; email: string; role: "ADMIN" | "USER" };
@@ -797,6 +801,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const reportDashboardError = useCallback((err: unknown) => {
+    const fallbackMessage = "??쒕낫???곗씠?곕? 遺덈윭?ㅼ? 紐삵뻽?듬땲??";
+    const message = err instanceof Error ? err.message : fallbackMessage;
+    if (message === "Unauthorized") {
+      return;
+    }
+    setError(message);
+  }, []);
+
+
   const [context, setContext] = useState<SessionContext | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [providerSummaries, setProviderSummaries] = useState<Record<PortalProvider, Summary>>({
@@ -1131,7 +1145,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     });
   }, [loadNotificationHistory]);
 
-  const loadCourses = useCallback(async () => {
+  const loadCourses = useCallback(async (options?: DashboardLoadOptions) => {
     setCoursesLoading(true);
     try {
       const payloads = await Promise.all(
@@ -1161,13 +1175,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       );
       setLectureSeq((prev) => prev ?? nextCourses.find((course) => course.provider === autoLearnProvider)?.lectureSeq ?? null);
     } catch (err) {
-      setError((err as Error).message);
+      if (options?.reportError ?? true) {
+        reportDashboardError(err);
+      }
     } finally {
       setCoursesLoading(false);
     }
-  }, [autoLearnProvider, expandedCourseIds, fetchJson]);
+  }, [autoLearnProvider, expandedCourseIds, fetchJson, reportDashboardError]);
 
-  const loadDeadlines = useCallback(async (limit = 30) => {
+  const loadDeadlines = useCallback(async (limit = 30, options?: DashboardLoadOptions) => {
     setDeadlinesLoading(true);
     try {
       const payloads = await Promise.all(
@@ -1180,13 +1196,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         items: null,
       });
     } catch (err) {
-      setError((err as Error).message);
+      if (options?.reportError ?? true) {
+        reportDashboardError(err);
+      }
     } finally {
       setDeadlinesLoading(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, reportDashboardError]);
 
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(async (options?: DashboardLoadOptions) => {
     setNotificationsLoading(true);
     try {
       const payloads = await Promise.all(
@@ -1198,13 +1216,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         void loadNotificationHistory();
       }
     } catch (err) {
-      setError((err as Error).message);
+      if (options?.reportError ?? true) {
+        reportDashboardError(err);
+      }
     } finally {
       setNotificationsLoading(false);
     }
-  }, [fetchJson, notificationHistoryOpen, loadNotificationHistory]);
+  }, [fetchJson, notificationHistoryOpen, loadNotificationHistory, reportDashboardError]);
 
-  const loadMessages = useCallback(async () => {
+  const loadMessages = useCallback(async (options?: DashboardLoadOptions) => {
     setMessagesLoading(true);
     try {
       const payloads = await Promise.all(
@@ -1213,23 +1233,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       );
       setMessages(payloads.flatMap((payload) => payload.messages));
     } catch (err) {
-      setError((err as Error).message);
+      if (options?.reportError ?? true) {
+        reportDashboardError(err);
+      }
     } finally {
       setMessagesLoading(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, reportDashboardError]);
 
-  const loadJobs = useCallback(async () => {
+  const loadJobs = useCallback(async (options?: DashboardLoadOptions) => {
     setJobsLoading(true);
     try {
       const payload = await fetchJson<{ jobs: Job[] }>("/api/jobs?limit=20");
       setJobs(payload.jobs);
     } catch (err) {
-      setError((err as Error).message);
+      if (options?.reportError ?? true) {
+        reportDashboardError(err);
+      }
     } finally {
       setJobsLoading(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, reportDashboardError]);
 
   const loadCourseDetail = useCallback(async (lectureSeqValue: number, provider: PortalProvider) => {
     const courseKey = getCourseKey(provider, lectureSeqValue);
@@ -1264,12 +1288,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [fetchJson]);
 
   const refreshCollections = useCallback(async () => {
-    await Promise.all([
-      loadCourses(),
-      loadDeadlines(30),
-      loadNotifications(),
-      loadMessages(),
-      loadJobs(),
+    await Promise.allSettled([
+      loadCourses({ reportError: false }),
+      loadDeadlines(30, { reportError: false }),
+      loadNotifications({ reportError: false }),
+      loadMessages({ reportError: false }),
+      loadJobs({ reportError: false }),
     ]);
   }, [loadCourses, loadDeadlines, loadNotifications, loadMessages, loadJobs]);
 
@@ -1296,15 +1320,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         approval: null,
       });
     } catch (err) {
-      if ((err as Error).message !== "Unauthorized") {
-        setError((err as Error).message);
+      if (!silent) {
+        reportDashboardError(err);
       }
     } finally {
       if (silent) {
         setRefreshing(false);
       }
     }
-  }, [fetchJson]);
+  }, [fetchJson, reportDashboardError]);
 
   const refreshAll = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -2938,4 +2962,3 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     </>
   );
 }
-

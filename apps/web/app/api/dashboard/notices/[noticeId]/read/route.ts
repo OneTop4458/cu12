@@ -8,26 +8,31 @@ interface Params {
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const context = await requireAuthContext(request);
-  if (!context) return jsonError("Unauthorized", 401);
+  try {
+    const context = await requireAuthContext(request);
+    if (!context) return jsonError("Unauthorized", 401);
 
-  const { noticeId } = await params;
-  const provider = await resolveRequestPortalProvider(request, context.effective.userId);
-  const updated = await prisma.courseNotice.updateMany({
-    where: {
-      id: noticeId,
-      userId: context.effective.userId,
-      provider,
-    },
-    data: {
-      isRead: true,
-      updatedAt: new Date(),
-    },
-  });
+    const { noticeId } = await params;
+    const provider = await resolveRequestPortalProvider(request, context.effective.userId);
+    const updated = await prisma.courseNotice.updateMany({
+      where: {
+        id: noticeId,
+        userId: context.effective.userId,
+        provider,
+      },
+      data: {
+        isRead: true,
+        updatedAt: new Date(),
+      },
+    });
 
-  if (updated.count === 0) {
-    return jsonError("Notice not found", 404);
+    if (updated.count === 0) {
+      return jsonError("Notice not found", 404);
+    }
+
+    return jsonOk({ updated: true });
+  } catch (error) {
+    console.error("[dashboard/notice-read] failed", error);
+    return jsonError("Failed to update notice state.", 503, "DASHBOARD_NOTICE_READ_FAILED");
   }
-
-  return jsonOk({ updated: true });
 }

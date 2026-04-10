@@ -11,29 +11,34 @@ function parsePositiveInt(value: string | null): number | null {
 }
 
 export async function GET(request: NextRequest) {
-  const context = await requireAuthContext(request);
-  if (!context) return jsonError("Unauthorized", 401);
+  try {
+    const context = await requireAuthContext(request);
+    if (!context) return jsonError("Unauthorized", 401);
 
-  const url = new URL(request.url);
-  const lectureSeqRaw = url.searchParams.get("lectureSeq");
-  const sampleLimitRaw = url.searchParams.get("sampleLimit");
+    const url = new URL(request.url);
+    const lectureSeqRaw = url.searchParams.get("lectureSeq");
+    const sampleLimitRaw = url.searchParams.get("sampleLimit");
 
-  const lectureSeq = parsePositiveInt(lectureSeqRaw);
-  if (lectureSeqRaw !== null && lectureSeq === null) {
-    return jsonError("Invalid lectureSeq", 400);
+    const lectureSeq = parsePositiveInt(lectureSeqRaw);
+    if (lectureSeqRaw !== null && lectureSeq === null) {
+      return jsonError("Invalid lectureSeq", 400);
+    }
+
+    const sampleLimitParsed = parsePositiveInt(sampleLimitRaw);
+    if (sampleLimitRaw !== null && sampleLimitParsed === null) {
+      return jsonError("Invalid sampleLimit", 400);
+    }
+    const provider = await resolveRequestPortalProvider(request, context.effective.userId);
+
+    const diagnostics = await getDashboardDiagnostics(context.effective.userId, provider, {
+      lectureSeq: lectureSeq ?? undefined,
+      sampleLimit: sampleLimitParsed ?? 20,
+    });
+
+    return jsonOk({ diagnostics });
+  } catch (error) {
+    console.error("[dashboard/diagnostics] failed", error);
+    return jsonError("Dashboard diagnostics failed. Please refresh and try again.", 503, "DASHBOARD_DIAGNOSTICS_FAILED");
   }
-
-  const sampleLimitParsed = parsePositiveInt(sampleLimitRaw);
-  if (sampleLimitRaw !== null && sampleLimitParsed === null) {
-    return jsonError("Invalid sampleLimit", 400);
-  }
-  const provider = await resolveRequestPortalProvider(request, context.effective.userId);
-
-  const diagnostics = await getDashboardDiagnostics(context.effective.userId, provider, {
-    lectureSeq: lectureSeq ?? undefined,
-    sampleLimit: sampleLimitParsed ?? 20,
-  });
-
-  return jsonOk({ diagnostics });
 }
 

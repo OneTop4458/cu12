@@ -8,26 +8,31 @@ interface Params {
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const context = await requireAuthContext(request);
-  if (!context) return jsonError("Unauthorized", 401);
+  try {
+    const context = await requireAuthContext(request);
+    if (!context) return jsonError("Unauthorized", 401);
 
-  const { notificationId } = await params;
-  const provider = await resolveRequestPortalProvider(request, context.effective.userId);
-  const updated = await prisma.notificationEvent.updateMany({
-    where: {
-      id: notificationId,
-      userId: context.effective.userId,
-      provider,
-    },
-    data: {
-      isUnread: false,
-      updatedAt: new Date(),
-    },
-  });
+    const { notificationId } = await params;
+    const provider = await resolveRequestPortalProvider(request, context.effective.userId);
+    const updated = await prisma.notificationEvent.updateMany({
+      where: {
+        id: notificationId,
+        userId: context.effective.userId,
+        provider,
+      },
+      data: {
+        isUnread: false,
+        updatedAt: new Date(),
+      },
+    });
 
-  if (updated.count === 0) {
-    return jsonError("Notification not found", 404);
+    if (updated.count === 0) {
+      return jsonError("Notification not found", 404);
+    }
+
+    return jsonOk({ updated: true });
+  } catch (error) {
+    console.error("[dashboard/notification-read] failed", error);
+    return jsonError("Failed to update notification state.", 503, "DASHBOARD_NOTIFICATION_READ_FAILED");
   }
-
-  return jsonOk({ updated: true });
 }
