@@ -1,0 +1,23 @@
+{
+  "isError": false,
+  "message": "성공적으로 처리되었습니다.",
+  "messageCode": "S_PROCESS",
+  "IS_ENABLE_APP": "Y",
+  "IS_ENABLE_EMAIL": "Y",
+  "IS_ENABLE_SMS": "N",
+  "IS_ENABLE_PUSH": "N",
+  "IS_ENABLE_APP2": "N",
+  "USER_ID": "202300001",
+  "USER_NAME": "홍길동",
+  "USER_EMAIL": "student@example.com",
+  "USER_PHONE": "01012345678",
+  "USER_DEVICE_CNT": "1",
+  "USER_DEVICE_LIST": [
+    {
+      "DEVICE_ID": "DEVICE-1234",
+      "DEVICE_MODEL": "iPhone 15 Pro_iOS 18.0",
+      "OS_DIV": "iOS",
+      "LAST_DTM": "2026.04.10 오전 12:01:16"
+    }
+  ]
+}

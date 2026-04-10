@@ -8,7 +8,7 @@ import type {
 } from "@cu12/core";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
-import { decryptSecret } from "./secret";
+import { decryptSecret, encryptSecret } from "./secret";
 
 function toDate(value: string | null): Date | null {
   if (!value) return null;
@@ -483,6 +483,16 @@ export interface PortalSessionCookieState {
   value: string;
 }
 
+export interface PortalApprovalSecondaryAuthMethod {
+  way: number;
+  param: string;
+  target: string;
+  label: string;
+  requiresCode: boolean;
+}
+
+export type PortalApprovalRequestedAction = "BOOTSTRAP" | "START" | "CONFIRM";
+
 function decodePortalSessionCookieState(payload: string): PortalSessionCookieState[] {
   try {
     const raw = JSON.parse(decryptSecret(payload)) as unknown;
@@ -499,6 +509,43 @@ function decodePortalSessionCookieState(payload: string): PortalSessionCookieSta
   } catch {
     return [];
   }
+}
+
+function encodePortalSessionCookieState(payload: PortalSessionCookieState[]): string {
+  return encryptSecret(JSON.stringify(payload));
+}
+
+function decodePortalApprovalMethods(payload: Prisma.JsonValue | null | undefined): PortalApprovalSecondaryAuthMethod[] {
+  if (!Array.isArray(payload)) return [];
+
+  return payload
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const way = (item as { way?: unknown }).way;
+      const param = (item as { param?: unknown }).param;
+      const target = (item as { target?: unknown }).target;
+      const label = (item as { label?: unknown }).label;
+      const requiresCode = (item as { requiresCode?: unknown }).requiresCode;
+      if (typeof way !== "number" || !Number.isFinite(way)) return null;
+      if (typeof param !== "string" || typeof target !== "string") return null;
+      if (typeof label !== "string" || typeof requiresCode !== "boolean") return null;
+      return { way, param, target, label, requiresCode };
+    })
+    .filter((item): item is PortalApprovalSecondaryAuthMethod => item !== null);
+}
+
+function decodePortalApprovalPendingCode(payload: string | null | undefined): string | null {
+  if (!payload) return null;
+  try {
+    return decryptSecret(payload);
+  } catch {
+    return null;
+  }
+}
+
+function encodePortalApprovalPendingCode(payload: string | null): string | null {
+  if (!payload) return null;
+  return encryptSecret(payload);
 }
 
 export async function getPortalSessionCookieState(userId: string, provider: PortalProvider) {
@@ -532,6 +579,147 @@ export async function invalidatePortalSession(userId: string, provider: PortalPr
     data: {
       status: "INVALID",
       updatedAt: new Date(),
+    },
+  });
+}
+
+export async function upsertPortalSessionCookieState(input: {
+  userId: string;
+  provider: PortalProvider;
+  cookieState: PortalSessionCookieState[];
+  expiresAt?: Date | null;
+  status?: "ACTIVE" | "EXPIRED" | "INVALID";
+}) {
+  return prisma.portalSession.upsert({
+    where: {
+      userId_provider: {
+        userId: input.userId,
+        provider: input.provider,
+      },
+    },
+    update: {
+      encryptedCookieState: encodePortalSessionCookieState(input.cookieState),
+      expiresAt: input.expiresAt ?? null,
+      status: input.status ?? "ACTIVE",
+      lastVerifiedAt: new Date(),
+      updatedAt: new Date(),
+    },
+    create: {
+      userId: input.userId,
+      provider: input.provider,
+      encryptedCookieState: encodePortalSessionCookieState(input.cookieState),
+      expiresAt: input.expiresAt ?? null,
+      status: input.status ?? "ACTIVE",
+      lastVerifiedAt: new Date(),
+    },
+  });
+}
+
+export async function getPortalApprovalSessionState(approvalId: string) {
+  const row = await prisma.portalApprovalSession.findUnique({
+    where: { id: approvalId },
+  });
+  if (!row) return null;
+
+  return {
+    ...row,
+    requestedAction: row.requestedAction as PortalApprovalRequestedAction | null,
+    cookieState: decodePortalSessionCookieState(row.encryptedCookieState),
+    methods: decodePortalApprovalMethods(row.methods),
+    pendingCode: decodePortalApprovalPendingCode(row.encryptedPendingCode),
+  };
+}
+
+export async function updatePortalApprovalSessionStateForWorker(input: {
+  approvalId: string;
+  userId?: string;
+  cookieState?: PortalSessionCookieState[];
+  status?: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  methods?: PortalApprovalSecondaryAuthMethod[];
+  requestedAction?: PortalApprovalRequestedAction | null;
+  pendingCode?: string | null;
+  selectedWay?: number | null;
+  selectedParam?: string | null;
+  selectedTarget?: string | null;
+  authSeq?: string | null;
+  requestCode?: string | null;
+  displayCode?: string | null;
+  errorMessage?: string | null;
+  expiresAt?: Date;
+  completedAt?: Date | null;
+  canceledAt?: Date | null;
+}) {
+  return prisma.portalApprovalSession.updateMany({
+    where: {
+      id: input.approvalId,
+      ...(input.userId ? { userId: input.userId } : {}),
+    },
+    data: {
+      ...(input.cookieState ? { encryptedCookieState: encodePortalSessionCookieState(input.cookieState) } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.methods !== undefined ? { methods: input.methods as unknown as Prisma.InputJsonValue } : {}),
+      ...(input.requestedAction !== undefined ? { requestedAction: input.requestedAction } : {}),
+      ...(input.pendingCode !== undefined ? { encryptedPendingCode: encodePortalApprovalPendingCode(input.pendingCode) } : {}),
+      ...(input.selectedWay !== undefined ? { selectedWay: input.selectedWay } : {}),
+      ...(input.selectedParam !== undefined ? { selectedParam: input.selectedParam } : {}),
+      ...(input.selectedTarget !== undefined ? { selectedTarget: input.selectedTarget } : {}),
+      ...(input.authSeq !== undefined ? { authSeq: input.authSeq } : {}),
+      ...(input.requestCode !== undefined ? { requestCode: input.requestCode } : {}),
+      ...(input.displayCode !== undefined ? { displayCode: input.displayCode } : {}),
+      ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
+      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+      ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+      ...(input.canceledAt !== undefined ? { canceledAt: input.canceledAt } : {}),
+      updatedAt: new Date(),
+    },
+  });
+}
+
+export async function reactivateBlockedAutoLearnJob(jobId: string, userId: string) {
+  await prisma.jobQueue.updateMany({
+    where: {
+      id: jobId,
+      userId,
+      status: "BLOCKED",
+    },
+    data: {
+      status: "PENDING",
+      runAfter: new Date(),
+      lastError: null,
+      finishedAt: null,
+      startedAt: null,
+      workerId: null,
+      result: Prisma.DbNull,
+    },
+  });
+}
+
+export async function failBlockedAutoLearnJob(jobId: string, userId: string, reason: string) {
+  await prisma.jobQueue.updateMany({
+    where: {
+      id: jobId,
+      userId,
+      status: "BLOCKED",
+    },
+    data: {
+      status: "FAILED",
+      finishedAt: new Date(),
+      lastError: reason,
+    },
+  });
+}
+
+export async function cancelBlockedAutoLearnJob(jobId: string, userId: string, reason: string) {
+  await prisma.jobQueue.updateMany({
+    where: {
+      id: jobId,
+      userId,
+      status: "BLOCKED",
+    },
+    data: {
+      status: "CANCELED",
+      finishedAt: new Date(),
+      lastError: reason,
     },
   });
 }

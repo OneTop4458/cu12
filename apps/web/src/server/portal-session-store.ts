@@ -3,6 +3,8 @@ import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/prisma";
 import type { CookieStateEntry, SecondaryAuthMethod } from "@/server/cyber-campus-session";
 
+export type PortalApprovalRequestedAction = "BOOTSTRAP" | "START" | "CONFIRM";
+
 function encodeCookieState(cookieState: CookieStateEntry[]): string {
   return encryptSecret(JSON.stringify(cookieState));
 }
@@ -22,6 +24,20 @@ function decodeCookieState(payload: string): CookieStateEntry[] {
       .filter((item): item is CookieStateEntry => item !== null);
   } catch {
     return [];
+  }
+}
+
+function encodePendingCode(value: string | null): string | null {
+  if (!value) return null;
+  return encryptSecret(value);
+}
+
+function decodePendingCode(payload: string | null | undefined): string | null {
+  if (!payload) return null;
+  try {
+    return decryptSecret(payload);
+  } catch {
+    return null;
   }
 }
 
@@ -98,6 +114,8 @@ export async function findActivePortalApprovalSession(userId: string, provider: 
     ...row,
     cookieState: decodeCookieState(row.encryptedCookieState),
     methods: Array.isArray(row.methods) ? row.methods as unknown as SecondaryAuthMethod[] : [],
+    requestedAction: row.requestedAction as PortalApprovalRequestedAction | null,
+    pendingCode: decodePendingCode(row.encryptedPendingCode),
   };
 }
 
@@ -110,6 +128,8 @@ export async function getPortalApprovalSession(id: string, userId: string) {
     ...row,
     cookieState: decodeCookieState(row.encryptedCookieState),
     methods: Array.isArray(row.methods) ? row.methods as unknown as SecondaryAuthMethod[] : [],
+    requestedAction: row.requestedAction as PortalApprovalRequestedAction | null,
+    pendingCode: decodePendingCode(row.encryptedPendingCode),
   };
 }
 
@@ -118,8 +138,9 @@ export async function createPortalApprovalSession(input: {
   provider: PortalProvider;
   jobId: string;
   cookieState: CookieStateEntry[];
-  methods: SecondaryAuthMethod[];
+  methods?: SecondaryAuthMethod[];
   expiresAt: Date;
+  requestedAction?: PortalApprovalRequestedAction | null;
 }) {
   return prisma.portalApprovalSession.create({
     data: {
@@ -127,9 +148,10 @@ export async function createPortalApprovalSession(input: {
       provider: input.provider,
       jobId: input.jobId,
       encryptedCookieState: encodeCookieState(input.cookieState),
-      methods: input.methods as unknown as object,
+      methods: (input.methods ?? []) as unknown as object,
       expiresAt: input.expiresAt,
       status: "PENDING",
+      requestedAction: input.requestedAction ?? null,
     },
   });
 }
@@ -139,6 +161,9 @@ export async function updatePortalApprovalSessionState(input: {
   userId: string;
   cookieState?: CookieStateEntry[];
   status?: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  methods?: SecondaryAuthMethod[];
+  requestedAction?: PortalApprovalRequestedAction | null;
+  pendingCode?: string | null;
   selectedWay?: number | null;
   selectedParam?: string | null;
   selectedTarget?: string | null;
@@ -155,6 +180,9 @@ export async function updatePortalApprovalSessionState(input: {
     data: {
       ...(input.cookieState ? { encryptedCookieState: encodeCookieState(input.cookieState) } : {}),
       ...(input.status ? { status: input.status } : {}),
+      ...(input.methods !== undefined ? { methods: input.methods as unknown as object } : {}),
+      ...(input.requestedAction !== undefined ? { requestedAction: input.requestedAction } : {}),
+      ...(input.pendingCode !== undefined ? { encryptedPendingCode: encodePendingCode(input.pendingCode) } : {}),
       ...(input.selectedWay !== undefined ? { selectedWay: input.selectedWay } : {}),
       ...(input.selectedParam !== undefined ? { selectedParam: input.selectedParam } : {}),
       ...(input.selectedTarget !== undefined ? { selectedTarget: input.selectedTarget } : {}),

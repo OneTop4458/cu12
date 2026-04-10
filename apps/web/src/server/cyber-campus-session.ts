@@ -1,3 +1,7 @@
+import {
+  parseCyberCampusSecondaryAuthMethods,
+  type CyberCampusSecondaryAuthMethod,
+} from "@cu12/core";
 import { getEnv } from "@/lib/env";
 
 export interface CyberCampusCredentials {
@@ -10,13 +14,7 @@ export interface CookieStateEntry {
   value: string;
 }
 
-export interface SecondaryAuthMethod {
-  way: number;
-  param: string;
-  target: string;
-  label: string;
-  requiresCode: boolean;
-}
+export type SecondaryAuthMethod = CyberCampusSecondaryAuthMethod;
 
 interface HttpTextResponse {
   status: number;
@@ -76,77 +74,6 @@ function looksAuthenticated(html: string, responseUrl: string): boolean {
   return /\/ilos\/lo\/logout\.acl/i.test(html)
     || /popTodo\(/i.test(html)
     || /received_list_pop_form\.acl/i.test(html);
-}
-
-function parseSecondaryAuthMethods(data: SecondaryAuthJsonResponse): SecondaryAuthMethod[] {
-  const methods: SecondaryAuthMethod[] = [];
-
-  const userDeviceList = Array.isArray(data.USER_DEVICE_LIST) ? data.USER_DEVICE_LIST as Array<Record<string, unknown>> : [];
-  if (data.IS_ENABLE_APP === "Y") {
-    for (const device of userDeviceList) {
-      const deviceId = String(device.DEVICE_ID ?? "").trim();
-      const deviceLabel = String(device.DEVICE_MODEL ?? "").trim();
-      if (!deviceId || !deviceLabel) continue;
-      methods.push({
-        way: 1,
-        param: deviceId,
-        target: deviceLabel,
-        label: `HelloLMS 앱 코드 인증: ${deviceLabel}`,
-        requiresCode: true,
-      });
-    }
-  }
-
-  if (data.IS_ENABLE_APP2 === "Y") {
-    for (const device of userDeviceList) {
-      const deviceId = String(device.DEVICE_ID ?? "").trim();
-      const deviceLabel = String(device.DEVICE_MODEL ?? "").trim();
-      if (!deviceId || !deviceLabel) continue;
-      methods.push({
-        way: 5,
-        param: deviceId,
-        target: deviceLabel,
-        label: `HelloLMS 앱 승인: ${deviceLabel}`,
-        requiresCode: false,
-      });
-    }
-  }
-
-  const userEmail = String(data.USER_EMAIL ?? "").trim();
-  if (data.IS_ENABLE_EMAIL === "Y" && userEmail) {
-    methods.push({
-      way: 2,
-      param: userEmail,
-      target: userEmail,
-      label: `이메일 인증: ${userEmail}`,
-      requiresCode: true,
-    });
-  }
-
-  const userPhone = String(data.USER_PHONE ?? "").trim();
-  if (data.IS_ENABLE_SMS === "Y" && userPhone) {
-    methods.push({
-      way: 3,
-      param: userPhone,
-      target: userPhone,
-      label: `SMS 인증: ${userPhone}`,
-      requiresCode: true,
-    });
-  }
-
-  const userId = String(data.USER_ID ?? "").trim();
-  const userName = String(data.USER_NAME ?? "").trim() || "사용자";
-  if (data.IS_ENABLE_PUSH === "Y" && userId) {
-    methods.push({
-      way: 4,
-      param: userId,
-      target: userName,
-      label: `앱 푸시 인증: ${userName}`,
-      requiresCode: true,
-    });
-  }
-
-  return methods;
 }
 
 function toExpiresAt(currentTime: unknown, expireTime: unknown): Date | null {
@@ -260,7 +187,7 @@ export class CyberCampusSessionClient {
     }
 
     return {
-      methods: parseSecondaryAuthMethods(data),
+      methods: parseCyberCampusSecondaryAuthMethods(data),
       userName: typeof data.USER_NAME === "string" ? data.USER_NAME : null,
       userEmail: typeof data.USER_EMAIL === "string" ? data.USER_EMAIL : null,
     };

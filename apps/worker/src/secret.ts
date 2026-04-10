@@ -1,4 +1,4 @@
-﻿import { createDecipheriv, createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { getEnv } from "./env";
 
 function deriveKey(): Buffer {
@@ -19,4 +19,18 @@ export function decryptSecret(payload: string): string {
   ]);
 
   return plain.toString("utf8");
+}
+
+export function encryptSecret(value: string): string {
+  const iv = randomBytes(12);
+  const key = deriveKey();
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return [
+    iv.toString("base64"),
+    tag.toString("base64"),
+    ciphertext.toString("base64"),
+  ].join(".");
 }

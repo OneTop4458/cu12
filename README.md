@@ -96,7 +96,7 @@ sequenceDiagram
   Worker->>API: Progress / finish / fail callbacks
 ```
 
-### Cyber Campus approval-required auto-learning
+### Cyber Campus conditional secondary-auth auto-learning
 
 ```mermaid
 sequenceDiagram
@@ -107,21 +107,25 @@ sequenceDiagram
   participant Worker as Worker runtime
 
   U->>API: POST /api/jobs/autolearn-request { provider: CYBER_CAMPUS }
-  API->>Cyber: Reuse or establish session
-  alt Reusable session available
-    API->>DB: Queue AUTOLEARN job
-    API->>Worker: Dispatch worker run
-    API-->>U: approvalRequired=false
-  else Secondary auth required
-    API->>DB: Create BLOCKED job + PortalApprovalSession
-    API-->>U: approvalRequired=true + methods
+  API->>DB: Create BLOCKED job + PortalApprovalSession
+  API->>Worker: Dispatch cyber-campus-approval
+  API-->>U: approvalRequired=false, status=BLOCKED
+  Worker->>Cyber: Reuse or establish browser session
+  Worker->>Cyber: Probe actual planned lecture/task contexts
+  alt No secondary auth required for current runnable tasks
+    Worker->>DB: Activate shared portal session + unblock AUTOLEARN
+    Worker->>Worker: Dispatch AUTOLEARN
+  else Secondary auth required for at least one target task
+    Worker->>DB: Persist available methods in PortalApprovalSession
+    API-->>U: Dashboard polling exposes cyberCampus.approval
     U->>API: POST /api/cyber-campus/approval/{id}/start
-    API->>Cyber: Start selected method
+    API->>DB: Save selected method + dispatch worker
+    Worker->>Cyber: Start selected method in browser context
     U->>API: POST /api/cyber-campus/approval/{id}/confirm
-    API->>Cyber: Confirm code / approval state
-    API->>DB: Mark approval completed, unblock job
-    API->>Worker: Dispatch worker run
-    API-->>U: state=COMPLETED
+    API->>DB: Save code (encrypted) + dispatch worker
+    Worker->>Cyber: Confirm code / approval state
+    Worker->>DB: Mark approval completed, unblock AUTOLEARN
+    Worker->>Worker: Dispatch AUTOLEARN
   end
 ```
 

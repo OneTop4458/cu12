@@ -1,42 +1,29 @@
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getCu12Credentials, markCu12Status } from "@/server/cu12-account";
-import { CyberCampusSessionClient, type SecondaryAuthMethod } from "@/server/cyber-campus-session";
+import { getCu12Credentials } from "@/server/cu12-account";
 import { dispatchWorkerRun, type WorkerDispatchResult } from "@/server/github-actions-dispatch";
 import {
   createPortalApprovalSession,
   findActivePortalApprovalSession,
   getPortalApprovalSession,
   getPortalSession,
-  markPortalSessionInvalid,
-  upsertPortalSession,
+  type PortalApprovalRequestedAction,
   updatePortalApprovalSessionState,
 } from "@/server/portal-session-store";
-import { enqueueJob } from "@/server/queue";
 
 const CYBER_CAMPUS_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CYBER_CAMPUS_APPROVAL_TTL_MS = 10 * 60 * 1000;
 const CYBER_CAMPUS_APPROVAL_ACTIVE_TTL_MS = 5 * 60 * 1000;
 
-function isMissingPortalSessionStoreError(error: unknown): boolean {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return error.code === "P2021" || error.code === "P2022";
-  }
-
-  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
-    return /(portalsession|portalapprovalsession)/i.test(error.message);
-  }
-
-  if (error instanceof Error) {
-    return /(portalsession|portalapprovalsession)/i.test(error.message)
-      && /(table|column|does not exist|unknown)/i.test(error.message);
-  }
-
-  return false;
-}
-
 type ApprovalSessionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
 type PortalSessionStatus = "ACTIVE" | "EXPIRED" | "INVALID";
+type SecondaryAuthMethod = {
+  way: number;
+  param: string;
+  target: string;
+  label: string;
+  requiresCode: boolean;
+};
 
 interface CyberCampusApprovalRow {
   id: string;
@@ -91,7 +78,18 @@ export type RequestCyberCampusAutoLearnResult =
   | {
     kind: "QUEUED";
     jobId: string;
-    status: "PENDING";
+    status: "PENDING" | "RUNNING";
+    deduplicated: boolean;
+    dispatched: boolean;
+    dispatchState: WorkerDispatchResult["state"];
+    dispatchError?: string;
+    dispatchErrorCode?: string | null;
+    notice: string;
+  }
+  | {
+    kind: "APPROVAL_PENDING";
+    jobId: string;
+    status: "BLOCKED";
     deduplicated: boolean;
     dispatched: boolean;
     dispatchState: WorkerDispatchResult["state"];
@@ -116,8 +114,24 @@ export type ConfirmCyberCampusApprovalResult =
     state: "COMPLETED";
     approval: CyberCampusApprovalSummary;
     jobId: string;
-    dispatch: WorkerDispatchResult;
   };
+
+function isMissingPortalSessionStoreError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2021" || error.code === "P2022";
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return /(portalsession|portalapprovalsession)/i.test(error.message);
+  }
+
+  if (error instanceof Error) {
+    return /(portalsession|portalapprovalsession)/i.test(error.message)
+      && /(table|column|does not exist|unknown)/i.test(error.message);
+  }
+
+  return false;
+}
 
 function buildSessionExpiry(now = new Date()): Date {
   return new Date(now.getTime() + CYBER_CAMPUS_SESSION_TTL_MS);
@@ -125,6 +139,28 @@ function buildSessionExpiry(now = new Date()): Date {
 
 function buildApprovalExpiry(now = new Date(), active = false): Date {
   return new Date(now.getTime() + (active ? CYBER_CAMPUS_APPROVAL_ACTIVE_TTL_MS : CYBER_CAMPUS_APPROVAL_TTL_MS));
+}
+
+function buildApprovalDispatchNotice(dispatched: boolean): string {
+  if (dispatched) {
+    return "사이버캠퍼스 자동 수강 요청을 접수했고, worker가 강의별 인증 필요 여부를 확인 중입니다.";
+  }
+  return "사이버캠퍼스 자동 수강 요청을 접수했습니다. 인증 필요 여부 확인이 다소 지연되고 있으니 잠시 후 다시 확인해 주세요.";
+}
+
+function buildQueuedNotice(deduplicated: boolean, dispatched: boolean): string {
+  if (deduplicated) {
+    return "같은 조건의 사이버캠퍼스 자동 수강 요청이 이미 있어 현재 작업이 끝난 뒤 이어서 진행됩니다.";
+  }
+  if (dispatched) {
+    return "사이버캠퍼스 자동 수강 요청을 접수했습니다.";
+  }
+  return "사이버캠퍼스 자동 수강 요청을 접수했지만 worker 실행이 지연되고 있습니다.";
+}
+
+function buildAutoLearnIdempotencyKey(input: RequestCyberCampusAutoLearnInput): string {
+  const lecturePart = typeof input.lectureSeq === "number" ? String(input.lectureSeq) : "all";
+  return `autolearn:${input.userId}:CYBER_CAMPUS:${input.mode}:${lecturePart}`;
 }
 
 function serializePortalSession(row: {
@@ -202,6 +238,8 @@ async function expireApprovalIfNeeded(row: {
     id: row.id,
     userId: row.userId,
     status: "EXPIRED",
+    requestedAction: null,
+    pendingCode: null,
   });
   await expireBlockedJob(row.jobId, "SECONDARY_AUTH_TIMEOUT");
   return true;
@@ -234,6 +272,8 @@ async function resolveActiveApproval(userId: string): Promise<CyberCampusApprova
       status: "CANCELED",
       canceledAt: new Date(),
       errorMessage: "승인 세션에 연결된 자동 수강 작업을 찾을 수 없습니다.",
+      requestedAction: null,
+      pendingCode: null,
     });
     return null;
   }
@@ -255,58 +295,67 @@ async function resolveActiveApproval(userId: string): Promise<CyberCampusApprova
   };
 }
 
-async function validateReusablePortalSession(userId: string): Promise<boolean> {
-  const row = await getPortalSession(userId, "CYBER_CAMPUS");
-  if (!row) return false;
-
-  if (row.status !== "ACTIVE") {
-    return false;
-  }
-
-  if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) {
-    await markPortalSessionInvalid(userId, "CYBER_CAMPUS");
-    return false;
-  }
-
-  const client = new CyberCampusSessionClient({ cookieState: row.cookieState });
-  if (!(await client.isAuthenticated())) {
-    await markPortalSessionInvalid(userId, "CYBER_CAMPUS");
-    return false;
-  }
-
-  const secondary = await client.checkSecondaryAuth();
-  if (!secondary.ready) {
-    await markPortalSessionInvalid(userId, "CYBER_CAMPUS");
-    return false;
-  }
-
-  await upsertPortalSession({
-    userId,
-    provider: "CYBER_CAMPUS",
-    cookieState: client.exportCookieState(),
-    expiresAt: buildSessionExpiry(),
-    status: "ACTIVE",
+async function findQueuedAutoLearnJob(input: RequestCyberCampusAutoLearnInput) {
+  return prisma.jobQueue.findFirst({
+    where: {
+      userId: input.userId,
+      type: JobType.AUTOLEARN,
+      idempotencyKey: buildAutoLearnIdempotencyKey(input),
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+    },
+    orderBy: { createdAt: "desc" },
   });
-  return true;
 }
 
-async function queueCyberCampusAutoLearnJob(input: RequestCyberCampusAutoLearnInput) {
-  const lecturePart = typeof input.lectureSeq === "number" ? String(input.lectureSeq) : "all";
-  const { job, deduplicated } = await enqueueJob({
-    userId: input.userId,
-    type: JobType.AUTOLEARN,
-    payload: {
+async function createBlockedAutoLearnJob(input: RequestCyberCampusAutoLearnInput) {
+  return prisma.jobQueue.create({
+    data: {
       userId: input.userId,
-      provider: "CYBER_CAMPUS",
-      lectureSeq: input.lectureSeq,
-      autoLearnMode: input.mode,
-      reason: input.reason ?? "manual_request",
+      type: JobType.AUTOLEARN,
+      status: JobStatus.BLOCKED,
+      idempotencyKey: buildAutoLearnIdempotencyKey(input),
+      payload: {
+        userId: input.userId,
+        provider: "CYBER_CAMPUS",
+        lectureSeq: input.lectureSeq,
+        autoLearnMode: input.mode,
+        reason: input.reason ?? "manual_request",
+      },
+      runAfter: new Date(),
+      lastError: "CYBER_CAMPUS_APPROVAL_CHECK_PENDING",
     },
-    idempotencyKey: `autolearn:${input.userId}:CYBER_CAMPUS:${input.mode}:${lecturePart}`,
   });
+}
 
-  const dispatch = await dispatchWorkerRun("autolearn", input.userId);
-  return { job, deduplicated, dispatch };
+async function dispatchCyberCampusApproval(approvalId: string): Promise<WorkerDispatchResult> {
+  return dispatchWorkerRun("cyber-campus-approval", undefined, undefined, approvalId);
+}
+
+async function updateApprovalAction(input: {
+  id: string;
+  userId: string;
+  action: PortalApprovalRequestedAction;
+  pendingCode?: string | null;
+  selectedMethod?: SecondaryAuthMethod | null;
+  expiresAt: Date;
+}) {
+  await updatePortalApprovalSessionState({
+    id: input.id,
+    userId: input.userId,
+    status: "PENDING",
+    requestedAction: input.action,
+    pendingCode: input.pendingCode ?? null,
+    selectedWay: input.selectedMethod?.way ?? null,
+    selectedParam: input.selectedMethod?.param ?? null,
+    selectedTarget: input.selectedMethod?.target ?? null,
+    authSeq: input.action === "START" ? null : undefined,
+    requestCode: input.action === "START" ? null : undefined,
+    displayCode: input.action === "START" ? null : undefined,
+    errorMessage: null,
+    completedAt: null,
+    canceledAt: null,
+    expiresAt: input.expiresAt,
+  });
 }
 
 export async function getCyberCampusApprovalState(userId: string): Promise<CyberCampusApprovalState> {
@@ -346,114 +395,49 @@ export async function requestCyberCampusAutoLearn(
       jobId: activeApproval.jobId,
       status: "BLOCKED",
       approval: serializeApproval(activeApproval)!,
-      notice: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15\uC740 2\uCC28 \uC778\uC99D\uC774 \uC644\uB8CC\uB420 \uB54C\uAE4C\uC9C0 \uB300\uAE30 \uC911\uC785\uB2C8\uB2E4.",
+      notice: "사이버캠퍼스 자동 수강은 필요한 인증이 완료될 때까지 대기 중입니다.",
     };
   }
 
-  if (await validateReusablePortalSession(input.userId)) {
-    const queued = await queueCyberCampusAutoLearnJob(input);
+  const existingJob = await findQueuedAutoLearnJob(input);
+  if (existingJob) {
+    const dispatch = await dispatchWorkerRun("autolearn", input.userId);
     return {
       kind: "QUEUED",
-      jobId: queued.job.id,
-      status: "PENDING",
-      deduplicated: queued.deduplicated,
-      dispatched: queued.dispatch.dispatched,
-      dispatchState: queued.dispatch.state,
-      dispatchError: queued.dispatch.error,
-      dispatchErrorCode: queued.dispatch.errorCode,
-      notice: queued.deduplicated
-        ? "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC774 \uC774\uBBF8 \uC788\uC5B4 \uD604\uC7AC \uC791\uC5C5 \uB4A4\uC5D0 \uC774\uC5B4\uC11C \uC9C4\uD589\uB429\uB2C8\uB2E4."
-        : "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC744 \uC811\uC218\uD588\uC2B5\uB2C8\uB2E4.",
+      jobId: existingJob.id,
+      status: existingJob.status === JobStatus.RUNNING ? "RUNNING" : "PENDING",
+      deduplicated: true,
+      dispatched: dispatch.dispatched,
+      dispatchState: dispatch.state,
+      dispatchError: dispatch.error,
+      dispatchErrorCode: dispatch.errorCode,
+      notice: buildQueuedNotice(true, dispatch.dispatched),
     };
   }
 
-  const creds = await resolveCyberCampusCredentials(input.userId);
-  const client = new CyberCampusSessionClient();
-  const authenticated = await client.ensureAuthenticated({
-    cu12Id: creds.cu12Id,
-    cu12Password: creds.cu12Password,
-  });
-  if (!authenticated) {
-    await markCu12Status(input.userId, "NEEDS_REAUTH", "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
-    throw new Error("\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uACC4\uC815 \uC5F0\uACB0 \uC0C1\uD0DC\uB97C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
-  }
-
-  const secondary = await client.checkSecondaryAuth();
-  if (secondary.ready) {
-    await upsertPortalSession({
-      userId: input.userId,
-      provider: "CYBER_CAMPUS",
-      cookieState: client.exportCookieState(),
-      expiresAt: buildSessionExpiry(),
-      status: "ACTIVE",
-    });
-    const queued = await queueCyberCampusAutoLearnJob(input);
-    return {
-      kind: "QUEUED",
-      jobId: queued.job.id,
-      status: "PENDING",
-      deduplicated: queued.deduplicated,
-      dispatched: queued.dispatch.dispatched,
-      dispatchState: queued.dispatch.state,
-      dispatchError: queued.dispatch.error,
-      dispatchErrorCode: queued.dispatch.errorCode,
-      notice: queued.deduplicated
-        ? "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC774 \uC774\uBBF8 \uC788\uC5B4 \uD604\uC7AC \uC791\uC5C5 \uB4A4\uC5D0 \uC774\uC5B4\uC11C \uC9C4\uD589\uB429\uB2C8\uB2E4."
-        : "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15 \uC694\uCCAD\uC744 \uC811\uC218\uD588\uC2B5\uB2C8\uB2E4.",
-    };
-  }
-
-  const wayInfo = await client.getSecondaryAuthWayInfo();
-  if (wayInfo.methods.length === 0) {
-    throw new Error("\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4\uC5D0\uC11C \uC0AC\uC6A9 \uAC00\uB2A5\uD55C 2\uCC28 \uC778\uC99D \uC218\uB2E8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
-  }
-
-  const blockedJob = await prisma.jobQueue.create({
-    data: {
-      userId: input.userId,
-      type: JobType.AUTOLEARN,
-      status: JobStatus.BLOCKED,
-      payload: {
-        userId: input.userId,
-        provider: "CYBER_CAMPUS",
-        lectureSeq: input.lectureSeq,
-        autoLearnMode: input.mode,
-        reason: input.reason ?? "manual_request",
-      },
-      runAfter: new Date(),
-      lastError: "SECONDARY_AUTH_REQUIRED",
-    },
-  });
-
+  const portalSession = await getPortalSession(input.userId, "CYBER_CAMPUS");
+  const blockedJob = await createBlockedAutoLearnJob(input);
   const approval = await createPortalApprovalSession({
     userId: input.userId,
     provider: "CYBER_CAMPUS",
     jobId: blockedJob.id,
-    cookieState: client.exportCookieState(),
-    methods: wayInfo.methods,
+    cookieState: portalSession?.cookieState ?? [],
+    methods: [],
     expiresAt: buildApprovalExpiry(),
+    requestedAction: "BOOTSTRAP",
   });
+  const dispatch = await dispatchCyberCampusApproval(approval.id);
 
   return {
-    kind: "APPROVAL_REQUIRED",
+    kind: "APPROVAL_PENDING",
     jobId: blockedJob.id,
     status: "BLOCKED",
-    approval: serializeApproval({
-      id: approval.id,
-      jobId: approval.jobId,
-      status: approval.status,
-      methods: wayInfo.methods,
-      selectedWay: approval.selectedWay,
-      selectedParam: approval.selectedParam,
-      selectedTarget: approval.selectedTarget,
-      requestCode: approval.requestCode,
-      displayCode: approval.displayCode,
-      errorMessage: approval.errorMessage,
-      expiresAt: approval.expiresAt,
-      completedAt: approval.completedAt,
-      canceledAt: approval.canceledAt,
-    })!,
-    notice: secondary.message ?? "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC790\uB3D9 \uC218\uAC15\uC744 \uC2DC\uC791\uD558\uB824\uBA74 2\uCC28 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
+    deduplicated: false,
+    dispatched: dispatch.dispatched,
+    dispatchState: dispatch.state,
+    dispatchError: dispatch.error,
+    dispatchErrorCode: dispatch.errorCode,
+    notice: buildApprovalDispatchNotice(dispatch.dispatched),
   };
 }
 
@@ -465,7 +449,7 @@ export async function startCyberCampusApproval(input: {
 }): Promise<CyberCampusApprovalSummary> {
   const approval = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!approval) {
-    throw new Error("\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC2B9\uC778 \uC138\uC158\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    throw new Error("사이버캠퍼스 승인 세션을 찾을 수 없습니다.");
   }
 
   const expired = await expireApprovalIfNeeded(approval);
@@ -499,27 +483,15 @@ export async function startCyberCampusApproval(input: {
     throw new Error("선택한 사이버캠퍼스 2차 인증 수단이 유효하지 않습니다.");
   }
 
-  const client = new CyberCampusSessionClient({ cookieState: approval.cookieState });
-  const started = await client.startSecondaryAuth({
-    way: selectedMethod.way,
-    param: selectedMethod.param,
-    target: selectedMethod.target,
-  });
-
-  await updatePortalApprovalSessionState({
+  await updateApprovalAction({
     id: approval.id,
     userId: input.userId,
-    status: "ACTIVE",
-    cookieState: client.exportCookieState(),
-    selectedWay: started.way,
-    selectedParam: started.param,
-    selectedTarget: started.target,
-    authSeq: started.authSeq,
-    requestCode: started.requestCode,
-    displayCode: started.displayCode,
-    errorMessage: null,
-    expiresAt: started.expiresAt ?? buildApprovalExpiry(new Date(), true),
+    action: "START",
+    pendingCode: null,
+    selectedMethod,
+    expiresAt: buildApprovalExpiry(),
   });
+  await dispatchCyberCampusApproval(approval.id);
 
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
@@ -558,112 +530,81 @@ export async function confirmCyberCampusApproval(input: {
     throw new Error("사이버캠퍼스 승인 세션이 만료되었습니다.");
   }
 
-  if (!approval.authSeq || approval.selectedWay === null || approval.selectedParam === null) {
-    throw new Error("사이버캠퍼스 2차 인증 요청이 아직 시작되지 않았습니다.");
-  }
-
-  const client = new CyberCampusSessionClient({ cookieState: approval.cookieState });
-  const confirmation = await client.confirmSecondaryAuth({
-    authSeq: approval.authSeq,
-    way: approval.selectedWay,
-    param: approval.selectedParam,
-    code: input.code ?? null,
-  });
-
-  if (!confirmation.completed) {
-    await updatePortalApprovalSessionState({
-      id: approval.id,
-      userId: input.userId,
-      cookieState: client.exportCookieState(),
-      errorMessage: confirmation.message ?? null,
-      expiresAt: buildApprovalExpiry(new Date(), true),
-    });
-
-    const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
-    if (!refreshed) {
-      throw new Error("사이버캠퍼스 승인 세션 갱신 중 상태가 변경되었습니다.");
-    }
-
+  if (approval.status === "COMPLETED") {
     return {
-      state: "PENDING",
+      state: "COMPLETED",
       approval: serializeApproval({
-        id: refreshed.id,
-        jobId: refreshed.jobId,
-        status: refreshed.status,
-        methods: refreshed.methods,
-        selectedWay: refreshed.selectedWay,
-        selectedParam: refreshed.selectedParam,
-        selectedTarget: refreshed.selectedTarget,
-        requestCode: refreshed.requestCode,
-        displayCode: refreshed.displayCode,
-        errorMessage: refreshed.errorMessage,
-        expiresAt: refreshed.expiresAt,
-        completedAt: refreshed.completedAt,
-        canceledAt: refreshed.canceledAt,
+        id: approval.id,
+        jobId: approval.jobId,
+        status: approval.status,
+        methods: approval.methods,
+        selectedWay: approval.selectedWay,
+        selectedParam: approval.selectedParam,
+        selectedTarget: approval.selectedTarget,
+        requestCode: approval.requestCode,
+        displayCode: approval.displayCode,
+        errorMessage: approval.errorMessage,
+        expiresAt: approval.expiresAt,
+        completedAt: approval.completedAt,
+        canceledAt: approval.canceledAt,
       })!,
+      jobId: approval.jobId,
     };
   }
 
-  await upsertPortalSession({
-    userId: input.userId,
-    provider: "CYBER_CAMPUS",
-    cookieState: client.exportCookieState(),
-    expiresAt: buildSessionExpiry(),
-    status: "ACTIVE",
-  });
+  const selectedMethod = approval.methods.find((method: SecondaryAuthMethod) => (
+    method.way === approval.selectedWay
+    && method.param === (approval.selectedParam ?? "")
+  ));
+  if (!selectedMethod) {
+    throw new Error("먼저 사이버캠퍼스 2차 인증 수단을 선택해 주세요.");
+  }
+  if (selectedMethod.requiresCode && !input.code?.trim()) {
+    throw new Error("인증 코드를 입력해 주세요.");
+  }
 
-  await updatePortalApprovalSessionState({
+  await updateApprovalAction({
     id: approval.id,
     userId: input.userId,
-    status: "COMPLETED",
-    cookieState: client.exportCookieState(),
-    errorMessage: null,
-    completedAt: new Date(),
+    action: "CONFIRM",
+    pendingCode: selectedMethod.requiresCode ? input.code?.trim() ?? null : null,
+    selectedMethod,
     expiresAt: buildApprovalExpiry(new Date(), true),
   });
+  await dispatchCyberCampusApproval(approval.id);
 
-  await prisma.jobQueue.updateMany({
-    where: {
-      id: approval.jobId,
-      userId: input.userId,
-      status: JobStatus.BLOCKED,
-    },
-    data: {
-      status: JobStatus.PENDING,
-      runAfter: new Date(),
-      lastError: null,
-      finishedAt: null,
-      startedAt: null,
-      workerId: null,
-      result: Prisma.DbNull,
-    },
-  });
-
-  const dispatch = await dispatchWorkerRun("autolearn", input.userId);
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
-    throw new Error("사이버캠퍼스 승인 세션 완료 처리 중 상태가 변경되었습니다.");
+    throw new Error("사이버캠퍼스 승인 세션 갱신 중 상태가 변경되었습니다.");
+  }
+
+  const serialized = serializeApproval({
+    id: refreshed.id,
+    jobId: refreshed.jobId,
+    status: refreshed.status,
+    methods: refreshed.methods,
+    selectedWay: refreshed.selectedWay,
+    selectedParam: refreshed.selectedParam,
+    selectedTarget: refreshed.selectedTarget,
+    requestCode: refreshed.requestCode,
+    displayCode: refreshed.displayCode,
+    errorMessage: refreshed.errorMessage,
+    expiresAt: refreshed.expiresAt,
+    completedAt: refreshed.completedAt,
+    canceledAt: refreshed.canceledAt,
+  })!;
+
+  if (refreshed.status === "COMPLETED") {
+    return {
+      state: "COMPLETED",
+      approval: serialized,
+      jobId: refreshed.jobId,
+    };
   }
 
   return {
-    state: "COMPLETED",
-    approval: serializeApproval({
-      id: refreshed.id,
-      jobId: refreshed.jobId,
-      status: refreshed.status,
-      methods: refreshed.methods,
-      selectedWay: refreshed.selectedWay,
-      selectedParam: refreshed.selectedParam,
-      selectedTarget: refreshed.selectedTarget,
-      requestCode: refreshed.requestCode,
-      displayCode: refreshed.displayCode,
-      errorMessage: refreshed.errorMessage,
-      expiresAt: refreshed.expiresAt,
-      completedAt: refreshed.completedAt,
-      canceledAt: refreshed.canceledAt,
-    })!,
-    jobId: approval.jobId,
-    dispatch,
+    state: "PENDING",
+    approval: serialized,
   };
 }
 
@@ -682,6 +623,8 @@ export async function cancelCyberCampusApproval(input: {
     status: "CANCELED",
     canceledAt: new Date(),
     errorMessage: "사용자가 2차 인증을 취소했습니다.",
+    requestedAction: null,
+    pendingCode: null,
   });
 
   await prisma.jobQueue.updateMany({
@@ -746,3 +689,5 @@ export async function getCyberCampusApprovalSummary(input: {
     canceledAt: refreshed.canceledAt,
   });
 }
+
+export { buildSessionExpiry, buildApprovalExpiry };
