@@ -27,6 +27,7 @@ import type {
   SyncProgress,
   SyncSnapshotResult,
 } from "./cu12-automation";
+import { resolveRestoredCyberCampusSessionCookieState } from "./cyber-campus-session-options";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import { getEnv } from "./env";
 
@@ -776,6 +777,7 @@ export async function runCyberCampusAutoLearning(
   sessionOptions?: {
     cookieState?: CyberCampusCookieStateEntry[];
     requireVerifiedSession?: boolean;
+    restoreCookieStateAfterPlanningRefresh?: CyberCampusCookieStateEntry[];
   },
 ): Promise<AutoLearnResult> {
   const context = await browser.newContext(createBrowserContextOptions());
@@ -802,6 +804,18 @@ export async function runCyberCampusAutoLearning(
     });
     if (planningState.retriedStoredSession && planningState.result.baseTasks.length > 0) {
       console.warn("[CYBER_CAMPUS] recovered empty autolearn task list after refreshing stored session");
+    }
+
+    const restoredCookieState = resolveRestoredCyberCampusSessionCookieState({
+      retriedStoredSession: planningState.retriedStoredSession,
+      cookieState: sessionOptions?.restoreCookieStateAfterPlanningRefresh,
+    });
+    if (restoredCookieState) {
+      await ensureCyberCampusSession(page, creds, {
+        cookieState: restoredCookieState,
+        requireVerifiedSession: true,
+      });
+      console.warn("[CYBER_CAMPUS] restored approval-backed session after planning refresh");
     }
 
     const baseTasks = planningState.result.baseTasks;

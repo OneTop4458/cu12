@@ -39,6 +39,7 @@ import {
 } from "./autolearn-log";
 import {
   getMandatoryMailRecipient,
+  getPortalApprovalSessionByJobId,
   getUserCu12Credentials,
   getUserMailPreference,
   getPortalSessionCookieState,
@@ -943,11 +944,25 @@ async function processAutolearn(
   if (targetProvider === "CU12" && !cu12Campus) {
     throw new Error("CU12_CAMPUS_REQUIRED");
   }
+  const cyberCampusApprovalSession = targetProvider === "CYBER_CAMPUS"
+    ? await getPortalApprovalSessionByJobId(jobId)
+    : null;
+  const completedApprovalCookieState = targetProvider === "CYBER_CAMPUS"
+    && cyberCampusApprovalSession?.status === "COMPLETED"
+    && cyberCampusApprovalSession.cookieState.length > 0
+    ? cyberCampusApprovalSession.cookieState
+    : undefined;
   const cyberCampusSession = targetProvider === "CYBER_CAMPUS"
     ? await getPortalSessionCookieState(userId, "CYBER_CAMPUS")
     : null;
-  const cyberCampusSessionOptions = targetProvider === "CYBER_CAMPUS"
+  const reusableCyberCampusSessionOptions = targetProvider === "CYBER_CAMPUS"
     ? resolveReusableCyberCampusSessionOptions(cyberCampusSession)
+    : undefined;
+  const cyberCampusSessionOptions = targetProvider === "CYBER_CAMPUS"
+    ? {
+      cookieState: reusableCyberCampusSessionOptions?.cookieState ?? completedApprovalCookieState,
+      restoreCookieStateAfterPlanningRefresh: completedApprovalCookieState,
+    }
     : undefined;
   const cu12Creds: Cu12Credentials = {
     cu12Id: creds.cu12Id,
@@ -1021,6 +1036,7 @@ async function processAutolearn(
         cancelReporter,
         {
           cookieState: cyberCampusSessionOptions?.cookieState,
+          restoreCookieStateAfterPlanningRefresh: cyberCampusSessionOptions?.restoreCookieStateAfterPlanningRefresh,
         },
       )
       : await runAutoLearning(

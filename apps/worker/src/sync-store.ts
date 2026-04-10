@@ -630,6 +630,21 @@ export async function getPortalApprovalSessionState(approvalId: string) {
   };
 }
 
+export async function getPortalApprovalSessionByJobId(jobId: string) {
+  const row = await prisma.portalApprovalSession.findUnique({
+    where: { jobId },
+  });
+  if (!row) return null;
+
+  return {
+    ...row,
+    requestedAction: row.requestedAction as PortalApprovalRequestedAction | null,
+    cookieState: decodePortalSessionCookieState(row.encryptedCookieState),
+    methods: decodePortalApprovalMethods(row.methods),
+    pendingCode: decodePortalApprovalPendingCode(row.encryptedPendingCode),
+  };
+}
+
 export async function updatePortalApprovalSessionStateForWorker(input: {
   approvalId: string;
   userId?: string;

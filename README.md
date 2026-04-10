@@ -129,8 +129,9 @@ sequenceDiagram
   end
 ```
 
-If a stored Cyber Campus session still looks authenticated but yields an empty `todo_list` response, the worker discards that session and retries once with a fresh portal login before concluding that no runnable VOD tasks remain.
+If a stored Cyber Campus session still looks authenticated but yields an empty `todo_list` response, the worker retries task planning once with a fresh portal login. When AUTOLEARN was resumed from a completed Cyber Campus approval, the worker restores the approval-backed cookie state before entering lecture playback so the fresh planning login does not discard the approved session.
 If the saved Cyber Campus session is missing, expired, or already marked invalid, AUTOLEARN also falls back to a fresh credential login instead of failing immediately with a session-required error.
+User-action failures such as `CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED` are left in `FAILED` instead of being blindly re-queued as a new `PENDING` AUTOLEARN job.
 
 ## Runtime Surfaces
 

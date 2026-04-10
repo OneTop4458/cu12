@@ -10,6 +10,21 @@ export interface ReusableCyberCampusSessionOptions {
   cookieState: PortalSessionCookieState[];
 }
 
+export function resolveRestoredCyberCampusSessionCookieState(input: {
+  retriedStoredSession: boolean;
+  cookieState?: PortalSessionCookieState[];
+}): PortalSessionCookieState[] | undefined {
+  if (!input.retriedStoredSession) {
+    return undefined;
+  }
+
+  if (!input.cookieState?.length) {
+    return undefined;
+  }
+
+  return input.cookieState;
+}
+
 export function resolveReusableCyberCampusSessionOptions(
   session: ReusableCyberCampusSessionState | null,
   nowMs = Date.now(),
