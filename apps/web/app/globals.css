@@ -1656,6 +1656,37 @@ textarea:focus {
   font-family: inherit;
 }
 
+.public-notice-list {
+  display: grid;
+  gap: 12px;
+}
+
+.public-notice-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--surface) 92%, var(--bg-soft));
+}
+
+.public-notice-title,
+.public-notice-message {
+  margin: 0;
+}
+
+.public-notice-title {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.public-notice-message {
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .page-header,
 .page-hero {
   display: flex;
