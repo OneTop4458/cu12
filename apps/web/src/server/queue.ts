@@ -2,6 +2,10 @@ import type { PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
+import {
+  isMissingWorkerHeartbeatStoreError,
+  warnMissingWorkerHeartbeatStore,
+} from "@/lib/worker-heartbeat-compat";
 import type { QueuePayload } from "@cu12/core";
 import { MANUAL_PENDING_REDISPATCH_MS, MANUAL_RUNNING_REDISPATCH_MS } from "@/server/manual-dispatch-policy";
 
@@ -85,6 +89,31 @@ function normalizeAutoLearnMode(value: unknown): QueuePayload["autoLearnMode"] |
   return null;
 }
 
+async function loadHeartbeatByWorkerId(workerIds: string[]): Promise<Map<string, Date>> {
+  if (workerIds.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const heartbeats = await prisma.workerHeartbeat.findMany({
+      where: {
+        workerId: { in: workerIds },
+      },
+      select: {
+        workerId: true,
+        lastSeenAt: true,
+      },
+    });
+    return new Map(heartbeats.map((row) => [row.workerId, row.lastSeenAt]));
+  } catch (error) {
+    if (!isMissingWorkerHeartbeatStoreError(error)) {
+      throw error;
+    }
+    warnMissingWorkerHeartbeatStore();
+    return new Map();
+  }
+}
+
 function rankJobTypes(inputTypes: JobType[]): JobType[] {
   const uniqueTypes = Array.from(new Set(inputTypes));
   const priority: JobType[] = [
@@ -112,12 +141,21 @@ function rankJobTypes(inputTypes: JobType[]): JobType[] {
 
 async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
   const heartbeatCutoff = new Date(now.getTime() - STALE_WORKER_TIMEOUT_MS);
-  const staleWorkers = await prisma.workerHeartbeat.findMany({
-    where: {
-      lastSeenAt: { lt: heartbeatCutoff },
-    },
-    select: { workerId: true },
-  });
+  let staleWorkers: Array<{ workerId: string }> = [];
+  try {
+    staleWorkers = await prisma.workerHeartbeat.findMany({
+      where: {
+        lastSeenAt: { lt: heartbeatCutoff },
+      },
+      select: { workerId: true },
+    });
+  } catch (error) {
+    if (!isMissingWorkerHeartbeatStoreError(error)) {
+      throw error;
+    }
+    warnMissingWorkerHeartbeatStore();
+    return 0;
+  }
 
   if (staleWorkers.length === 0) {
     return 0;
@@ -339,18 +377,7 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
         .map((row) => row.workerId as string),
     ),
   );
-  const heartbeats = runningWorkerIds.length === 0
-    ? []
-    : await prisma.workerHeartbeat.findMany({
-      where: {
-        workerId: { in: runningWorkerIds },
-      },
-      select: {
-        workerId: true,
-        lastSeenAt: true,
-      },
-    });
-  const heartbeatByWorkerId = new Map(heartbeats.map((row) => [row.workerId, row.lastSeenAt]));
+  const heartbeatByWorkerId = await loadHeartbeatByWorkerId(runningWorkerIds);
   const workerHeartbeatCutoffMs = now.getTime() - STALE_WORKER_TIMEOUT_MS;
 
   let runningCount = 0;
@@ -487,18 +514,7 @@ export async function getSyncQueueSummaryForUserByProvider(
         .map((row) => row.workerId as string),
     ),
   );
-  const heartbeats = runningWorkerIds.length === 0
-    ? []
-    : await prisma.workerHeartbeat.findMany({
-      where: {
-        workerId: { in: runningWorkerIds },
-      },
-      select: {
-        workerId: true,
-        lastSeenAt: true,
-      },
-    });
-  const heartbeatByWorkerId = new Map(heartbeats.map((row) => [row.workerId, row.lastSeenAt]));
+  const heartbeatByWorkerId = await loadHeartbeatByWorkerId(runningWorkerIds);
   const workerHeartbeatCutoffMs = now.getTime() - STALE_WORKER_TIMEOUT_MS;
 
   let runningCount = 0;

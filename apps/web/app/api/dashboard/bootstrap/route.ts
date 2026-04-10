@@ -64,68 +64,73 @@ async function resolveMailPreference(userId: string) {
 
 export async function GET(request: NextRequest) {
   const timing = new ServerTiming();
-  const context = await requireAuthContext(request);
-  if (!context) return jsonError("Unauthorized", 401);
+  try {
+    const context = await requireAuthContext(request);
+    if (!context) return jsonError("Unauthorized", 401);
 
-  const url = new URL(request.url);
-  void parseLimit(url.searchParams.get("deadlinesLimit"), 20, 100);
-  void parseLimit(url.searchParams.get("notificationsLimit"), 40, 200);
-  void parseLimit(url.searchParams.get("messagesLimit"), 20, 100);
-  void parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
-  const userId = context.effective.userId;
-  const account = await timing.measure("account", () => getDashboardAccount(userId));
+    const url = new URL(request.url);
+    void parseLimit(url.searchParams.get("deadlinesLimit"), 20, 100);
+    void parseLimit(url.searchParams.get("notificationsLimit"), 40, 200);
+    void parseLimit(url.searchParams.get("messagesLimit"), 20, 100);
+    void parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
+    const userId = context.effective.userId;
+    const account = await timing.measure("account", () => getDashboardAccount(userId));
 
-  const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues] = await Promise.all([
-    timing.measure("summary", () => getDashboardSummaries(userId)),
-    timing.measure("sync-queue", () => getSyncQueueSummaryForUser(userId)),
-    timing.measure("site-notices", () => listSiteNotices(undefined, false)),
-    timing.measure("mail-pref", () => resolveMailPreference(userId)),
-    timing.measure("cyber-campus", () => getCyberCampusApprovalState(userId)),
-    timing.measure("provider-sync-queue", async () => ({
-      CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
-      CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
-    })),
-  ]);
-  const summary = combineDashboardSummaries(providerSummaries);
+    const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues] = await Promise.all([
+      timing.measure("summary", () => getDashboardSummaries(userId)),
+      timing.measure("sync-queue", () => getSyncQueueSummaryForUser(userId)),
+      timing.measure("site-notices", () => listSiteNotices(undefined, false)),
+      timing.measure("mail-pref", () => resolveMailPreference(userId)),
+      timing.measure("cyber-campus", () => getCyberCampusApprovalState(userId)),
+      timing.measure("provider-sync-queue", async () => ({
+        CU12: await getSyncQueueSummaryForUserByProvider(userId, "CU12"),
+        CYBER_CAMPUS: await getSyncQueueSummaryForUserByProvider(userId, "CYBER_CAMPUS"),
+      })),
+    ]);
+    const summary = combineDashboardSummaries(providerSummaries);
 
-  if (!preference) {
-    return jsonError("User not found", 404);
+    if (!preference) {
+      return jsonError("User not found", 404);
+    }
+    const maintenanceNotice = siteNotices.find((notice) => notice.type === SiteNoticeType.MAINTENANCE) ?? null;
+
+    return applyServerTimingHeader(jsonOk(
+      {
+        context: {
+          actor: context.actor,
+          effective: context.effective,
+          impersonating: context.impersonating,
+        },
+        summary,
+        providerSummaries,
+        syncQueue,
+        providerSyncQueues,
+        siteNotices,
+        maintenanceNotice,
+        account: account
+          ? {
+            provider: account.provider,
+            cu12Id: account.cu12Id,
+            campus: account.campus,
+            accountStatus: account.accountStatus,
+            statusReason: account.statusReason,
+            autoLearnEnabled: account.autoLearnEnabled,
+            quizAutoSolveEnabled: account.quizAutoSolveEnabled,
+            lastLoginAt: account.user.lastLoginAt,
+            lastLoginIp: account.user.lastLoginIp,
+          }
+          : null,
+        cyberCampus,
+        preference,
+      },
+      {
+        headers: {
+          "cache-control": "no-store",
+        },
+      },
+    ), timing);
+  } catch (error) {
+    console.error("[dashboard/bootstrap] failed", error);
+    return jsonError("대시보드 데이터를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.", 503, "DASHBOARD_BOOTSTRAP_FAILED");
   }
-  const maintenanceNotice = siteNotices.find((notice) => notice.type === SiteNoticeType.MAINTENANCE) ?? null;
-
-  return applyServerTimingHeader(jsonOk(
-    {
-      context: {
-        actor: context.actor,
-        effective: context.effective,
-        impersonating: context.impersonating,
-      },
-      summary,
-      providerSummaries,
-      syncQueue,
-      providerSyncQueues,
-      siteNotices,
-      maintenanceNotice,
-      account: account
-        ? {
-          provider: account.provider,
-          cu12Id: account.cu12Id,
-          campus: account.campus,
-          accountStatus: account.accountStatus,
-          statusReason: account.statusReason,
-          autoLearnEnabled: account.autoLearnEnabled,
-          quizAutoSolveEnabled: account.quizAutoSolveEnabled,
-          lastLoginAt: account.user.lastLoginAt,
-          lastLoginIp: account.user.lastLoginIp,
-        }
-        : null,
-      cyberCampus,
-      preference,
-    },
-    {
-      headers: {
-        "cache-control": "no-store",
-      },
-    },
-  ), timing);
 }
