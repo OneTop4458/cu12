@@ -1,5 +1,5 @@
 import { PORTAL_PROVIDERS, type PortalProvider } from "@cu12/core";
-import { CourseStatus } from "@prisma/client";
+import { CourseStatus, Prisma } from "@prisma/client";
 import { isMissingProviderColumnError, warnMissingProviderColumn } from "@/lib/provider-compat";
 import { prisma } from "@/lib/prisma";
 import { getCurrentPortalProvider } from "@/server/current-provider";
@@ -40,6 +40,34 @@ interface LearningTaskRow {
 interface CourseNoticeCountGroup {
   lectureSeq: number;
   _count: { _all: number };
+}
+
+interface CourseSnapshotRow {
+  id: string;
+  userId: string;
+  provider: PortalProvider;
+  lectureSeq: number;
+  externalLectureId: string | null;
+  title: string;
+  instructor: string | null;
+  progressPercent: number;
+  remainDays: number | null;
+  recentLearnedAt: Date | null;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  status: CourseStatus;
+  syncedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface CourseNoticeSampleRow {
+  id: string;
+  lectureSeq: number;
+  title: string;
+  postedAt: Date | null;
+  bodyText: string;
+  updatedAt: Date;
 }
 
 const AUTO_SYNC_INTERVAL_HOURS = 2;
@@ -141,6 +169,117 @@ function normalizeActivityType(value: string): LearningTaskActivityType {
   return "ETC";
 }
 
+function normalizeCourseStatus(value: string): CourseStatus {
+  if (value === CourseStatus.UPCOMING || value === CourseStatus.ENDED) {
+    return value;
+  }
+  return CourseStatus.ACTIVE;
+}
+
+function toSafeNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return toSafeNumber(value, 0);
+}
+
+function toDateOrNull(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function normalizeCourseSnapshotRow(row: {
+  id: string;
+  userId: string;
+  provider?: string | null;
+  lectureSeq: number;
+  externalLectureId?: string | null;
+  title: string;
+  instructor?: string | null;
+  progressPercent: number | bigint | string;
+  remainDays?: number | bigint | string | null;
+  recentLearnedAt?: Date | string | null;
+  periodStart?: Date | string | null;
+  periodEnd?: Date | string | null;
+  status: string;
+  syncedAt: Date | string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}, fallbackProvider: PortalProvider): CourseSnapshotRow {
+  const provider = row.provider === "CYBER_CAMPUS" ? "CYBER_CAMPUS" : row.provider === "CU12" ? "CU12" : fallbackProvider;
+  return {
+    id: row.id,
+    userId: row.userId,
+    provider,
+    lectureSeq: row.lectureSeq,
+    externalLectureId: row.externalLectureId ?? null,
+    title: row.title,
+    instructor: row.instructor ?? null,
+    progressPercent: toSafeNumber(row.progressPercent, 0),
+    remainDays: toOptionalNumber(row.remainDays),
+    recentLearnedAt: toDateOrNull(row.recentLearnedAt),
+    periodStart: toDateOrNull(row.periodStart),
+    periodEnd: toDateOrNull(row.periodEnd),
+    status: normalizeCourseStatus(row.status),
+    syncedAt: toDateOrNull(row.syncedAt) ?? new Date(0),
+    createdAt: toDateOrNull(row.createdAt) ?? new Date(0),
+    updatedAt: toDateOrNull(row.updatedAt) ?? new Date(0),
+  };
+}
+
+function warnDashboardRawReadFallback(scope: string, error: unknown) {
+  console.warn(
+    `[dashboard] Falling back to raw ${scope} read because ORM-based read failed.`,
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+function appendSql(base: Prisma.Sql, fragment: Prisma.Sql | null): Prisma.Sql {
+  if (!fragment) return base;
+  return Prisma.sql`${base} ${fragment}`;
+}
+
+function buildCourseSnapshotOrderSql(orderBy?: "lectureSeqAsc" | "statusRemainDaysTitle"): Prisma.Sql {
+  if (orderBy === "lectureSeqAsc") {
+    return Prisma.sql`ORDER BY "lectureSeq" ASC`;
+  }
+  if (orderBy === "statusRemainDaysTitle") {
+    return Prisma.sql`
+      ORDER BY
+        CASE "status"::text
+          WHEN 'ACTIVE' THEN 0
+          WHEN 'UPCOMING' THEN 1
+          ELSE 2
+        END ASC,
+        "remainDays" ASC NULLS LAST,
+        "title" ASC
+    `;
+  }
+  return Prisma.empty;
+}
+
 function normalizeLearningTaskRow(row: LearningTaskRow): LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState } {
   const state = row.state === "RUNNING" || row.state === "COMPLETED" || row.state === "FAILED"
     ? row.state
@@ -177,6 +316,290 @@ async function withProviderCompatibility<T>(
     }
 
     return loadLegacy();
+  }
+}
+
+async function loadCourseSnapshots(input: {
+  userId: string;
+  provider: PortalProvider;
+  lectureSeq?: number;
+  lectureSeqs?: number[];
+  status?: CourseStatus;
+  orderBy?: "lectureSeqAsc" | "statusRemainDaysTitle";
+}): Promise<CourseSnapshotRow[]> {
+  if (input.lectureSeqs && input.lectureSeqs.length === 0) {
+    return [];
+  }
+
+  const baseWhere = {
+    userId: input.userId,
+    ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+    ...(input.lectureSeqs && input.lectureSeqs.length > 0 ? { lectureSeq: { in: input.lectureSeqs } } : {}),
+    ...(input.status ? { status: input.status } : {}),
+  };
+  const baseSelect = {
+    id: true,
+    userId: true,
+    lectureSeq: true,
+    externalLectureId: true,
+    title: true,
+    instructor: true,
+    progressPercent: true,
+    remainDays: true,
+    recentLearnedAt: true,
+    periodStart: true,
+    periodEnd: true,
+    status: true,
+    syncedAt: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+  const orderBy = input.orderBy === "statusRemainDaysTitle"
+    ? [{ status: "asc" as const }, { remainDays: "asc" as const }, { title: "asc" as const }]
+    : input.orderBy === "lectureSeqAsc"
+      ? [{ lectureSeq: "asc" as const }]
+      : undefined;
+
+  try {
+    const rows = await withProviderCompatibility(
+      input.userId,
+      input.provider,
+      () => prisma.courseSnapshot.findMany({
+        where: {
+          ...baseWhere,
+          provider: input.provider,
+        },
+        ...(orderBy ? { orderBy } : {}),
+        select: baseSelect,
+      }),
+      () => prisma.courseSnapshot.findMany({
+        where: baseWhere,
+        ...(orderBy ? { orderBy } : {}),
+        select: baseSelect,
+      }),
+      [] as Array<{
+        id: string;
+        userId: string;
+        lectureSeq: number;
+        externalLectureId: string | null;
+        title: string;
+        instructor: string | null;
+        progressPercent: number;
+        remainDays: number | null;
+        recentLearnedAt: Date | null;
+        periodStart: Date | null;
+        periodEnd: Date | null;
+        status: CourseStatus;
+        syncedAt: Date;
+        createdAt: Date;
+        updatedAt: Date;
+      }>,
+    );
+
+    return rows.map((row) => normalizeCourseSnapshotRow(row, input.provider));
+  } catch (error) {
+    warnDashboardRawReadFallback("course snapshot", error);
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    if (typeof input.lectureSeq === "number") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
+    }
+    if (input.lectureSeqs && input.lectureSeqs.length > 0) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" IN (${Prisma.join(input.lectureSeqs)})`);
+    }
+    if (input.status) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "status"::text = ${input.status}`);
+    }
+
+    const rows = await prisma.$queryRaw<Array<{
+      id: string;
+      userId: string;
+      provider: string | null;
+      lectureSeq: number;
+      externalLectureId: string | null;
+      title: string;
+      instructor: string | null;
+      progressPercent: number | bigint | string;
+      remainDays: number | bigint | string | null;
+      recentLearnedAt: Date | null;
+      periodStart: Date | null;
+      periodEnd: Date | null;
+      status: string;
+      syncedAt: Date;
+      createdAt: Date;
+      updatedAt: Date;
+    }>>(Prisma.sql`
+      SELECT
+        "id",
+        "userId",
+        "provider"::text AS "provider",
+        "lectureSeq",
+        "externalLectureId",
+        "title",
+        "instructor",
+        "progressPercent",
+        "remainDays",
+        "recentLearnedAt",
+        "periodStart",
+        "periodEnd",
+        "status"::text AS "status",
+        "syncedAt",
+        "createdAt",
+        "updatedAt"
+      FROM "CourseSnapshot"
+      ${whereSql}
+      ${buildCourseSnapshotOrderSql(input.orderBy)}
+    `);
+
+    return rows.map((row) => normalizeCourseSnapshotRow(row, input.provider));
+  }
+}
+
+async function countCourseNotices(input: {
+  userId: string;
+  provider: PortalProvider;
+  lectureSeq?: number;
+  isRead?: boolean;
+  bodyText?: string;
+}): Promise<number> {
+  const baseWhere = {
+    userId: input.userId,
+    ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+    ...(typeof input.isRead === "boolean" ? { isRead: input.isRead } : {}),
+    ...(typeof input.bodyText === "string" ? { bodyText: input.bodyText } : {}),
+  };
+
+  try {
+    return await withProviderCompatibility(
+      input.userId,
+      input.provider,
+      () => prisma.courseNotice.count({
+        where: {
+          ...baseWhere,
+          provider: input.provider,
+        },
+      }),
+      () => prisma.courseNotice.count({ where: baseWhere }),
+      0,
+    );
+  } catch (error) {
+    warnDashboardRawReadFallback("course notice count", error);
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    if (typeof input.lectureSeq === "number") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
+    }
+    if (typeof input.isRead === "boolean") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "isRead" = ${input.isRead}`);
+    }
+    if (typeof input.bodyText === "string") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "bodyText" = ${input.bodyText}`);
+    }
+    const rows = await prisma.$queryRaw<Array<{ count: number | bigint | string }>>(Prisma.sql`
+      SELECT COUNT(*)::int AS "count"
+      FROM "CourseNotice"
+      ${whereSql}
+    `);
+    return toSafeNumber(rows[0]?.count, 0);
+  }
+}
+
+async function loadCourseNoticeCountsByLecture(input: {
+  userId: string;
+  provider: PortalProvider;
+  isRead?: boolean;
+}): Promise<CourseNoticeCountGroup[]> {
+  try {
+    return await withProviderCompatibility(
+      input.userId,
+      input.provider,
+      () => groupCourseNoticesByLecture({ userId: input.userId, provider: input.provider, isRead: input.isRead }),
+      () => groupCourseNoticesByLecture({ userId: input.userId, isRead: input.isRead }),
+      [] as CourseNoticeCountGroup[],
+    );
+  } catch (error) {
+    warnDashboardRawReadFallback("course notice group", error);
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    if (typeof input.isRead === "boolean") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "isRead" = ${input.isRead}`);
+    }
+    const rows = await prisma.$queryRaw<Array<{ lectureSeq: number; count: number | bigint | string }>>(Prisma.sql`
+      SELECT
+        "lectureSeq",
+        COUNT(*)::int AS "count"
+      FROM "CourseNotice"
+      ${whereSql}
+      GROUP BY "lectureSeq"
+    `);
+    return rows.map((row) => ({
+      lectureSeq: row.lectureSeq,
+      _count: { _all: toSafeNumber(row.count, 0) },
+    }));
+  }
+}
+
+async function loadCourseNoticeSamples(input: {
+  userId: string;
+  provider: PortalProvider;
+  lectureSeq?: number;
+  limit: number;
+}): Promise<CourseNoticeSampleRow[]> {
+  try {
+    return await withProviderCompatibility(
+      input.userId,
+      input.provider,
+      () => prisma.courseNotice.findMany({
+        where: {
+          userId: input.userId,
+          provider: input.provider,
+          ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+        },
+        take: input.limit,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          lectureSeq: true,
+          title: true,
+          postedAt: true,
+          bodyText: true,
+          updatedAt: true,
+        },
+      }),
+      () => prisma.courseNotice.findMany({
+        where: {
+          userId: input.userId,
+          ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+        },
+        take: input.limit,
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          lectureSeq: true,
+          title: true,
+          postedAt: true,
+          bodyText: true,
+          updatedAt: true,
+        },
+      }),
+      [] as CourseNoticeSampleRow[],
+    );
+  } catch (error) {
+    warnDashboardRawReadFallback("course notice sample", error);
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    if (typeof input.lectureSeq === "number") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
+    }
+    return prisma.$queryRaw<Array<CourseNoticeSampleRow>>(Prisma.sql`
+      SELECT
+        "id",
+        "lectureSeq",
+        "title",
+        "postedAt",
+        "bodyText",
+        "updatedAt"
+      FROM "CourseNotice"
+      ${whereSql}
+      ORDER BY "updatedAt" DESC
+      LIMIT ${input.limit}
+    `);
   }
 }
 
@@ -223,22 +646,62 @@ async function fetchLearningTasksRaw(input: {
       dueAt: true,
     },
   };
-  const rows = await withProviderCompatibility(
-    input.userId,
-    input.provider,
-    () => prisma.learningTask.findMany({
-      where: {
-        ...sharedWhere,
-        provider: input.provider,
-      },
-      ...sharedArgs,
-    }),
-    () => prisma.learningTask.findMany({
-      where: sharedWhere,
-      ...sharedArgs,
-    }),
-    [] as Array<LearningTaskRow>,
-  );
+  let rows: Array<LearningTaskRow>;
+  try {
+    rows = await withProviderCompatibility(
+      input.userId,
+      input.provider,
+      () => prisma.learningTask.findMany({
+        where: {
+          ...sharedWhere,
+          provider: input.provider,
+        },
+        ...sharedArgs,
+      }),
+      () => prisma.learningTask.findMany({
+        where: sharedWhere,
+        ...sharedArgs,
+      }),
+      [] as Array<LearningTaskRow>,
+    );
+  } catch (error) {
+    warnDashboardRawReadFallback("learning task", error);
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    if (typeof input.lectureSeq === "number") {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
+    }
+    if (input.dueAtGte) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "dueAt" >= ${input.dueAtGte}`);
+    }
+    if (input.dueAtLte) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "dueAt" <= ${input.dueAtLte}`);
+    }
+
+    const orderBySql = input.orderBy === "lectureWeekLessonAsc"
+      ? Prisma.sql`ORDER BY "lectureSeq" ASC, "weekNo" ASC, "lessonNo" ASC`
+      : Prisma.sql`ORDER BY "dueAt" ASC NULLS LAST, "lectureSeq" ASC, "weekNo" ASC, "lessonNo" ASC`;
+    const limitSql = typeof input.limit === "number"
+      ? Prisma.sql`LIMIT ${Math.max(1, Math.floor(input.limit))}`
+      : Prisma.empty;
+
+    rows = await prisma.$queryRaw<Array<LearningTaskRow>>(Prisma.sql`
+      SELECT
+        "lectureSeq",
+        "courseContentsSeq",
+        "weekNo",
+        "lessonNo",
+        "activityType"::text AS "activityType",
+        "state"::text AS "state",
+        "requiredSeconds",
+        "learnedSeconds",
+        "availableFrom",
+        "dueAt"
+      FROM "LearningTask"
+      ${whereSql}
+      ${orderBySql}
+      ${limitSql}
+    `);
+  }
 
   return rows.map((row) => normalizeLearningTaskRow({
     ...row,
@@ -274,32 +737,10 @@ function normalizeCyberCampusCourseTitle(value: string | null | undefined): stri
 }
 
 async function getStaleCyberCampusLectureSeqs(userId: string): Promise<Set<number>> {
-  const rows = await withProviderCompatibility(
+  const rows = await loadCourseSnapshots({
     userId,
-    "CYBER_CAMPUS",
-    () => prisma.courseSnapshot.findMany({
-      where: {
-        userId,
-        provider: "CYBER_CAMPUS",
-      },
-      select: {
-        lectureSeq: true,
-        title: true,
-        externalLectureId: true,
-      },
-    }),
-    () => prisma.courseSnapshot.findMany({
-      where: {
-        userId,
-      },
-      select: {
-        lectureSeq: true,
-        title: true,
-        externalLectureId: true,
-      },
-    }),
-    [] as Array<{ lectureSeq: number; title: string; externalLectureId: string | null }>,
-  );
+    provider: "CYBER_CAMPUS",
+  });
 
   const rowsByTitle = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -395,26 +836,16 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
   const [activeCourses, unreadNoticeCount, syncJobs, user] = await Promise.all([
-    withProviderCompatibility(
+    loadCourseSnapshots({
       userId,
       provider,
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, provider, status: CourseStatus.ACTIVE },
-        select: { lectureSeq: true, progressPercent: true },
-      }),
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, status: CourseStatus.ACTIVE },
-        select: { lectureSeq: true, progressPercent: true },
-      }),
-      [] as Array<{ lectureSeq: number; progressPercent: number }>,
-    ),
-    withProviderCompatibility(
+      status: CourseStatus.ACTIVE,
+    }),
+    countCourseNotices({
       userId,
       provider,
-      () => prisma.courseNotice.count({ where: { userId, provider, isRead: false } }),
-      () => prisma.courseNotice.count({ where: { userId, isRead: false } }),
-      0,
-    ),
+      isRead: false,
+    }),
     prisma.jobQueue.findMany({
       where: {
         userId,
@@ -467,38 +898,25 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
     : new Set<number>();
 
   const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
-    withProviderCompatibility(
+    loadCourseSnapshots({
       userId,
       provider,
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, provider },
-        orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
-      }),
-      () => prisma.courseSnapshot.findMany({
-        where: { userId },
-        orderBy: [{ status: "asc" }, { remainDays: "asc" }, { title: "asc" }],
-      }),
-      [] as Awaited<ReturnType<typeof prisma.courseSnapshot.findMany>>,
-    ),
+      orderBy: "statusRemainDaysTitle",
+    }),
     fetchLearningTasksRaw({
       userId,
       provider,
       orderBy: "lectureWeekLessonAsc",
     }),
-    withProviderCompatibility(
+    loadCourseNoticeCountsByLecture({
       userId,
       provider,
-      () => groupCourseNoticesByLecture({ userId, provider }),
-      () => groupCourseNoticesByLecture({ userId }),
-      [] as CourseNoticeCountGroup[],
-    ),
-    withProviderCompatibility(
+    }),
+    loadCourseNoticeCountsByLecture({
       userId,
       provider,
-      () => groupCourseNoticesByLecture({ userId, provider, isRead: false }),
-      () => groupCourseNoticesByLecture({ userId, isRead: false }),
-      [] as CourseNoticeCountGroup[],
-    ),
+      isRead: false,
+    }),
   ]);
   const filteredCourses = filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs);
   const filteredTasks = filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs);
@@ -725,32 +1143,11 @@ export async function getUpcomingDeadlines(userId: string, limit = 30, provider:
 
   const seqs = Array.from(new Set(tasks.map((task) => task.lectureSeq)));
   const courses = seqs.length > 0
-    ? await withProviderCompatibility(
+    ? await loadCourseSnapshots({
       userId,
       provider,
-      () => prisma.courseSnapshot.findMany({
-        where: {
-          userId,
-          provider,
-          lectureSeq: { in: seqs },
-        },
-        select: {
-          lectureSeq: true,
-          title: true,
-        },
-      }),
-      () => prisma.courseSnapshot.findMany({
-        where: {
-          userId,
-          lectureSeq: { in: seqs },
-        },
-        select: {
-          lectureSeq: true,
-          title: true,
-        },
-      }),
-      [] as Array<{ lectureSeq: number; title: string }>,
-    )
+      lectureSeqs: seqs,
+    })
     : [];
   const titleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
 
@@ -780,99 +1177,40 @@ export async function getDashboardDiagnostics(
   const now = new Date();
   const nowMs = now.getTime();
   const sampleLimit = Math.min(Math.max(options?.sampleLimit ?? 20, 1), 100);
-  const lectureFilter = options?.lectureSeq ? { lectureSeq: options.lectureSeq } : {};
   const staleLectureSeqs = provider === "CYBER_CAMPUS"
     ? await getStaleCyberCampusLectureSeqs(userId)
     : new Set<number>();
 
   const [courses, tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
-    withProviderCompatibility(
+    loadCourseSnapshots({
       userId,
       provider,
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, provider, ...lectureFilter },
-        select: {
-          lectureSeq: true,
-          title: true,
-        },
-        orderBy: { lectureSeq: "asc" },
-      }),
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, ...lectureFilter },
-        select: {
-          lectureSeq: true,
-          title: true,
-        },
-        orderBy: { lectureSeq: "asc" },
-      }),
-      [] as Array<{ lectureSeq: number; title: string }>,
-    ),
+      lectureSeq: options?.lectureSeq,
+      orderBy: "lectureSeqAsc",
+    }),
     fetchLearningTasksRaw({
       userId,
       provider,
       lectureSeq: options?.lectureSeq,
       orderBy: "lectureWeekLessonAsc",
     }),
-    withProviderCompatibility(
+    countCourseNotices({
       userId,
       provider,
-      () => prisma.courseNotice.count({
-        where: { userId, provider, ...lectureFilter },
-      }),
-      () => prisma.courseNotice.count({
-        where: { userId, ...lectureFilter },
-      }),
-      0,
-    ),
-    withProviderCompatibility(
+      lectureSeq: options?.lectureSeq,
+    }),
+    countCourseNotices({
       userId,
       provider,
-      () => prisma.courseNotice.count({
-        where: { userId, provider, ...lectureFilter, bodyText: "" },
-      }),
-      () => prisma.courseNotice.count({
-        where: { userId, ...lectureFilter, bodyText: "" },
-      }),
-      0,
-    ),
-    withProviderCompatibility(
+      lectureSeq: options?.lectureSeq,
+      bodyText: "",
+    }),
+    loadCourseNoticeSamples({
       userId,
       provider,
-      () => prisma.courseNotice.findMany({
-        where: { userId, provider, ...lectureFilter },
-        take: sampleLimit,
-        orderBy: { updatedAt: "desc" },
-        select: {
-          id: true,
-          lectureSeq: true,
-          title: true,
-          postedAt: true,
-          bodyText: true,
-          updatedAt: true,
-        },
-      }),
-      () => prisma.courseNotice.findMany({
-        where: { userId, ...lectureFilter },
-        take: sampleLimit,
-        orderBy: { updatedAt: "desc" },
-        select: {
-          id: true,
-          lectureSeq: true,
-          title: true,
-          postedAt: true,
-          bodyText: true,
-          updatedAt: true,
-        },
-      }),
-      [] as Array<{
-        id: string;
-        lectureSeq: number;
-        title: string;
-        postedAt: Date | null;
-        bodyText: string;
-        updatedAt: Date;
-      }>,
-    ),
+      lectureSeq: options?.lectureSeq,
+      limit: sampleLimit,
+    }),
     prisma.jobQueue.findMany({
       where: {
         userId,
