@@ -58,6 +58,21 @@ export interface DashboardSummary {
   initialSyncRequired: boolean;
 }
 
+export function createEmptyDashboardSummary(now = new Date()): DashboardSummary {
+  return {
+    activeCourseCount: 0,
+    avgProgress: 0,
+    unreadNoticeCount: 0,
+    upcomingDeadlines: 0,
+    urgentTaskCount: 0,
+    nextDeadlineAt: null,
+    lastSyncAt: null,
+    nextAutoSyncAt: getNextScheduledSyncAt(now),
+    autoSyncIntervalHours: AUTO_SYNC_INTERVAL_HOURS,
+    initialSyncRequired: false,
+  };
+}
+
 function getJobPayloadProvider(payload: unknown): PortalProvider | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const provider = (payload as { provider?: unknown }).provider;
@@ -350,7 +365,14 @@ export function combineDashboardSummaries(
 }
 
 export async function getDashboardSummaries(userId: string): Promise<Record<PortalProvider, DashboardSummary>> {
-  const entries = await Promise.all(PORTAL_PROVIDERS.map(async (provider) => [provider, await getDashboardSummary(userId, provider)] as const));
+  const entries = await Promise.all(PORTAL_PROVIDERS.map(async (provider) => {
+    try {
+      return [provider, await getDashboardSummary(userId, provider)] as const;
+    } catch (error) {
+      console.error(`[dashboard] summary load failed for ${provider}`, error);
+      return [provider, createEmptyDashboardSummary()] as const;
+    }
+  }));
   return Object.fromEntries(entries) as Record<PortalProvider, DashboardSummary>;
 }
 
