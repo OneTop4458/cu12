@@ -7,6 +7,7 @@ import { chromium, type BrowserContextOptions, type Dialog, type Page } from "pl
 import { prisma } from "./prisma";
 import { getEnv } from "./env";
 import { requestWorkerDispatch } from "./internal-api";
+import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import {
   failBlockedAutoLearnJob,
   getPortalApprovalSessionState,
@@ -238,6 +239,14 @@ async function ensureSession(
   }
 }
 
+async function forceFreshLogin(
+  page: Page,
+  creds: { cu12Id: string; cu12Password: string },
+) {
+  await page.context().clearCookies();
+  await ensureSession(page, [], creds);
+}
+
 async function resolveApprovalJobRequest(jobId: string, userId: string): Promise<AutoLearnJobRequest> {
   const row = await prisma.jobQueue.findFirst({
     where: {
@@ -463,8 +472,23 @@ async function resolveApprovalContext(
   page: Page,
   userId: string,
   request: AutoLearnJobRequest,
+  options?: {
+    hasStoredSession?: boolean;
+    refreshSession?: () => Promise<void>;
+  },
 ): Promise<ApprovalContextResolution> {
-  const tasks = await loadProbeTasks(page, userId, request);
+  const retryResult = await retryOnceAfterEmptyStoredSession({
+    hasStoredSession: Boolean(options?.hasStoredSession),
+    load: () => loadProbeTasks(page, userId, request),
+    isEmpty: (tasks) => tasks.length === 0,
+    refresh: async () => {
+      await options?.refreshSession?.();
+    },
+  });
+  const tasks = retryResult.result;
+  if (retryResult.retriedStoredSession && tasks.length > 0) {
+    console.warn("[CYBER_CAMPUS] recovered empty approval probe task list after refreshing stored session");
+  }
   if (tasks.length === 0) {
     return {
       kind: "NO_PENDING_TASKS",
@@ -594,7 +618,15 @@ export async function processCyberCampusApproval(approvalId: string) {
     });
 
     const jobRequest = await resolveApprovalJobRequest(approval.jobId, approval.userId);
-    const contextResult = await resolveApprovalContext(page, approval.userId, jobRequest);
+    const contextResult = await resolveApprovalContext(page, approval.userId, jobRequest, {
+      hasStoredSession: approval.cookieState.length > 0,
+      refreshSession: async () => {
+        await forceFreshLogin(page, {
+          cu12Id: creds.cu12Id,
+          cu12Password: creds.cu12Password,
+        });
+      },
+    });
 
     if (contextResult.kind !== "APPROVAL_REQUIRED") {
       await completeApproval({

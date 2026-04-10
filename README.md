@@ -129,6 +129,8 @@ sequenceDiagram
   end
 ```
 
+If a stored Cyber Campus session still looks authenticated but yields an empty `todo_list` response, the worker discards that session and retries once with a fresh portal login before concluding that no runnable VOD tasks remain.
+
 ## Runtime Surfaces
 
 | Surface | Responsibility |

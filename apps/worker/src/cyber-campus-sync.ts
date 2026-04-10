@@ -27,6 +27,7 @@ import type {
   SyncProgress,
   SyncSnapshotResult,
 } from "./cu12-automation";
+import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import { getEnv } from "./env";
 
 export interface CyberCampusCredentials {
@@ -71,6 +72,11 @@ async function loginCyberCampus(page: Page, creds: CyberCampusCredentials): Prom
   await page.fill("#usr_pwd", creds.cu12Password);
   await page.click("#login_btn");
   await page.waitForURL(/\/ilos\/main\/main_form\.acl/, { timeout: 20000 });
+}
+
+async function forceFreshCyberCampusLogin(page: Page, creds: CyberCampusCredentials): Promise<void> {
+  await page.context().clearCookies();
+  await loginCyberCampus(page, creds);
 }
 
 function looksAuthenticated(html: string, responseUrl: string): boolean {
@@ -157,6 +163,30 @@ async function fetchJson<T>(
   },
 ): Promise<T> {
   return JSON.parse(await fetchText(page, path, options)) as T;
+}
+
+interface CyberCampusTaskPlanningState {
+  mainHtml: string;
+  baseCourses: ReturnType<typeof parseCyberCampusMainCoursesHtml>;
+  baseTasks: ReturnType<typeof parseCyberCampusTodoListHtml>;
+}
+
+async function loadCyberCampusTaskPlanningState(
+  page: Page,
+  userId: string,
+): Promise<CyberCampusTaskPlanningState> {
+  const mainHtml = await page.content();
+  const todoHtml = await fetchText(
+    page,
+    "/ilos/mp/todo_list.acl",
+    { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
+  );
+
+  return {
+    mainHtml,
+    baseCourses: parseCyberCampusMainCoursesHtml(mainHtml, userId, "ACTIVE"),
+    baseTasks: parseCyberCampusTodoListHtml(todoHtml, userId),
+  };
 }
 
 interface CyberCampusCourseRoomResponse {
@@ -677,22 +707,28 @@ export async function collectCyberCampusSnapshot(
       requireVerifiedSession: false,
     });
     if (await shouldCancel()) throw new Error("JOB_CANCELLED");
+    const planningState = await retryOnceAfterEmptyStoredSession({
+      hasStoredSession: Boolean(options?.cookieState?.length),
+      load: () => loadCyberCampusTaskPlanningState(page, userId),
+      isEmpty: (result) => result.baseTasks.length === 0,
+      refresh: async () => {
+        await forceFreshCyberCampusLogin(page, creds);
+      },
+    });
+    if (planningState.retriedStoredSession && planningState.result.baseTasks.length > 0) {
+      console.warn("[CYBER_CAMPUS] recovered empty snapshot task list after refreshing stored session");
+    }
 
-    const mainHtml = await page.content();
+    const mainHtml = planningState.result.mainHtml;
     const notificationHtml = await fetchText(
       page,
       "/ilos/mp/notification_list.acl",
       { method: "POST", body: "start=1&display=100&OPEN_DTM=&encoding=utf-8" },
     );
-    const todoHtml = await fetchText(
-      page,
-      "/ilos/mp/todo_list.acl",
-      { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
-    );
-    const baseCourses = parseCyberCampusMainCoursesHtml(mainHtml, userId, "ACTIVE");
+    const baseCourses = planningState.result.baseCourses;
     const baseNotices = parseCyberCampusCommunityNoticeListHtml(mainHtml, userId);
     const notifications = parseCyberCampusNotificationListHtml(notificationHtml, userId);
-    const baseTasks = parseCyberCampusTodoListHtml(todoHtml, userId);
+    const baseTasks = planningState.result.baseTasks;
     const { tasks, progressPercentByLectureSeq, instructorByLectureSeq, courseNotices } = await enrichCyberCampusTasks(page, userId, baseCourses, baseTasks, {
       onCancelCheck: shouldCancel,
       collectCourseMetadata: true,
@@ -756,13 +792,20 @@ export async function runCyberCampusAutoLearning(
 
   try {
     await ensureCyberCampusSession(page, creds, sessionOptions);
-    const todoHtml = await fetchText(
-      page,
-      "/ilos/mp/todo_list.acl",
-      { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
-    );
-    const baseTasks = parseCyberCampusTodoListHtml(todoHtml, userId);
-    const baseCourses = parseCyberCampusMainCoursesHtml(await page.content(), userId, "ACTIVE");
+    const planningState = await retryOnceAfterEmptyStoredSession({
+      hasStoredSession: Boolean(sessionOptions?.cookieState?.length),
+      load: () => loadCyberCampusTaskPlanningState(page, userId),
+      isEmpty: (result) => result.baseTasks.length === 0,
+      refresh: async () => {
+        await forceFreshCyberCampusLogin(page, creds);
+      },
+    });
+    if (planningState.retriedStoredSession && planningState.result.baseTasks.length > 0) {
+      console.warn("[CYBER_CAMPUS] recovered empty autolearn task list after refreshing stored session");
+    }
+
+    const baseTasks = planningState.result.baseTasks;
+    const baseCourses = planningState.result.baseCourses;
     const { tasks: enrichedTasks } = await enrichCyberCampusTasks(page, userId, baseCourses, baseTasks, {
       activityTypes: ["VOD"],
       onCancelCheck: shouldCancel,
