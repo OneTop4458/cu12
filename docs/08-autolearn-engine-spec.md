@@ -4,6 +4,7 @@
 
 - This document describes the **CU12 execution path inside the worker**.
 - Cyber Campus AUTOLEARN uses the same queue envelope but adds provider-session reuse and approval-session orchestration before the worker can proceed.
+- For Cyber Campus runs, a stored portal session is only a reuse hint. If the saved session is missing, expired, or rejected by the upstream portal, the worker falls back to a fresh credential login before deciding that manual approval is required.
 - Current supported CU12 task types are `VOD`, `MATERIAL`, and `QUIZ` when quiz auto-solve is enabled and OpenAI credentials are configured.
 - Excluded task types include assignments, debates, surveys, attendance-only items, and unsupported quiz DOM contracts.
 
@@ -45,6 +46,7 @@
 - If the portal contract changes, the worker fails fast with clear error codes.
 - If quiz auto-solve is disabled or OpenAI credentials are missing, quiz tasks are excluded and the run continues with the remaining supported tasks.
 - Queue retry policy handles transient failures; terminal portal/contract errors surface as queue failure reasons.
+- Dashboard approval UX should treat `requestedAction=BOOTSTRAP|START|CONFIRM` as asynchronous worker-owned steps and keep polling until the session returns to a user-input state or completes.
 
 ## Output
 

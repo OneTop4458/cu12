@@ -9,6 +9,7 @@ import {
 const baseApproval = {
   id: "approval-1",
   status: "PENDING" as const,
+  requestedAction: null,
   methodCount: 0,
   selectedMethodKey: null,
   requestCode: null,
@@ -36,6 +37,7 @@ test("buildCyberCampusApprovalAutoConfirmKey stays stable for identical no-code 
   const approval = {
     ...baseApproval,
     status: "ACTIVE" as const,
+    requestedAction: "CONFIRM" as const,
     selectedMethodKey: "5:DEVICE-1234",
     requestCode: "request-1",
   };
@@ -44,4 +46,17 @@ test("buildCyberCampusApprovalAutoConfirmKey stays stable for identical no-code 
     buildCyberCampusApprovalAutoConfirmKey(approval),
     buildCyberCampusApprovalAutoConfirmKey({ ...approval }),
   );
+});
+
+test("buildCyberCampusApprovalAutoOpenKey changes when requestedAction changes", () => {
+  const bootstrapKey = buildCyberCampusApprovalAutoOpenKey({
+    ...baseApproval,
+    requestedAction: "BOOTSTRAP",
+  });
+  const startKey = buildCyberCampusApprovalAutoOpenKey({
+    ...baseApproval,
+    requestedAction: "START",
+  });
+
+  assert.notEqual(bootstrapKey, startKey);
 });

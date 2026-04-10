@@ -3634,7 +3634,7 @@ components:
 
     CyberCampusApproval:
       type: object
-      required: [id, jobId, status, expiresAt, completedAt, canceledAt, errorMessage, methods, selectedMethod, requestCode, displayCode]
+      required: [id, jobId, status, requestedAction, expiresAt, completedAt, canceledAt, errorMessage, methods, selectedMethod, requestCode, displayCode]
       properties:
         id:
           type: string
@@ -3643,6 +3643,11 @@ components:
         status:
           type: string
           enum: [PENDING, ACTIVE, COMPLETED, EXPIRED, CANCELED]
+        requestedAction:
+          type: string
+          enum: [BOOTSTRAP, START, CONFIRM]
+          nullable: true
+          description: Current asynchronous worker step for this approval session, or null when waiting for user input.
         expiresAt:
           type: string
           format: date-time

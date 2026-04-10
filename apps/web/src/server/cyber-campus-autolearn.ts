@@ -29,6 +29,7 @@ interface CyberCampusApprovalRow {
   id: string;
   jobId: string;
   status: ApprovalSessionStatus;
+  requestedAction: PortalApprovalRequestedAction | null;
   methods: SecondaryAuthMethod[];
   selectedWay: number | null;
   selectedParam: string | null;
@@ -52,6 +53,7 @@ export interface CyberCampusApprovalSummary {
   id: string;
   jobId: string;
   status: ApprovalSessionStatus;
+  requestedAction: PortalApprovalRequestedAction | null;
   expiresAt: string;
   completedAt: string | null;
   canceledAt: string | null;
@@ -190,6 +192,7 @@ function serializeApproval(row: CyberCampusApprovalRow | null): CyberCampusAppro
     id: row.id,
     jobId: row.jobId,
     status: row.status,
+    requestedAction: row.requestedAction,
     expiresAt: row.expiresAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
     canceledAt: row.canceledAt?.toISOString() ?? null,
@@ -282,6 +285,7 @@ async function resolveActiveApproval(userId: string): Promise<CyberCampusApprova
     id: row.id,
     jobId: row.jobId,
     status: row.status,
+    requestedAction: row.requestedAction,
     methods: row.methods,
     selectedWay: row.selectedWay,
     selectedParam: row.selectedParam,
@@ -462,6 +466,7 @@ export async function startCyberCampusApproval(input: {
       id: approval.id,
       jobId: approval.jobId,
       status: approval.status,
+      requestedAction: approval.requestedAction,
       methods: approval.methods,
       selectedWay: approval.selectedWay,
       selectedParam: approval.selectedParam,
@@ -502,6 +507,7 @@ export async function startCyberCampusApproval(input: {
     id: refreshed.id,
     jobId: refreshed.jobId,
     status: refreshed.status,
+    requestedAction: refreshed.requestedAction,
     methods: refreshed.methods,
     selectedWay: refreshed.selectedWay,
     selectedParam: refreshed.selectedParam,
@@ -537,6 +543,7 @@ export async function confirmCyberCampusApproval(input: {
         id: approval.id,
         jobId: approval.jobId,
         status: approval.status,
+        requestedAction: approval.requestedAction,
         methods: approval.methods,
         selectedWay: approval.selectedWay,
         selectedParam: approval.selectedParam,
@@ -582,6 +589,7 @@ export async function confirmCyberCampusApproval(input: {
     id: refreshed.id,
     jobId: refreshed.jobId,
     status: refreshed.status,
+    requestedAction: refreshed.requestedAction,
     methods: refreshed.methods,
     selectedWay: refreshed.selectedWay,
     selectedParam: refreshed.selectedParam,
@@ -649,6 +657,7 @@ export async function cancelCyberCampusApproval(input: {
     id: refreshed.id,
     jobId: refreshed.jobId,
     status: refreshed.status,
+    requestedAction: refreshed.requestedAction,
     methods: refreshed.methods,
     selectedWay: refreshed.selectedWay,
     selectedParam: refreshed.selectedParam,
@@ -677,6 +686,7 @@ export async function getCyberCampusApprovalSummary(input: {
     id: refreshed.id,
     jobId: refreshed.jobId,
     status: refreshed.status,
+    requestedAction: refreshed.requestedAction,
     methods: refreshed.methods,
     selectedWay: refreshed.selectedWay,
     selectedParam: refreshed.selectedParam,
