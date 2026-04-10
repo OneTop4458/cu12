@@ -10,11 +10,18 @@ const COPY = {
 } as const;
 
 export async function LoginNotices() {
-  const recentBroadcastNotices = (await listPublicSiteNotices(SiteNoticeType.BROADCAST, {
-    surface: "LOGIN",
-  })).slice(0, 3);
+  const [maintenanceNotices, recentBroadcastNotices] = await Promise.all([
+    listPublicSiteNotices(SiteNoticeType.MAINTENANCE, {
+      surface: "LOGIN",
+    }),
+    listPublicSiteNotices(SiteNoticeType.BROADCAST, {
+      surface: "LOGIN",
+    }),
+  ]);
+  const recentLoginNotices = [...maintenanceNotices, ...recentBroadcastNotices].slice(0, 3);
+  const hasMaintenanceNotice = maintenanceNotices.length > 0;
 
-  if (recentBroadcastNotices.length === 0) {
+  if (recentLoginNotices.length === 0) {
     return null;
   }
 
@@ -22,10 +29,17 @@ export async function LoginNotices() {
     <section className="top-gap card">
       <p className="brand-kicker">{COPY.noticeTitle}</p>
       <p className="muted">{COPY.noticeHint}</p>
-      <LoginNoticeAccordion notices={recentBroadcastNotices} />
-      <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start", marginTop: 8 }}>
-        {COPY.noticesLink}
-      </Link>
+      <LoginNoticeAccordion notices={recentLoginNotices} />
+      <div className="button-row" style={{ marginTop: 8 }}>
+        <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start" }}>
+          {COPY.noticesLink}
+        </Link>
+        {hasMaintenanceNotice ? (
+          <Link className="ghost-btn" href="/maintenance" style={{ alignSelf: "flex-start" }}>
+            점검 안내 보기
+          </Link>
+        ) : null}
+      </div>
     </section>
   );
 }

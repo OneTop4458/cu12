@@ -1026,6 +1026,32 @@ textarea:focus {
   background: color-mix(in oklab, var(--primary-soft) 22%, var(--surface));
 }
 
+.login-notice-trigger-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-notice-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.login-notice-badge.is-broadcast {
+  background: color-mix(in oklab, var(--primary-soft) 72%, transparent);
+  color: var(--primary);
+}
+
+.login-notice-badge.is-maintenance {
+  background: color-mix(in oklab, var(--warn-soft) 75%, transparent);
+  color: var(--warn);
+}
+
 .login-notice-trigger-title {
   font-weight: 700;
   overflow: hidden;
@@ -1181,6 +1207,11 @@ textarea:focus {
 .topbar-notice-warning {
   border-color: color-mix(in oklab, var(--warn) 48%, var(--border));
   background: color-mix(in oklab, var(--warn-soft) 36%, transparent);
+}
+
+.maintenance-notice-card {
+  cursor: default;
+  user-select: text;
 }
 
 .topbar-notice-title {

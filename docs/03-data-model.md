@@ -75,7 +75,7 @@
 19. `SiteNotice`
     - Admin-managed notices shown on login and dashboard surfaces.
     - `BROADCAST` notices include a persisted `displayTarget` (`LOGIN`, `TOPBAR`, `BOTH`).
-    - `MAINTENANCE` notices are persisted and normalized as dashboard-top-only notices.
+    - `MAINTENANCE` notices are persisted and normalized as login-and-dashboard fixed notices.
 
 ## Data Boundaries
 

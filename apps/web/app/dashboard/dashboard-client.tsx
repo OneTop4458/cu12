@@ -377,7 +377,7 @@ type DeadlineFilter = "D7" | "ALL";
 
 const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
 const SITE_NOTICE_HOST_ID = "dashboard-site-notice-host";
-const MAINTENANCE_NOTICE_ID = "maintenance-notice";
+const MAINTENANCE_NOTICE_SUMMARY = "작업 중 일부 기능이 원활하지 않을 수 있습니다.";
 
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
 const POLL_ACTIVE_MS = 120000;
@@ -1586,6 +1586,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => dedupedSiteNotices.find((notice) => notice.type === "MAINTENANCE" && notice.isActive),
     [dedupedSiteNotices],
   );
+  const maintenanceNoticeBody = maintenanceNotice?.message || maintenanceNotice?.title || "공지 내용이 없습니다.";
 
   const dismissBroadcastNotice = useCallback((noticeId: string) => {
     setDismissedBroadcastNoticeIds((prev) => {
@@ -1626,29 +1627,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     if (!maintenanceNotice && visibleBroadcastNotices.length === 0) return null;
     const host = document.getElementById(SITE_NOTICE_HOST_ID);
     if (!host) return null;
-    const maintenanceExpanded = isNoticeExpanded(MAINTENANCE_NOTICE_ID);
 
     return createPortal(
       <div className="session-notice-stack">
         {maintenanceNotice ? (
-          <section
-            className={getNoticeExpandedClass(MAINTENANCE_NOTICE_ID, "topbar-notice topbar-notice-warning session-notice-card maintenance-notice-card")}
-            role="button"
-            tabIndex={0}
-            aria-expanded={maintenanceExpanded}
-            onClick={() => toggleNoticeExpanded(MAINTENANCE_NOTICE_ID)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                toggleNoticeExpanded(MAINTENANCE_NOTICE_ID);
-              }
-            }}
-          >
+          <section className="topbar-notice topbar-notice-warning maintenance-notice-card">
             <p className="topbar-notice-title">시스템 점검</p>
-            <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
-            {maintenanceExpanded ? (
-              <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
-            ) : null}
+            <p className="topbar-notice-subtitle">{MAINTENANCE_NOTICE_SUMMARY}</p>
+            <p className="topbar-notice-body">{maintenanceNoticeBody}</p>
           </section>
         ) : null}
         {visibleBroadcastNotices.length > 0 ? (
@@ -1690,7 +1676,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </div>,
       host,
     );
-    }, [maintenanceNotice, visibleBroadcastNotices, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded]);
+  }, [maintenanceNotice, maintenanceNoticeBody, visibleBroadcastNotices, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

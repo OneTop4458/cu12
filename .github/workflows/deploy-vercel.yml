@@ -78,6 +78,8 @@ jobs:
         run: pnpm exec prisma db push --schema prisma/schema.prisma
       - name: Backfill auth/policy columns after schema sync
         run: node scripts/db-backfill-auth-policy-columns.mjs
+      - name: Backfill site notice display targets after schema sync
+        run: pnpm run site-notices:backfill-display-target
 
   deploy:
     needs: db-sync

@@ -69,15 +69,6 @@ function toNullableIso(value: Date | null): string | null {
   return value.toISOString();
 }
 
-function getImpossibleWhere(): Prisma.SiteNoticeWhereInput {
-  return {
-    AND: [
-      { type: SiteNoticeType.BROADCAST },
-      { type: SiteNoticeType.MAINTENANCE },
-    ],
-  };
-}
-
 function buildSurfaceWhere(type?: SiteNoticeType, surface?: SiteNoticeSurface): Prisma.SiteNoticeWhereInput {
   if (!surface) {
     return type ? { type } : {};
@@ -85,14 +76,28 @@ function buildSurfaceWhere(type?: SiteNoticeType, surface?: SiteNoticeSurface): 
 
   if (surface === "LOGIN") {
     if (type === SiteNoticeType.MAINTENANCE) {
-      return getImpossibleWhere();
+      return { type: SiteNoticeType.MAINTENANCE };
+    }
+
+    if (type === SiteNoticeType.BROADCAST) {
+      return {
+        type: SiteNoticeType.BROADCAST,
+        displayTarget: {
+          in: [SiteNoticeDisplayTarget.LOGIN, SiteNoticeDisplayTarget.BOTH],
+        },
+      };
     }
 
     return {
-      type: SiteNoticeType.BROADCAST,
-      displayTarget: {
-        in: [SiteNoticeDisplayTarget.LOGIN, SiteNoticeDisplayTarget.BOTH],
-      },
+      OR: [
+        { type: SiteNoticeType.MAINTENANCE },
+        {
+          type: SiteNoticeType.BROADCAST,
+          displayTarget: {
+            in: [SiteNoticeDisplayTarget.LOGIN, SiteNoticeDisplayTarget.BOTH],
+          },
+        },
+      ],
     };
   }
 
