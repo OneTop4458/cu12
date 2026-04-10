@@ -1,0 +1,35 @@
+export interface CyberCampusTaskAccessSignal {
+  ready: boolean;
+  message: string | null;
+  messageCode: string | null;
+  secondaryAuthBlocked: boolean;
+  pageUrl: string;
+}
+
+export type CyberCampusTaskAccessState = "READY" | "SECONDARY_AUTH_REQUIRED" | "ERROR";
+
+export function interpretCyberCampusTaskAccessState(
+  input: CyberCampusTaskAccessSignal,
+): CyberCampusTaskAccessState {
+  if (input.ready) {
+    return "READY";
+  }
+
+  if (input.secondaryAuthBlocked) {
+    return "SECONDARY_AUTH_REQUIRED";
+  }
+
+  if (/\/ilos\/st\/course\/submain_form\.acl/i.test(input.pageUrl)) {
+    return "SECONDARY_AUTH_REQUIRED";
+  }
+
+  if (input.messageCode === "E_CONFIRMED_SECONDARY_AUTH") {
+    return "SECONDARY_AUTH_REQUIRED";
+  }
+
+  if (input.message?.includes("蹂몄씤?몄쬆")) {
+    return "SECONDARY_AUTH_REQUIRED";
+  }
+
+  return "ERROR";
+}
