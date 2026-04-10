@@ -21,6 +21,7 @@ import {
 } from "./cu12-automation";
 import { processCyberCampusApproval } from "./cyber-campus-approval";
 import { collectCyberCampusSnapshot, runCyberCampusAutoLearning } from "./cyber-campus-sync";
+import { resolveReusableCyberCampusSessionOptions } from "./cyber-campus-session-options";
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import {
@@ -945,12 +946,9 @@ async function processAutolearn(
   const cyberCampusSession = targetProvider === "CYBER_CAMPUS"
     ? await getPortalSessionCookieState(userId, "CYBER_CAMPUS")
     : null;
-  if (targetProvider === "CYBER_CAMPUS") {
-    const sessionExpired = cyberCampusSession?.expiresAt && cyberCampusSession.expiresAt.getTime() <= Date.now();
-    if (!cyberCampusSession || cyberCampusSession.status !== "ACTIVE" || sessionExpired || cyberCampusSession.cookieState.length === 0) {
-      throw new Error("CYBER_CAMPUS_SESSION_REQUIRED");
-    }
-  }
+  const cyberCampusSessionOptions = targetProvider === "CYBER_CAMPUS"
+    ? resolveReusableCyberCampusSessionOptions(cyberCampusSession)
+    : undefined;
   const cu12Creds: Cu12Credentials = {
     cu12Id: creds.cu12Id,
     cu12Password: creds.cu12Password,
@@ -1022,8 +1020,7 @@ async function processAutolearn(
         progressReporter,
         cancelReporter,
         {
-          cookieState: cyberCampusSession?.cookieState,
-          requireVerifiedSession: true,
+          cookieState: cyberCampusSessionOptions?.cookieState,
         },
       )
       : await runAutoLearning(
@@ -1076,7 +1073,7 @@ async function processAutolearn(
         shouldCancel,
         undefined,
         {
-          cookieState: cyberCampusSession?.cookieState,
+          cookieState: cyberCampusSessionOptions?.cookieState,
         },
       )
       : await collectCu12Snapshot(browser, userId, cu12Creds, shouldCancel);

@@ -273,6 +273,7 @@ interface CyberCampusApproval {
   id: string;
   jobId: string;
   status: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  requestedAction: "BOOTSTRAP" | "START" | "CONFIRM" | null;
   expiresAt: string;
   completedAt: string | null;
   canceledAt: string | null;
@@ -382,6 +383,7 @@ const POLL_ACTIVE_MS = 120000;
 const POLL_IDLE_MS = 300000;
 const POLL_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 const POLL_ACTIVE_WITH_WORK_MS = 45000;
+const POLL_APPROVAL_ACTIVE_MS = 3000;
 const POLL_TRACKING_MS = 10000;
 const POLL_TRACKING_RUNNING_MS = 2500;
 const POLL_TRACKING_PENDING_MS = 4500;
@@ -606,6 +608,39 @@ function formatApprovalCountdown(totalSeconds: number | null): string {
   const minutes = Math.floor(safe / 60);
   const seconds = safe % 60;
   return `${minutes}분 ${seconds}초`;
+}
+
+function isCyberCampusApprovalTerminal(approval: CyberCampusApproval | null): boolean {
+  if (!approval) return true;
+  return approval.status === "COMPLETED" || approval.status === "EXPIRED" || approval.status === "CANCELED";
+}
+
+function getCyberCampusApprovalPendingMessage(approval: CyberCampusApproval | null): string | null {
+  if (!approval || isCyberCampusApprovalTerminal(approval)) return null;
+
+  if (approval.requestedAction === "BOOTSTRAP") {
+    return "강의별 인증 필요 여부와 사용 가능한 인증 수단을 확인하는 중입니다.";
+  }
+
+  if (approval.requestedAction === "START") {
+    return "선택한 인증 수단으로 요청을 보내는 중입니다. 요청 번호가 나타날 때까지 잠시만 기다려 주세요.";
+  }
+
+  if (approval.requestedAction === "CONFIRM") {
+    return approval.selectedMethod?.requiresCode
+      ? "입력한 인증 코드를 확인하는 중입니다. 몇 초 정도 걸릴 수 있습니다."
+      : "인증 결과를 다시 확인하는 중입니다. 잠시만 기다려 주세요.";
+  }
+
+  if (!approval.selectedMethod && approval.methods.length === 0 && approval.status === "PENDING") {
+    return "강의별 인증 필요 여부와 사용 가능한 인증 수단을 확인하는 중입니다.";
+  }
+
+  if (approval.selectedMethod && !approval.requestCode && !approval.displayCode && approval.status === "PENDING") {
+    return "선택한 인증 수단으로 요청을 보내는 중입니다. 요청 번호가 나타나면 바로 입력 또는 확인을 진행할 수 있습니다.";
+  }
+
+  return null;
 }
 
 function formatCyberCampusSessionStatus(session: CyberCampusPortalSession): string {
@@ -921,6 +956,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       ? {
         id: activeCyberCampusApproval.id,
         status: activeCyberCampusApproval.status,
+        requestedAction: activeCyberCampusApproval.requestedAction,
         methodCount: activeCyberCampusApproval.methods.length,
         selectedMethodKey: activeCyberCampusApproval.selectedMethod
           ? `${activeCyberCampusApproval.selectedMethod.way}:${activeCyberCampusApproval.selectedMethod.param}`
@@ -1080,6 +1116,21 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const approvalExpiresInSeconds = approvalExpiresAtMs === null
     ? null
     : Math.max(0, Math.floor((approvalExpiresAtMs - Date.now()) / 1000));
+  const approvalPendingMessage = useMemo(
+    () => getCyberCampusApprovalPendingMessage(activeCyberCampusApproval),
+    [activeCyberCampusApproval],
+  );
+  const approvalWaitingForWorker = Boolean(approvalPendingMessage);
+  const approvalPrimaryActionDisabled = approvalSubmitting || approvalWaitingForWorker;
+  const approvalCodeInputDisabled = approvalSubmitting
+    || Boolean(activeCyberCampusApproval?.selectedMethod?.requiresCode && approvalWaitingForWorker);
+  const approvalPrimaryButtonLabel = approvalSubmitting
+    ? "처리 중..."
+    : activeCyberCampusApproval?.requestedAction === "START"
+      ? "요청 전송 중..."
+      : activeCyberCampusApproval?.requestedAction === "CONFIRM"
+        ? "인증 확인 중..."
+        : "인증 확인";
   const syncButtonLabel = useMemo(() => {
     switch (syncQueueState) {
       case "RUNNING":
@@ -1479,6 +1530,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [activeCyberCampusApproval, approvalUiState]);
 
   useEffect(() => {
+    if (!activeCyberCampusApproval || isCyberCampusApprovalTerminal(activeCyberCampusApproval)) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (!document.hidden) {
+        void refreshStatus(true);
+      }
+    }, POLL_APPROVAL_ACTIVE_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeCyberCampusApproval, refreshStatus]);
+
+  useEffect(() => {
     if (!approvalModalOpen || !activeCyberCampusApproval?.selectedMethod || approvalSubmitting) return;
     if (activeCyberCampusApproval.selectedMethod.requiresCode) return;
 
@@ -1855,6 +1920,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   async function startCyberCampusApproval(method: SecondaryAuthMethod) {
     if (!activeCyberCampusApproval || approvalSubmitting) return;
+    setError(null);
     setApprovalSubmitting(true);
     setBlockingMessage("사이버캠퍼스 인증 요청을 준비 중입니다...");
     try {
@@ -1890,6 +1956,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       return;
     }
 
+    setError(null);
     setApprovalSubmitting(true);
     setBlockingMessage("사이버캠퍼스 인증 상태를 확인 중입니다...");
     try {
@@ -2740,6 +2807,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             {activeCyberCampusApproval.errorMessage ? (
               <p className="error-text">{activeCyberCampusApproval.errorMessage}</p>
             ) : null}
+            {approvalPendingMessage ? (
+              <div className="pill-note top-gap" role="status" aria-live="polite">
+                <p><strong>처리 중</strong></p>
+                <p>{approvalPendingMessage}</p>
+              </div>
+            ) : null}
 
             {!activeCyberCampusApproval.selectedMethod ? activeCyberCampusApproval.methods.length === 0 ? (
               <div className="form-stack top-gap">
@@ -2755,7 +2828,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                       type="button"
                       className="ghost-btn"
                       onClick={() => void startCyberCampusApproval(method)}
-                      disabled={approvalSubmitting}
+                      disabled={approvalPrimaryActionDisabled}
                     >
                       {method.label}
                     </button>
@@ -2779,6 +2852,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     <input
                       value={approvalCode}
                       onChange={(event) => setApprovalCode(event.target.value)}
+                      disabled={approvalCodeInputDisabled}
                       maxLength={20}
                       placeholder="인증 코드를 입력하세요"
                     />
@@ -2787,8 +2861,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <p className="muted">기기에서 승인을 완료하면 자동으로 상태를 다시 확인합니다.</p>
                 )}
                 <div className="button-row">
-                  <button type="button" onClick={() => void confirmCyberCampusApproval()} disabled={approvalSubmitting}>
-                    {approvalSubmitting ? "확인 중..." : "인증 확인"}
+                  <button type="button" onClick={() => void confirmCyberCampusApproval()} disabled={approvalPrimaryActionDisabled}>
+                    {approvalPrimaryButtonLabel}
                   </button>
                   <button type="button" className="ghost-btn" onClick={() => setApprovalModalOpen(false)} disabled={approvalSubmitting}>
                     닫기

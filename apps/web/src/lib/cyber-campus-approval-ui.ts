@@ -1,6 +1,7 @@
 export interface ApprovalAutoOpenState {
   id: string;
   status: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  requestedAction?: "BOOTSTRAP" | "START" | "CONFIRM" | null;
   methodCount: number;
   selectedMethodKey: string | null;
   requestCode: string | null;
@@ -17,6 +18,7 @@ export function buildCyberCampusApprovalAutoOpenKey(approval: ApprovalAutoOpenSt
   return [
     approval.id,
     approval.status,
+    approval.requestedAction ?? "",
     approval.methodCount,
     buildSelectedMethodKey(approval) ?? "",
     approval.requestCode ?? "",
@@ -42,6 +44,7 @@ export function buildCyberCampusApprovalAutoConfirmKey(approval: ApprovalAutoOpe
   return [
     approval.id,
     approval.status,
+    approval.requestedAction ?? "",
     approval.selectedMethodKey,
     approval.requestCode ?? "",
     approval.displayCode ?? "",
