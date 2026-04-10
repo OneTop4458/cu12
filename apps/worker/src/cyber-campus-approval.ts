@@ -3,10 +3,9 @@ import {
   parseCyberCampusTodoListHtml,
   type LearningTask,
 } from "@cu12/core";
-import { chromium, type BrowserContextOptions, type Dialog, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Dialog, type Page } from "playwright";
 import { prisma } from "./prisma";
 import { getEnv } from "./env";
-import { requestWorkerDispatch } from "./internal-api";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import {
   failBlockedAutoLearnJob,
@@ -39,6 +38,14 @@ interface TextResponse {
   status: number;
   contentType: string | null;
   text: string;
+}
+
+export interface CyberCampusApprovalAutoLearnContinuation {
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
+  jobId: string;
+  userId: string;
 }
 
 interface ApprovalTaskContext {
@@ -580,7 +587,6 @@ async function completeApproval(input: {
     expiresAt: buildApprovalExpiry(new Date(), true),
   });
   await reactivateBlockedAutoLearnJob(input.jobId, input.userId);
-  await requestWorkerDispatch("autolearn", { userId: input.userId });
 }
 
 async function failApprovalAction(input: {
@@ -637,6 +643,7 @@ export async function processCyberCampusApproval(approvalId: string) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext(createBrowserContextOptions());
   const page = await context.newPage();
+  let continuation: CyberCampusApprovalAutoLearnContinuation | null = null;
 
   try {
     await ensureSession(page, approval.cookieState, {
@@ -662,10 +669,20 @@ export async function processCyberCampusApproval(approvalId: string) {
         jobId: approval.jobId,
         page,
       });
+      if (contextResult.kind === "NO_APPROVAL_REQUIRED") {
+        continuation = {
+          browser,
+          context,
+          page,
+          jobId: approval.jobId,
+          userId: approval.userId,
+        };
+      }
       return {
         type: "CYBER_CAMPUS_APPROVAL",
         state: contextResult.kind === "NO_PENDING_TASKS" ? "NO_PENDING_TASKS" : "COMPLETED",
         approvalId,
+        continuation,
       };
     }
 
@@ -803,7 +820,14 @@ export async function processCyberCampusApproval(approvalId: string) {
       jobId: approval.jobId,
       page,
     });
-    return { type: "CYBER_CAMPUS_APPROVAL", state: "COMPLETED", approvalId };
+    continuation = {
+      browser,
+      context,
+      page,
+      jobId: approval.jobId,
+      userId: approval.userId,
+    };
+    return { type: "CYBER_CAMPUS_APPROVAL", state: "COMPLETED", approvalId, continuation };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isReauthRequiredMessage(message)) {
@@ -825,7 +849,9 @@ export async function processCyberCampusApproval(approvalId: string) {
       message,
     };
   } finally {
-    await context.close();
-    await browser.close();
+    if (!continuation) {
+      await context.close();
+      await browser.close();
+    }
   }
 }

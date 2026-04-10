@@ -1,7 +1,7 @@
 import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "./env";
 
-interface ClaimedJob {
+export interface ClaimedJob {
   id: string;
   type: JobType;
   payload: {

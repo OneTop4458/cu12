@@ -2,6 +2,7 @@ import type { PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import {
+  type ClaimedJob,
   claimJob,
   failJob,
   finishJob,
@@ -19,7 +20,7 @@ import {
   type SyncProgress,
   type Cu12Credentials,
 } from "./cu12-automation";
-import { processCyberCampusApproval } from "./cyber-campus-approval";
+import { processCyberCampusApproval, type CyberCampusApprovalAutoLearnContinuation } from "./cyber-campus-approval";
 import { collectCyberCampusSnapshot, runCyberCampusAutoLearning } from "./cyber-campus-sync";
 import { resolveReusableCyberCampusSessionOptions } from "./cyber-campus-session-options";
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
@@ -933,6 +934,7 @@ async function processAutolearn(
     chainSegment?: number;
     sendStartMail?: boolean;
     provider?: PortalProvider;
+    cyberCampusContinuation?: CyberCampusApprovalAutoLearnContinuation;
   },
 ) {
   const creds = await getUserCu12Credentials(userId);
@@ -971,7 +973,8 @@ async function processAutolearn(
   };
 
   const env = getEnv();
-  const browser = await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
+  const browser = options?.cyberCampusContinuation?.browser
+    ?? await chromium.launch({ headless: env.PLAYWRIGHT_HEADLESS });
   const stallTimeoutMs = Math.max(120_000, env.AUTOLEARN_STALL_TIMEOUT_SECONDS * 1000);
   let lastHeartbeatAtMs = Date.now();
   let lastHeartbeatAt = new Date(lastHeartbeatAtMs).toISOString();
@@ -1035,8 +1038,11 @@ async function processAutolearn(
         progressReporter,
         cancelReporter,
         {
-          cookieState: cyberCampusSessionOptions?.cookieState,
-          restoreCookieStateAfterPlanningRefresh: cyberCampusSessionOptions?.restoreCookieStateAfterPlanningRefresh,
+          cookieState: options?.cyberCampusContinuation ? undefined : cyberCampusSessionOptions?.cookieState,
+          restoreCookieStateAfterPlanningRefresh: options?.cyberCampusContinuation
+            ? undefined
+            : cyberCampusSessionOptions?.restoreCookieStateAfterPlanningRefresh,
+          existingPage: options?.cyberCampusContinuation?.page,
         },
       )
       : await runAutoLearning(
@@ -1186,7 +1192,72 @@ async function processAutolearn(
     throw message === errMessage(error) ? error : new Error(message);
   } finally {
     clearInterval(stallWatchdog);
-    await browser.close();
+    if (options?.cyberCampusContinuation) {
+      await options.cyberCampusContinuation.context.close();
+      await browser.close();
+    } else {
+      await browser.close();
+    }
+  }
+}
+
+async function processClaimedAutoLearnJob(
+  job: ClaimedJob,
+  workerId: string,
+  continuation?: CyberCampusApprovalAutoLearnContinuation,
+) {
+  const shouldCancel = async () => {
+    const status = await getJobStatus(job.id);
+    return status === null || status === JobStatus.CANCELED;
+  };
+  const mode = toAutoLearnMode(job.payload.autoLearnMode);
+  const chainSegment = toChainSegment(job.payload.chainSegment, 1);
+  const shouldSendStartMail = chainSegment <= 1 && job.attempts <= 1;
+  const result = await processAutolearn(
+    job.id,
+    workerId,
+    job.payload.userId,
+    mode,
+    job.payload.lectureSeq,
+    shouldCancel,
+    {
+      chainSegment,
+      sendStartMail: shouldSendStartMail,
+      provider:
+        job.payload.provider === "CYBER_CAMPUS"
+          ? "CYBER_CAMPUS"
+          : job.payload.provider === "CU12"
+            ? "CU12"
+            : undefined,
+      cyberCampusContinuation: continuation,
+    },
+  );
+
+  const terminalStatus = await getJobStatus(job.id);
+  if (terminalStatus !== JobStatus.RUNNING) {
+    return;
+  }
+
+  const finished = await finishJob(job.id, workerId, result);
+  if (isAutoLearnJobResultPayload(result)) {
+    const continuationQueued = finished.autoLearn?.continuationQueued === true;
+    if (!continuationQueued) {
+      await sendAutoLearnResultMail(job.payload.userId, {
+        mode: result.mode,
+        processedTaskCount: result.processedTaskCount,
+        elapsedSeconds: result.elapsedSeconds,
+        watchedTaskCount: result.processedTaskCount,
+        watchedSeconds: result.elapsedSeconds,
+        plannedTaskCount: result.plannedTaskCount,
+        truncated: result.truncated,
+        continuationQueued,
+        chainLimitReached: finished.autoLearn?.chainLimitReached === true,
+        chainSegment: finished.autoLearn?.chainSegment ?? result.chainSegment,
+        estimatedTotalSeconds: result.estimatedTotalSeconds,
+        noOpReason: result.noOpReason,
+        planned: result.planned,
+      });
+    }
   }
 }
 
@@ -1469,10 +1540,83 @@ async function processMailJob(userId: string, payload: unknown) {
 async function main() {
   const env = getEnv();
   const args = parseArgs();
+  const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const approvalId = args.get("approvalId");
   if (approvalId) {
     const result = await processCyberCampusApproval(approvalId);
-    console.log(JSON.stringify(result));
+    const continuation =
+      "continuation" in result && result.continuation
+        ? result.continuation as CyberCampusApprovalAutoLearnContinuation
+        : null;
+    let continuationConsumed = false;
+
+    try {
+      if (continuation) {
+        const claimedJob = await claimJob(workerId, [JobType.AUTOLEARN], continuation.userId);
+        if (!claimedJob) {
+          throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_CLAIM_FAILED:${continuation.jobId}`);
+        }
+        if (claimedJob.id !== continuation.jobId) {
+          throw new Error(
+            `CYBER_CAMPUS_AUTOLEARN_CONTINUATION_MISMATCH:expected=${continuation.jobId}:actual=${claimedJob.id}`,
+          );
+        }
+
+        const currentStatus = await getJobStatus(claimedJob.id);
+        if (currentStatus !== JobStatus.RUNNING) {
+          throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_NOT_RUNNING:${claimedJob.id}:${currentStatus ?? "missing"}`);
+        }
+
+        continuationConsumed = true;
+        try {
+          await processClaimedAutoLearnJob(claimedJob, workerId, continuation);
+        } catch (jobError) {
+          const message = errMessage(jobError);
+          const terminalStatus = await getJobStatus(claimedJob.id);
+          if (
+            message === AUTOLEARN_CANCEL_ERROR
+            || message === JOB_CANCEL_ERROR
+            || terminalStatus === JobStatus.CANCELED
+          ) {
+            await sendAutoLearnTerminalMail(claimedJob.payload.userId, {
+              status: "CANCELED",
+              mode: toAutoLearnMode(claimedJob.payload.autoLearnMode),
+              lectureSeq: claimedJob.payload.lectureSeq,
+              chainSegment: toChainSegment(claimedJob.payload.chainSegment, 1),
+              reason: message === AUTOLEARN_CANCEL_ERROR || message === JOB_CANCEL_ERROR ? null : message,
+            });
+          } else {
+            const failed = await failJob(claimedJob.id, workerId, message);
+            if (failed.status === JobStatus.FAILED && !failed.retryQueued) {
+              await sendAutoLearnTerminalMail(claimedJob.payload.userId, {
+                status: "FAILED",
+                mode: toAutoLearnMode(claimedJob.payload.autoLearnMode),
+                lectureSeq: claimedJob.payload.lectureSeq,
+                chainSegment: toChainSegment(claimedJob.payload.chainSegment, 1),
+                reason: message,
+              });
+            }
+          }
+          throw jobError;
+        }
+      }
+    } finally {
+      if (continuation && !continuationConsumed) {
+        await continuation.context.close();
+        await continuation.browser.close();
+      }
+    }
+
+    const serializableResult = continuation
+      ? {
+        ...result,
+        continuation: {
+          jobId: continuation.jobId,
+          userId: continuation.userId,
+        },
+      }
+      : result;
+    console.log(JSON.stringify(serializableResult));
     return;
   }
 
@@ -1481,7 +1625,6 @@ async function main() {
   let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
   const jobTypes = parseJobTypes(args.get("types"));
   const targetUserId = args.get("userId");
-  const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const heartbeat = startHeartbeatLoop(workerId, env.POLL_INTERVAL_MS);
   const handoffTrigger = once ? resolveHandoffTrigger(jobTypes) : null;
   let shouldCheckHandoff = false;
@@ -1533,33 +1676,19 @@ async function main() {
               },
             );
           } else if (job.type === JobType.AUTOLEARN) {
-            const shouldCancel = async () => {
-              const status = await getJobStatus(job.id);
-              return status === null || status === JobStatus.CANCELED;
-            };
-            const mode = toAutoLearnMode(job.payload.autoLearnMode);
-            const chainSegment = toChainSegment(job.payload.chainSegment, 1);
-            const shouldSendStartMail = chainSegment <= 1 && job.attempts <= 1;
-            result = await processAutolearn(
-              job.id,
-              workerId,
-              job.payload.userId,
-              mode,
-              job.payload.lectureSeq,
-              shouldCancel,
-              {
-                chainSegment,
-                sendStartMail: shouldSendStartMail,
-                provider:
-                  job.payload.provider === "CYBER_CAMPUS"
-                    ? "CYBER_CAMPUS"
-                    : job.payload.provider === "CU12"
-                      ? "CU12"
-                      : undefined,
-              },
-            );
+            await processClaimedAutoLearnJob(job, workerId);
+            result = null;
           } else {
             result = await processMailJob(job.payload.userId, job.payload);
+          }
+
+          if (job.type === JobType.AUTOLEARN) {
+            if (once) {
+              shouldCheckHandoff = true;
+              break;
+            }
+            onceNoJobDeadline = Date.now() + onceGraceMs;
+            continue;
           }
 
           const terminalStatus = await getJobStatus(job.id);
@@ -1568,31 +1697,7 @@ async function main() {
           }
 
           const finished = await finishJob(job.id, workerId, result);
-          if (job.type === JobType.AUTOLEARN && isAutoLearnJobResultPayload(result)) {
-            const continuationQueued = finished.autoLearn?.continuationQueued === true;
-            if (!continuationQueued) {
-              await sendAutoLearnResultMail(job.payload.userId, {
-                mode: result.mode,
-                processedTaskCount: result.processedTaskCount,
-                elapsedSeconds: result.elapsedSeconds,
-                watchedTaskCount: result.processedTaskCount,
-                watchedSeconds: result.elapsedSeconds,
-                plannedTaskCount: result.plannedTaskCount,
-                truncated: result.truncated,
-                continuationQueued,
-                chainLimitReached: finished.autoLearn?.chainLimitReached === true,
-                chainSegment: finished.autoLearn?.chainSegment ?? result.chainSegment,
-                estimatedTotalSeconds: result.estimatedTotalSeconds,
-                noOpReason: result.noOpReason,
-                planned: result.planned,
-              });
-            }
-          }
           if (once) {
-            if (job.type === JobType.AUTOLEARN) {
-              shouldCheckHandoff = true;
-              break;
-            }
             onceNoJobDeadline = Date.now() + onceGraceMs;
           }
         } catch (jobError) {
