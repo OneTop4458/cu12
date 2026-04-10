@@ -281,6 +281,8 @@ export function formatAutoLearnNoOpReason(reason: string | null | undefined): st
   if (reason === "NO_ACTIVE_COURSES") return "진행 중인 강의가 없습니다.";
   if (reason === "LECTURE_NOT_FOUND") return "선택한 강의를 찾을 수 없습니다.";
   if (reason === "NO_PENDING_TASKS") return "미완료 차시가 없습니다.";
+  if (reason === "NO_PENDING_VOD_TASKS") return "미완료 영상 차시가 없습니다.";
+  if (reason === "NO_AVAILABLE_VOD_TASKS") return "남아 있는 영상 차시가 아직 학습 가능 기간이 아니거나 이미 마감되었습니다.";
   if (reason === "NO_PENDING_SUPPORTED_TASKS") return "미완료 자동 수강 지원 차시가 없습니다.";
   if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능한 자동 수강 지원 차시가 없습니다.";
   if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 남은 차시가 없습니다.";

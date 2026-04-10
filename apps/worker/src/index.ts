@@ -32,6 +32,11 @@ import {
   buildSyncAlertMail,
 } from "./mail-content";
 import {
+  formatAutoLearnFailureLog,
+  formatAutoLearnStartLog,
+  formatAutoLearnSummaryLog,
+} from "./autolearn-log";
+import {
   getMandatoryMailRecipient,
   getUserCu12Credentials,
   getUserMailPreference,
@@ -973,6 +978,13 @@ async function processAutolearn(
     });
   }
   try {
+    console.log(formatAutoLearnStartLog({
+      jobId,
+      provider: targetProvider,
+      mode,
+      lectureSeq: lectureSeq ?? null,
+      chainSegment: options?.chainSegment,
+    }));
     const progressReporter = async (progress: AutoLearnProgress) => {
       const nowIso = progress.heartbeatAt ?? new Date().toISOString();
       lastHeartbeatAt = nowIso;
@@ -1031,12 +1043,24 @@ async function processAutolearn(
     }
     clearInterval(stallWatchdog);
 
+    console.log(formatAutoLearnSummaryLog({
+      jobId,
+      provider: targetProvider,
+      mode: autoResult.mode,
+      lectureSeq: lectureSeq ?? null,
+      chainSegment: options?.chainSegment,
+      plannedTaskCount: autoResult.plannedTaskCount,
+      processedTaskCount: autoResult.processedTaskCount,
+      noOpReason: autoResult.noOpReason,
+      lectureSeqs: autoResult.lectureSeqs,
+    }));
+
     await recordLearningRun(
       userId,
       targetProvider,
       lectureSeq ?? null,
       "SUCCESS",
-      `mode=${mode}, processed=${autoResult.processedTaskCount}`,
+      `provider=${targetProvider}, mode=${autoResult.mode}, lecture=${lectureSeq ?? "ALL"}, planned=${autoResult.plannedTaskCount}, processed=${autoResult.processedTaskCount}, noOp=${autoResult.noOpReason ?? "-"}`,
     );
 
     // Refresh snapshots after playback updates.
@@ -1062,15 +1086,18 @@ async function processAutolearn(
       category: "WORKER",
       severity: "INFO",
       targetUserId: userId,
-      message: "AUTOLEARN job completed",
-      meta: {
-        jobId,
-        mode: autoResult.mode,
+        message: "AUTOLEARN job completed",
+        meta: {
+          jobId,
+          provider: targetProvider,
+          mode: autoResult.mode,
+          lectureSeq: lectureSeq ?? null,
           processedTaskCount: autoResult.processedTaskCount,
-        noOpReason: autoResult.noOpReason,
-        plannedTaskCount: autoResult.plannedTaskCount,
-      },
-    });
+          noOpReason: autoResult.noOpReason,
+          plannedTaskCount: autoResult.plannedTaskCount,
+          lectureSeqs: autoResult.lectureSeqs,
+        },
+      });
 
     return {
       type: "AUTOLEARN",
@@ -1094,6 +1121,15 @@ async function processAutolearn(
     const isStalled = message === AUTOLEARN_STALLED_ERROR;
 
     if (!isCancelled) {
+      console.error(formatAutoLearnFailureLog({
+        jobId,
+        provider: targetProvider,
+        mode,
+        lectureSeq: lectureSeq ?? null,
+        chainSegment: options?.chainSegment,
+        error: message,
+        stalled: isStalled,
+      }));
       if (
         targetProvider === "CYBER_CAMPUS"
         && (message === "CYBER_CAMPUS_SESSION_INVALID"
@@ -1110,6 +1146,8 @@ async function processAutolearn(
         message: "AUTOLEARN job failed",
         meta: {
           jobId,
+          provider: targetProvider,
+          mode,
           lectureSeq: lectureSeq ?? null,
           error: message,
           stalled: isStalled,
@@ -1125,6 +1163,8 @@ async function processAutolearn(
         message: "AUTOLEARN job cancelled",
         meta: {
           jobId,
+          provider: targetProvider,
+          mode,
           lectureSeq: lectureSeq ?? null,
         },
       });

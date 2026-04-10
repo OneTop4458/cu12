@@ -17,6 +17,11 @@ import {
   buildCyberCampusApprovalAutoOpenKey,
   shouldAutoOpenCyberCampusApproval,
 } from "../../src/lib/cyber-campus-approval-ui";
+import {
+  describeAutoNoOpForDashboard,
+  parseAutoLearnNoOpReason,
+  type AutoLearnNoOpReason,
+} from "../../src/lib/autolearn-noop";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
@@ -312,14 +317,6 @@ interface AutoProgress {
   };
 }
 
-type AutoLearnNoOpReason =
-  | "NO_ACTIVE_COURSES"
-  | "LECTURE_NOT_FOUND"
-  | "NO_PENDING_TASKS"
-  | "NO_PENDING_SUPPORTED_TASKS"
-  | "NO_AVAILABLE_SUPPORTED_TASKS"
-  | "NO_TASKS_AFTER_FILTER";
-
 interface AutoLearnPlannedTask {
   lectureSeq: number;
   courseContentsSeq: number;
@@ -477,18 +474,6 @@ function parseAutoProgress(value: unknown): AutoProgress | null {
   const maybe = value as Partial<AutoProgress>;
   if (maybe.kind !== "AUTOLEARN_PROGRESS" || !maybe.progress) return null;
   return maybe as AutoProgress;
-}
-
-function parseAutoLearnNoOpReason(value: unknown): AutoLearnNoOpReason | null {
-  if (value !== "NO_ACTIVE_COURSES"
-    && value !== "LECTURE_NOT_FOUND"
-    && value !== "NO_PENDING_TASKS"
-    && value !== "NO_PENDING_SUPPORTED_TASKS"
-    && value !== "NO_AVAILABLE_SUPPORTED_TASKS"
-    && value !== "NO_TASKS_AFTER_FILTER") {
-    return null;
-  }
-  return value;
 }
 
 function parseAutoLearnPlannedTask(value: unknown): AutoLearnPlannedTask | null {
@@ -1057,6 +1042,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     && autoProgressLagSeconds !== null
     && autoProgressLagSeconds > 180;
   const autoModeForDisplay = autoProgress?.progress.mode ?? autoResult?.mode ?? null;
+  const autoNoOpMessage = describeAutoNoOpForDashboard({
+    provider: autoLearnProvider,
+    mode: autoModeForDisplay,
+    reason: autoNoOpReason,
+    course: selectedAutoCourse
+      ? {
+        lectureSeq: selectedAutoCourse.lectureSeq,
+        title: selectedAutoCourse.title,
+        pendingTaskTypeCounts: selectedAutoCourse.pendingTaskTypeCounts,
+      }
+      : null,
+  });
   const autoCompletedCount = autoProgress?.progress.completedTasks ?? autoResult?.processedTaskCount ?? 0;
   const autoWatchedSeconds = autoProgress?.progress.elapsedSeconds ?? autoResult?.elapsedSeconds ?? 0;
   const autoCurrentTitle = autoProgress?.progress.current
@@ -2411,7 +2408,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 <p className="muted">누적 처리 시간: {formatSeconds(autoWatchedSeconds)}</p>
                 {autoPlannedCount === 0 ? (
                   <p className="muted" style={{ color: "var(--warn)" }}>
-                    {formatAutoNoOpReason(autoNoOpReason)}
+                    {autoNoOpMessage}
                   </p>
                 ) : null}
                 {autoProgress?.progress.current ? (

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { LearningTask } from "@cu12/core";
-import { mergeCyberCampusTaskWithDetail } from "./cyber-campus-sync";
+import { mergeCyberCampusTaskWithDetail, planCyberCampusAutoLearnTasks } from "./cyber-campus-sync";
 
 function createTask(input: Partial<LearningTask> & Pick<LearningTask, "lectureSeq" | "courseContentsSeq" | "activityType">): LearningTask {
   return {
@@ -80,4 +80,51 @@ test("worker-side Cyber Campus task merge falls back to lightweight task when de
 
   const merged = mergeCyberCampusTaskWithDetail(baseTask, null);
   assert.deepEqual(merged, baseTask);
+});
+
+test("planCyberCampusAutoLearnTasks reports quiz-only lectures as no pending VOD", () => {
+  const plan = planCyberCampusAutoLearnTasks(
+    [
+      createTask({
+        lectureSeq: 377289926,
+        courseContentsSeq: 3,
+        activityType: "QUIZ",
+        taskTitle: "토론형 퀴즈",
+      }),
+    ],
+    {
+      mode: "SINGLE_ALL",
+      lectureSeq: 377289926,
+      nowMs: Date.parse("2026-04-10T11:00:00+09:00"),
+    },
+  );
+
+  assert.equal(plan.planned.length, 0);
+  assert.equal(plan.scopedPendingVodCount, 0);
+  assert.equal(plan.noOpReason, "NO_PENDING_VOD_TASKS");
+});
+
+test("planCyberCampusAutoLearnTasks reports future-only lectures as no available VOD", () => {
+  const plan = planCyberCampusAutoLearnTasks(
+    [
+      createTask({
+        lectureSeq: 373653502,
+        courseContentsSeq: 11,
+        activityType: "VOD",
+        taskTitle: "11차시",
+        availableFrom: "2026-04-11T12:00:00+09:00",
+        dueAt: "2026-04-20T23:59:00+09:00",
+      }),
+    ],
+    {
+      mode: "SINGLE_ALL",
+      lectureSeq: 373653502,
+      nowMs: Date.parse("2026-04-10T11:00:00+09:00"),
+    },
+  );
+
+  assert.equal(plan.planned.length, 0);
+  assert.equal(plan.scopedPendingVodCount, 1);
+  assert.equal(plan.scopedAvailableVodCount, 0);
+  assert.equal(plan.noOpReason, "NO_AVAILABLE_VOD_TASKS");
 });
