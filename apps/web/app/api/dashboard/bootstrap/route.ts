@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
       timing.measure("site-notices", () => loadOptionalDashboardSegment(
         "dashboard/bootstrap",
         "site-notices",
-        () => listSiteNotices(undefined, false),
+        () => listSiteNotices(undefined, false, "TOPBAR"),
         [],
       )),
       timing.measure("mail-pref", () => resolveMailPreference(userId)),

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
-import { SiteNoticeType } from "@prisma/client";
+import { SiteNoticeDisplayTarget, SiteNoticeType } from "@prisma/client";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { createSiteNotice, listSiteNotices, PUBLIC_SITE_NOTICES_TAG } from "@/server/site-notice";
 import { writeAuditLog } from "@/server/audit-log";
@@ -10,6 +10,7 @@ const CreateSiteNoticeSchema = z.object({
   type: z.nativeEnum(SiteNoticeType),
   title: z.string().trim().min(1).max(120),
   message: z.string().trim().max(3000).optional(),
+  displayTarget: z.nativeEnum(SiteNoticeDisplayTarget).optional(),
   isActive: z.boolean().default(true),
   priority: z.number().int().min(-999).max(999).default(0),
   visibleFrom: z.string().datetime().nullable().optional(),
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
       type: body.type,
       title: body.title.trim(),
       message: body.message?.trim() ?? "",
+      displayTarget: body.displayTarget,
       isActive,
       priority,
       visibleFrom: visibleFrom ? visibleFrom.toISOString() : null,

@@ -17,6 +17,7 @@ function toPublicNotice(
     title: notice.title,
     message: notice.message,
     type: notice.type,
+    displayTarget: notice.displayTarget,
     isActive: notice.isActive,
     priority: notice.priority,
     visibleFrom: notice.visibleFrom,

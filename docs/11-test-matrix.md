@@ -28,6 +28,8 @@
 1. Bootstrap payload includes actor/effective context, provider summaries, queue state, account settings, Cyber Campus state, and mail preference.
 2. Notifications and messages respect explicit or inferred provider scope.
 3. Site notices and maintenance notice surfaces align with the active visibility window.
+4. `BROADCAST` display targets route notices correctly across login-only, topbar-only, and dual-surface modes.
+5. Dashboard and login notice accordions start collapsed and preserve multiline bodies when expanded.
 
 ## Provider-Specific Automation
 

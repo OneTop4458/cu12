@@ -27,6 +27,21 @@ test("isMissingSiteNoticeStoreError handles known column errors", () => {
   assert.equal(isMissingSiteNoticeStoreError(error), true);
 });
 
+test("isMissingSiteNoticeStoreError handles displayTarget column errors", () => {
+  const error = new Prisma.PrismaClientKnownRequestError(
+    "Column `displayTarget` does not exist.",
+    {
+      code: "P2022",
+      clientVersion: "6.19.3",
+      meta: {
+        column: "displayTarget",
+      },
+    },
+  );
+
+  assert.equal(isMissingSiteNoticeStoreError(error), true);
+});
+
 test("isMissingSiteNoticeStoreError ignores unrelated Prisma errors", () => {
   const error = new Prisma.PrismaClientKnownRequestError(
     "Column `digestHour` does not exist.",

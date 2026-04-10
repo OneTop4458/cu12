@@ -8,7 +8,7 @@ export function isMissingSiteNoticeStoreError(error: unknown): boolean {
       return false;
     }
     const target = `${error.message} ${String(error.meta?.modelName ?? "")} ${String(error.meta?.table ?? "")} ${String(error.meta?.column ?? "")}`.toLowerCase();
-    return /sitenotice|site_notice|createdbyuserid|visiblefrom|visibleto/.test(target);
+    return /sitenotice|site_notice|createdbyuserid|displaytarget|visiblefrom|visibleto/.test(target);
   }
 
   if (error instanceof Prisma.PrismaClientUnknownRequestError) {

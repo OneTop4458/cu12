@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       timing.measure("site-notices", () => loadOptionalDashboardSegment(
         "dashboard/status",
         "site-notices",
-        () => listSiteNotices(undefined, false),
+        () => listSiteNotices(undefined, false, "TOPBAR"),
         [],
       )),
       timing.measure("jobs", () => loadOptionalDashboardSegment(

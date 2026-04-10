@@ -18,6 +18,12 @@ enum SiteNoticeType {
   MAINTENANCE
 }
 
+enum SiteNoticeDisplayTarget {
+  LOGIN
+  TOPBAR
+  BOTH
+}
+
 enum PolicyDocumentType {
   PRIVACY_POLICY
   TERMS_OF_SERVICE
@@ -209,6 +215,7 @@ model JobQueue {
 model SiteNotice {
   id             String        @id @default(cuid())
   type           SiteNoticeType
+  displayTarget  SiteNoticeDisplayTarget @default(BOTH)
   title          String
   message        String
   isActive       Boolean       @default(true)
@@ -220,7 +227,7 @@ model SiteNotice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  @@index([type, isActive, createdAt])
+  @@index([type, displayTarget, isActive, createdAt])
   @@index([isActive, visibleFrom, visibleTo])
   @@index([priority, createdAt])
 }

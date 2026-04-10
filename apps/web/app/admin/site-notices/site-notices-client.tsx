@@ -6,12 +6,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
-import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
+import { ThemeToggle } from "../../../components/theme/theme-toggle";
+import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
+import { formatSiteNoticeDisplayTargetLabel } from "@/lib/site-notice-display";
 
 type RoleType = "ADMIN" | "USER";
 type NoticeType = "BROADCAST" | "MAINTENANCE";
+type NoticeDisplayTarget = "LOGIN" | "TOPBAR" | "BOTH";
 
 interface AdminSiteNoticeClientProps {
   initialUser: {
@@ -25,6 +27,7 @@ interface SiteNotice {
   title: string;
   message: string;
   type: NoticeType;
+  displayTarget: NoticeDisplayTarget;
   isActive: boolean;
   priority: number;
   visibleFrom: string | null;
@@ -39,9 +42,9 @@ interface SiteNoticeListPayload {
 
 interface NoticeResponse {
   notice: SiteNotice;
-  created: boolean;
-  updated: boolean;
-  deleted: boolean;
+  created?: boolean;
+  updated?: boolean;
+  deleted?: boolean;
   noticeId?: string;
 }
 
@@ -57,6 +60,12 @@ const NOTICE_TYPE_OPTIONS: { value: NoticeType; label: string }[] = [
   { value: "MAINTENANCE", label: "시스템 점검" },
 ];
 
+const DISPLAY_TARGET_OPTIONS: { value: NoticeDisplayTarget; label: string }[] = [
+  { value: "LOGIN", label: "로그인만" },
+  { value: "TOPBAR", label: "상단만" },
+  { value: "BOTH", label: "로그인+상단" },
+];
+
 function parseError(payload: unknown): string {
   if (payload && typeof payload === "object" && "error" in payload) {
     const maybeError = (payload as ApiErrorPayload).error;
@@ -64,6 +73,7 @@ function parseError(payload: unknown): string {
       return maybeError.trim();
     }
   }
+
   return "요청을 처리하는 중 알 수 없는 오류가 발생했습니다.";
 }
 
@@ -138,6 +148,10 @@ function formatDateTime(value: string | null): string {
   return date.toLocaleString("ko-KR");
 }
 
+function formatNoticeTypeLabel(type: NoticeType): string {
+  return type === "MAINTENANCE" ? "시스템 점검" : "전체 공지";
+}
+
 export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientProps) {
   const router = useRouter();
 
@@ -149,6 +163,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const [editingNotice, setEditingNotice] = useState<SiteNotice | null>(null);
 
   const [formNoticeType, setFormNoticeType] = useState<NoticeType>("BROADCAST");
+  const [formDisplayTarget, setFormDisplayTarget] = useState<NoticeDisplayTarget>("BOTH");
   const [formTitle, setFormTitle] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [formPriority, setFormPriority] = useState(0);
@@ -174,14 +189,24 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       router.push("/login" as Route);
       throw new Error("Unauthorized");
     }
+
     let payload: (T & ApiErrorPayload) | null = null;
     try {
       payload = await readJsonBody<T & ApiErrorPayload>(response);
     } catch {
       throw new Error("Server returned an invalid response.");
     }
-    if (!response.ok) throw new Error(parseError(payload ?? { error: resolveClientResponseError(response, payload, "Request failed.") }));
-    if (!payload) throw new Error("Server returned an empty response.");
+
+    if (!response.ok) {
+      throw new Error(
+        parseError(payload ?? { error: resolveClientResponseError(response, payload, "Request failed.") }),
+      );
+    }
+
+    if (!payload) {
+      throw new Error("Server returned an empty response.");
+    }
+
     return payload;
   }, [router]);
 
@@ -217,6 +242,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const resetForm = useCallback(() => {
     setEditingNotice(null);
     setFormNoticeType("BROADCAST");
+    setFormDisplayTarget("BOTH");
     setFormTitle("");
     setFormMessage("");
     setFormPriority(0);
@@ -228,6 +254,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const selectEditNotice = useCallback((notice: SiteNotice) => {
     setEditingNotice(notice);
     setFormNoticeType(notice.type);
+    setFormDisplayTarget(notice.displayTarget);
     setFormTitle(notice.title);
     setFormMessage(notice.message);
     setFormPriority(notice.priority);
@@ -240,10 +267,12 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const onSubmitNotice = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitting) return;
+
     if (!formTitle.trim()) {
       setError("제목을 입력해 주세요.");
       return;
     }
+
     setSubmitting(true);
     setError(null);
     setMessage(null);
@@ -252,6 +281,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       type: formNoticeType,
       title: formTitle.trim(),
       message: formMessage.trim(),
+      displayTarget: formNoticeType === "MAINTENANCE" ? "TOPBAR" : formDisplayTarget,
       isActive: formIsActive,
       priority: formPriority,
       visibleFrom: toUtcIso(formVisibleFrom),
@@ -274,6 +304,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
         });
         setMessage("공지 항목을 생성했습니다.");
       }
+
       resetForm();
       await loadNotices(includeInactive);
     } catch (err) {
@@ -284,6 +315,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   }, [
     editingNotice,
     fetchJson,
+    formDisplayTarget,
     formIsActive,
     formMessage,
     formNoticeType,
@@ -308,7 +340,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ isActive: next }),
         });
-        setMessage(`공지 상태를 ${next ? "활성" : "비활성"}로 변경했습니다.`);
+        setMessage(`공지 상태를 ${next ? "활성" : "비활성"}으로 변경했습니다.`);
         await loadNotices(includeInactive);
       } catch (err) {
         setError(err instanceof Error ? err.message : "공지 상태 변경에 실패했습니다.");
@@ -321,6 +353,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   const deleteNotice = useCallback((notice: SiteNotice) => {
     if (busyNoticeId) return;
     if (!window.confirm(`"${notice.title}" 공지를 삭제할까요?`)) return;
+
     setBusyNoticeId(notice.id);
     void (async () => {
       try {
@@ -352,15 +385,15 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               <RefreshCw size={16} />
             </button>
             <ThemeToggle />
-            <Link className="ghost-btn" href={"/admin/operations" as any}>
+            <Link className="ghost-btn" href={"/admin/operations" as Route}>
               작업 운영
             </Link>
-            <Link className="ghost-btn" href={"/admin/system" as any}>
+            <Link className="ghost-btn" href={"/admin/system" as Route}>
               시스템 상태
             </Link>
             <button type="button" className="ghost-btn" onClick={() => router.push("/admin" as Route)}>
               <ChevronLeft size={16} />
-              운영자 홈
+              운영 홈
             </button>
             <UserMenu
               email={initialUser.email}
@@ -378,21 +411,22 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
           </div>
         </div>
       </header>
+
       <section className="admin-stats">
         <article className="admin-stat card">
           <h2>전체 공지</h2>
           <p className="metric">{totalCount}</p>
           <p className="muted">
-            전체 {broadcastCount}건, 점검 {maintenanceCount}건
+            전체 {broadcastCount}건 / 점검 {maintenanceCount}건
           </p>
         </article>
         <article className="admin-stat card">
-          <h2>활성/비활성</h2>
+          <h2>활성 / 비활성</h2>
           <p className="metric">{activeCount} / {inactiveCount}</p>
-          <p className="muted">활성 기준으로 즉시 노출되는 공지 수</p>
+          <p className="muted">활성 기준으로 즉시 노출되는 공지 수를 확인합니다.</p>
         </article>
         <article className="admin-stat card">
-          <h2>노출 포함 범위</h2>
+          <h2>노출 범위 보기</h2>
           <label className="check-field" style={{ marginTop: 8 }}>
             <input
               type="checkbox"
@@ -402,7 +436,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
                 void loadNotices(event.target.checked);
               }}
             />
-            <span>비활성/만료 공지까지 함께 보기</span>
+            <span>비활성 / 만료 공지도 함께 보기</span>
           </label>
         </article>
       </section>
@@ -417,10 +451,20 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             새로 작성
           </button>
         </div>
+
         <form className="form-grid top-gap" onSubmit={onSubmitNotice}>
           <label className="field">
             <span>공지 타입</span>
-            <select value={formNoticeType} onChange={(event) => setFormNoticeType(event.target.value as NoticeType)}>
+            <select
+              value={formNoticeType}
+              onChange={(event) => {
+                const nextType = event.target.value as NoticeType;
+                setFormNoticeType(nextType);
+                if (nextType === "MAINTENANCE") {
+                  setFormDisplayTarget("TOPBAR");
+                }
+              }}
+            >
               {NOTICE_TYPE_OPTIONS.map((type) => (
                 <option key={type.value} value={type.value}>
                   {type.label}
@@ -428,6 +472,25 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               ))}
             </select>
           </label>
+
+          <label className="field">
+            <span>노출 위치</span>
+            {formNoticeType === "BROADCAST" ? (
+              <select
+                value={formDisplayTarget}
+                onChange={(event) => setFormDisplayTarget(event.target.value as NoticeDisplayTarget)}
+              >
+                {DISPLAY_TARGET_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="pill-note">대시보드 상단 고정 노출</div>
+            )}
+          </label>
+
           <label className="field">
             <span>제목</span>
             <input
@@ -438,6 +501,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               placeholder="공지 제목을 입력하세요"
             />
           </label>
+
           <label className="field">
             <span>우선순위</span>
             <input
@@ -449,30 +513,37 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               max={999}
             />
           </label>
+
           <label className="field">
-            <span>활성</span>
-            <select value={formIsActive ? "true" : "false"} onChange={(event) => setFormIsActive(event.target.value === "true")}>
+            <span>활성 상태</span>
+            <select
+              value={formIsActive ? "true" : "false"}
+              onChange={(event) => setFormIsActive(event.target.value === "true")}
+            >
               <option value="true">활성</option>
               <option value="false">비활성</option>
             </select>
           </label>
+
           <label className="field">
-            <span>시작 시간 (선택)</span>
+            <span>시작 시각 (선택)</span>
             <input
               type="datetime-local"
               value={formVisibleFrom}
               onChange={(event) => setFormVisibleFrom(event.target.value)}
             />
           </label>
+
           <label className="field">
-            <span>종료 시간 (선택)</span>
+            <span>종료 시각 (선택)</span>
             <input
               type="datetime-local"
               value={formVisibleTo}
               onChange={(event) => setFormVisibleTo(event.target.value)}
             />
           </label>
-          <label className="field">
+
+          <label className="field" style={{ gridColumn: "1 / -1" }}>
             <span>내용</span>
             <textarea
               value={formMessage}
@@ -482,7 +553,8 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               placeholder="공지 내용을 입력하세요"
             />
           </label>
-          <div className="align-end">
+
+          <div className="align-end" style={{ gridColumn: "1 / -1" }}>
             <button className="btn-success" type="submit" disabled={submitting || !hasNoticeDraft}>
               {submitting ? <><Save size={16} /> 저장 중...</> : editingNotice ? "수정" : "등록"}
             </button>
@@ -503,30 +575,35 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
               <tr>
                 <th>타입</th>
                 <th>제목</th>
+                <th>노출 위치</th>
                 <th>우선순위</th>
                 <th>상태</th>
-                <th>노출 범위</th>
+                <th>노출 시점</th>
                 <th>시작</th>
                 <th>종료</th>
-                <th>수정</th>
+                <th>관리</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8}>공지 목록을 불러오는 중...</td>
+                  <td colSpan={9}>공지 목록을 불러오는 중...</td>
                 </tr>
               ) : notices.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>등록된 공지가 없습니다.</td>
+                  <td colSpan={9}>등록된 공지가 없습니다.</td>
                 </tr>
               ) : (
                 notices.map((notice) => {
                   const visibility = resolveVisibilityStatus(notice, now);
+
                   return (
                     <tr key={notice.id}>
-                      <td data-label="Type">{notice.type === "BROADCAST" ? "전체 공지" : "시스템 점검"}</td>
+                      <td data-label="Type">{formatNoticeTypeLabel(notice.type)}</td>
                       <td data-label="Title">{notice.title}</td>
+                      <td data-label="Display Target">
+                        {formatSiteNoticeDisplayTargetLabel(notice.type, notice.displayTarget)}
+                      </td>
                       <td data-label="Priority">{notice.priority}</td>
                       <td data-label="Active">{notice.isActive ? "활성" : "비활성"}</td>
                       <td data-label="Visibility">
@@ -534,8 +611,8 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
                           {formatVisibilityStatus(visibility)}
                         </span>
                       </td>
-                      <td data-label="Visible From">{notice.visibleFrom ? formatDateTime(notice.visibleFrom) : "-"}</td>
-                      <td data-label="Visible To">{notice.visibleTo ? formatDateTime(notice.visibleTo) : "-"}</td>
+                      <td data-label="Visible From">{formatDateTime(notice.visibleFrom)}</td>
+                      <td data-label="Visible To">{formatDateTime(notice.visibleTo)}</td>
                       <td data-label="Actions">
                         <div className="action-row">
                           <button

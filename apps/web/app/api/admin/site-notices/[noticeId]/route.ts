@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
-import { SiteNoticeType } from "@prisma/client";
+import { SiteNoticeDisplayTarget, SiteNoticeType } from "@prisma/client";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { PUBLIC_SITE_NOTICES_TAG, updateSiteNotice } from "@/server/site-notice";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +15,7 @@ const UpsertNoticeSchema = z.object({
   type: z.nativeEnum(SiteNoticeType).optional(),
   title: z.string().trim().min(1).max(120).optional(),
   message: z.string().trim().max(3000).optional(),
+  displayTarget: z.nativeEnum(SiteNoticeDisplayTarget).optional(),
   isActive: z.boolean().optional(),
   priority: z.number().int().min(-999).max(999).optional(),
   visibleFrom: z.string().datetime().nullable().optional(),
@@ -46,6 +47,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       type?: SiteNoticeType;
       title?: string;
       message?: string;
+      displayTarget?: SiteNoticeDisplayTarget;
       isActive?: boolean;
       priority?: number;
       visibleFrom?: string | null;
@@ -54,6 +56,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       type: body.type,
       title: body.title?.trim(),
       message: body.message?.trim(),
+      displayTarget: body.displayTarget,
       isActive: body.isActive,
       priority: body.priority,
     };

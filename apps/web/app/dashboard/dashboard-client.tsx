@@ -159,6 +159,7 @@ interface SiteNotice {
   title: string;
   message: string;
   type: "BROADCAST" | "MAINTENANCE";
+  displayTarget: "LOGIN" | "TOPBAR" | "BOTH";
   isActive: boolean;
   priority: number;
   visibleFrom: string | null;
@@ -1642,15 +1643,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 toggleNoticeExpanded(MAINTENANCE_NOTICE_ID);
               }
             }}
-            onTouchStart={() => toggleNoticeExpanded(MAINTENANCE_NOTICE_ID)}
           >
-            <p className="topbar-notice-title">시스템 점검 공지</p>
-            <p className="topbar-notice-summary">현재 시스템 점검 중입니다. 일부 기능이 일시 제한될 수 있습니다.</p>
+            <p className="topbar-notice-title">시스템 점검</p>
+            <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
             {maintenanceExpanded ? (
-              <>
-                <p className="topbar-notice-subtitle">{maintenanceNotice.title}</p>
-                <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
-              </>
+              <p className="topbar-notice-body">{maintenanceNotice.message || "공지 내용이 없습니다."}</p>
             ) : null}
           </section>
         ) : null}
@@ -1669,7 +1666,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   toggleNoticeExpanded(notice.id);
                 }
               }}
-              onTouchStart={() => toggleNoticeExpanded(notice.id)}
             >
               <div className="topbar-notice-row">
                 <p className="topbar-notice-title">전체 공지</p>
@@ -1685,14 +1681,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </button>
               </div>
               <p className="topbar-notice-subtitle">{notice.title}</p>
-              <p className="topbar-notice-body muted">{notice.message}</p>
+              {isNoticeExpanded(notice.id) ? (
+                <p className="topbar-notice-body">{notice.message || "공지 내용이 없습니다."}</p>
+              ) : null}
             </section>
           ))
         ) : null}
       </div>,
       host,
     );
-    }, [maintenanceNotice, visibleBroadcastNotices, dismissedBroadcastNoticeIds, expandedNoticeIds, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded]);
+    }, [maintenanceNotice, visibleBroadcastNotices, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
