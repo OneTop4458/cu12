@@ -20,6 +20,7 @@ import {
 import { type Browser, type BrowserContextOptions, type Page } from "playwright";
 import type {
   AutoLearnMode,
+  AutoLearnNoOpReason,
   AutoLearnPlannedTask,
   AutoLearnProgress,
   AutoLearnResult,
@@ -556,6 +557,70 @@ function isWithinCyberCampusLearningWindow(task: LearningTask, nowMs: number): b
   return true;
 }
 
+function toAutoLearnPlannedTask(plannedTask: LearningTask): AutoLearnPlannedTask {
+  return {
+    lectureSeq: plannedTask.lectureSeq,
+    courseContentsSeq: plannedTask.courseContentsSeq,
+    courseTitle: plannedTask.taskTitle ?? `Course ${plannedTask.lectureSeq}`,
+    weekNo: plannedTask.weekNo,
+    lessonNo: plannedTask.lessonNo,
+    taskTitle: plannedTask.taskTitle ?? `Lesson ${plannedTask.lessonNo}`,
+    state: plannedTask.state,
+    activityType: plannedTask.activityType,
+    requiredSeconds: plannedTask.requiredSeconds,
+    learnedSeconds: plannedTask.learnedSeconds,
+    availableFrom: plannedTask.availableFrom ?? null,
+    dueAt: plannedTask.dueAt ?? null,
+    remainingSeconds: Math.max(0, plannedTask.requiredSeconds - plannedTask.learnedSeconds),
+  };
+}
+
+interface CyberCampusAutoLearnPlan {
+  planned: AutoLearnPlannedTask[];
+  noOpReason: AutoLearnNoOpReason | null;
+  scopedPendingVodCount: number;
+  scopedAvailableVodCount: number;
+}
+
+export function planCyberCampusAutoLearnTasks(
+  tasks: LearningTask[],
+  options: {
+    mode: AutoLearnMode;
+    lectureSeq?: number;
+    nowMs?: number;
+  },
+): CyberCampusAutoLearnPlan {
+  const nowMs = options.nowMs ?? Date.now();
+  const matchesScope = (task: LearningTask) =>
+    options.mode === "ALL_COURSES" || task.lectureSeq === options.lectureSeq;
+  const scopedPendingVods = sortCyberCampusTasks(
+    tasks.filter((task) => task.activityType === "VOD" && task.state === "PENDING" && matchesScope(task)),
+  );
+  const scopedAvailableVods = scopedPendingVods.filter((task) => isWithinCyberCampusLearningWindow(task, nowMs));
+  const plannedBase = options.mode === "SINGLE_NEXT"
+    ? scopedAvailableVods.slice(0, 1)
+    : scopedAvailableVods;
+  const planned = plannedBase.map(toAutoLearnPlannedTask);
+
+  let noOpReason: AutoLearnNoOpReason | null = null;
+  if (planned.length === 0) {
+    if (scopedPendingVods.length === 0) {
+      noOpReason = "NO_PENDING_VOD_TASKS";
+    } else if (scopedAvailableVods.length === 0) {
+      noOpReason = "NO_AVAILABLE_VOD_TASKS";
+    } else {
+      noOpReason = "NO_TASKS_AFTER_FILTER";
+    }
+  }
+
+  return {
+    planned,
+    noOpReason,
+    scopedPendingVodCount: scopedPendingVods.length,
+    scopedAvailableVodCount: scopedAvailableVods.length,
+  };
+}
+
 async function collectMessages(contextPage: Page, userId: string): Promise<PortalMessage[]> {
   const messagePage = await contextPage.context().newPage();
   try {
@@ -702,38 +767,12 @@ export async function runCyberCampusAutoLearning(
       activityTypes: ["VOD"],
       onCancelCheck: shouldCancel,
     });
-    const nowMs = Date.now();
-    const allTasks = sortCyberCampusTasks(
-      enrichedTasks
-        .filter((task) =>
-          task.activityType === "VOD"
-          && task.state === "PENDING"
-          && isWithinCyberCampusLearningWindow(task, nowMs),
-        ),
-    );
-
-    const filteredTasks = options.mode === "ALL_COURSES"
-      ? allTasks
-      : allTasks.filter((task) => task.lectureSeq === options.lectureSeq);
-    const plannedBase = options.mode === "SINGLE_NEXT"
-      ? filteredTasks.slice(0, 1)
-      : filteredTasks;
-
-    const planned: AutoLearnPlannedTask[] = plannedBase.map((plannedTask) => ({
-      lectureSeq: plannedTask.lectureSeq,
-      courseContentsSeq: plannedTask.courseContentsSeq,
-      courseTitle: plannedTask.taskTitle ?? `Course ${plannedTask.lectureSeq}`,
-      weekNo: plannedTask.weekNo,
-      lessonNo: plannedTask.lessonNo,
-      taskTitle: plannedTask.taskTitle ?? `Lesson ${plannedTask.lessonNo}`,
-      state: plannedTask.state,
-      activityType: plannedTask.activityType,
-      requiredSeconds: plannedTask.requiredSeconds,
-      learnedSeconds: plannedTask.learnedSeconds,
-      availableFrom: plannedTask.availableFrom ?? null,
-      dueAt: plannedTask.dueAt ?? null,
-      remainingSeconds: Math.max(0, plannedTask.requiredSeconds - plannedTask.learnedSeconds),
-    }));
+    const plan = planCyberCampusAutoLearnTasks(enrichedTasks, {
+      mode: options.mode,
+      lectureSeq: options.lectureSeq,
+      nowMs: Date.now(),
+    });
+    const planned = plan.planned;
 
     if (onProgress) {
       await onProgress({
@@ -743,7 +782,7 @@ export async function runCyberCampusAutoLearning(
         completedTasks: 0,
         elapsedSeconds: 0,
         estimatedRemainingSeconds: 0,
-        noOpReason: planned.length === 0 ? "NO_PENDING_SUPPORTED_TASKS" : null,
+        noOpReason: plan.noOpReason,
         plannedTaskCount: planned.length,
         planned,
         truncated: false,
@@ -751,7 +790,7 @@ export async function runCyberCampusAutoLearning(
       });
     }
 
-    if (plannedBase.length === 0) {
+    if (planned.length === 0) {
       return {
         mode: options.mode,
         lectureSeqs: [],
@@ -760,7 +799,7 @@ export async function runCyberCampusAutoLearning(
         plannedTaskCount: 0,
         truncated: false,
         estimatedTotalSeconds: 0,
-        noOpReason: "NO_PENDING_SUPPORTED_TASKS",
+        noOpReason: plan.noOpReason,
         planned,
       };
     }
@@ -772,12 +811,17 @@ export async function runCyberCampusAutoLearning(
     const lectureSeqs: number[] = [];
     const attemptedKeys: Array<{ lectureSeq: number; courseContentsSeq: number }> = [];
 
-    for (const plannedTask of plannedBase) {
+    for (const plannedTask of planned) {
       if (await shouldCancel()) {
         throw new Error("AUTOLEARN_CANCELLED");
       }
 
-      const rawLectureId = plannedTask.externalLectureId;
+      const sourceTask = enrichedTasks.find(
+        (task) =>
+          task.lectureSeq === plannedTask.lectureSeq
+          && task.courseContentsSeq === plannedTask.courseContentsSeq,
+      );
+      const rawLectureId = sourceTask?.externalLectureId;
       if (!rawLectureId) {
         throw new Error("CYBER_CAMPUS_LECTURE_ID_MISSING");
       }
@@ -829,9 +873,9 @@ export async function runCyberCampusAutoLearning(
             weekNo: plannedTask.weekNo,
             lessonNo: plannedTask.lessonNo,
             activityType: plannedTask.activityType,
-            remainingSeconds: Math.max(0, plannedTask.requiredSeconds - plannedTask.learnedSeconds),
-            courseTitle: plannedTask.taskTitle ?? `Course ${plannedTask.lectureSeq}`,
-            taskTitle: plannedTask.taskTitle ?? `Lesson ${plannedTask.lessonNo}`,
+            remainingSeconds: plannedTask.remainingSeconds,
+            courseTitle: plannedTask.courseTitle,
+            taskTitle: plannedTask.taskTitle,
           },
           plannedTaskCount: planned.length,
           planned,
