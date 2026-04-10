@@ -527,6 +527,33 @@ async function resolveApprovalContext(
   };
 }
 
+async function waitForConfirmedTaskAccess(page: Page, context: ApprovalTaskContext) {
+  const settleDelaysMs = [0, 1_500, 3_000, 5_000];
+
+  for (const delayMs of settleDelaysMs) {
+    if (delayMs > 0) {
+      await page.waitForTimeout(delayMs);
+    }
+
+    const refreshedContext = await enterTaskContext(page, context.task);
+    const check = await checkSecondaryAuth(page);
+    if (check.ready) {
+      return { verified: true as const };
+    }
+
+    if (!isExpectedApprovalRequirement({
+      checkMessageCode: check.messageCode,
+      checkMessage: check.message,
+      secondaryAuthBlocked: refreshedContext.secondaryAuthBlocked,
+      pageUrl: refreshedContext.pageUrl,
+    })) {
+      throw new Error(check.message ?? "CYBER_CAMPUS_TASK_ACCESS_CHECK_FAILED");
+    }
+  }
+
+  return { verified: false as const };
+}
+
 async function completeApproval(input: {
   approvalId: string;
   userId: string;
@@ -736,6 +763,36 @@ export async function processCyberCampusApproval(approvalId: string) {
       return {
         type: "CYBER_CAMPUS_APPROVAL",
         state: confirmation.pending ? "PENDING" : "ACTIVE",
+        approvalId,
+      };
+    }
+
+    const approvalContext = contextResult.context;
+    if (!approvalContext) {
+      throw new Error("CYBER_CAMPUS_APPROVAL_CONTEXT_MISSING");
+    }
+
+    const confirmedTaskAccess = await waitForConfirmedTaskAccess(page, approvalContext);
+    if (!confirmedTaskAccess.verified) {
+      await updatePortalApprovalSessionStateForWorker({
+        approvalId,
+        userId: approval.userId,
+        status: "ACTIVE",
+        cookieState: await exportCookieState(page),
+        requestedAction: null,
+        pendingCode: null,
+        selectedWay: method.way,
+        selectedParam: method.param,
+        selectedTarget: method.target,
+        authSeq,
+        requestCode,
+        displayCode,
+        errorMessage: null,
+        expiresAt: buildApprovalExpiry(new Date(), true),
+      });
+      return {
+        type: "CYBER_CAMPUS_APPROVAL",
+        state: "PENDING",
         approvalId,
       };
     }

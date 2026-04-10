@@ -17,7 +17,8 @@ import {
   type LearningTask,
   type PortalMessage,
 } from "@cu12/core";
-import { type Browser, type BrowserContextOptions, type Page } from "playwright";
+import { type Browser, type BrowserContextOptions, type Dialog, type Page } from "playwright";
+import { interpretCyberCampusTaskAccessState } from "./cyber-campus-auth-state";
 import type {
   AutoLearnMode,
   AutoLearnNoOpReason,
@@ -164,6 +165,96 @@ async function fetchJson<T>(
   },
 ): Promise<T> {
   return JSON.parse(await fetchText(page, path, options)) as T;
+}
+
+interface SecondaryAuthJsonResponse {
+  isError?: boolean;
+  message?: string;
+  messageCode?: string;
+}
+
+interface CyberCampusTaskEntryContext {
+  secondaryAuthBlocked: boolean;
+  pageUrl: string;
+}
+
+async function withSecondaryAuthDialogTracking(
+  page: Page,
+  action: () => Promise<void>,
+): Promise<boolean> {
+  let secondaryAuthBlocked = false;
+  const onDialog = async (dialog: Dialog) => {
+    if (dialog.message().includes("본인인증")) {
+      secondaryAuthBlocked = true;
+    }
+    if (dialog.message().includes("蹂몄씤?몄쬆")) {
+      secondaryAuthBlocked = true;
+    }
+    await dialog.accept();
+  };
+
+  page.on("dialog", onDialog);
+  try {
+    await action();
+  } finally {
+    page.off("dialog", onDialog);
+  }
+
+  return secondaryAuthBlocked;
+}
+
+async function enterCyberCampusTaskContext(
+  page: Page,
+  input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
+): Promise<CyberCampusTaskEntryContext> {
+  const secondaryAuthBlocked = await withSecondaryAuthDialogTracking(page, async () => {
+    await page.goto(
+      `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${input.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(input.externalLectureId)}`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.waitForTimeout(2000);
+    await page.evaluate(
+      ({ weekNo, lessonSeq }) => {
+        const form = document.forms.namedItem("myform") as HTMLFormElement | null;
+        if (!form) return;
+        const lectureWeeks = form.querySelector<HTMLInputElement>('input[name="lecture_weeks"]');
+        const weekNoInput = form.querySelector<HTMLInputElement>('input[name="WEEK_NO"]');
+        const itemIdInput = form.querySelector<HTMLInputElement>('input[name="item_id"]');
+        if (lectureWeeks) lectureWeeks.value = String(lessonSeq);
+        if (weekNoInput) weekNoInput.value = String(weekNo);
+        if (itemIdInput) itemIdInput.value = "";
+        form.submit();
+      },
+      { weekNo: input.weekNo, lessonSeq: input.courseContentsSeq },
+    );
+    await page.waitForTimeout(3000);
+  });
+
+  return {
+    secondaryAuthBlocked,
+    pageUrl: page.url(),
+  };
+}
+
+async function checkCyberCampusSecondaryAuth(page: Page) {
+  const data = await fetchJson<SecondaryAuthJsonResponse>(
+    page,
+    "/ilos/secondauth/session_secondary_auth_check.acl",
+    {
+      method: "POST",
+      body: new URLSearchParams({
+        returnData: "json",
+        AUTH_DIV: "1",
+        encoding: "utf-8",
+      }).toString(),
+    },
+  );
+
+  return {
+    ready: !data.isError,
+    message: typeof data.message === "string" ? data.message : null,
+    messageCode: typeof data.messageCode === "string" ? data.messageCode : null,
+  };
 }
 
 interface CyberCampusTaskPlanningState {
@@ -783,15 +874,6 @@ export async function runCyberCampusAutoLearning(
   const context = await browser.newContext(createBrowserContextOptions());
   const page = await context.newPage();
   const shouldCancel = onCancelCheck ?? (async () => false);
-  let secondaryAuthBlocked = false;
-
-  page.on("dialog", async (dialog) => {
-    if (dialog.message().includes("본인인증")) {
-      secondaryAuthBlocked = true;
-    }
-    await dialog.accept();
-  });
-
   try {
     await ensureCyberCampusSession(page, creds, sessionOptions);
     const planningState = await retryOnceAfterEmptyStoredSession({
@@ -883,30 +965,27 @@ export async function runCyberCampusAutoLearning(
         throw new Error("CYBER_CAMPUS_LECTURE_ID_MISSING");
       }
 
-      secondaryAuthBlocked = false;
-      await page.goto(
-        `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${plannedTask.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(rawLectureId)}`,
-        { waitUntil: "domcontentloaded" },
-      );
-      await page.waitForTimeout(2000);
-      await page.evaluate(
-        ({ weekNo, lessonSeq }) => {
-          const form = document.forms.namedItem("myform") as HTMLFormElement | null;
-          if (!form) return;
-          const lectureWeeks = form.querySelector<HTMLInputElement>('input[name="lecture_weeks"]');
-          const weekNoInput = form.querySelector<HTMLInputElement>('input[name="WEEK_NO"]');
-          const itemIdInput = form.querySelector<HTMLInputElement>('input[name="item_id"]');
-          if (lectureWeeks) lectureWeeks.value = String(lessonSeq);
-          if (weekNoInput) weekNoInput.value = String(weekNo);
-          if (itemIdInput) itemIdInput.value = "";
-          form.submit();
-        },
-        { weekNo: plannedTask.weekNo, lessonSeq: plannedTask.courseContentsSeq },
-      );
-      await page.waitForTimeout(3000);
+      const taskContext = await enterCyberCampusTaskContext(page, {
+        courseContentsSeq: plannedTask.courseContentsSeq,
+        weekNo: plannedTask.weekNo,
+        externalLectureId: rawLectureId,
+      });
 
-      if (secondaryAuthBlocked || /\/ilos\/st\/course\/submain_form\.acl/i.test(page.url())) {
+      const secondaryAuth = await checkCyberCampusSecondaryAuth(page);
+      const accessState = interpretCyberCampusTaskAccessState({
+        ready: secondaryAuth.ready,
+        messageCode: secondaryAuth.messageCode,
+        message: secondaryAuth.message,
+        secondaryAuthBlocked: taskContext.secondaryAuthBlocked,
+        pageUrl: taskContext.pageUrl,
+      });
+
+      if (accessState === "SECONDARY_AUTH_REQUIRED") {
         throw new Error("CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED");
+      }
+
+      if (accessState === "ERROR") {
+        throw new Error(secondaryAuth.message ?? "CYBER_CAMPUS_TASK_ACCESS_CHECK_FAILED");
       }
 
       attemptedKeys.push({
