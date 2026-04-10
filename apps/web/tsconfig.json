@@ -8,6 +8,7 @@
     "incremental": true,
     "isolatedModules": true,
     "types": ["node"],
+    "customConditions": ["node"],
     "paths": {
       "@/*": ["./src/*"],
       "@cu12/core/*": ["../../packages/core/src/*"]

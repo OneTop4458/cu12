@@ -52,6 +52,21 @@ const DEFAULT_USER_AGENT =
   + "Chrome/124.0.0.0 Safari/537.36";
 
 type CancelCheck = () => Promise<boolean>;
+type PlaybackTick = (state: { elapsedSeconds: number; remainingSeconds: number }) => Promise<void> | void;
+
+export interface CyberCampusLaunchParams {
+  week: string;
+  lectureWeeksSeq: string;
+  endDateKey: string;
+  currentDateKey: string;
+  itemId: string;
+}
+
+export type CyberCampusDialogKind =
+  | "SECONDARY_AUTH"
+  | "DUPLICATE_PLAYBACK"
+  | "LEARNING_WINDOW_WARNING"
+  | "OTHER";
 
 function createBrowserContextOptions(): BrowserContextOptions {
   const env = getEnv();
@@ -67,6 +82,115 @@ function createBrowserContextOptions(): BrowserContextOptions {
       height: env.PLAYWRIGHT_VIEWPORT_HEIGHT,
     },
   };
+}
+
+function randInt(min: number, max: number): number {
+  const lo = Math.floor(Math.min(min, max));
+  const hi = Math.floor(Math.max(min, max));
+  if (hi <= lo) return lo;
+  return Math.floor(Math.random() * (hi - lo + 1)) + lo;
+}
+
+async function humanPause(page: Page, minMs: number, maxMs: number, shouldCancel?: CancelCheck): Promise<void> {
+  const targetMs = randInt(minMs, maxMs);
+  let remainingMs = targetMs;
+
+  while (remainingMs > 0) {
+    if (shouldCancel && await shouldCancel()) {
+      throw new Error("AUTOLEARN_CANCELLED");
+    }
+
+    const chunkMs = Math.min(500, remainingMs);
+    await page.waitForTimeout(chunkMs);
+    remainingMs -= chunkMs;
+  }
+}
+
+async function waitForCyberCampusPlayback(
+  page: Page,
+  waitSeconds: number,
+  shouldCancel: CancelCheck,
+  onTick?: PlaybackTick,
+): Promise<void> {
+  const env = getEnv();
+  const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
+  let remainingMs = Math.max(0, waitSeconds * 1000);
+  const totalMs = remainingMs;
+  const minTickMs = useHumanization ? 800 : 1000;
+  const maxTickMs = useHumanization ? 1200 : 1000;
+
+  while (remainingMs > 0) {
+    if (await shouldCancel()) {
+      throw new Error("AUTOLEARN_CANCELLED");
+    }
+
+    const chunkMs = Math.min(randInt(minTickMs, maxTickMs), remainingMs);
+    await page.waitForTimeout(chunkMs);
+    remainingMs -= chunkMs;
+    if (onTick) {
+      const elapsedSeconds = Math.floor((totalMs - remainingMs) / 1000);
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      await onTick({ elapsedSeconds, remainingSeconds });
+    }
+  }
+}
+
+export function getCyberCampusPlaybackWaitSeconds(remainingSeconds: number, timeFactor: number): number {
+  const normalizedRemainingSeconds = Math.max(0, remainingSeconds);
+  if (normalizedRemainingSeconds <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(normalizedRemainingSeconds * Math.max(1, timeFactor));
+}
+
+export function extractCyberCampusLaunchParamsFromHtml(rowHtml: string): CyberCampusLaunchParams | null {
+  const match = rowHtml.match(
+    /viewGo\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*\)/,
+  );
+  if (!match) {
+    return null;
+  }
+
+  return {
+    week: match[1] ?? "",
+    lectureWeeksSeq: match[2] ?? "",
+    endDateKey: match[3] ?? "",
+    currentDateKey: match[4] ?? "",
+    itemId: match[5] ?? "",
+  };
+}
+
+/* legacy corrupted helper removed
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (normalized.includes("본인인증")) {
+    return "SECONDARY_AUTH";
+  }
+  if (normalized.includes("다른 기기") || normalized.includes("브라우저에서 강의를 시청 중")) {
+    return "DUPLICATE_PLAYBACK";
+  }
+  if (normalized.includes("출석인정기간이 지나")) {
+    return "LEARNING_WINDOW_WARNING";
+  }
+  return "OTHER";
+}
+
+*/
+export function classifyCyberCampusDialogMessage(message: string): CyberCampusDialogKind {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (normalized.includes("\uBCF8\uC778\uC778\uC99D")) {
+    return "SECONDARY_AUTH";
+  }
+  if (
+    normalized.includes("\uB2E4\uB978 \uAE30\uAE30")
+    || normalized.includes("\uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uAC15\uC758\uB97C \uC2DC\uCCAD \uC911")
+  ) {
+    return "DUPLICATE_PLAYBACK";
+  }
+  if (normalized.includes("\uCD9C\uC11D\uC778\uC815\uAE30\uAC04\uC774 \uC9C0\uB098")) {
+    return "LEARNING_WINDOW_WARNING";
+  }
+  return "OTHER";
 }
 
 async function loginCyberCampus(page: Page, creds: CyberCampusCredentials): Promise<void> {
@@ -170,7 +294,12 @@ interface SecondaryAuthJsonResponse {
 
 interface CyberCampusTaskEntryContext {
   secondaryAuthBlocked: boolean;
+  secondaryAuthReady: boolean;
+  secondaryAuthMessage: string | null;
+  secondaryAuthMessageCode: string | null;
+  playerPage: Page | null;
   pageUrl: string;
+  dialogMessages: string[];
 }
 
 async function withSecondaryAuthDialogTracking(
@@ -198,7 +327,187 @@ async function withSecondaryAuthDialogTracking(
   return secondaryAuthBlocked;
 }
 
-async function enterCyberCampusTaskContext(
+interface CyberCampusDialogSignals {
+  secondaryAuthBlocked: boolean;
+  dialogMessages: string[];
+}
+
+const CYBER_CAMPUS_PLAYER_EXIT_TEXT = new RegExp(
+  [
+    "\\uCD9C\\uC11D.*\\uC885\\uB8CC",
+    "\\uD559\\uC2B5.*\\uC885\\uB8CC",
+    "\\uC885\\uB8CC",
+    "\\uC644\\uB8CC",
+  ].join("|"),
+);
+
+function isCyberCampusPlayerPageUrl(url: string): boolean {
+  return /\/ilos\/st\/course\/online_view_form\.acl/i.test(url);
+}
+
+function createCyberCampusDialogSignals(): CyberCampusDialogSignals {
+  return {
+    secondaryAuthBlocked: false,
+    dialogMessages: [],
+  };
+}
+
+function attachCyberCampusDialogTracking(page: Page, signals: CyberCampusDialogSignals): () => void {
+  const onDialog = async (dialog: Dialog) => {
+    const message = dialog.message();
+    signals.dialogMessages.push(message);
+    if (classifyCyberCampusDialogMessage(message) === "SECONDARY_AUTH") {
+      signals.secondaryAuthBlocked = true;
+    }
+    await dialog.accept();
+  };
+
+  page.on("dialog", onDialog);
+  return () => page.off("dialog", onDialog);
+}
+
+async function withCyberCampusDialogTracking<T>(
+  page: Page,
+  action: () => Promise<T>,
+): Promise<{ result: T; signals: CyberCampusDialogSignals }> {
+  const signals = createCyberCampusDialogSignals();
+  const detach = attachCyberCampusDialogTracking(page, signals);
+  try {
+    const result = await action();
+    return { result, signals };
+  } finally {
+    detach();
+  }
+}
+
+async function resolveCyberCampusPlayerPageAfterAction(
+  page: Page,
+  action: () => Promise<void>,
+): Promise<Page | null> {
+  const popupPromise = page.context().waitForEvent("page", { timeout: 8_000 })
+    .then(async (popupPage) => {
+      await popupPage.waitForLoadState("domcontentloaded").catch(() => {});
+      await popupPage.waitForURL(/\/ilos\/st\/course\/online_view_form\.acl/i, { timeout: 4_000 }).catch(() => {});
+      return popupPage;
+    })
+    .catch(() => null);
+  const navigationPromise = page.waitForURL(/\/ilos\/st\/course\/online_view_form\.acl/i, { timeout: 8_000 })
+    .then(() => page)
+    .catch(() => null);
+
+  await action();
+
+  const [popupPage, navigatedPage] = await Promise.all([popupPromise, navigationPromise]);
+  if (popupPage && isCyberCampusPlayerPageUrl(popupPage.url())) {
+    return popupPage;
+  }
+  if (navigatedPage && isCyberCampusPlayerPageUrl(navigatedPage.url())) {
+    return navigatedPage;
+  }
+  if (isCyberCampusPlayerPageUrl(page.url())) {
+    return page;
+  }
+  return null;
+}
+
+async function extractCyberCampusLaunchParams(
+  page: Page,
+  courseContentsSeq: number,
+): Promise<CyberCampusLaunchParams> {
+  await page.waitForFunction(
+    (seq) => Boolean(document.querySelector(`#lecture-${seq}`)),
+    courseContentsSeq,
+    { timeout: 5_000 },
+  );
+
+  const rowHtml = await page.evaluate((seq) => {
+    const row = document.querySelector<HTMLElement>(`#lecture-${seq}`);
+    return row?.innerHTML ?? null;
+  }, courseContentsSeq);
+  if (!rowHtml) {
+    throw new Error(`CYBER_CAMPUS_TASK_ROW_NOT_FOUND:${courseContentsSeq}`);
+  }
+
+  const launchParams = extractCyberCampusLaunchParamsFromHtml(rowHtml);
+  if (!launchParams) {
+    throw new Error(`CYBER_CAMPUS_TASK_LAUNCH_PARAMS_MISSING:${courseContentsSeq}`);
+  }
+
+  return launchParams;
+}
+
+async function submitCyberCampusTaskLaunchForm(page: Page): Promise<Page | null> {
+  return resolveCyberCampusPlayerPageAfterAction(page, async () => {
+    await page.evaluate(() => {
+      const form = document.forms.namedItem("myform") as HTMLFormElement | null;
+      if (!form) {
+        throw new Error("CYBER_CAMPUS_TASK_FORM_MISSING");
+      }
+      form.submit();
+    });
+  });
+}
+
+async function finalizeCyberCampusPlayback(
+  playerPage: Page,
+  shouldCancel: CancelCheck,
+): Promise<void> {
+  const env = getEnv();
+  let clickedExitControl = false;
+  const exitLocator = playerPage
+    .locator("button, a, input[type=button], input[type=submit]")
+    .filter({ hasText: CYBER_CAMPUS_PLAYER_EXIT_TEXT })
+    .first();
+
+  if (await exitLocator.count()) {
+    try {
+      if (env.AUTOLEARN_HUMANIZATION_ENABLED) {
+        await exitLocator.click({ delay: randInt(20, 120) });
+      } else {
+        await exitLocator.click();
+      }
+      clickedExitControl = true;
+    } catch {
+      clickedExitControl = false;
+    }
+  }
+
+  if (!clickedExitControl && !playerPage.isClosed()) {
+    await playerPage.evaluate(() => {
+      const runtime = window as unknown as Record<string, unknown>;
+      const exitFunctions = [
+        runtime.pageExit,
+        runtime.closeStudy,
+        runtime.endStudy,
+        runtime.finishStudy,
+        runtime.doExit,
+      ];
+
+      for (const candidate of exitFunctions) {
+        if (typeof candidate === "function") {
+          try {
+            (candidate as (flag?: boolean) => void)(false);
+            return;
+          } catch {
+            // Try the next known exit hook.
+          }
+        }
+      }
+    });
+  }
+
+  if (playerPage.isClosed()) {
+    return;
+  }
+
+  if (env.AUTOLEARN_HUMANIZATION_ENABLED) {
+    await humanPause(playerPage, env.AUTOLEARN_DELAY_MIN_MS, env.AUTOLEARN_DELAY_MAX_MS, shouldCancel);
+  } else {
+    await playerPage.waitForTimeout(2_000);
+  }
+}
+
+async function enterCyberCampusTaskContextLegacy(
   page: Page,
   input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
 ): Promise<CyberCampusTaskEntryContext> {
@@ -227,7 +536,62 @@ async function enterCyberCampusTaskContext(
 
   return {
     secondaryAuthBlocked,
+    secondaryAuthReady: false,
+    secondaryAuthMessage: null,
+    secondaryAuthMessageCode: null,
+    playerPage: null,
     pageUrl: page.url(),
+    dialogMessages: [],
+  };
+}
+
+async function enterCyberCampusTaskContext(
+  page: Page,
+  input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
+): Promise<CyberCampusTaskEntryContext> {
+  await openCyberCampusCourseSubmain(page, input.externalLectureId);
+  await page.goto(
+    `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/st/course/online_list_form.acl?WEEK_NO=${input.weekNo}`,
+    { waitUntil: "domcontentloaded" },
+  );
+  await waitForCyberCampusOnlineWeekDetail(page);
+
+  const launchParams = await extractCyberCampusLaunchParams(page, input.courseContentsSeq);
+  const { result: initialPlayerPage, signals } = await withCyberCampusDialogTracking(page, async () =>
+    resolveCyberCampusPlayerPageAfterAction(page, async () => {
+      await page.evaluate((params) => {
+        const runtime = window as unknown as { viewGo?: (...args: string[]) => void };
+        if (typeof runtime.viewGo !== "function") {
+          throw new Error("CYBER_CAMPUS_VIEW_GO_MISSING");
+        }
+        runtime.viewGo(
+          params.week,
+          params.lectureWeeksSeq,
+          params.endDateKey,
+          params.currentDateKey,
+          params.itemId,
+        );
+      }, launchParams);
+    }),
+  );
+
+  const secondaryAuth = await checkCyberCampusSecondaryAuth(page);
+  let playerPage = initialPlayerPage;
+  let pageUrl = playerPage?.url() ?? page.url();
+
+  if (!playerPage && secondaryAuth.ready) {
+    playerPage = await submitCyberCampusTaskLaunchForm(page);
+    pageUrl = playerPage?.url() ?? page.url();
+  }
+
+  return {
+    secondaryAuthBlocked: signals.secondaryAuthBlocked,
+    secondaryAuthReady: secondaryAuth.ready,
+    secondaryAuthMessage: secondaryAuth.message,
+    secondaryAuthMessageCode: secondaryAuth.messageCode,
+    playerPage,
+    pageUrl,
+    dialogMessages: signals.dialogMessages,
   };
 }
 
@@ -850,6 +1214,27 @@ export async function collectCyberCampusSnapshot(
   }
 }
 
+async function fetchCyberCampusPendingVodTasks(page: Page, userId: string): Promise<LearningTask[]> {
+  const todoHtml = await fetchText(
+    page,
+    "/ilos/mp/todo_list.acl",
+    { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
+  );
+
+  return parseCyberCampusTodoListHtml(todoHtml, userId).filter((task) => task.activityType === "VOD");
+}
+
+function isCyberCampusTaskStillPending(
+  pendingTasks: LearningTask[],
+  task: Pick<LearningTask, "lectureSeq" | "courseContentsSeq">,
+): boolean {
+  return pendingTasks.some(
+    (pendingTask) =>
+      pendingTask.lectureSeq === task.lectureSeq
+      && pendingTask.courseContentsSeq === task.courseContentsSeq,
+  );
+}
+
 export async function runCyberCampusAutoLearning(
   browser: Browser,
   userId: string,
@@ -870,7 +1255,7 @@ export async function runCyberCampusAutoLearning(
   const context = sessionOptions?.existingPage
     ? null
     : await browser.newContext(createBrowserContextOptions());
-  const page = sessionOptions?.existingPage ?? await context!.newPage();
+  let page = sessionOptions?.existingPage ?? await context!.newPage();
   const shouldCancel = onCancelCheck ?? (async () => false);
   try {
     await ensureCyberCampusSession(page, creds, sessionOptions);
@@ -910,6 +1295,12 @@ export async function runCyberCampusAutoLearning(
       nowMs: Date.now(),
     });
     const planned = plan.planned;
+    const env = getEnv();
+    const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
+    const estimatedTotalSeconds = planned.reduce(
+      (sum, task) => sum + getCyberCampusPlaybackWaitSeconds(task.remainingSeconds, env.AUTOLEARN_TIME_FACTOR),
+      0,
+    );
 
     if (onProgress) {
       await onProgress({
@@ -918,7 +1309,7 @@ export async function runCyberCampusAutoLearning(
         totalTasks: planned.length,
         completedTasks: 0,
         elapsedSeconds: 0,
-        estimatedRemainingSeconds: 0,
+        estimatedRemainingSeconds: estimatedTotalSeconds,
         noOpReason: plan.noOpReason,
         plannedTaskCount: planned.length,
         planned,
@@ -935,7 +1326,7 @@ export async function runCyberCampusAutoLearning(
         elapsedSeconds: 0,
         plannedTaskCount: 0,
         truncated: false,
-        estimatedTotalSeconds: 0,
+        estimatedTotalSeconds,
         noOpReason: plan.noOpReason,
         planned,
       };
@@ -946,7 +1337,8 @@ export async function runCyberCampusAutoLearning(
     }
 
     const lectureSeqs: number[] = [];
-    const attemptedKeys: Array<{ lectureSeq: number; courseContentsSeq: number }> = [];
+    let processedTaskCount = 0;
+    let elapsedSecondsTotal = 0;
 
     for (const plannedTask of planned) {
       if (await shouldCancel()) {
@@ -963,17 +1355,19 @@ export async function runCyberCampusAutoLearning(
         throw new Error("CYBER_CAMPUS_LECTURE_ID_MISSING");
       }
 
+      const playbackSeconds = getCyberCampusPlaybackWaitSeconds(
+        plannedTask.remainingSeconds,
+        env.AUTOLEARN_TIME_FACTOR,
+      );
       const taskContext = await enterCyberCampusTaskContext(page, {
         courseContentsSeq: plannedTask.courseContentsSeq,
         weekNo: plannedTask.weekNo,
         externalLectureId: rawLectureId,
       });
-
-      const secondaryAuth = await checkCyberCampusSecondaryAuth(page);
       const accessState = interpretCyberCampusTaskAccessState({
-        ready: secondaryAuth.ready,
-        messageCode: secondaryAuth.messageCode,
-        message: secondaryAuth.message,
+        ready: taskContext.secondaryAuthReady,
+        messageCode: taskContext.secondaryAuthMessageCode,
+        message: taskContext.secondaryAuthMessage,
         secondaryAuthBlocked: taskContext.secondaryAuthBlocked,
         pageUrl: taskContext.pageUrl,
       });
@@ -983,13 +1377,14 @@ export async function runCyberCampusAutoLearning(
       }
 
       if (accessState === "ERROR") {
-        throw new Error(secondaryAuth.message ?? "CYBER_CAMPUS_TASK_ACCESS_CHECK_FAILED");
+        throw new Error(taskContext.secondaryAuthMessage ?? "CYBER_CAMPUS_TASK_ACCESS_CHECK_FAILED");
       }
 
-      attemptedKeys.push({
-        lectureSeq: plannedTask.lectureSeq,
-        courseContentsSeq: plannedTask.courseContentsSeq,
-      });
+      const playerPage = taskContext.playerPage;
+      if (!playerPage || !isCyberCampusPlayerPageUrl(taskContext.pageUrl)) {
+        throw new Error("CYBER_CAMPUS_PLAYER_LAUNCH_FAILED");
+      }
+
       if (!lectureSeqs.includes(plannedTask.lectureSeq)) {
         lectureSeqs.push(plannedTask.lectureSeq);
       }
@@ -999,15 +1394,16 @@ export async function runCyberCampusAutoLearning(
           phase: "RUNNING",
           mode: options.mode,
           totalTasks: planned.length,
-          completedTasks: attemptedKeys.length,
-          elapsedSeconds: 0,
-          estimatedRemainingSeconds: 0,
+          completedTasks: processedTaskCount,
+          elapsedSeconds: elapsedSecondsTotal,
+          estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - elapsedSecondsTotal),
           current: {
             lectureSeq: plannedTask.lectureSeq,
             weekNo: plannedTask.weekNo,
             lessonNo: plannedTask.lessonNo,
             activityType: plannedTask.activityType,
-            remainingSeconds: plannedTask.remainingSeconds,
+            remainingSeconds: playbackSeconds,
+            elapsedSeconds: 0,
             courseTitle: plannedTask.courseTitle,
             taskTitle: plannedTask.taskTitle,
           },
@@ -1017,32 +1413,89 @@ export async function runCyberCampusAutoLearning(
           heartbeatAt: new Date().toISOString(),
         });
       }
+
+      const detachPlaybackDialogTracking = attachCyberCampusDialogTracking(
+        playerPage,
+        createCyberCampusDialogSignals(),
+      );
+      try {
+        let lastReportedElapsedSeconds = 0;
+        await waitForCyberCampusPlayback(playerPage, playbackSeconds, shouldCancel, async ({ elapsedSeconds, remainingSeconds }) => {
+          if (!onProgress) return;
+          if (remainingSeconds > 0 && elapsedSeconds % heartbeatIntervalSeconds !== 0) return;
+          if (elapsedSeconds <= lastReportedElapsedSeconds && remainingSeconds > 0) return;
+
+          lastReportedElapsedSeconds = elapsedSeconds;
+          await onProgress({
+            phase: "RUNNING",
+            mode: options.mode,
+            totalTasks: planned.length,
+            completedTasks: processedTaskCount,
+            elapsedSeconds: elapsedSecondsTotal + elapsedSeconds,
+            estimatedRemainingSeconds: Math.max(0, estimatedTotalSeconds - (elapsedSecondsTotal + elapsedSeconds)),
+            current: {
+              lectureSeq: plannedTask.lectureSeq,
+              weekNo: plannedTask.weekNo,
+              lessonNo: plannedTask.lessonNo,
+              activityType: plannedTask.activityType,
+              remainingSeconds,
+              elapsedSeconds,
+              courseTitle: plannedTask.courseTitle,
+              taskTitle: plannedTask.taskTitle,
+            },
+            noOpReason: plan.noOpReason,
+            plannedTaskCount: planned.length,
+            planned,
+            truncated: false,
+            heartbeatAt: new Date().toISOString(),
+          });
+        });
+
+        await finalizeCyberCampusPlayback(playerPage, shouldCancel);
+      } finally {
+        detachPlaybackDialogTracking();
+      }
+
+      if (playerPage === page && playerPage.isClosed()) {
+        page = await playerPage.context().newPage();
+        await ensureCyberCampusSession(page, creds, { requireVerifiedSession: false });
+      } else if (playerPage !== page && !playerPage.isClosed()) {
+        await playerPage.close().catch(() => {});
+      }
+
+      const remainingTasks = await fetchCyberCampusPendingVodTasks(page, userId);
+      if (isCyberCampusTaskStillPending(remainingTasks, plannedTask)) {
+        throw new Error("CYBER_CAMPUS_LEARNING_NOT_CONFIRMED");
+      }
+
+      processedTaskCount += 1;
+      elapsedSecondsTotal += playbackSeconds;
     }
 
-    const refreshedTodoHtml = await fetchText(
-      page,
-      "/ilos/mp/todo_list.acl",
-      { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
-    );
-    const remainingTasks = parseCyberCampusTodoListHtml(refreshedTodoHtml, userId)
-      .filter((task) => task.activityType === "VOD");
-    const remainingKeys = new Set(
-      remainingTasks.map((task) => `${task.lectureSeq}:${task.courseContentsSeq}`),
-    );
-    const confirmedCompleted = attemptedKeys.filter((task) => !remainingKeys.has(`${task.lectureSeq}:${task.courseContentsSeq}`));
-
-    if (confirmedCompleted.length === 0) {
-      throw new Error("CYBER_CAMPUS_LEARNING_NOT_CONFIRMED");
+    if (onProgress) {
+      await onProgress({
+        phase: "DONE",
+        mode: options.mode,
+        totalTasks: planned.length,
+        completedTasks: processedTaskCount,
+        elapsedSeconds: elapsedSecondsTotal,
+        estimatedRemainingSeconds: 0,
+        noOpReason: plan.noOpReason,
+        plannedTaskCount: planned.length,
+        planned,
+        truncated: false,
+        heartbeatAt: new Date().toISOString(),
+      });
     }
 
     return {
       mode: options.mode,
       lectureSeqs,
-      processedTaskCount: confirmedCompleted.length,
-      elapsedSeconds: 0,
+      processedTaskCount,
+      elapsedSeconds: elapsedSecondsTotal,
       plannedTaskCount: planned.length,
       truncated: false,
-      estimatedTotalSeconds: 0,
+      estimatedTotalSeconds,
       planned,
     };
   } finally {

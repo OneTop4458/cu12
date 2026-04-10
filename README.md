@@ -133,6 +133,8 @@ If a stored Cyber Campus session still looks authenticated but yields an empty `
 Cyber Campus can serve the login form from `/ilos/main/main_form.acl` without changing the URL, so the worker now verifies authenticated content markers before trusting that landing page as a reusable portal session.
 Approval completion now re-checks the exact target lecture context before unblocking AUTOLEARN, and AUTOLEARN uses the same secondary-auth readiness signal as the approval worker instead of relying only on redirect heuristics.
 When approval completes with a runnable Cyber Campus queue item, the same worker run now claims that AUTOLEARN job and continues playback in the live Playwright session instead of closing the browser and handing off to a fresh worker run.
+Cyber Campus VOD playback now launches through the real `viewGo(...)` lecture action, keeps the player context open for the full remaining watch time, and only confirms completion after the lecture disappears from the live `todo_list` response.
+The playback worker also auto-accepts duplicate-playback takeover prompts, attendance-window warnings, and secondary-auth browser dialogs so those interruptions do not silently short-circuit a real watch session.
 If the approval worker discovers there are no runnable target tasks left, it now closes the blocked AUTOLEARN job as a no-op instead of reviving it as another stale `PENDING` job.
 If the saved Cyber Campus session is missing, expired, or already marked invalid, AUTOLEARN also falls back to a fresh credential login instead of failing immediately with a session-required error.
 User-action failures such as `CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED` are left in `FAILED` instead of being blindly re-queued as a new `PENDING` AUTOLEARN job.
@@ -240,7 +242,7 @@ Use named arguments directly. Do not use the legacy double-dash forwarding form.
 | `AUTOLEARN_MAX_TASKS` | Cap tasks processed in a single worker run |
 | `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS` | Control heartbeat updates during long runs |
 | `AUTOLEARN_STALL_TIMEOUT_SECONDS` | Declare a stalled auto-learning run after prolonged silence |
-| `AUTOLEARN_TIME_FACTOR` | Adjust watch-time pacing factor |
+| `AUTOLEARN_TIME_FACTOR` | Adjust watch-time pacing factor; Cyber Campus VOD playback never runs below real-time even if this value is lower than `1` |
 | `PLAYWRIGHT_ACCEPT_LANGUAGE`, `PLAYWRIGHT_LOCALE`, `PLAYWRIGHT_TIMEZONE` | Keep browser locale behavior consistent |
 | `PLAYWRIGHT_VIEWPORT_WIDTH`, `PLAYWRIGHT_VIEWPORT_HEIGHT` | Set deterministic viewport defaults |
 | `AUTOLEARN_HUMANIZATION_ENABLED`, `AUTOLEARN_DELAY_*`, `AUTOLEARN_NAV_SETTLE_*`, `AUTOLEARN_TYPING_DELAY_*` | Keep interactions conservative and stable |

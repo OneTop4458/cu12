@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { LearningTask } from "@cu12/core";
-import { mergeCyberCampusTaskWithDetail, planCyberCampusAutoLearnTasks } from "./cyber-campus-sync";
+import {
+  classifyCyberCampusDialogMessage,
+  extractCyberCampusLaunchParamsFromHtml,
+  getCyberCampusPlaybackWaitSeconds,
+  mergeCyberCampusTaskWithDetail,
+  planCyberCampusAutoLearnTasks,
+} from "./cyber-campus-sync";
 
 function createTask(input: Partial<LearningTask> & Pick<LearningTask, "lectureSeq" | "courseContentsSeq" | "activityType">): LearningTask {
   return {
@@ -28,7 +34,7 @@ test("worker-side Cyber Campus task merge prefers authoritative detail fields", 
     activityType: "VOD",
     weekNo: 3,
     lessonNo: 10,
-    taskTitle: "3장. 지구, 생명의 탄생",
+    taskTitle: "base task",
     dueAt: "2026-04-12T23:59:00+09:00",
   });
   const detailTask = createTask({
@@ -37,7 +43,7 @@ test("worker-side Cyber Campus task merge prefers authoritative detail fields", 
     activityType: "VOD",
     weekNo: 5,
     lessonNo: 1,
-    taskTitle: "1차시 3장. 지구, 생명의 탄생",
+    taskTitle: "detail task",
     requiredSeconds: 3480,
     learnedSeconds: 750,
     availableFrom: "2026-04-03T00:00:00+09:00",
@@ -58,7 +64,7 @@ test("worker-side Cyber Campus task merge prefers authoritative detail fields", 
     {
       weekNo: 5,
       lessonNo: 1,
-      taskTitle: "1차시 3장. 지구, 생명의 탄생",
+      taskTitle: "detail task",
       requiredSeconds: 3480,
       learnedSeconds: 750,
       availableFrom: "2026-04-03T00:00:00+09:00",
@@ -74,7 +80,7 @@ test("worker-side Cyber Campus task merge falls back to lightweight task when de
     activityType: "QUIZ",
     weekNo: 5,
     lessonNo: 4,
-    taskTitle: "핀테크와 가상자산_5주차 (시험시간 : 100분)",
+    taskTitle: "quiz task",
     dueAt: "2026-04-04T12:00:00+09:00",
   });
 
@@ -89,7 +95,7 @@ test("planCyberCampusAutoLearnTasks reports quiz-only lectures as no pending VOD
         lectureSeq: 377289926,
         courseContentsSeq: 3,
         activityType: "QUIZ",
-        taskTitle: "토론형 퀴즈",
+        taskTitle: "quiz only",
       }),
     ],
     {
@@ -111,7 +117,7 @@ test("planCyberCampusAutoLearnTasks reports future-only lectures as no available
         lectureSeq: 373653502,
         courseContentsSeq: 11,
         activityType: "VOD",
-        taskTitle: "11차시",
+        taskTitle: "lesson 11",
         availableFrom: "2026-04-11T12:00:00+09:00",
         dueAt: "2026-04-20T23:59:00+09:00",
       }),
@@ -127,4 +133,35 @@ test("planCyberCampusAutoLearnTasks reports future-only lectures as no available
   assert.equal(plan.scopedPendingVodCount, 1);
   assert.equal(plan.scopedAvailableVodCount, 0);
   assert.equal(plan.noOpReason, "NO_AVAILABLE_VOD_TASKS");
+});
+
+test("extractCyberCampusLaunchParamsFromHtml reads the real viewGo argument order", () => {
+  const launchParams = extractCyberCampusLaunchParamsFromHtml(
+    "<a href=\"javascript:viewGo('6','2085121','20260419235959','20260410121300','OCW12345');\">Start</a>",
+  );
+
+  assert.deepEqual(launchParams, {
+    week: "6",
+    lectureWeeksSeq: "2085121",
+    endDateKey: "20260419235959",
+    currentDateKey: "20260410121300",
+    itemId: "OCW12345",
+  });
+});
+
+test("classifyCyberCampusDialogMessage detects duplicate-playback and learning-window warnings", () => {
+  assert.equal(
+    classifyCyberCampusDialogMessage("\uB2E4\uB978 \uAE30\uAE30\uB098 \uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uAC15\uC758\uB97C \uC2DC\uCCAD \uC911\uC785\uB2C8\uB2E4."),
+    "DUPLICATE_PLAYBACK",
+  );
+  assert.equal(
+    classifyCyberCampusDialogMessage("\uCD9C\uC11D\uC778\uC815\uAE30\uAC04\uC774 \uC9C0\uB098 \uCD9C\uC11D\uC2DC\uAC04\uC73C\uB85C \uC778\uC815\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+    "LEARNING_WINDOW_WARNING",
+  );
+});
+
+test("getCyberCampusPlaybackWaitSeconds never shortens playback below real time", () => {
+  assert.equal(getCyberCampusPlaybackWaitSeconds(1800, 0.25), 1800);
+  assert.equal(getCyberCampusPlaybackWaitSeconds(1800, 1), 1800);
+  assert.equal(getCyberCampusPlaybackWaitSeconds(1800, 1.1), 1981);
 });
