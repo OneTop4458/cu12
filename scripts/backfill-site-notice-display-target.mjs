@@ -10,7 +10,7 @@ async function main() {
     }),
     prisma.siteNotice.updateMany({
       where: { type: SiteNoticeType.MAINTENANCE },
-      data: { displayTarget: SiteNoticeDisplayTarget.TOPBAR },
+      data: { displayTarget: SiteNoticeDisplayTarget.BOTH },
     }),
   ]);
 

@@ -6,13 +6,13 @@ import {
   normalizeSiteNoticeDisplayTarget,
 } from "../src/lib/site-notice-display";
 
-test("maintenance notices are always normalized to topbar", () => {
-  assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", "LOGIN"), "TOPBAR");
-  assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", "BOTH"), "TOPBAR");
-  assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", undefined), "TOPBAR");
+test("maintenance notices are always normalized to login and topbar", () => {
+  assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", "LOGIN"), "BOTH");
+  assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", "TOPBAR"), "BOTH");
+  assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", undefined), "BOTH");
 });
 
-test("login surface only shows login and both broadcast notices", () => {
+test("login surface shows maintenance notices and login-targeted broadcast notices", () => {
   assert.equal(
     isSiteNoticeVisibleOnSurface({ type: "BROADCAST", displayTarget: "LOGIN", surface: "LOGIN" }),
     true,
@@ -27,7 +27,11 @@ test("login surface only shows login and both broadcast notices", () => {
   );
   assert.equal(
     isSiteNoticeVisibleOnSurface({ type: "MAINTENANCE", displayTarget: "TOPBAR", surface: "LOGIN" }),
-    false,
+    true,
+  );
+  assert.equal(
+    isSiteNoticeVisibleOnSurface({ type: "MAINTENANCE", displayTarget: "BOTH", surface: "LOGIN" }),
+    true,
   );
 });
 
@@ -54,5 +58,5 @@ test("display target labels reflect broadcast options and fixed maintenance text
   assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "LOGIN"), "로그인만");
   assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "TOPBAR"), "상단만");
   assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "BOTH"), "로그인+상단");
-  assert.equal(formatSiteNoticeDisplayTargetLabel("MAINTENANCE", "BOTH"), "대시보드 상단 고정");
+  assert.equal(formatSiteNoticeDisplayTargetLabel("MAINTENANCE", "BOTH"), "로그인+상단 고정");
 });

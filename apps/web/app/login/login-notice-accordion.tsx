@@ -6,6 +6,7 @@ interface LoginNotice {
   id: string;
   title: string;
   message: string;
+  type: "BROADCAST" | "MAINTENANCE";
 }
 
 interface LoginNoticeAccordionProps {
@@ -28,7 +29,12 @@ export function LoginNoticeAccordion({ notices }: LoginNoticeAccordionProps) {
               aria-expanded={expanded}
               onClick={() => setExpandedNoticeId((prev) => (prev === notice.id ? null : notice.id))}
             >
-              <span className="login-notice-trigger-title">{notice.title}</span>
+              <span className="login-notice-trigger-copy">
+                <span className={`login-notice-badge ${notice.type === "MAINTENANCE" ? "is-maintenance" : "is-broadcast"}`}>
+                  {notice.type === "MAINTENANCE" ? "점검" : "공지"}
+                </span>
+                <span className="login-notice-trigger-title">{notice.title}</span>
+              </span>
               <span className="login-notice-trigger-meta">{expanded ? "접기" : "자세히"}</span>
             </button>
             {expanded ? (

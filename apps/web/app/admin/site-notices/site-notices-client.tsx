@@ -281,7 +281,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
       type: formNoticeType,
       title: formTitle.trim(),
       message: formMessage.trim(),
-      displayTarget: formNoticeType === "MAINTENANCE" ? "TOPBAR" : formDisplayTarget,
+      displayTarget: formNoticeType === "MAINTENANCE" ? "BOTH" : formDisplayTarget,
       isActive: formIsActive,
       priority: formPriority,
       visibleFrom: toUtcIso(formVisibleFrom),
@@ -461,7 +461,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
                 const nextType = event.target.value as NoticeType;
                 setFormNoticeType(nextType);
                 if (nextType === "MAINTENANCE") {
-                  setFormDisplayTarget("TOPBAR");
+                  setFormDisplayTarget("BOTH");
                 }
               }}
             >
@@ -487,7 +487,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
                 ))}
               </select>
             ) : (
-              <div className="pill-note">대시보드 상단 고정 노출</div>
+              <div className="pill-note">로그인 + 상단 고정 노출</div>
             )}
           </label>
 

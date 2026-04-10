@@ -11,7 +11,7 @@ export function normalizeSiteNoticeDisplayTarget(
   displayTarget: SiteNoticeDisplayTargetValue | null | undefined,
 ): SiteNoticeDisplayTargetValue {
   if (type === "MAINTENANCE") {
-    return "TOPBAR";
+    return "BOTH";
   }
 
   return displayTarget ?? "BOTH";
@@ -25,7 +25,7 @@ export function isSiteNoticeVisibleOnSurface(input: {
   const effectiveDisplayTarget = normalizeSiteNoticeDisplayTarget(input.type, input.displayTarget);
 
   if (input.type === "MAINTENANCE") {
-    return input.surface === "TOPBAR";
+    return true;
   }
 
   if (input.surface === "LOGIN") {
@@ -40,7 +40,7 @@ export function formatSiteNoticeDisplayTargetLabel(
   displayTarget: SiteNoticeDisplayTargetValue | null | undefined,
 ): string {
   if (type === "MAINTENANCE") {
-    return "대시보드 상단 고정";
+    return "로그인+상단 고정";
   }
 
   switch (normalizeSiteNoticeDisplayTarget(type, displayTarget)) {
