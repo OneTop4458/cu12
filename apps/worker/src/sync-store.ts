@@ -709,6 +709,22 @@ export async function reactivateBlockedAutoLearnJob(jobId: string, userId: strin
   });
 }
 
+export async function succeedBlockedAutoLearnJob(jobId: string, userId: string, result: unknown) {
+  await prisma.jobQueue.updateMany({
+    where: {
+      id: jobId,
+      userId,
+      status: "BLOCKED",
+    },
+    data: {
+      status: "SUCCEEDED",
+      finishedAt: new Date(),
+      lastError: null,
+      result: result as Prisma.InputJsonValue,
+    },
+  });
+}
+
 export async function failBlockedAutoLearnJob(jobId: string, userId: string, reason: string) {
   await prisma.jobQueue.updateMany({
     where: {

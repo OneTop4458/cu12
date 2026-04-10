@@ -9,7 +9,11 @@ Object.assign(process.env, {
   WORKER_SHARED_TOKEN: "12345678901234567890123456789012",
 });
 
-const { selectCyberCampusApprovalProbeTasks } = await import("./cyber-campus-approval");
+const {
+  buildCyberCampusApprovalNoPendingAutoLearnResult,
+  selectCyberCampusApprovalProbeTasks,
+  shouldResumeBlockedAutoLearnForApprovalContext,
+} = await import("./cyber-campus-approval");
 
 function makeTask(overrides: Partial<LearningTask>): LearningTask {
   return {
@@ -143,5 +147,27 @@ test("selectCyberCampusApprovalProbeTasks keeps all runnable all-course tasks in
       [101, 11],
       [303, 31],
     ],
+  );
+});
+
+test("NO_PENDING_TASKS approval result completes blocked autolearn as a no-op instead of resuming it", () => {
+  assert.equal(shouldResumeBlockedAutoLearnForApprovalContext("NO_PENDING_TASKS"), false);
+  assert.deepEqual(
+    buildCyberCampusApprovalNoPendingAutoLearnResult({
+      mode: "ALL_COURSES",
+      lectureSeq: null,
+    }),
+    {
+      type: "AUTOLEARN",
+      mode: "ALL_COURSES",
+      processedTaskCount: 0,
+      elapsedSeconds: 0,
+      lectureSeqs: [],
+      plannedTaskCount: 0,
+      truncated: false,
+      estimatedTotalSeconds: 0,
+      noOpReason: "NO_PENDING_TASKS",
+      planned: [],
+    },
   );
 });
