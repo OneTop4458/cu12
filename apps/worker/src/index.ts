@@ -19,6 +19,7 @@ import {
   type SyncProgress,
   type Cu12Credentials,
 } from "./cu12-automation";
+import { processCyberCampusApproval } from "./cyber-campus-approval";
 import { collectCyberCampusSnapshot, runCyberCampusAutoLearning } from "./cyber-campus-sync";
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
@@ -1415,6 +1416,13 @@ async function processMailJob(userId: string, payload: unknown) {
 async function main() {
   const env = getEnv();
   const args = parseArgs();
+  const approvalId = args.get("approvalId");
+  if (approvalId) {
+    const result = await processCyberCampusApproval(approvalId);
+    console.log(JSON.stringify(result));
+    return;
+  }
+
   const once = process.argv.includes("--once");
   const onceGraceMs = env.WORKER_ONCE_IDLE_GRACE_MS;
   let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;

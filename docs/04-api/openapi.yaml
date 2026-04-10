@@ -735,7 +735,7 @@ paths:
   /api/jobs/autolearn-request:
     post:
       tags: [Jobs]
-      summary: Queue AUTOLEARN job or return Cyber Campus approval state
+      summary: Queue AUTOLEARN job or start asynchronous Cyber Campus approval/requirement checking
       security:
         - cookieAuth: []
       requestBody:
@@ -758,7 +758,11 @@ paths:
                   type: string
       responses:
         "200":
-          description: AUTOLEARN queue status or Cyber Campus approval-required response
+          description: >-
+            AUTOLEARN queue status. For Cyber Campus, the first response may only acknowledge
+            blocked job creation while the worker checks real lecture contexts, determines whether
+            secondary auth is needed, and prepares approval methods asynchronously. The dashboard
+            polling endpoint later surfaces `cyberCampus.approval` only when user action is required.
           content:
             application/json:
               schema:
@@ -896,7 +900,7 @@ paths:
   /api/cyber-campus/approval/{approvalId}/start:
     post:
       tags: [CyberCampus]
-      summary: Start a Cyber Campus secondary-auth method
+      summary: Persist the selected Cyber Campus secondary-auth method and dispatch browser-context worker processing
       security:
         - cookieAuth: []
       parameters:
@@ -919,7 +923,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Approval method started
+          description: Current approval snapshot after queuing the start action
           content:
             application/json:
               schema:
@@ -934,7 +938,7 @@ paths:
   /api/cyber-campus/approval/{approvalId}/confirm:
     post:
       tags: [CyberCampus]
-      summary: Confirm Cyber Campus secondary authentication
+      summary: Persist the submitted Cyber Campus authentication code and dispatch browser-context worker confirmation
       security:
         - cookieAuth: []
       parameters:
@@ -954,7 +958,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Approval status after confirmation
+          description: Approval status after queuing confirmation; `PENDING` means worker processing continues asynchronously
           content:
             application/json:
               schema:
@@ -1975,7 +1979,10 @@ paths:
               properties:
                 trigger:
                   type: string
-                  enum: [sync, autolearn]
+                  enum: [sync, autolearn, digest, cyber-campus-approval]
+                approvalId:
+                  type: string
+                  description: Required when `trigger=cyber-campus-approval`.
       responses:
         "200":
           description: Dispatch request result
@@ -3652,6 +3659,7 @@ components:
           nullable: true
         methods:
           type: array
+          description: Can be empty while the worker is still checking whether secondary auth is required and preparing methods.
           items:
             $ref: "#/components/schemas/CyberCampusSecondaryAuthMethod"
         selectedMethod:
@@ -4140,7 +4148,7 @@ components:
           type: string
         status:
           type: string
-          enum: [PENDING, BLOCKED]
+          enum: [PENDING, RUNNING, BLOCKED]
         deduplicated:
           type: boolean
         dispatched:
@@ -4158,6 +4166,9 @@ components:
           type: string
         approvalRequired:
           type: boolean
+          description: >-
+            True only when the response already includes a ready approval payload. False can mean
+            either no approval is needed or the worker is still checking lecture-specific auth requirements.
         approval:
           allOf:
             - $ref: "#/components/schemas/CyberCampusApproval"

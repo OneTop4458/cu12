@@ -85,6 +85,12 @@ enum PortalApprovalStatus {
   CANCELED
 }
 
+enum PortalApprovalRequestedAction {
+  BOOTSTRAP
+  START
+  CONFIRM
+}
+
 enum AuditSeverity {
   INFO
   WARN
@@ -382,6 +388,8 @@ model PortalApprovalSession {
   provider             PortalProvider
   status               PortalApprovalStatus @default(PENDING)
   encryptedCookieState String
+  requestedAction      PortalApprovalRequestedAction?
+  encryptedPendingCode String?
   methods              Json?
   selectedWay          Int?
   selectedParam        String?

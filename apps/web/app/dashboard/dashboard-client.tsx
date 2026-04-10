@@ -12,6 +12,11 @@ import {
   formatDashboardDeadlineRemainingLabel,
   type DashboardDeadlineActivityType,
 } from "../../src/lib/dashboard-deadline";
+import {
+  buildCyberCampusApprovalAutoConfirmKey,
+  buildCyberCampusApprovalAutoOpenKey,
+  shouldAutoOpenCyberCampusApproval,
+} from "../../src/lib/cyber-campus-approval-ui";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
@@ -872,6 +877,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [approvalCode, setApprovalCode] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const autoLearnProviderHydratedRef = useRef(false);
+  const approvalAutoOpenKeyRef = useRef<string | null>(null);
+  const approvalAutoConfirmKeyRef = useRef<string | null>(null);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -910,6 +917,21 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const draftIsCyberCampusProvider = isCyberCampusProvider;
   const cyberCampusSession = cyberCampus.session;
   const activeCyberCampusApproval = cyberCampus.approval;
+  const approvalUiState = useMemo(() => (
+    activeCyberCampusApproval
+      ? {
+        id: activeCyberCampusApproval.id,
+        status: activeCyberCampusApproval.status,
+        methodCount: activeCyberCampusApproval.methods.length,
+        selectedMethodKey: activeCyberCampusApproval.selectedMethod
+          ? `${activeCyberCampusApproval.selectedMethod.way}:${activeCyberCampusApproval.selectedMethod.param}`
+          : null,
+        requestCode: activeCyberCampusApproval.requestCode,
+        displayCode: activeCyberCampusApproval.displayCode,
+        errorMessage: activeCyberCampusApproval.errorMessage,
+      }
+      : null
+  ), [activeCyberCampusApproval]);
   const syncQueueState = syncQueueAnalysis.state;
   const syncQueueStaleJobIds = syncQueueAnalysis.staleJobIds;
   const syncQueueStatusMessage = syncQueueAnalysis.statusMessage;
@@ -1422,14 +1444,32 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [courseDetailLoadingIds, courses, expandedCourseIds, loadCourseDetail]);
 
   useEffect(() => {
+    if (!activeCyberCampusApproval) {
+      approvalAutoOpenKeyRef.current = null;
+      approvalAutoConfirmKeyRef.current = null;
+      return;
+    }
+
+    if (shouldAutoOpenCyberCampusApproval(approvalAutoOpenKeyRef.current, approvalUiState)) {
+      setApprovalModalOpen(true);
+    }
+
+    approvalAutoOpenKeyRef.current = buildCyberCampusApprovalAutoOpenKey(approvalUiState);
+  }, [activeCyberCampusApproval, approvalUiState]);
+
+  useEffect(() => {
     if (!approvalModalOpen || !activeCyberCampusApproval?.selectedMethod || approvalSubmitting) return;
     if (activeCyberCampusApproval.selectedMethod.requiresCode) return;
+
+    const confirmKey = buildCyberCampusApprovalAutoConfirmKey(approvalUiState);
+    if (!confirmKey || approvalAutoConfirmKeyRef.current === confirmKey) return;
+    approvalAutoConfirmKeyRef.current = confirmKey;
 
     const timer = setTimeout(() => {
       void confirmCyberCampusApproval();
     }, 5000);
     return () => clearTimeout(timer);
-  }, [approvalModalOpen, activeCyberCampusApproval, approvalSubmitting]);
+  }, [approvalModalOpen, activeCyberCampusApproval, approvalSubmitting, approvalUiState]);
 
   useEffect(() => {
     if (mode === "ALL_COURSES") return;
@@ -1758,7 +1798,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         }));
         setApprovalCode("");
         setApprovalModalOpen(true);
-        setMessage(payload.notice ?? "사이버캠퍼스 자동 수강은 2차 인증을 완료한 뒤 시작됩니다.");
+        setMessage(payload.notice ?? "사이버캠퍼스 자동 수강은 필요한 인증이 확인되는 대로 시작됩니다.");
         await refreshStatus(true);
         return;
       }
@@ -1795,7 +1835,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   async function startCyberCampusApproval(method: SecondaryAuthMethod) {
     if (!activeCyberCampusApproval || approvalSubmitting) return;
     setApprovalSubmitting(true);
-    setBlockingMessage("사이버캠퍼스 2차 인증 요청을 준비 중입니다...");
+    setBlockingMessage("사이버캠퍼스 인증 요청을 준비 중입니다...");
     try {
       const payload = await fetchJson<{ approval: CyberCampusApproval }>(
         `/api/cyber-campus/approval/${activeCyberCampusApproval.id}/start`,
@@ -1830,7 +1870,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
 
     setApprovalSubmitting(true);
-    setBlockingMessage("사이버캠퍼스 2차 인증 상태를 확인 중입니다...");
+    setBlockingMessage("사이버캠퍼스 인증 상태를 확인 중입니다...");
     try {
       const payload = await fetchJson<{
         state: "PENDING" | "COMPLETED";
@@ -1862,7 +1902,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         } catch {
           // Ignore hydration failure. Polling will continue.
         }
-        setMessage("2차 인증이 완료되어 자동 수강 작업이 다시 시작되었습니다.");
+        setMessage("인증 확인이 완료되어 자동 수강 작업이 다시 시작되었습니다.");
       }
 
       await refreshStatus(true);
@@ -1879,14 +1919,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   async function cancelCyberCampusApprovalRequest() {
     if (!activeCyberCampusApproval || approvalSubmitting) return;
     setApprovalSubmitting(true);
-    setBlockingMessage("사이버캠퍼스 2차 인증 요청을 취소 중입니다...");
+    setBlockingMessage("사이버캠퍼스 인증 요청을 취소 중입니다...");
     try {
       await fetchJson<{ approval: CyberCampusApproval }>(`/api/cyber-campus/approval/${activeCyberCampusApproval.id}`, {
         method: "DELETE",
       });
       setApprovalModalOpen(false);
       setApprovalCode("");
-      setMessage("사이버캠퍼스 2차 인증 요청을 취소했습니다.");
+      setMessage("사이버캠퍼스 인증 요청을 취소했습니다.");
       await refreshStatus(true);
     } catch (err) {
       setError((err as Error).message);
@@ -2295,7 +2335,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         {isCyberCampusProvider ? (
           <div className="pill-note top-gap">
             <p><strong>정책</strong>: 사이버캠퍼스 자동 수강은 수동 요청 전용입니다.</p>
-            <p className="muted">세션이 유효하면 다음 요청부터는 2차 인증을 다시 묻지 않습니다.</p>
+            <p className="muted">강의 설정과 시기에 따라 추가 인증 없이 바로 시작될 수 있고, 필요한 경우에만 인증을 다시 확인합니다.</p>
             <p className="muted">
               세션 상태: {formatCyberCampusSessionStatus(cyberCampusSession)}
               {" / "}
@@ -2304,7 +2344,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             {activeCyberCampusApproval ? (
               <div className="button-row top-gap">
                 <button type="button" className="ghost-btn" onClick={() => setApprovalModalOpen(true)} disabled={approvalSubmitting}>
-                  2차 인증 이어서 하기
+                  인증 이어서 하기
                 </button>
                 <button type="button" className="ghost-btn" onClick={() => void cancelCyberCampusApprovalRequest()} disabled={approvalSubmitting}>
                   인증 요청 취소
@@ -2680,7 +2720,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               <p className="error-text">{activeCyberCampusApproval.errorMessage}</p>
             ) : null}
 
-            {!activeCyberCampusApproval.selectedMethod ? (
+            {!activeCyberCampusApproval.selectedMethod ? activeCyberCampusApproval.methods.length === 0 ? (
+              <div className="form-stack top-gap">
+                <p className="muted">강의별 인증 필요 여부와 인증 방식을 확인 중입니다. 잠시 후 자동으로 다시 확인합니다.</p>
+              </div>
+            ) : (
               <div className="form-stack top-gap">
                 <p className="muted">아래 인증 수단 중 하나를 선택해 주세요.</p>
                 <div className="button-row">
@@ -2810,7 +2854,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </label>
                 {draftIsCyberCampusProvider ? (
                   <p className="muted text-small">
-                    현재 서비스를 사이버캠퍼스로 두면 대시보드와 동기화는 사이버캠퍼스 기준으로 표시됩니다. 사이버캠퍼스 자동 수강은 2차 인증이 필요하므로 수동 요청만 지원합니다.
+                    현재 서비스를 사이버캠퍼스로 두면 대시보드와 동기화는 사이버캠퍼스 기준으로 표시됩니다. 사이버캠퍼스 자동 수강은 수동 요청 전용이며, 강의 설정과 시기에 따라 필요한 경우에만 추가 인증이 진행됩니다.
                   </p>
                 ) : (
                   <>

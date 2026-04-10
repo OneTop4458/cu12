@@ -2,7 +2,7 @@ import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 
-export type WorkerDispatchType = "sync" | "autolearn" | "digest";
+export type WorkerDispatchType = "sync" | "autolearn" | "digest" | "cyber-campus-approval";
 export type WorkerDispatchState =
   | "DISPATCHED"
   | "NOT_CONFIGURED"
@@ -83,6 +83,7 @@ function parseJobTypes(jobTypes?: string): JobType[] {
 function resolveTypesFromTrigger(type: WorkerDispatchType): JobType[] {
   if (type === "autolearn") return [JobType.AUTOLEARN];
   if (type === "digest") return [JobType.MAIL_DIGEST];
+  if (type === "cyber-campus-approval") return [];
   return [JobType.SYNC, JobType.NOTICE_SCAN];
 }
 
@@ -102,6 +103,7 @@ function toDispatchPayload(input: {
   trigger: WorkerDispatchType;
   userId?: string;
   jobTypes?: string;
+  approvalId?: string;
 }) {
   const payload: Record<string, unknown> = {
     ref: getEnv().GITHUB_WORKFLOW_REF,
@@ -115,6 +117,9 @@ function toDispatchPayload(input: {
   }
   if (input.jobTypes) {
     (payload.inputs as Record<string, unknown>).jobTypes = input.jobTypes;
+  }
+  if (input.approvalId) {
+    (payload.inputs as Record<string, unknown>).approvalId = input.approvalId;
   }
 
   return payload;
@@ -227,10 +232,11 @@ async function dispatchWorkerRunRequest(
   trigger: WorkerDispatchType,
   userId?: string,
   jobTypes?: string,
+  approvalId?: string,
 ): Promise<WorkerDispatchResult> {
   const env = getEnv();
   const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/dispatches`;
-  const payload = toDispatchPayload({ trigger, userId, jobTypes });
+  const payload = toDispatchPayload({ trigger, userId, jobTypes, approvalId });
 
   const response = await fetch(apiUrl, {
     method: "POST",
@@ -305,6 +311,7 @@ export async function dispatchWorkerRun(
   type: WorkerDispatchType,
   userId?: string,
   jobTypes?: string,
+  approvalId?: string,
 ): Promise<WorkerDispatchResult> {
   const env = getEnv();
   if (!env.GITHUB_OWNER || !env.GITHUB_REPO || !env.GITHUB_WORKFLOW_ID || !env.GITHUB_TOKEN) {
@@ -336,6 +343,16 @@ export async function dispatchWorkerRun(
       dispatched: false,
       errorCode: "WORKER_DISPATCH_CAPACITY_REACHED",
       dispatchCount: 0,
+      activeRunCount,
+      capacity,
+    };
+  }
+
+  if (type === "cyber-campus-approval") {
+    const directDispatch = await dispatchWorkerRunRequest(type, undefined, undefined, approvalId);
+    return {
+      ...directDispatch,
+      dispatchCount: directDispatch.dispatched ? 1 : 0,
       activeRunCount,
       capacity,
     };

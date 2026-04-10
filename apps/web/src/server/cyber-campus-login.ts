@@ -1,4 +1,8 @@
 import { CyberCampusSessionClient } from "@/server/cyber-campus-session";
+import {
+  CYBER_CAMPUS_PORTAL_UNAVAILABLE_MESSAGE,
+  normalizeCyberCampusTransportError,
+} from "@/server/cyber-campus-errors";
 
 export interface VerifyCyberCampusLoginInput {
   cu12Id: string;
@@ -38,10 +42,11 @@ export async function verifyCyberCampusLogin(
       message: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uACC4\uC815 \uC815\uBCF4\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
       messageCode: "AUTH_FAILED",
     };
-  } catch {
+  } catch (error) {
+    const normalized = normalizeCyberCampusTransportError(error);
     return {
       ok: false,
-      message: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uB85C\uADF8\uC778 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+      message: normalized?.message ?? CYBER_CAMPUS_PORTAL_UNAVAILABLE_MESSAGE,
       messageCode: "CYBER_CAMPUS_UNAVAILABLE",
     };
   }

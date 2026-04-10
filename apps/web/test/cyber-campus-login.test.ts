@@ -103,7 +103,7 @@ test("verifyCyberCampusLogin returns unavailable on network failure", async () =
   assert.equal(isCyberCampusUnavailableResult(result), true);
   assert.deepEqual(result, {
     ok: false,
-    message: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uB85C\uADF8\uC778 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+    message: "\uC0AC\uC774\uBC84\uCEA0\uD37C\uC2A4 \uC5F0\uACB0\uC774 \uC6D0\uD65C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
     messageCode: "CYBER_CAMPUS_UNAVAILABLE",
   });
 });

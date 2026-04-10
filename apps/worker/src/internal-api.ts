@@ -16,7 +16,7 @@ interface ClaimedJob {
   attempts: number;
 }
 
-type WorkerDispatchType = "sync" | "autolearn" | "digest";
+type WorkerDispatchType = "sync" | "autolearn" | "digest" | "cyber-campus-approval";
 
 interface WorkerDispatchResult {
   state: "DISPATCHED" | "NOT_CONFIGURED" | "FAILED" | "SKIPPED_DUPLICATE" | "SKIPPED_CAPACITY" | "SKIPPED_NO_PENDING";
@@ -141,11 +141,12 @@ export async function hasPendingJobs(types: JobType[], userId?: string): Promise
 
 export async function requestWorkerDispatch(
   trigger: WorkerDispatchType,
-  options?: { userId?: string; jobTypes?: JobType[] },
+  options?: { userId?: string; approvalId?: string; jobTypes?: JobType[] },
 ): Promise<WorkerDispatchResult> {
   return post<WorkerDispatchResult>("/internal/worker/dispatch", {
     trigger,
     userId: options?.userId,
+    approvalId: options?.approvalId,
     jobTypes: options?.jobTypes,
   });
 }
