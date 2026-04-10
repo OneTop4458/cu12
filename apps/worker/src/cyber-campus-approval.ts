@@ -14,6 +14,7 @@ import {
   getUserCu12Credentials,
   markAccountNeedsReauth,
   reactivateBlockedAutoLearnJob,
+  succeedBlockedAutoLearnJob,
   type PortalApprovalSecondaryAuthMethod,
   type PortalSessionCookieState,
   updatePortalApprovalSessionStateForWorker,
@@ -154,6 +155,27 @@ export function selectCyberCampusApprovalProbeTasks(
   return request.mode === "SINGLE_NEXT"
     ? targeted.slice(0, 1)
     : targeted;
+}
+
+export function shouldResumeBlockedAutoLearnForApprovalContext(
+  kind: ApprovalContextResolution["kind"],
+): boolean {
+  return kind !== "NO_PENDING_TASKS";
+}
+
+export function buildCyberCampusApprovalNoPendingAutoLearnResult(request: AutoLearnJobRequest) {
+  return {
+    type: "AUTOLEARN" as const,
+    mode: request.mode,
+    processedTaskCount: 0,
+    elapsedSeconds: 0,
+    lectureSeqs: [],
+    plannedTaskCount: 0,
+    truncated: false,
+    estimatedTotalSeconds: 0,
+    noOpReason: "NO_PENDING_TASKS" as const,
+    planned: [],
+  };
 }
 
 async function applyCookieState(page: Page, cookieState: PortalSessionCookieState[]) {
@@ -559,7 +581,6 @@ async function waitForConfirmedTaskAccess(page: Page, context: ApprovalTaskConte
 async function completeApproval(input: {
   approvalId: string;
   userId: string;
-  jobId: string;
   page: Page;
 }) {
   const cookieState = await exportCookieState(input.page);
@@ -581,7 +602,6 @@ async function completeApproval(input: {
     completedAt: new Date(),
     expiresAt: buildApprovalExpiry(new Date(), true),
   });
-  await reactivateBlockedAutoLearnJob(input.jobId, input.userId);
 }
 
 async function failApprovalAction(input: {
@@ -661,9 +681,17 @@ export async function processCyberCampusApproval(approvalId: string) {
       await completeApproval({
         approvalId,
         userId: approval.userId,
-        jobId: approval.jobId,
         page,
       });
+      if (shouldResumeBlockedAutoLearnForApprovalContext(contextResult.kind)) {
+        await reactivateBlockedAutoLearnJob(approval.jobId, approval.userId);
+      } else {
+        await succeedBlockedAutoLearnJob(
+          approval.jobId,
+          approval.userId,
+          buildCyberCampusApprovalNoPendingAutoLearnResult(jobRequest),
+        );
+      }
       if (contextResult.kind === "NO_APPROVAL_REQUIRED") {
         continuation = {
           browser,
@@ -812,9 +840,9 @@ export async function processCyberCampusApproval(approvalId: string) {
     await completeApproval({
       approvalId,
       userId: approval.userId,
-      jobId: approval.jobId,
       page,
     });
+    await reactivateBlockedAutoLearnJob(approval.jobId, approval.userId);
     continuation = {
       browser,
       context,
