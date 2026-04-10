@@ -28,6 +28,7 @@ import type {
   SyncProgress,
   SyncSnapshotResult,
 } from "./cu12-automation";
+import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state";
 import { resolveRestoredCyberCampusSessionCookieState } from "./cyber-campus-session-options";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import { getEnv } from "./env";
@@ -70,6 +71,9 @@ function createBrowserContextOptions(): BrowserContextOptions {
 
 async function loginCyberCampus(page: Page, creds: CyberCampusCredentials): Promise<void> {
   await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/member/login_form.acl`, { waitUntil: "domcontentloaded" });
+  if (isCyberCampusAuthenticatedResponse(await page.content(), page.url())) {
+    return;
+  }
   await page.fill("#usr_id", creds.cu12Id);
   await page.fill("#usr_pwd", creds.cu12Password);
   await page.click("#login_btn");
@@ -79,13 +83,6 @@ async function loginCyberCampus(page: Page, creds: CyberCampusCredentials): Prom
 async function forceFreshCyberCampusLogin(page: Page, creds: CyberCampusCredentials): Promise<void> {
   await page.context().clearCookies();
   await loginCyberCampus(page, creds);
-}
-
-function looksAuthenticated(html: string, responseUrl: string): boolean {
-  if (/\/ilos\/main\/main_form\.acl/i.test(responseUrl)) return true;
-  return /\/ilos\/lo\/logout\.acl/i.test(html)
-    || /popTodo\(/i.test(html)
-    || /received_list_pop_form\.acl/i.test(html);
 }
 
 async function applyCookieStateToContext(
@@ -111,15 +108,13 @@ async function ensureCyberCampusSession(
   },
 ): Promise<void> {
   await applyCookieStateToContext(page, options?.cookieState);
-  if (options?.cookieState?.length) {
-    await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
-    const html = await page.content();
-    if (looksAuthenticated(html, page.url())) {
-      return;
-    }
-    if (options.requireVerifiedSession) {
-      throw new Error("CYBER_CAMPUS_SESSION_INVALID");
-    }
+  await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
+  const html = await page.content();
+  if (isCyberCampusAuthenticatedResponse(html, page.url())) {
+    return;
+  }
+  if (options?.requireVerifiedSession) {
+    throw new Error("CYBER_CAMPUS_SESSION_INVALID");
   }
 
   if (!creds) {

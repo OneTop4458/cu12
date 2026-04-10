@@ -1245,7 +1245,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <input
               value={logFilterDraft.actorUserId}
               onChange={(event) => updateLogFilterDraft("actorUserId", event.target.value)}
-              placeholder="예: byungjun4458 또는 사용자 ID"
+              placeholder="예: 사용자 아이디 또는 사용자 ID"
             />
           </label>
           <label className="field">
@@ -1253,7 +1253,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <input
               value={logFilterDraft.targetUserId}
               onChange={(event) => updateLogFilterDraft("targetUserId", event.target.value)}
-              placeholder="예: byungjun4458 또는 사용자 ID"
+              placeholder="예: 사용자 아이디 또는 사용자 ID"
             />
           </label>
           <label className="field">
