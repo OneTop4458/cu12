@@ -56,6 +56,12 @@ const AUTOLEARN_CONFLICT_DELAY_MS = 60_000;
 const CLAIM_SCAN_LIMIT = 200;
 const SYNC_JOB_TYPES = [JobType.SYNC, JobType.NOTICE_SCAN] as const;
 const AUTOLEARN_MODES = ["SINGLE_NEXT", "SINGLE_ALL", "ALL_COURSES"] as const;
+const NON_RETRYABLE_AUTOLEARN_ERRORS = new Set([
+  "ACCOUNT_REAUTH_REQUIRED",
+  "CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED",
+  "CYBER_CAMPUS_SESSION_INVALID",
+  "CYBER_CAMPUS_SESSION_REQUIRED",
+]);
 
 export const TEST_USER_SYNC_BLOCKED_ERROR_CODE = "TEST_USER_SYNC_BLOCKED";
 export const TEST_USER_SYNC_BLOCKED_MESSAGE = "Test users do not support CU12 sync.";
@@ -87,6 +93,18 @@ function normalizeAutoLearnMode(value: unknown): QueuePayload["autoLearnMode"] |
     return value as QueuePayload["autoLearnMode"];
   }
   return null;
+}
+
+export function shouldRetryFailedJob(type: JobType, attempts: number, errorMessage: string): boolean {
+  if (attempts >= 4) {
+    return false;
+  }
+
+  if (type === JobType.AUTOLEARN && NON_RETRYABLE_AUTOLEARN_ERRORS.has(errorMessage)) {
+    return false;
+  }
+
+  return true;
 }
 
 async function loadHeartbeatByWorkerId(workerIds: string[]): Promise<Map<string, Date>> {
@@ -820,7 +838,7 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
   const updated = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
   let retryQueued = false;
 
-  if (updated.attempts < 4) {
+  if (shouldRetryFailedJob(updated.type, updated.attempts, errorMessage)) {
     const delayMinutes = [1, 5, 15, 60][Math.max(0, updated.attempts - 1)] ?? 60;
     await prisma.jobQueue.create({
       data: {
