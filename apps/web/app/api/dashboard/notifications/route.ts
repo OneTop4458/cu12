@@ -3,6 +3,7 @@ import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { getNotifications } from "@/server/dashboard";
+import { loadOptionalDashboardSegment } from "@/server/dashboard-fallback";
 import { resolveRequestPortalProvider } from "@/server/request-provider";
 
 const DeleteNotificationsSchema = z.object({
@@ -10,29 +11,39 @@ const DeleteNotificationsSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const context = await requireAuthContext(request);
-  if (!context) return jsonError("Unauthorized", 401);
+  try {
+    const context = await requireAuthContext(request);
+    if (!context) return jsonError("Unauthorized", 401);
 
-  const url = new URL(request.url);
-  const unreadOnly = url.searchParams.get("unreadOnly") === "1";
-  const includeArchived = url.searchParams.get("includeArchived") === "1";
-  const historyOnly = url.searchParams.get("historyOnly") === "1";
-  const limitRaw = Number(url.searchParams.get("limit") ?? 50);
-  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
-  const provider = await resolveRequestPortalProvider(request, context.effective.userId);
+    const url = new URL(request.url);
+    const unreadOnly = url.searchParams.get("unreadOnly") === "1";
+    const includeArchived = url.searchParams.get("includeArchived") === "1";
+    const historyOnly = url.searchParams.get("historyOnly") === "1";
+    const limitRaw = Number(url.searchParams.get("limit") ?? 50);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+    const provider = await resolveRequestPortalProvider(request, context.effective.userId);
 
-  const notifications = await getNotifications(context.effective.userId, provider, {
-    unreadOnly,
-    includeArchived,
-    historyOnly,
-    limit,
-  });
-  return jsonOk({
-    notifications: notifications.map((notification) => ({
-      ...notification,
-      provider,
-    })),
-  });
+    const notifications = await loadOptionalDashboardSegment(
+      "dashboard/notifications",
+      "notifications",
+      () => getNotifications(context.effective.userId, provider, {
+        unreadOnly,
+        includeArchived,
+        historyOnly,
+        limit,
+      }),
+      [],
+    );
+    return jsonOk({
+      notifications: notifications.map((notification) => ({
+        ...notification,
+        provider,
+      })),
+    });
+  } catch (error) {
+    console.error("[dashboard/notifications] failed", error);
+    return jsonError("Dashboard notifications failed. Please refresh and try again.", 503, "DASHBOARD_NOTIFICATIONS_FAILED");
+  }
 }
 
 export async function DELETE(request: NextRequest) {
