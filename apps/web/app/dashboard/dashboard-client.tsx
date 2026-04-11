@@ -396,11 +396,11 @@ const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 const COURSE_DEADLINE_URGENT_DAYS = 7;
 
 function getProviderLabel(provider: PortalProvider): string {
-  return provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "CU12";
+  return provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "공유대";
 }
 
 function getProviderShortLabel(provider: PortalProvider): string {
-  return provider === "CYBER_CAMPUS" ? "사캠" : "CU12";
+  return provider === "CYBER_CAMPUS" ? "사캠" : "공유대";
 }
 
 function getCourseKey(provider: PortalProvider, lectureSeq: number): string {
@@ -2160,7 +2160,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     event.preventDefault();
     if (!mailDraft) return;
     if (false) {
-      setError("CU12 교정 정보가 아직 확인되지 않았습니다. CU12로 먼저 로그인해 교정 정보를 확인한 뒤 서비스를 전환해 주세요.");
+      setError("공유대 캠퍼스 정보가 아직 확인되지 않았습니다. 공유대로 먼저 로그인해 캠퍼스 정보를 확인한 뒤 서비스를 전환해 주세요.");
       return;
     }
     setMailSaving(true);
@@ -2429,7 +2429,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           <label className="field">
             <span>서비스</span>
             <select value={autoLearnProvider} onChange={(event) => handleAutoLearnProviderChange(event.target.value as PortalProvider)}>
-              <option value="CU12">CU12</option>
+              <option value="CU12">공유대</option>
               <option value="CYBER_CAMPUS">사이버캠퍼스</option>
             </select>
           </label>
@@ -2872,9 +2872,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               <table>
                 <tbody>
                   <tr><th>통합 포털 ID</th><td>{account?.cu12Id ?? "-"}</td></tr>
-                  <tr><th>CU12 교정 설정</th><td>{account?.campus ?? "-"}</td></tr>
+                  <tr><th>공유대 캠퍼스 설정</th><td>{account?.campus ?? "-"}</td></tr>
                   <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
-                  <tr><th>CU12 정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
+                  <tr><th>공유대 정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>퀴즈 자동 풀이</th><td>{account ? (quizAutoSolveEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   {isCyberCampusProvider ? <tr><th>사캠 세션</th><td>{formatCyberCampusSessionStatus(cyberCampusSession)} / {toDateTime(cyberCampusSession.expiresAt)}</td></tr> : null}
                   <tr><th>마지막 동기화</th><td>{toDateTime(summary?.lastSyncAt ?? null)}</td></tr>
@@ -2893,7 +2893,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     onChange={(event) => setCurrentProviderDraft(event.target.value as "CU12" | "CYBER_CAMPUS")}
                     disabled={!account}
                   >
-                    <option value="CU12">CU12</option>
+                    <option value="CU12">공유대</option>
                     <option value="CYBER_CAMPUS">사이버캠퍼스</option>
                   </select>
                 </label>
@@ -2929,7 +2929,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     onChange={(event) => setAutoLearnEnabledDraft(event.target.checked)}
                     disabled={!account}
                   />
-                  <span>CU12 신규 강의 감지 시 정기 자동 수강 사용</span>
+                  <span>공유대 신규 강의 감지 시 정기 자동 수강 사용</span>
                 </label>
                 {draftIsCyberCampusProvider ? (
                   <p className="muted text-small">
@@ -2938,10 +2938,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 ) : (
                   <>
                     <p className="muted text-small">
-                      이 설정을 켜면 CU12에서 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
+                      이 설정을 켜면 공유대에서 일 1회 자동 동기화 후 학습 가능한 차시가 있을 때 자동으로 강의를 수강합니다.
                     </p>
                     <p className="muted text-small">
-                      해당 옵션이 비활성화된 경우 CU12 자동 수강은 대시보드에서 사용자가 수동으로 요청한 경우에만 동작합니다.
+                      해당 옵션이 비활성화된 경우 공유대 자동 수강은 대시보드에서 사용자가 수동으로 요청한 경우에만 동작합니다.
                     </p>
                   </>
                 )}
