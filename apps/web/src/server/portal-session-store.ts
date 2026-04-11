@@ -5,6 +5,38 @@ import type { CookieStateEntry, SecondaryAuthMethod } from "@/server/cyber-campu
 
 export type PortalApprovalRequestedAction = "BOOTSTRAP" | "START" | "CONFIRM";
 
+type PortalSessionReadStore = {
+  findUnique: typeof prisma.portalSession.findUnique;
+};
+
+type PortalApprovalReadStore = {
+  findFirst: typeof prisma.portalApprovalSession.findFirst;
+};
+
+function getPortalSessionStore(): PortalSessionReadStore | null {
+  const candidate = (prisma as unknown as Record<string, unknown>).portalSession;
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const delegate = candidate as Partial<PortalSessionReadStore>;
+  return typeof delegate.findUnique === "function"
+    ? { findUnique: delegate.findUnique.bind(candidate) as typeof prisma.portalSession.findUnique }
+    : null;
+}
+
+function getPortalApprovalStore(): PortalApprovalReadStore | null {
+  const candidate = (prisma as unknown as Record<string, unknown>).portalApprovalSession;
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const delegate = candidate as Partial<PortalApprovalReadStore>;
+  return typeof delegate.findFirst === "function"
+    ? { findFirst: delegate.findFirst.bind(candidate) as typeof prisma.portalApprovalSession.findFirst }
+    : null;
+}
+
 function encodeCookieState(cookieState: CookieStateEntry[]): string {
   return encryptSecret(JSON.stringify(cookieState));
 }
@@ -42,7 +74,10 @@ function decodePendingCode(payload: string | null | undefined): string | null {
 }
 
 export async function getPortalSession(userId: string, provider: PortalProvider) {
-  const row = await prisma.portalSession.findUnique({
+  const store = getPortalSessionStore();
+  if (!store) return null;
+
+  const row = await store.findUnique({
     where: {
       userId_provider: {
         userId,
@@ -100,7 +135,10 @@ export async function markPortalSessionInvalid(userId: string, provider: PortalP
 }
 
 export async function findActivePortalApprovalSession(userId: string, provider: PortalProvider) {
-  const row = await prisma.portalApprovalSession.findFirst({
+  const store = getPortalApprovalStore();
+  if (!store) return null;
+
+  const row = await store.findFirst({
     where: {
       userId,
       provider,
@@ -120,7 +158,10 @@ export async function findActivePortalApprovalSession(userId: string, provider: 
 }
 
 export async function getPortalApprovalSession(id: string, userId: string) {
-  const row = await prisma.portalApprovalSession.findFirst({
+  const store = getPortalApprovalStore();
+  if (!store) return null;
+
+  const row = await store.findFirst({
     where: { id, userId },
   });
   if (!row) return null;

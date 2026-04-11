@@ -152,6 +152,20 @@ function daysUntil(target: Date, now: Date): number {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
+function getPortalMessageStore():
+  | {
+    findMany: (args: Prisma.PortalMessageFindManyArgs) => Promise<unknown[]>;
+  }
+  | null {
+  const candidate = (prisma as unknown as Record<string, unknown>).portalMessage;
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const delegate = candidate as { findMany?: (args: Prisma.PortalMessageFindManyArgs) => Promise<unknown[]> };
+  return typeof delegate.findMany === "function" ? { findMany: delegate.findMany.bind(candidate) } : null;
+}
+
 function createActivityTypeCounts(): ActivityTypeCounts {
   return {
     VOD: 0,
@@ -399,7 +413,7 @@ async function loadCourseSnapshots(input: {
     return rows.map((row) => normalizeCourseSnapshotRow(row, input.provider));
   } catch (error) {
     warnDashboardRawReadFallback("course snapshot", error);
-    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
     }
@@ -483,7 +497,7 @@ async function countCourseNotices(input: {
     );
   } catch (error) {
     warnDashboardRawReadFallback("course notice count", error);
-    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
     }
@@ -517,7 +531,7 @@ async function loadCourseNoticeCountsByLecture(input: {
     );
   } catch (error) {
     warnDashboardRawReadFallback("course notice group", error);
-    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.isRead === "boolean") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "isRead" = ${input.isRead}`);
     }
@@ -583,7 +597,7 @@ async function loadCourseNoticeSamples(input: {
     );
   } catch (error) {
     warnDashboardRawReadFallback("course notice sample", error);
-    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
     }
@@ -666,7 +680,7 @@ async function fetchLearningTasksRaw(input: {
     );
   } catch (error) {
     warnDashboardRawReadFallback("learning task", error);
-    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider" = ${input.provider}`;
+    let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
     }
@@ -1494,19 +1508,24 @@ export async function getMessages(
   provider: PortalProvider = "CU12",
   limit = 50,
 ) {
+  const portalMessageStore = getPortalMessageStore();
+  if (!portalMessageStore) {
+    return [];
+  }
+
   return withProviderCompatibility(
     userId,
     provider,
-    () => prisma.portalMessage.findMany({
+    () => portalMessageStore.findMany({
       where: { userId, provider },
       orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
       take: Math.min(Math.max(limit, 1), 100),
-    }),
-    () => prisma.portalMessage.findMany({
+    }) as Promise<Array<Prisma.PortalMessageGetPayload<object>>>,
+    () => portalMessageStore.findMany({
       where: { userId },
       orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
       take: Math.min(Math.max(limit, 1), 100),
-    }),
+    }) as Promise<Array<Prisma.PortalMessageGetPayload<object>>>,
     [],
   );
 }
