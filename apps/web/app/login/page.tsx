@@ -9,6 +9,7 @@ import { LoginNotices } from "./login-notices";
 
 const COPY = {
   appName: "Catholic University Automation",
+  brandSupport: "시스템 문의 : byungjun4458@catholic.ac.kr",
   title: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uC218\uAC15 \uC9C0\uC6D0 \uC194\uB8E8\uC158",
   subtitle: "Catholic University Automation \uB85C\uADF8\uC778 \uD398\uC774\uC9C0\uC785\uB2C8\uB2E4.",
   loginTitle: "\uB85C\uADF8\uC778",
@@ -42,7 +43,7 @@ export default async function LoginPage({
             alt="Catholic University logo"
             className="brand-wordmark"
           />
-          <p className="brand-kicker">{COPY.appName}</p>
+          <p className="brand-kicker">{COPY.brandSupport}</p>
           <h1>{COPY.title}</h1>
           <p className="muted">{COPY.subtitle}</p>
           <p className="brand-mark">{COPY.appName}</p>
