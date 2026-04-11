@@ -13,7 +13,7 @@
 
 1. Web APIs enqueue jobs with idempotency keys.
 2. Manual user actions run a stale-window redispatch check before calling GitHub Actions.
-3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` only when there is pending work.
+3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` when they create pending work. Global AUTOLEARN dispatches also run a drain check so stale pending jobs can be reattached to workers.
 4. Centralized dispatch fans out user-scoped worker runs and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`.
 5. Each worker claims runnable `PENDING` jobs atomically through the internal API surface.
 

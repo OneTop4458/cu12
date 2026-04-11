@@ -6,7 +6,8 @@
    - Runs text quality, OpenAPI sync, Prisma generate, lint, typecheck, tests, and `build:web`.
 
 2. `deploy-vercel.yml`
-   - Runs the same validation gate as CI, then performs DB safety checks, `prisma db push`, backfill scripts, and production Vercel deploy.
+   - Runs the same validation gate as CI, then performs DB safety checks, `prisma db push`, auth-policy backfills, and production Vercel deploy.
+   - This workflow must remain the only production deployment path. Direct Vercel Git production deploys can bypass DB sync and ship schema-mismatched code.
    - Triggers on `main` pushes affecting deploy-relevant paths and on manual dispatch.
 
 3. `worker-consume.yml`
@@ -26,6 +27,7 @@
 6. `autolearn-dispatch.yml`
    - Schedule: `20 0 * * *` UTC.
    - Queues AUTOLEARN only for users who currently have eligible pending work.
+   - Non-user-scoped runs still trigger a global drain check so stale AUTOLEARN `PENDING` rows can attach to a worker again.
    - Manual dispatch keeps operator-trigger behavior for explicit runs.
 
 7. `reconcile-health-check.yml`
@@ -37,9 +39,12 @@
    - Deletes rows according to retention windows for audit logs, terminal jobs, mail delivery, and withdrawn-user policy-consent history.
 
 9. `db-bootstrap.yml`
-   - Applies Prisma schema and post-sync backfill scripts for a new environment.
+   - Applies Prisma schema and auth-policy post-sync backfills for a new environment.
 
-10. `auth-reset-bootstrap.yml`
+10. `manual-db-push.yml`
+    - Applies Prisma schema and auth-policy post-sync backfills without a web deploy.
+
+11. `auth-reset-bootstrap.yml`
     - Resets auth bootstrap state and provisions a fresh admin invite from `inviteCodeHash`.
 
 ## Auxiliary Repository Workflows
@@ -152,6 +157,12 @@
 1. Confirm the Vercel project Root Directory is `apps/web`.
 2. Confirm production env vars are present.
 3. Re-run `Deploy Vercel` and re-check `/api/health`.
+
+### Production deploy shipped ahead of DB sync
+
+1. Confirm production alias ownership stayed on `deploy-vercel.yml` rather than a direct Vercel Git deploy.
+2. Disable direct Vercel Git production deploys so schema changes cannot bypass GitHub Actions DB sync.
+3. If code already shipped ahead of schema, run `DB Bootstrap` or `Manual DB Push`, then rerun `Deploy Vercel`.
 
 ### Dispatch succeeded but no processing
 

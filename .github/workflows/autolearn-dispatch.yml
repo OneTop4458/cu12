@@ -52,7 +52,13 @@ jobs:
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           PENDING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingPendingCount ?? 0));" "$SUMMARY_JSON_ROOT")
+          SHOULD_DISPATCH=false
           if [ "$CREATED_COUNT" != "0" ] || [ "$PENDING_COUNT" != "0" ]; then
+            SHOULD_DISPATCH=true
+          elif [ -z "${{ inputs.userId }}" ]; then
+            SHOULD_DISPATCH=true
+          fi
+          if [ "$SHOULD_DISPATCH" = "true" ]; then
             TARGET_URL="${WEB_INTERNAL_BASE_URL%/}/internal/worker/dispatch"
             if [ -n "${{ inputs.userId }}" ]; then
               PAYLOAD=$(node -e "process.stdout.write(JSON.stringify({ trigger: 'autolearn', userId: process.argv[1] }));" "${{ inputs.userId }}")

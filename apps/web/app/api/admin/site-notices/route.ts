@@ -82,6 +82,11 @@ export async function POST(request: NextRequest) {
         noticeId: created.id,
         title: created.title,
         type: created.type,
+        displayTarget: created.displayTarget,
+        isActive: created.isActive,
+        priority: created.priority,
+        visibleFrom: created.visibleFrom?.toISOString() ?? null,
+        visibleTo: created.visibleTo?.toISOString() ?? null,
       },
     });
 
