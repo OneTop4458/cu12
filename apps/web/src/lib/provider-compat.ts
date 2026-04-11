@@ -24,9 +24,14 @@ export function isMissingProviderColumnError(error: unknown): boolean {
     return error.message.toLowerCase().includes("provider");
   }
 
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    return error.message.toLowerCase().includes("provider")
+      && /(unknown field|unknown argument)/i.test(error.message);
+  }
+
   if (error instanceof Error) {
     return error.message.toLowerCase().includes("provider")
-      && /(column|does not exist|unknown column)/i.test(error.message);
+      && /(column|does not exist|unknown column|unknown field|unknown argument)/i.test(error.message);
   }
 
   return false;

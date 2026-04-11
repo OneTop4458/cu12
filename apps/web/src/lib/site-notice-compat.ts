@@ -15,9 +15,14 @@ export function isMissingSiteNoticeStoreError(error: unknown): boolean {
     return /sitenotice|site_notice/i.test(error.message);
   }
 
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    return /sitenotice|site_notice|displaytarget|createdbyuserid|visiblefrom|visibleto/i.test(error.message)
+      && /(unknown field|unknown argument)/i.test(error.message);
+  }
+
   if (error instanceof Error) {
     return /sitenotice|site_notice/i.test(error.message)
-      && /(table|column|does not exist|unknown)/i.test(error.message);
+      && /(table|column|does not exist|unknown field|unknown argument|unknown)/i.test(error.message);
   }
 
   return false;

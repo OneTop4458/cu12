@@ -9,6 +9,7 @@ import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-lo
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { writeAuditLog } from "@/server/audit-log";
 import { invalidateCachedAuthState } from "@/server/auth-state-cache";
+import { isMissingProviderColumnError, warnMissingProviderColumn } from "@/lib/provider-compat";
 
 const CreateMemberSchema = z.object({
   provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
@@ -22,6 +23,120 @@ const CreateMemberSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
 });
 
+async function listAdminMembers(limit: number, q?: string) {
+  const where = {
+    withdrawnAt: null,
+    ...(q
+      ? {
+        OR: [
+          { email: { contains: q, mode: "insensitive" as const } },
+          { name: { contains: q, mode: "insensitive" as const } },
+        ],
+      }
+      : {}),
+  };
+
+  try {
+    return await prisma.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        isTestUser: true,
+        createdAt: true,
+        updatedAt: true,
+        cu12Account: {
+          select: {
+            provider: true,
+            cu12Id: true,
+            campus: true,
+            accountStatus: true,
+            statusReason: true,
+            autoLearnEnabled: true,
+            quizAutoSolveEnabled: true,
+            detectActivitiesEnabled: true,
+            emailDigestEnabled: true,
+            updatedAt: true,
+          },
+        },
+        mailSubs: {
+          take: 1,
+          select: {
+            email: true,
+            enabled: true,
+            alertOnNotice: true,
+            alertOnDeadline: true,
+            alertOnAutolearn: true,
+            digestEnabled: true,
+            digestHour: true,
+            updatedAt: true,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    return prisma.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        isTestUser: true,
+        createdAt: true,
+        updatedAt: true,
+        cu12Account: {
+          select: {
+            cu12Id: true,
+            campus: true,
+            accountStatus: true,
+            statusReason: true,
+            autoLearnEnabled: true,
+            quizAutoSolveEnabled: true,
+            detectActivitiesEnabled: true,
+            emailDigestEnabled: true,
+            updatedAt: true,
+          },
+        },
+        mailSubs: {
+          take: 1,
+          select: {
+            email: true,
+            enabled: true,
+            alertOnNotice: true,
+            alertOnDeadline: true,
+            alertOnAutolearn: true,
+            digestEnabled: true,
+            digestHour: true,
+            updatedAt: true,
+          },
+        },
+      },
+    }).then((rows) => rows.map((row) => ({
+      ...row,
+      cu12Account: row.cu12Account
+        ? {
+          ...row.cu12Account,
+          provider: "CU12" as const,
+        }
+        : null,
+    })));
+  }
+}
+
 export async function GET(request: NextRequest) {
   const context = await requireAdminActor(request);
   if (!context) return jsonError("Forbidden", 403);
@@ -31,58 +146,7 @@ export async function GET(request: NextRequest) {
   const limitRaw = Number(url.searchParams.get("limit") ?? 200);
   const limit = Math.min(Math.max(limitRaw, 1), 500);
 
-  const members = await prisma.user.findMany({
-    where: {
-      withdrawnAt: null,
-      ...(q
-        ? {
-          OR: [
-            { email: { contains: q, mode: "insensitive" } },
-            { name: { contains: q, mode: "insensitive" } },
-          ],
-        }
-        : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      isActive: true,
-      isTestUser: true,
-      createdAt: true,
-      updatedAt: true,
-      cu12Account: {
-        select: {
-          provider: true,
-          cu12Id: true,
-          campus: true,
-          accountStatus: true,
-          statusReason: true,
-          autoLearnEnabled: true,
-          quizAutoSolveEnabled: true,
-          detectActivitiesEnabled: true,
-          emailDigestEnabled: true,
-          updatedAt: true,
-        },
-      },
-      mailSubs: {
-        take: 1,
-        select: {
-          email: true,
-          enabled: true,
-          alertOnNotice: true,
-          alertOnDeadline: true,
-          alertOnAutolearn: true,
-          digestEnabled: true,
-          digestHour: true,
-          updatedAt: true,
-        },
-      },
-    },
-  });
+  const members = await listAdminMembers(limit, q);
 
   return jsonOk({
     members: members.map((member) => {

@@ -5,6 +5,7 @@ import { jsonError, jsonOk, parseBody, requireAdminActor, requireUser } from "@/
 import { prisma } from "@/lib/prisma";
 import { generateToken, hashToken } from "@/lib/token";
 import { writeAuditLog } from "@/server/audit-log";
+import { isMissingProviderColumnError, warnMissingProviderColumn } from "@/lib/provider-compat";
 const BodySchema = z.object({
   cu12Id: z.string().trim().min(4).max(80),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
@@ -21,29 +22,62 @@ const DeleteSchema = z.object({
   inviteId: z.string().min(1),
 });
 
+async function listInviteRows() {
+  try {
+    return await prisma.inviteToken.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        provider: true,
+        cu12Id: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        expiresAt: true,
+        usedAt: true,
+        usedBy: {
+          select: {
+            email: true,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    if (!isMissingProviderColumnError(error)) {
+      throw error;
+    }
+
+    warnMissingProviderColumn();
+    return prisma.inviteToken.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        cu12Id: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        expiresAt: true,
+        usedAt: true,
+        usedBy: {
+          select: {
+            email: true,
+          },
+        },
+      },
+    }).then((rows) => rows.map((row) => ({
+      ...row,
+      provider: "CU12" as const,
+    })));
+  }
+}
+
 export async function GET(request: NextRequest) {
   const session = await requireUser(request);
   if (!session || session.role !== "ADMIN") return jsonError("Forbidden", 403);
 
-  const rows = await prisma.inviteToken.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    select: {
-      id: true,
-      provider: true,
-      cu12Id: true,
-      role: true,
-      isActive: true,
-      createdAt: true,
-      expiresAt: true,
-      usedAt: true,
-      usedBy: {
-        select: {
-          email: true,
-        },
-      },
-    },
-  });
+  const rows = await listInviteRows();
 
   const now = new Date();
   const invites = rows.map((row) => ({
@@ -64,17 +98,36 @@ export async function POST(request: NextRequest) {
     const expiresHours = body.expiresHours ?? 72;
     const plainToken = generateToken(24);
 
-    const invite = await prisma.inviteToken.create({
-      data: {
-        provider: "CU12",
-        cu12Id: body.cu12Id,
-        role: body.role,
-        isActive: body.isActive,
-        tokenHash: hashToken(plainToken),
-        expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
-        createdByUserId: session.userId,
-      },
-    });
+    let invite;
+    try {
+      invite = await prisma.inviteToken.create({
+        data: {
+          provider: "CU12",
+          cu12Id: body.cu12Id,
+          role: body.role,
+          isActive: body.isActive,
+          tokenHash: hashToken(plainToken),
+          expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
+          createdByUserId: session.userId,
+        },
+      });
+    } catch (error) {
+      if (!isMissingProviderColumnError(error)) {
+        throw error;
+      }
+
+      warnMissingProviderColumn();
+      invite = await prisma.inviteToken.create({
+        data: {
+          cu12Id: body.cu12Id,
+          role: body.role,
+          isActive: body.isActive,
+          tokenHash: hashToken(plainToken),
+          expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
+          createdByUserId: session.userId,
+        },
+      });
+    }
 
     return jsonOk({
       inviteId: invite.id,

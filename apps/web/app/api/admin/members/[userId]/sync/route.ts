@@ -37,7 +37,6 @@ export async function POST(request: NextRequest, { params }: Params) {
         isTestUser: true,
         cu12Account: {
           select: {
-            provider: true,
             cu12Id: true,
             campus: true,
           },

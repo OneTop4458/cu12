@@ -1,4 +1,5 @@
-import { Prisma, SiteNoticeDisplayTarget, SiteNoticeType } from "@prisma/client";
+import { Prisma, SiteNoticeType } from "@prisma/client";
+import type { SiteNoticeDisplayTarget } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import {
@@ -63,6 +64,12 @@ export const PUBLIC_SITE_NOTICES_TAG = "public-site-notices";
 
 export type PublicSiteNoticePayload = Omit<SiteNoticePayload, "createdByUser">;
 
+const SITE_NOTICE_DISPLAY_TARGET = {
+  LOGIN: "LOGIN",
+  TOPBAR: "TOPBAR",
+  BOTH: "BOTH",
+} as const satisfies Record<"LOGIN" | "TOPBAR" | "BOTH", SiteNoticeDisplayTarget>;
+
 function toNullableIso(value: Date | null): string | null {
   if (!value) return null;
   if (Number.isNaN(value.getTime())) return null;
@@ -83,7 +90,7 @@ function buildSurfaceWhere(type?: SiteNoticeType, surface?: SiteNoticeSurface): 
       return {
         type: SiteNoticeType.BROADCAST,
         displayTarget: {
-          in: [SiteNoticeDisplayTarget.LOGIN, SiteNoticeDisplayTarget.BOTH],
+          in: [SITE_NOTICE_DISPLAY_TARGET.LOGIN, SITE_NOTICE_DISPLAY_TARGET.BOTH],
         },
       };
     }
@@ -94,7 +101,7 @@ function buildSurfaceWhere(type?: SiteNoticeType, surface?: SiteNoticeSurface): 
         {
           type: SiteNoticeType.BROADCAST,
           displayTarget: {
-            in: [SiteNoticeDisplayTarget.LOGIN, SiteNoticeDisplayTarget.BOTH],
+            in: [SITE_NOTICE_DISPLAY_TARGET.LOGIN, SITE_NOTICE_DISPLAY_TARGET.BOTH],
           },
         },
       ],
@@ -109,7 +116,7 @@ function buildSurfaceWhere(type?: SiteNoticeType, surface?: SiteNoticeSurface): 
     return {
       type: SiteNoticeType.BROADCAST,
       displayTarget: {
-        in: [SiteNoticeDisplayTarget.TOPBAR, SiteNoticeDisplayTarget.BOTH],
+        in: [SITE_NOTICE_DISPLAY_TARGET.TOPBAR, SITE_NOTICE_DISPLAY_TARGET.BOTH],
       },
     };
   }
@@ -120,7 +127,7 @@ function buildSurfaceWhere(type?: SiteNoticeType, surface?: SiteNoticeSurface): 
       {
         type: SiteNoticeType.BROADCAST,
         displayTarget: {
-          in: [SiteNoticeDisplayTarget.TOPBAR, SiteNoticeDisplayTarget.BOTH],
+          in: [SITE_NOTICE_DISPLAY_TARGET.TOPBAR, SITE_NOTICE_DISPLAY_TARGET.BOTH],
         },
       },
     ],
@@ -300,7 +307,7 @@ function resolveStoredDisplayTarget(
   type: SiteNoticeType,
   displayTarget: SiteNoticeDisplayTarget | null | undefined,
 ): SiteNoticeDisplayTarget {
-  return toDisplayTarget(type, displayTarget ?? SiteNoticeDisplayTarget.BOTH);
+  return toDisplayTarget(type, displayTarget ?? SITE_NOTICE_DISPLAY_TARGET.BOTH);
 }
 
 export interface SiteNoticeWritePayload {
