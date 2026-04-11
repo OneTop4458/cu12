@@ -88,7 +88,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       message: "Site notice updated",
       meta: {
         noticeId,
+        previousType: existing.type,
+        previousTitle: existing.title,
+        previousDisplayTarget: existing.displayTarget,
         type: notice.type,
+        nextTitle: notice.title,
+        displayTarget: notice.displayTarget,
+        isActive: notice.isActive,
+        priority: notice.priority,
+        visibleFrom: notice.visibleFrom?.toISOString() ?? null,
+        visibleTo: notice.visibleTo?.toISOString() ?? null,
       },
     });
 

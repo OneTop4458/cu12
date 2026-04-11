@@ -21,6 +21,10 @@ function assertContainsInOrder(content, snippets, label) {
   }
 }
 
+function assertDoesNotContain(content, snippet, label) {
+  assert.equal(content.includes(snippet), false, `${label} must not contain snippet: ${snippet}`);
+}
+
 function normalizePathPattern(pattern) {
   return pattern
     .trim()
@@ -92,6 +96,38 @@ test("db sync workflows keep the guarded prisma push sequence", () => {
   for (const workflowPath of workflows) {
     assertContainsInOrder(readRepoFile(workflowPath), requiredSequence, workflowPath);
   }
+});
+
+test("db sync workflows do not auto-reset site notice display targets", () => {
+  const workflows = [
+    ".github/workflows/db-bootstrap.yml",
+    ".github/workflows/manual-db-push.yml",
+    ".github/workflows/deploy-vercel.yml",
+  ];
+
+  for (const workflowPath of workflows) {
+    const content = readRepoFile(workflowPath);
+    assertDoesNotContain(content, "Backfill site notice display targets after schema sync", workflowPath);
+    assertDoesNotContain(content, "pnpm run site-notices:backfill-display-target", workflowPath);
+  }
+});
+
+test("autolearn dispatch keeps the stale pending drain check", () => {
+  assertContainsInOrder(
+    readRepoFile(".github/workflows/autolearn-dispatch.yml"),
+    [
+      "CREATED_COUNT=$(node -e",
+      "PENDING_COUNT=$(node -e",
+      "SHOULD_DISPATCH=false",
+      'if [ "$CREATED_COUNT" != "0" ] || [ "$PENDING_COUNT" != "0" ]; then',
+      "SHOULD_DISPATCH=true",
+      'elif [ -z "${{ inputs.userId }}" ]; then',
+      "SHOULD_DISPATCH=true",
+      'if [ "$SHOULD_DISPATCH" = "true" ]; then',
+      'TARGET_URL="${WEB_INTERNAL_BASE_URL%/}/internal/worker/dispatch"',
+    ],
+    ".github/workflows/autolearn-dispatch.yml",
+  );
 });
 
 test("ci, deploy verify, and ai ship run policy tests before build or deploy", () => {
