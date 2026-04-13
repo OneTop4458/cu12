@@ -3,8 +3,10 @@ import {
   parseCyberCampusTodoListHtml,
   type LearningTask,
 } from "@cu12/core";
+import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Dialog, type Page } from "playwright";
 import { interpretCyberCampusTaskAccessState } from "./cyber-campus-auth-state";
+import type { ClaimedJob } from "./internal-api";
 import { prisma } from "./prisma";
 import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state";
 import { getEnv } from "./env";
@@ -14,7 +16,6 @@ import {
   getPortalApprovalSessionState,
   getUserCu12Credentials,
   markAccountNeedsReauth,
-  reactivateBlockedAutoLearnJob,
   succeedBlockedAutoLearnJob,
   type PortalApprovalSecondaryAuthMethod,
   type PortalApprovalRuntimeState,
@@ -48,8 +49,7 @@ export interface CyberCampusApprovalAutoLearnContinuation {
   browser: Browser;
   context: BrowserContext;
   page: Page;
-  jobId: string;
-  userId: string;
+  job: ClaimedJob;
 }
 
 interface ApprovalTaskContext {
@@ -603,6 +603,119 @@ async function waitForConfirmedTaskAccess(page: Page, context: ApprovalTaskConte
   return { verified: false as const };
 }
 
+function createApprovalLeaseManager(input: {
+  approvalId: string;
+  userId: string;
+  workerId: string;
+  initialRuntimeState: PortalApprovalRuntimeState;
+}) {
+  let currentRuntimeState = input.initialRuntimeState;
+  let stopped = false;
+  let timer: NodeJS.Timeout | null = null;
+  let updateChain: Promise<void> = Promise.resolve();
+
+  const pushHeartbeat = (runtimeState = currentRuntimeState) => {
+    currentRuntimeState = runtimeState;
+    if (stopped) return updateChain;
+    updateChain = updateChain
+      .catch(() => {})
+      .then(async () => {
+        if (stopped) return;
+        await updatePortalApprovalSessionStateForWorker({
+          approvalId: input.approvalId,
+          userId: input.userId,
+          runtimeState: currentRuntimeState,
+          workerLeaseId: input.workerId,
+          workerHeartbeatAt: new Date(),
+        });
+      });
+    return updateChain;
+  };
+
+  return {
+    setRuntimeState(runtimeState: PortalApprovalRuntimeState) {
+      currentRuntimeState = runtimeState;
+    },
+    async start() {
+      await pushHeartbeat(currentRuntimeState);
+      timer = setInterval(() => {
+        void pushHeartbeat();
+      }, CYBER_CAMPUS_APPROVAL_WORKER_HEARTBEAT_MS);
+    },
+    async sync(runtimeState?: PortalApprovalRuntimeState) {
+      await pushHeartbeat(runtimeState ?? currentRuntimeState);
+    },
+    async stop() {
+      if (stopped) {
+        await updateChain.catch(() => {});
+        return;
+      }
+      stopped = true;
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      await updateChain.catch(() => {});
+    },
+  };
+}
+
+async function claimBlockedAutoLearnContinuationJob(input: {
+  jobId: string;
+  userId: string;
+  workerId: string;
+}): Promise<ClaimedJob> {
+  const startedAt = new Date();
+  const claimed = await prisma.jobQueue.updateMany({
+    where: {
+      id: input.jobId,
+      userId: input.userId,
+      type: JobType.AUTOLEARN,
+      status: JobStatus.BLOCKED,
+    },
+    data: {
+      status: JobStatus.RUNNING,
+      startedAt,
+      attempts: { increment: 1 },
+      workerId: input.workerId,
+      runAfter: startedAt,
+      finishedAt: null,
+      lastError: null,
+      result: Prisma.DbNull,
+    },
+  });
+  if (claimed.count === 0) {
+    throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_CLAIM_FAILED:${input.jobId}`);
+  }
+
+  const job = await prisma.jobQueue.findUnique({
+    where: { id: input.jobId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      payload: true,
+      attempts: true,
+      workerId: true,
+    },
+  });
+  if (
+    !job
+    || job.type !== JobType.AUTOLEARN
+    || job.status !== JobStatus.RUNNING
+    || job.workerId !== input.workerId
+  ) {
+    throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_NOT_RUNNING:${input.jobId}`);
+  }
+
+  return {
+    id: job.id,
+    type: job.type,
+    payload: job.payload as ClaimedJob["payload"],
+    attempts: job.attempts,
+  };
+}
+
 async function completeApproval(input: {
   approvalId: string;
   userId: string;
@@ -766,15 +879,15 @@ export async function processCyberCampusApproval(
   const context = await browser.newContext(createBrowserContextOptions());
   const page = await context.newPage();
   let continuation: CyberCampusApprovalAutoLearnContinuation | null = null;
+  const approvalLease = createApprovalLeaseManager({
+    approvalId,
+    userId: approval.userId,
+    workerId,
+    initialRuntimeState: "BOOTSTRAPPING",
+  });
 
   try {
-    await updatePortalApprovalSessionStateForWorker({
-      approvalId,
-      userId: approval.userId,
-      runtimeState: "BOOTSTRAPPING",
-      workerLeaseId: workerId,
-      workerHeartbeatAt: new Date(),
-    });
+    await approvalLease.start();
 
     await ensureSession(page, approval.cookieState, {
       cu12Id: creds.cu12Id,
@@ -793,28 +906,29 @@ export async function processCyberCampusApproval(
     });
 
     if (contextResult.kind !== "APPROVAL_REQUIRED") {
+      await approvalLease.stop();
       await completeApproval({
         approvalId,
         userId: approval.userId,
         page,
       });
       if (shouldResumeBlockedAutoLearnForApprovalContext(contextResult.kind)) {
-        await reactivateBlockedAutoLearnJob(approval.jobId, approval.userId);
+        continuation = {
+          browser,
+          context,
+          page,
+          job: await claimBlockedAutoLearnContinuationJob({
+            jobId: approval.jobId,
+            userId: approval.userId,
+            workerId,
+          }),
+        };
       } else {
         await succeedBlockedAutoLearnJob(
           approval.jobId,
           approval.userId,
           buildCyberCampusApprovalNoPendingAutoLearnResult(jobRequest),
         );
-      }
-      if (contextResult.kind === "NO_APPROVAL_REQUIRED") {
-        continuation = {
-          browser,
-          context,
-          page,
-          jobId: approval.jobId,
-          userId: approval.userId,
-        };
       }
       return {
         type: "CYBER_CAMPUS_APPROVAL",
@@ -834,6 +948,7 @@ export async function processCyberCampusApproval(
         : approval.requestedAction === "CONFIRM"
           ? "CONFIRMING"
           : "WAITING_METHOD";
+    approvalLease.setRuntimeState(runtimeState);
 
     await updatePortalApprovalSessionStateForWorker({
       approvalId,
@@ -865,6 +980,7 @@ export async function processCyberCampusApproval(
         return { type: "CYBER_CAMPUS_APPROVAL", state: approval.status, approvalId };
       }
       if (approval.expiresAt.getTime() <= Date.now()) {
+        await approvalLease.stop();
         await expireApprovalSession({
           approvalId,
           userId: approval.userId,
@@ -883,7 +999,9 @@ export async function processCyberCampusApproval(
           throw new Error("?ъ씠踰꾩틺?쇱뒪 ?몄쬆 ?섎떒???ㅼ떆 ?좏깮??二쇱꽭??");
         }
 
+        await approvalLease.sync("STARTING_METHOD");
         const started = await startSecondaryAuth(page, method);
+        approvalLease.setRuntimeState("WAITING_CODE");
         await updatePortalApprovalSessionStateForWorker({
           approvalId,
           userId: approval.userId,
@@ -912,6 +1030,7 @@ export async function processCyberCampusApproval(
           throw new Error("?ъ씠踰꾩틺?쇱뒪 ?몄쬆 ?섎떒???ㅼ떆 ?좏깮??二쇱꽭??");
         }
         if (method.requiresCode && !approval.pendingCode) {
+          approvalLease.setRuntimeState("WAITING_CODE");
           await updatePortalApprovalSessionStateForWorker({
             approvalId,
             userId: approval.userId,
@@ -946,6 +1065,7 @@ export async function processCyberCampusApproval(
           displayCode = started.displayCode;
         }
 
+        await approvalLease.sync("CONFIRMING");
         const confirmation = await confirmSecondaryAuth(page, {
           authSeq,
           method,
@@ -953,6 +1073,7 @@ export async function processCyberCampusApproval(
         });
 
         if (!confirmation.completed) {
+          approvalLease.setRuntimeState("WAITING_CODE");
           await updatePortalApprovalSessionStateForWorker({
             approvalId,
             userId: approval.userId,
@@ -981,6 +1102,7 @@ export async function processCyberCampusApproval(
           throw new Error("CYBER_CAMPUS_APPROVAL_CONTEXT_MISSING");
         }
 
+        approvalLease.setRuntimeState("VERIFIED");
         await updatePortalApprovalSessionStateForWorker({
           approvalId,
           userId: approval.userId,
@@ -1004,6 +1126,7 @@ export async function processCyberCampusApproval(
 
         const confirmedTaskAccess = await waitForConfirmedTaskAccess(page, approvalContext);
         if (!confirmedTaskAccess.verified) {
+          approvalLease.setRuntimeState("WAITING_CODE");
           await updatePortalApprovalSessionStateForWorker({
             approvalId,
             userId: approval.userId,
@@ -1027,6 +1150,7 @@ export async function processCyberCampusApproval(
           continue;
         }
 
+        approvalLease.setRuntimeState("RESUMING_AUTOLEARN");
         await updatePortalApprovalSessionStateForWorker({
           approvalId,
           userId: approval.userId,
@@ -1048,22 +1172,26 @@ export async function processCyberCampusApproval(
           expiresAt: buildApprovalExpiry(new Date(), true),
         });
 
+        await approvalLease.stop();
         await completeApproval({
           approvalId,
           userId: approval.userId,
           page,
         });
-        await reactivateBlockedAutoLearnJob(approval.jobId, approval.userId);
         continuation = {
           browser,
           context,
           page,
-          jobId: approval.jobId,
-          userId: approval.userId,
+          job: await claimBlockedAutoLearnContinuationJob({
+            jobId: approval.jobId,
+            userId: approval.userId,
+            workerId,
+          }),
         };
         return { type: "CYBER_CAMPUS_APPROVAL", state: "COMPLETED", approvalId, continuation };
       }
 
+      approvalLease.setRuntimeState(approval.authSeq ? "WAITING_CODE" : "WAITING_METHOD");
       approval = await waitForApprovalState(approvalId, {
         workerId,
         runtimeState: approval.authSeq ? "WAITING_CODE" : "WAITING_METHOD",
@@ -1077,6 +1205,7 @@ export async function processCyberCampusApproval(
     if (isReauthRequiredMessage(message)) {
       await markAccountNeedsReauth(approval.userId, message);
     }
+    await approvalLease.stop();
     await failApprovalAction({
       approvalId,
       userId: approval.userId,
@@ -1093,6 +1222,7 @@ export async function processCyberCampusApproval(
       message,
     };
   } finally {
+    await approvalLease.stop();
     if (!continuation) {
       await context.close();
       await browser.close();

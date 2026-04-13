@@ -352,6 +352,14 @@ function createCyberCampusDialogSignals(): CyberCampusDialogSignals {
   };
 }
 
+function mergeCyberCampusDialogSignals(
+  target: CyberCampusDialogSignals,
+  source: CyberCampusDialogSignals,
+) {
+  target.secondaryAuthBlocked ||= source.secondaryAuthBlocked;
+  target.dialogMessages.push(...source.dialogMessages);
+}
+
 function attachCyberCampusDialogTracking(page: Page, signals: CyberCampusDialogSignals): () => void {
   const onDialog = async (dialog: Dialog) => {
     const message = dialog.message();
@@ -436,16 +444,21 @@ async function extractCyberCampusLaunchParams(
   return launchParams;
 }
 
-async function submitCyberCampusTaskLaunchForm(page: Page): Promise<Page | null> {
-  return resolveCyberCampusPlayerPageAfterAction(page, async () => {
-    await page.evaluate(() => {
-      const form = document.forms.namedItem("myform") as HTMLFormElement | null;
-      if (!form) {
-        throw new Error("CYBER_CAMPUS_TASK_FORM_MISSING");
-      }
-      form.submit();
-    });
-  });
+async function submitCyberCampusTaskLaunchForm(
+  page: Page,
+): Promise<{ playerPage: Page | null; signals: CyberCampusDialogSignals }> {
+  const { result: playerPage, signals } = await withCyberCampusDialogTracking(page, async () =>
+    resolveCyberCampusPlayerPageAfterAction(page, async () => {
+      await page.evaluate(() => {
+        const form = document.forms.namedItem("myform") as HTMLFormElement | null;
+        if (!form) {
+          throw new Error("CYBER_CAMPUS_TASK_FORM_MISSING");
+        }
+        form.submit();
+      });
+    }),
+  );
+  return { playerPage, signals };
 }
 
 async function finalizeCyberCampusPlayback(
@@ -541,7 +554,11 @@ async function enterCyberCampusTaskContextLegacy(
   let pageUrl = playerPage?.url() ?? page.url();
 
   if (!playerPage && secondaryAuth.ready) {
-    playerPage = await submitCyberCampusTaskLaunchForm(page).catch(() => null);
+    const fallback = await submitCyberCampusTaskLaunchForm(page).catch(() => null);
+    if (fallback) {
+      mergeCyberCampusDialogSignals(signals, fallback.signals);
+      playerPage = fallback.playerPage;
+    }
     pageUrl = playerPage?.url() ?? page.url();
   }
 
@@ -604,7 +621,9 @@ async function enterCyberCampusTaskContextOnlineList(
   let pageUrl = playerPage?.url() ?? page.url();
 
   if (!playerPage && secondaryAuth.ready) {
-    playerPage = await submitCyberCampusTaskLaunchForm(page);
+    const fallback = await submitCyberCampusTaskLaunchForm(page);
+    mergeCyberCampusDialogSignals(signals, fallback.signals);
+    playerPage = fallback.playerPage;
     pageUrl = playerPage?.url() ?? page.url();
   }
 

@@ -1552,16 +1552,7 @@ async function main() {
 
     try {
       if (continuation) {
-        const claimedJob = await claimJob(workerId, [JobType.AUTOLEARN], continuation.userId);
-        if (!claimedJob) {
-          throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_CLAIM_FAILED:${continuation.jobId}`);
-        }
-        if (claimedJob.id !== continuation.jobId) {
-          throw new Error(
-            `CYBER_CAMPUS_AUTOLEARN_CONTINUATION_MISMATCH:expected=${continuation.jobId}:actual=${claimedJob.id}`,
-          );
-        }
-
+        const claimedJob = continuation.job;
         const currentStatus = await getJobStatus(claimedJob.id);
         if (currentStatus !== JobStatus.RUNNING) {
           throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_NOT_RUNNING:${claimedJob.id}:${currentStatus ?? "missing"}`);
@@ -1611,8 +1602,8 @@ async function main() {
       ? {
         ...result,
         continuation: {
-          jobId: continuation.jobId,
-          userId: continuation.userId,
+          jobId: continuation.job.id,
+          userId: continuation.job.payload.userId,
         },
       }
       : result;
