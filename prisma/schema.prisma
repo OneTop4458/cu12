@@ -97,6 +97,18 @@ enum PortalApprovalRequestedAction {
   CONFIRM
 }
 
+enum PortalApprovalRuntimeState {
+  BOOTSTRAPPING
+  WAITING_METHOD
+  STARTING_METHOD
+  WAITING_CODE
+  CONFIRMING
+  VERIFIED
+  RESUMING_AUTOLEARN
+  COMPLETED
+  FAILED
+}
+
 enum AuditSeverity {
   INFO
   WARN
@@ -394,6 +406,7 @@ model PortalApprovalSession {
   jobId                String               @unique
   provider             PortalProvider
   status               PortalApprovalStatus @default(PENDING)
+  runtimeState         PortalApprovalRuntimeState @default(BOOTSTRAPPING)
   encryptedCookieState String
   requestedAction      PortalApprovalRequestedAction?
   encryptedPendingCode String?
@@ -405,6 +418,9 @@ model PortalApprovalSession {
   requestCode          String?
   displayCode          String?
   errorMessage         String?
+  workerLeaseId        String?
+  workerHeartbeatAt    DateTime?
+  restartRequired      Boolean              @default(false)
   expiresAt            DateTime
   completedAt          DateTime?
   canceledAt           DateTime?
@@ -413,6 +429,7 @@ model PortalApprovalSession {
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, provider, status, expiresAt])
+  @@index([status, runtimeState, workerHeartbeatAt])
 }
 
 model PortalMessage {

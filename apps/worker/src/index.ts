@@ -1543,7 +1543,7 @@ async function main() {
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const approvalId = args.get("approvalId");
   if (approvalId) {
-    const result = await processCyberCampusApproval(approvalId);
+    const result = await processCyberCampusApproval(approvalId, workerId);
     const continuation =
       "continuation" in result && result.continuation
         ? result.continuation as CyberCampusApprovalAutoLearnContinuation

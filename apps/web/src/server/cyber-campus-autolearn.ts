@@ -8,12 +8,14 @@ import {
   getPortalApprovalSession,
   getPortalSession,
   type PortalApprovalRequestedAction,
+  type PortalApprovalRuntimeState,
   updatePortalApprovalSessionState,
 } from "@/server/portal-session-store";
 
 const CYBER_CAMPUS_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CYBER_CAMPUS_APPROVAL_TTL_MS = 10 * 60 * 1000;
 const CYBER_CAMPUS_APPROVAL_ACTIVE_TTL_MS = 5 * 60 * 1000;
+const CYBER_CAMPUS_APPROVAL_WORKER_STALE_MS = 30 * 1000;
 
 type ApprovalSessionStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
 type PortalSessionStatus = "ACTIVE" | "EXPIRED" | "INVALID";
@@ -29,6 +31,7 @@ interface CyberCampusApprovalRow {
   id: string;
   jobId: string;
   status: ApprovalSessionStatus;
+  runtimeState: PortalApprovalRuntimeState;
   requestedAction: PortalApprovalRequestedAction | null;
   methods: SecondaryAuthMethod[];
   selectedWay: number | null;
@@ -37,6 +40,9 @@ interface CyberCampusApprovalRow {
   requestCode: string | null;
   displayCode: string | null;
   errorMessage: string | null;
+  workerLeaseId: string | null;
+  workerHeartbeatAt: Date | null;
+  restartRequired: boolean;
   expiresAt: Date;
   completedAt: Date | null;
   canceledAt: Date | null;
@@ -53,6 +59,7 @@ export interface CyberCampusApprovalSummary {
   id: string;
   jobId: string;
   status: ApprovalSessionStatus;
+  runtimeState: PortalApprovalRuntimeState;
   requestedAction: PortalApprovalRequestedAction | null;
   expiresAt: string;
   completedAt: string | null;
@@ -62,6 +69,9 @@ export interface CyberCampusApprovalSummary {
   selectedMethod: SecondaryAuthMethod | null;
   requestCode: string | null;
   displayCode: string | null;
+  workerHeartbeatAt: string | null;
+  workerAlive: boolean;
+  restartRequired: boolean;
 }
 
 export interface CyberCampusApprovalState {
@@ -186,12 +196,28 @@ function resolveSelectedMethod(row: CyberCampusApprovalRow): SecondaryAuthMethod
   )) ?? null;
 }
 
+function isApprovalWorkerAlive(row: Pick<CyberCampusApprovalRow, "workerLeaseId" | "workerHeartbeatAt" | "status">): boolean {
+  if (!row.workerLeaseId || !row.workerHeartbeatAt) return false;
+  if (row.status === "COMPLETED" || row.status === "EXPIRED" || row.status === "CANCELED") {
+    return false;
+  }
+  return Date.now() - row.workerHeartbeatAt.getTime() <= CYBER_CAMPUS_APPROVAL_WORKER_STALE_MS;
+}
+
+function shouldRejectConfirmForStaleWorker(row: CyberCampusApprovalRow): boolean {
+  if (isApprovalWorkerAlive(row)) return false;
+  return row.runtimeState !== "BOOTSTRAPPING"
+    && row.runtimeState !== "WAITING_METHOD"
+    && row.runtimeState !== "STARTING_METHOD";
+}
+
 function serializeApproval(row: CyberCampusApprovalRow | null): CyberCampusApprovalSummary | null {
   if (!row) return null;
   return {
     id: row.id,
     jobId: row.jobId,
     status: row.status,
+    runtimeState: row.runtimeState,
     requestedAction: row.requestedAction,
     expiresAt: row.expiresAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
@@ -201,6 +227,51 @@ function serializeApproval(row: CyberCampusApprovalRow | null): CyberCampusAppro
     selectedMethod: resolveSelectedMethod(row),
     requestCode: row.requestCode,
     displayCode: row.displayCode,
+    workerHeartbeatAt: row.workerHeartbeatAt?.toISOString() ?? null,
+    workerAlive: isApprovalWorkerAlive(row),
+    restartRequired: row.restartRequired,
+  };
+}
+
+function toApprovalRow(row: {
+  id: string;
+  jobId: string;
+  status: ApprovalSessionStatus;
+  runtimeState: PortalApprovalRuntimeState;
+  requestedAction: PortalApprovalRequestedAction | null;
+  methods: SecondaryAuthMethod[];
+  selectedWay: number | null;
+  selectedParam: string | null;
+  selectedTarget: string | null;
+  requestCode: string | null;
+  displayCode: string | null;
+  errorMessage: string | null;
+  workerLeaseId: string | null;
+  workerHeartbeatAt: Date | null;
+  restartRequired: boolean;
+  expiresAt: Date;
+  completedAt: Date | null;
+  canceledAt: Date | null;
+}): CyberCampusApprovalRow {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    status: row.status,
+    runtimeState: row.runtimeState,
+    requestedAction: row.requestedAction,
+    methods: row.methods,
+    selectedWay: row.selectedWay,
+    selectedParam: row.selectedParam,
+    selectedTarget: row.selectedTarget,
+    requestCode: row.requestCode,
+    displayCode: row.displayCode,
+    errorMessage: row.errorMessage,
+    workerLeaseId: row.workerLeaseId,
+    workerHeartbeatAt: row.workerHeartbeatAt,
+    restartRequired: row.restartRequired,
+    expiresAt: row.expiresAt,
+    completedAt: row.completedAt,
+    canceledAt: row.canceledAt,
   };
 }
 
@@ -241,8 +312,11 @@ async function expireApprovalIfNeeded(row: {
     id: row.id,
     userId: row.userId,
     status: "EXPIRED",
+    runtimeState: "FAILED",
     requestedAction: null,
     pendingCode: null,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
   });
   await expireBlockedJob(row.jobId, "SECONDARY_AUTH_TIMEOUT");
   return true;
@@ -273,30 +347,18 @@ async function resolveActiveApproval(userId: string): Promise<CyberCampusApprova
       id: row.id,
       userId,
       status: "CANCELED",
+      runtimeState: "FAILED",
       canceledAt: new Date(),
       errorMessage: "승인 세션에 연결된 자동 수강 작업을 찾을 수 없습니다.",
       requestedAction: null,
       pendingCode: null,
+      workerLeaseId: null,
+      workerHeartbeatAt: null,
     });
     return null;
   }
 
-  return {
-    id: row.id,
-    jobId: row.jobId,
-    status: row.status,
-    requestedAction: row.requestedAction,
-    methods: row.methods,
-    selectedWay: row.selectedWay,
-    selectedParam: row.selectedParam,
-    selectedTarget: row.selectedTarget,
-    requestCode: row.requestCode,
-    displayCode: row.displayCode,
-    errorMessage: row.errorMessage,
-    expiresAt: row.expiresAt,
-    completedAt: row.completedAt,
-    canceledAt: row.canceledAt,
-  };
+  return ensureApprovalWorkerRecoveryState(row);
 }
 
 async function findQueuedAutoLearnJob(input: RequestCyberCampusAutoLearnInput) {
@@ -347,6 +409,7 @@ async function updateApprovalAction(input: {
     id: input.id,
     userId: input.userId,
     status: "PENDING",
+    runtimeState: input.action === "START" ? "STARTING_METHOD" : "CONFIRMING",
     requestedAction: input.action,
     pendingCode: input.pendingCode ?? null,
     selectedWay: input.selectedMethod?.way ?? null,
@@ -356,10 +419,79 @@ async function updateApprovalAction(input: {
     requestCode: input.action === "START" ? null : undefined,
     displayCode: input.action === "START" ? null : undefined,
     errorMessage: null,
+    restartRequired: false,
     completedAt: null,
     canceledAt: null,
     expiresAt: input.expiresAt,
   });
+}
+
+async function markApprovalRestartRequired(input: {
+  id: string;
+  userId: string;
+  errorMessage: string;
+}) {
+  await updatePortalApprovalSessionState({
+    id: input.id,
+    userId: input.userId,
+    status: "PENDING",
+    runtimeState: "FAILED",
+    requestedAction: null,
+    pendingCode: null,
+    errorMessage: input.errorMessage,
+    restartRequired: true,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
+  });
+}
+
+async function ensureApprovalWorkerRecoveryState(row: {
+  id: string;
+  userId: string;
+  jobId: string;
+  status: ApprovalSessionStatus;
+  runtimeState: PortalApprovalRuntimeState;
+  requestedAction: PortalApprovalRequestedAction | null;
+  methods: SecondaryAuthMethod[];
+  selectedWay: number | null;
+  selectedParam: string | null;
+  selectedTarget: string | null;
+  requestCode: string | null;
+  displayCode: string | null;
+  errorMessage: string | null;
+  workerLeaseId: string | null;
+  workerHeartbeatAt: Date | null;
+  restartRequired: boolean;
+  expiresAt: Date;
+  completedAt: Date | null;
+  canceledAt: Date | null;
+}) {
+  const approval = toApprovalRow(row);
+  if (approval.restartRequired || !shouldRejectConfirmForStaleWorker(approval)) {
+    return approval;
+  }
+
+  const errorMessage = "같은 브라우저 세션이 끊겨 2차 인증을 다시 시작해야 합니다.";
+  await markApprovalRestartRequired({
+    id: row.id,
+    userId: row.userId,
+    errorMessage,
+  });
+
+  const refreshed = await getPortalApprovalSession(row.id, row.userId);
+  if (refreshed) {
+    return toApprovalRow(refreshed);
+  }
+
+  return {
+    ...approval,
+    runtimeState: "FAILED" as const,
+    requestedAction: null,
+    errorMessage,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
+    restartRequired: true,
+  };
 }
 
 export async function getCyberCampusApprovalState(userId: string): Promise<CyberCampusApprovalState> {
@@ -428,7 +560,9 @@ export async function requestCyberCampusAutoLearn(
     cookieState: portalSession?.cookieState ?? [],
     methods: [],
     expiresAt: buildApprovalExpiry(),
+    runtimeState: "BOOTSTRAPPING",
     requestedAction: "BOOTSTRAP",
+    restartRequired: false,
   });
   const dispatch = await dispatchCyberCampusApproval(approval.id);
 
@@ -451,33 +585,19 @@ export async function startCyberCampusApproval(input: {
   way: number;
   param?: string | null;
 }): Promise<CyberCampusApprovalSummary> {
-  const approval = await getPortalApprovalSession(input.approvalId, input.userId);
-  if (!approval) {
+  const approvalState = await getPortalApprovalSession(input.approvalId, input.userId);
+  if (!approvalState) {
     throw new Error("사이버캠퍼스 승인 세션을 찾을 수 없습니다.");
   }
 
-  const expired = await expireApprovalIfNeeded(approval);
+  const expired = await expireApprovalIfNeeded(approvalState);
   if (expired) {
     throw new Error("사이버캠퍼스 승인 세션이 만료되었습니다.");
   }
 
+  const approval = await ensureApprovalWorkerRecoveryState(approvalState);
   if (approval.status === "COMPLETED") {
-    return serializeApproval({
-      id: approval.id,
-      jobId: approval.jobId,
-      status: approval.status,
-      requestedAction: approval.requestedAction,
-      methods: approval.methods,
-      selectedWay: approval.selectedWay,
-      selectedParam: approval.selectedParam,
-      selectedTarget: approval.selectedTarget,
-      requestCode: approval.requestCode,
-      displayCode: approval.displayCode,
-      errorMessage: approval.errorMessage,
-      expiresAt: approval.expiresAt,
-      completedAt: approval.completedAt,
-      canceledAt: approval.canceledAt,
-    })!;
+    return serializeApproval(approval)!;
   }
 
   const selectedMethod = approval.methods.find((method: SecondaryAuthMethod) => (
@@ -496,29 +616,16 @@ export async function startCyberCampusApproval(input: {
     selectedMethod,
     expiresAt: buildApprovalExpiry(),
   });
-  await dispatchCyberCampusApproval(approval.id);
+  if (!isApprovalWorkerAlive(approval)) {
+    await dispatchCyberCampusApproval(approval.id);
+  }
 
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
     throw new Error("사이버캠퍼스 승인 세션 갱신 중 상태가 변경되었습니다.");
   }
 
-  return serializeApproval({
-    id: refreshed.id,
-    jobId: refreshed.jobId,
-    status: refreshed.status,
-    requestedAction: refreshed.requestedAction,
-    methods: refreshed.methods,
-    selectedWay: refreshed.selectedWay,
-    selectedParam: refreshed.selectedParam,
-    selectedTarget: refreshed.selectedTarget,
-    requestCode: refreshed.requestCode,
-    displayCode: refreshed.displayCode,
-    errorMessage: refreshed.errorMessage,
-    expiresAt: refreshed.expiresAt,
-    completedAt: refreshed.completedAt,
-    canceledAt: refreshed.canceledAt,
-  })!;
+  return serializeApproval(toApprovalRow(refreshed))!;
 }
 
 export async function confirmCyberCampusApproval(input: {
@@ -526,35 +633,21 @@ export async function confirmCyberCampusApproval(input: {
   approvalId: string;
   code?: string | null;
 }): Promise<ConfirmCyberCampusApprovalResult> {
-  const approval = await getPortalApprovalSession(input.approvalId, input.userId);
-  if (!approval) {
+  const approvalState = await getPortalApprovalSession(input.approvalId, input.userId);
+  if (!approvalState) {
     throw new Error("사이버캠퍼스 승인 세션을 찾을 수 없습니다.");
   }
 
-  const expired = await expireApprovalIfNeeded(approval);
+  const expired = await expireApprovalIfNeeded(approvalState);
   if (expired) {
     throw new Error("사이버캠퍼스 승인 세션이 만료되었습니다.");
   }
 
+  const approval = await ensureApprovalWorkerRecoveryState(approvalState);
   if (approval.status === "COMPLETED") {
     return {
       state: "COMPLETED",
-      approval: serializeApproval({
-        id: approval.id,
-        jobId: approval.jobId,
-        status: approval.status,
-        requestedAction: approval.requestedAction,
-        methods: approval.methods,
-        selectedWay: approval.selectedWay,
-        selectedParam: approval.selectedParam,
-        selectedTarget: approval.selectedTarget,
-        requestCode: approval.requestCode,
-        displayCode: approval.displayCode,
-        errorMessage: approval.errorMessage,
-        expiresAt: approval.expiresAt,
-        completedAt: approval.completedAt,
-        canceledAt: approval.canceledAt,
-      })!,
+      approval: serializeApproval(approval)!,
       jobId: approval.jobId,
     };
   }
@@ -570,6 +663,15 @@ export async function confirmCyberCampusApproval(input: {
     throw new Error("인증 코드를 입력해 주세요.");
   }
 
+  if (approval.restartRequired) {
+    await markApprovalRestartRequired({
+      id: approval.id,
+      userId: input.userId,
+      errorMessage: "같은 브라우저 세션이 끊겨 2차 인증을 다시 시작해야 합니다.",
+    });
+    throw new Error("같은 브라우저 세션이 끊겨 2차 인증을 다시 시작해야 합니다.");
+  }
+
   await updateApprovalAction({
     id: approval.id,
     userId: input.userId,
@@ -578,29 +680,16 @@ export async function confirmCyberCampusApproval(input: {
     selectedMethod,
     expiresAt: buildApprovalExpiry(new Date(), true),
   });
-  await dispatchCyberCampusApproval(approval.id);
+  if (!isApprovalWorkerAlive(approval)) {
+    await dispatchCyberCampusApproval(approval.id);
+  }
 
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) {
     throw new Error("사이버캠퍼스 승인 세션 갱신 중 상태가 변경되었습니다.");
   }
 
-  const serialized = serializeApproval({
-    id: refreshed.id,
-    jobId: refreshed.jobId,
-    status: refreshed.status,
-    requestedAction: refreshed.requestedAction,
-    methods: refreshed.methods,
-    selectedWay: refreshed.selectedWay,
-    selectedParam: refreshed.selectedParam,
-    selectedTarget: refreshed.selectedTarget,
-    requestCode: refreshed.requestCode,
-    displayCode: refreshed.displayCode,
-    errorMessage: refreshed.errorMessage,
-    expiresAt: refreshed.expiresAt,
-    completedAt: refreshed.completedAt,
-    canceledAt: refreshed.canceledAt,
-  })!;
+  const serialized = serializeApproval(toApprovalRow(refreshed))!;
 
   if (refreshed.status === "COMPLETED") {
     return {
@@ -629,10 +718,13 @@ export async function cancelCyberCampusApproval(input: {
     id: approval.id,
     userId: input.userId,
     status: "CANCELED",
+    runtimeState: "FAILED",
     canceledAt: new Date(),
     errorMessage: "사용자가 2차 인증을 취소했습니다.",
     requestedAction: null,
     pendingCode: null,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
   });
 
   await prisma.jobQueue.updateMany({
@@ -653,51 +745,21 @@ export async function cancelCyberCampusApproval(input: {
     throw new Error("사이버캠퍼스 승인 세션 취소 처리 중 상태가 변경되었습니다.");
   }
 
-  return serializeApproval({
-    id: refreshed.id,
-    jobId: refreshed.jobId,
-    status: refreshed.status,
-    requestedAction: refreshed.requestedAction,
-    methods: refreshed.methods,
-    selectedWay: refreshed.selectedWay,
-    selectedParam: refreshed.selectedParam,
-    selectedTarget: refreshed.selectedTarget,
-    requestCode: refreshed.requestCode,
-    displayCode: refreshed.displayCode,
-    errorMessage: refreshed.errorMessage,
-    expiresAt: refreshed.expiresAt,
-    completedAt: refreshed.completedAt,
-    canceledAt: refreshed.canceledAt,
-  })!;
+  return serializeApproval(toApprovalRow(refreshed))!;
 }
 
 export async function getCyberCampusApprovalSummary(input: {
   userId: string;
   approvalId: string;
 }): Promise<CyberCampusApprovalSummary | null> {
-  const approval = await getPortalApprovalSession(input.approvalId, input.userId);
-  if (!approval) return null;
+  const approvalState = await getPortalApprovalSession(input.approvalId, input.userId);
+  if (!approvalState) return null;
 
-  await expireApprovalIfNeeded(approval);
+  await expireApprovalIfNeeded(approvalState);
   const refreshed = await getPortalApprovalSession(input.approvalId, input.userId);
   if (!refreshed) return null;
 
-  return serializeApproval({
-    id: refreshed.id,
-    jobId: refreshed.jobId,
-    status: refreshed.status,
-    requestedAction: refreshed.requestedAction,
-    methods: refreshed.methods,
-    selectedWay: refreshed.selectedWay,
-    selectedParam: refreshed.selectedParam,
-    selectedTarget: refreshed.selectedTarget,
-    requestCode: refreshed.requestCode,
-    displayCode: refreshed.displayCode,
-    errorMessage: refreshed.errorMessage,
-    expiresAt: refreshed.expiresAt,
-    completedAt: refreshed.completedAt,
-    canceledAt: refreshed.canceledAt,
-  });
+  return serializeApproval(await ensureApprovalWorkerRecoveryState(refreshed));
 }
 
 export { buildSessionExpiry, buildApprovalExpiry };

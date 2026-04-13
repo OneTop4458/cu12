@@ -4,6 +4,16 @@ import { prisma } from "@/lib/prisma";
 import type { CookieStateEntry, SecondaryAuthMethod } from "@/server/cyber-campus-session";
 
 export type PortalApprovalRequestedAction = "BOOTSTRAP" | "START" | "CONFIRM";
+export type PortalApprovalRuntimeState =
+  | "BOOTSTRAPPING"
+  | "WAITING_METHOD"
+  | "STARTING_METHOD"
+  | "WAITING_CODE"
+  | "CONFIRMING"
+  | "VERIFIED"
+  | "RESUMING_AUTOLEARN"
+  | "COMPLETED"
+  | "FAILED";
 
 type PortalSessionReadStore = {
   findUnique: typeof prisma.portalSession.findUnique;
@@ -153,6 +163,7 @@ export async function findActivePortalApprovalSession(userId: string, provider: 
     cookieState: decodeCookieState(row.encryptedCookieState),
     methods: Array.isArray(row.methods) ? row.methods as unknown as SecondaryAuthMethod[] : [],
     requestedAction: row.requestedAction as PortalApprovalRequestedAction | null,
+    runtimeState: row.runtimeState as PortalApprovalRuntimeState,
     pendingCode: decodePendingCode(row.encryptedPendingCode),
   };
 }
@@ -170,6 +181,7 @@ export async function getPortalApprovalSession(id: string, userId: string) {
     cookieState: decodeCookieState(row.encryptedCookieState),
     methods: Array.isArray(row.methods) ? row.methods as unknown as SecondaryAuthMethod[] : [],
     requestedAction: row.requestedAction as PortalApprovalRequestedAction | null,
+    runtimeState: row.runtimeState as PortalApprovalRuntimeState,
     pendingCode: decodePendingCode(row.encryptedPendingCode),
   };
 }
@@ -182,6 +194,10 @@ export async function createPortalApprovalSession(input: {
   methods?: SecondaryAuthMethod[];
   expiresAt: Date;
   requestedAction?: PortalApprovalRequestedAction | null;
+  runtimeState?: PortalApprovalRuntimeState;
+  workerLeaseId?: string | null;
+  workerHeartbeatAt?: Date | null;
+  restartRequired?: boolean;
 }) {
   return prisma.portalApprovalSession.create({
     data: {
@@ -192,7 +208,11 @@ export async function createPortalApprovalSession(input: {
       methods: (input.methods ?? []) as unknown as object,
       expiresAt: input.expiresAt,
       status: "PENDING",
+      runtimeState: input.runtimeState ?? "BOOTSTRAPPING",
       requestedAction: input.requestedAction ?? null,
+      workerLeaseId: input.workerLeaseId ?? null,
+      workerHeartbeatAt: input.workerHeartbeatAt ?? null,
+      restartRequired: input.restartRequired ?? false,
     },
   });
 }
@@ -202,6 +222,7 @@ export async function updatePortalApprovalSessionState(input: {
   userId: string;
   cookieState?: CookieStateEntry[];
   status?: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  runtimeState?: PortalApprovalRuntimeState;
   methods?: SecondaryAuthMethod[];
   requestedAction?: PortalApprovalRequestedAction | null;
   pendingCode?: string | null;
@@ -212,6 +233,9 @@ export async function updatePortalApprovalSessionState(input: {
   requestCode?: string | null;
   displayCode?: string | null;
   errorMessage?: string | null;
+  workerLeaseId?: string | null;
+  workerHeartbeatAt?: Date | null;
+  restartRequired?: boolean;
   expiresAt?: Date;
   completedAt?: Date | null;
   canceledAt?: Date | null;
@@ -221,6 +245,7 @@ export async function updatePortalApprovalSessionState(input: {
     data: {
       ...(input.cookieState ? { encryptedCookieState: encodeCookieState(input.cookieState) } : {}),
       ...(input.status ? { status: input.status } : {}),
+      ...(input.runtimeState !== undefined ? { runtimeState: input.runtimeState } : {}),
       ...(input.methods !== undefined ? { methods: input.methods as unknown as object } : {}),
       ...(input.requestedAction !== undefined ? { requestedAction: input.requestedAction } : {}),
       ...(input.pendingCode !== undefined ? { encryptedPendingCode: encodePendingCode(input.pendingCode) } : {}),
@@ -231,6 +256,9 @@ export async function updatePortalApprovalSessionState(input: {
       ...(input.requestCode !== undefined ? { requestCode: input.requestCode } : {}),
       ...(input.displayCode !== undefined ? { displayCode: input.displayCode } : {}),
       ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
+      ...(input.workerLeaseId !== undefined ? { workerLeaseId: input.workerLeaseId } : {}),
+      ...(input.workerHeartbeatAt !== undefined ? { workerHeartbeatAt: input.workerHeartbeatAt } : {}),
+      ...(input.restartRequired !== undefined ? { restartRequired: input.restartRequired } : {}),
       ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
       ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
       ...(input.canceledAt !== undefined ? { canceledAt: input.canceledAt } : {}),

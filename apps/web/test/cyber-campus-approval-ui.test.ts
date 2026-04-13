@@ -60,3 +60,17 @@ test("buildCyberCampusApprovalAutoOpenKey changes when requestedAction changes",
 
   assert.notEqual(bootstrapKey, startKey);
 });
+
+test("buildCyberCampusApprovalAutoOpenKey changes when runtime state or restart requirement changes", () => {
+  const waitingKey = buildCyberCampusApprovalAutoOpenKey({
+    ...baseApproval,
+    runtimeState: "WAITING_CODE",
+  });
+  const restartKey = buildCyberCampusApprovalAutoOpenKey({
+    ...baseApproval,
+    runtimeState: "FAILED",
+    restartRequired: true,
+  });
+
+  assert.notEqual(waitingKey, restartKey);
+});
