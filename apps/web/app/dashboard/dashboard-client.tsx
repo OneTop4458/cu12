@@ -274,6 +274,16 @@ interface CyberCampusApproval {
   id: string;
   jobId: string;
   status: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  runtimeState:
+    | "BOOTSTRAPPING"
+    | "WAITING_METHOD"
+    | "STARTING_METHOD"
+    | "WAITING_CODE"
+    | "CONFIRMING"
+    | "VERIFIED"
+    | "RESUMING_AUTOLEARN"
+    | "COMPLETED"
+    | "FAILED";
   requestedAction: "BOOTSTRAP" | "START" | "CONFIRM" | null;
   expiresAt: string;
   completedAt: string | null;
@@ -283,6 +293,9 @@ interface CyberCampusApproval {
   selectedMethod: SecondaryAuthMethod | null;
   requestCode: string | null;
   displayCode: string | null;
+  workerHeartbeatAt: string | null;
+  workerAlive: boolean;
+  restartRequired: boolean;
 }
 
 interface CyberCampusState {
@@ -618,16 +631,19 @@ function isCyberCampusApprovalTerminal(approval: CyberCampusApproval | null): bo
 
 function getCyberCampusApprovalPendingMessage(approval: CyberCampusApproval | null): string | null {
   if (!approval || isCyberCampusApprovalTerminal(approval)) return null;
+  if (approval.restartRequired) {
+    return "같은 브라우저 세션이 끊겨 2차 인증을 다시 시작해야 합니다.";
+  }
 
-  if (approval.requestedAction === "BOOTSTRAP") {
+  if (approval.runtimeState === "BOOTSTRAPPING" || approval.requestedAction === "BOOTSTRAP") {
     return "강의별 인증 필요 여부와 사용 가능한 인증 수단을 확인하는 중입니다.";
   }
 
-  if (approval.requestedAction === "START") {
+  if (approval.runtimeState === "STARTING_METHOD" || approval.requestedAction === "START") {
     return "선택한 인증 수단으로 요청을 보내는 중입니다. 요청 번호가 나타날 때까지 잠시만 기다려 주세요.";
   }
 
-  if (approval.requestedAction === "CONFIRM") {
+  if (approval.runtimeState === "CONFIRMING" || approval.requestedAction === "CONFIRM") {
     return approval.selectedMethod?.requiresCode
       ? "입력한 인증 코드를 확인하는 중입니다. 몇 초 정도 걸릴 수 있습니다."
       : "인증 결과를 다시 확인하는 중입니다. 잠시만 기다려 주세요.";
@@ -957,6 +973,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       ? {
         id: activeCyberCampusApproval.id,
         status: activeCyberCampusApproval.status,
+        runtimeState: activeCyberCampusApproval.runtimeState,
         requestedAction: activeCyberCampusApproval.requestedAction,
         methodCount: activeCyberCampusApproval.methods.length,
         selectedMethodKey: activeCyberCampusApproval.selectedMethod
@@ -965,6 +982,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         requestCode: activeCyberCampusApproval.requestCode,
         displayCode: activeCyberCampusApproval.displayCode,
         errorMessage: activeCyberCampusApproval.errorMessage,
+        restartRequired: activeCyberCampusApproval.restartRequired,
       }
       : null
   ), [activeCyberCampusApproval]);
@@ -1121,7 +1139,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     () => getCyberCampusApprovalPendingMessage(activeCyberCampusApproval),
     [activeCyberCampusApproval],
   );
-  const approvalWaitingForWorker = Boolean(approvalPendingMessage);
+  const approvalWaitingForWorker = Boolean(approvalPendingMessage) && !activeCyberCampusApproval?.restartRequired;
   const approvalPrimaryActionDisabled = approvalSubmitting || approvalWaitingForWorker;
   const approvalCodeInputDisabled = approvalSubmitting
     || Boolean(activeCyberCampusApproval?.selectedMethod?.requiresCode && approvalWaitingForWorker);
@@ -2788,6 +2806,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             <h2>사이버캠퍼스 2차 인증</h2>
             <p className="muted">만료까지 {formatApprovalCountdown(approvalExpiresInSeconds)}</p>
             <p className="muted">상태: {activeCyberCampusApproval.status}</p>
+            <p className="muted">실행 단계: {activeCyberCampusApproval.runtimeState}</p>
+            <p className="muted">워커 상태: {activeCyberCampusApproval.workerAlive ? "연결됨" : "대기/끊김"}</p>
             {activeCyberCampusApproval.errorMessage ? (
               <p className="error-text">{activeCyberCampusApproval.errorMessage}</p>
             ) : null}

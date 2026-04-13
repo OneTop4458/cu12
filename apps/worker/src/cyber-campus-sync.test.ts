@@ -7,6 +7,7 @@ import {
   getCyberCampusPlaybackWaitSeconds,
   mergeCyberCampusTaskWithDetail,
   planCyberCampusAutoLearnTasks,
+  shouldUseLegacyCyberCampusLaunchFallback,
 } from "./cyber-campus-sync";
 
 function createTask(input: Partial<LearningTask> & Pick<LearningTask, "lectureSeq" | "courseContentsSeq" | "activityType">): LearningTask {
@@ -164,4 +165,19 @@ test("getCyberCampusPlaybackWaitSeconds never shortens playback below real time"
   assert.equal(getCyberCampusPlaybackWaitSeconds(1800, 0.25), 1800);
   assert.equal(getCyberCampusPlaybackWaitSeconds(1800, 1), 1800);
   assert.equal(getCyberCampusPlaybackWaitSeconds(1800, 1.1), 1981);
+});
+
+test("shouldUseLegacyCyberCampusLaunchFallback prefers legacy launch for weekNo 0 and missing launch params", () => {
+  assert.equal(
+    shouldUseLegacyCyberCampusLaunchFallback({ weekNo: 0 }, new Error("CYBER_CAMPUS_TASK_LAUNCH_PARAMS_MISSING:10")),
+    true,
+  );
+  assert.equal(
+    shouldUseLegacyCyberCampusLaunchFallback({ weekNo: 6 }, new Error("CYBER_CAMPUS_TASK_ROW_NOT_FOUND:10")),
+    true,
+  );
+  assert.equal(
+    shouldUseLegacyCyberCampusLaunchFallback({ weekNo: 6 }, new Error("SOME_OTHER_ERROR")),
+    false,
+  );
 });

@@ -3640,7 +3640,7 @@ components:
 
     CyberCampusApproval:
       type: object
-      required: [id, jobId, status, requestedAction, expiresAt, completedAt, canceledAt, errorMessage, methods, selectedMethod, requestCode, displayCode]
+      required: [id, jobId, status, runtimeState, requestedAction, expiresAt, completedAt, canceledAt, errorMessage, methods, selectedMethod, requestCode, displayCode, workerHeartbeatAt, workerAlive, restartRequired]
       properties:
         id:
           type: string
@@ -3649,6 +3649,9 @@ components:
         status:
           type: string
           enum: [PENDING, ACTIVE, COMPLETED, EXPIRED, CANCELED]
+        runtimeState:
+          type: string
+          enum: [BOOTSTRAPPING, WAITING_METHOD, STARTING_METHOD, WAITING_CODE, CONFIRMING, VERIFIED, RESUMING_AUTOLEARN, COMPLETED, FAILED]
         requestedAction:
           type: string
           enum: [BOOTSTRAP, START, CONFIRM]
@@ -3683,6 +3686,14 @@ components:
         displayCode:
           type: string
           nullable: true
+        workerHeartbeatAt:
+          type: string
+          format: date-time
+          nullable: true
+        workerAlive:
+          type: boolean
+        restartRequired:
+          type: boolean
 
     CyberCampusState:
       type: object

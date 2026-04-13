@@ -1,12 +1,23 @@
 export interface ApprovalAutoOpenState {
   id: string;
   status: "PENDING" | "ACTIVE" | "COMPLETED" | "EXPIRED" | "CANCELED";
+  runtimeState?:
+    | "BOOTSTRAPPING"
+    | "WAITING_METHOD"
+    | "STARTING_METHOD"
+    | "WAITING_CODE"
+    | "CONFIRMING"
+    | "VERIFIED"
+    | "RESUMING_AUTOLEARN"
+    | "COMPLETED"
+    | "FAILED";
   requestedAction?: "BOOTSTRAP" | "START" | "CONFIRM" | null;
   methodCount: number;
   selectedMethodKey: string | null;
   requestCode: string | null;
   displayCode: string | null;
   errorMessage: string | null;
+  restartRequired?: boolean;
 }
 
 function buildSelectedMethodKey(input: ApprovalAutoOpenState): string | null {
@@ -18,12 +29,14 @@ export function buildCyberCampusApprovalAutoOpenKey(approval: ApprovalAutoOpenSt
   return [
     approval.id,
     approval.status,
+    approval.runtimeState ?? "",
     approval.requestedAction ?? "",
     approval.methodCount,
     buildSelectedMethodKey(approval) ?? "",
     approval.requestCode ?? "",
     approval.displayCode ?? "",
     approval.errorMessage ?? "",
+    approval.restartRequired ? "restart" : "",
   ].join("|");
 }
 

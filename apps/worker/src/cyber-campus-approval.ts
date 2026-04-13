@@ -3,7 +3,10 @@ import {
   parseCyberCampusTodoListHtml,
   type LearningTask,
 } from "@cu12/core";
+import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Dialog, type Page } from "playwright";
+import { interpretCyberCampusTaskAccessState } from "./cyber-campus-auth-state";
+import type { ClaimedJob } from "./internal-api";
 import { prisma } from "./prisma";
 import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state";
 import { getEnv } from "./env";
@@ -13,9 +16,9 @@ import {
   getPortalApprovalSessionState,
   getUserCu12Credentials,
   markAccountNeedsReauth,
-  reactivateBlockedAutoLearnJob,
   succeedBlockedAutoLearnJob,
   type PortalApprovalSecondaryAuthMethod,
+  type PortalApprovalRuntimeState,
   type PortalSessionCookieState,
   updatePortalApprovalSessionStateForWorker,
   upsertPortalSessionCookieState,
@@ -46,8 +49,7 @@ export interface CyberCampusApprovalAutoLearnContinuation {
   browser: Browser;
   context: BrowserContext;
   page: Page;
-  jobId: string;
-  userId: string;
+  job: ClaimedJob;
 }
 
 interface ApprovalTaskContext {
@@ -480,6 +482,9 @@ async function confirmSecondaryAuth(
   };
 }
 
+const CYBER_CAMPUS_APPROVAL_WORKER_POLL_MS = 2_000;
+const CYBER_CAMPUS_APPROVAL_WORKER_HEARTBEAT_MS = 5_000;
+
 function isExpectedApprovalRequirement(input: {
   checkMessageCode: string | null;
   checkMessage: string | null;
@@ -490,6 +495,22 @@ function isExpectedApprovalRequirement(input: {
   if (/\/ilos\/st\/course\/submain_form\.acl/i.test(input.pageUrl)) return true;
   if (input.checkMessageCode === "E_CONFIRMED_SECONDARY_AUTH") return true;
   return Boolean(input.checkMessage?.includes("본인인증"));
+}
+
+function getApprovalTaskAccessState(input: {
+  ready: boolean;
+  messageCode: string | null;
+  message: string | null;
+  secondaryAuthBlocked: boolean;
+  pageUrl: string;
+}) {
+  return interpretCyberCampusTaskAccessState({
+    ready: input.ready,
+    messageCode: input.messageCode,
+    message: input.message,
+    secondaryAuthBlocked: input.secondaryAuthBlocked,
+    pageUrl: input.pageUrl,
+  });
 }
 
 async function resolveApprovalContext(
@@ -524,16 +545,18 @@ async function resolveApprovalContext(
   for (const task of tasks) {
     const context = await enterTaskContext(page, task);
     const check = await checkSecondaryAuth(page);
-    if (check.ready) {
+    const accessState = getApprovalTaskAccessState({
+      ready: check.ready,
+      messageCode: check.messageCode,
+      message: check.message,
+      secondaryAuthBlocked: context.secondaryAuthBlocked,
+      pageUrl: context.pageUrl,
+    });
+    if (accessState === "READY") {
       continue;
     }
 
-    if (isExpectedApprovalRequirement({
-      checkMessageCode: check.messageCode,
-      checkMessage: check.message,
-      secondaryAuthBlocked: context.secondaryAuthBlocked,
-      pageUrl: context.pageUrl,
-    })) {
+    if (accessState === "SECONDARY_AUTH_REQUIRED") {
       return {
         kind: "APPROVAL_REQUIRED",
         taskCount: tasks.length,
@@ -561,21 +584,136 @@ async function waitForConfirmedTaskAccess(page: Page, context: ApprovalTaskConte
 
     const refreshedContext = await enterTaskContext(page, context.task);
     const check = await checkSecondaryAuth(page);
-    if (check.ready) {
+    const accessState = getApprovalTaskAccessState({
+      ready: check.ready,
+      messageCode: check.messageCode,
+      message: check.message,
+      secondaryAuthBlocked: refreshedContext.secondaryAuthBlocked,
+      pageUrl: refreshedContext.pageUrl,
+    });
+    if (accessState === "READY") {
       return { verified: true as const };
     }
 
-    if (!isExpectedApprovalRequirement({
-      checkMessageCode: check.messageCode,
-      checkMessage: check.message,
-      secondaryAuthBlocked: refreshedContext.secondaryAuthBlocked,
-      pageUrl: refreshedContext.pageUrl,
-    })) {
+    if (accessState === "ERROR") {
       throw new Error(check.message ?? "CYBER_CAMPUS_TASK_ACCESS_CHECK_FAILED");
     }
   }
 
   return { verified: false as const };
+}
+
+function createApprovalLeaseManager(input: {
+  approvalId: string;
+  userId: string;
+  workerId: string;
+  initialRuntimeState: PortalApprovalRuntimeState;
+}) {
+  let currentRuntimeState = input.initialRuntimeState;
+  let stopped = false;
+  let timer: NodeJS.Timeout | null = null;
+  let updateChain: Promise<void> = Promise.resolve();
+
+  const pushHeartbeat = (runtimeState = currentRuntimeState) => {
+    currentRuntimeState = runtimeState;
+    if (stopped) return updateChain;
+    updateChain = updateChain
+      .catch(() => {})
+      .then(async () => {
+        if (stopped) return;
+        await updatePortalApprovalSessionStateForWorker({
+          approvalId: input.approvalId,
+          userId: input.userId,
+          runtimeState: currentRuntimeState,
+          workerLeaseId: input.workerId,
+          workerHeartbeatAt: new Date(),
+        });
+      });
+    return updateChain;
+  };
+
+  return {
+    setRuntimeState(runtimeState: PortalApprovalRuntimeState) {
+      currentRuntimeState = runtimeState;
+    },
+    async start() {
+      await pushHeartbeat(currentRuntimeState);
+      timer = setInterval(() => {
+        void pushHeartbeat();
+      }, CYBER_CAMPUS_APPROVAL_WORKER_HEARTBEAT_MS);
+    },
+    async sync(runtimeState?: PortalApprovalRuntimeState) {
+      await pushHeartbeat(runtimeState ?? currentRuntimeState);
+    },
+    async stop() {
+      if (stopped) {
+        await updateChain.catch(() => {});
+        return;
+      }
+      stopped = true;
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      await updateChain.catch(() => {});
+    },
+  };
+}
+
+async function claimBlockedAutoLearnContinuationJob(input: {
+  jobId: string;
+  userId: string;
+  workerId: string;
+}): Promise<ClaimedJob> {
+  const startedAt = new Date();
+  const claimed = await prisma.jobQueue.updateMany({
+    where: {
+      id: input.jobId,
+      userId: input.userId,
+      type: JobType.AUTOLEARN,
+      status: JobStatus.BLOCKED,
+    },
+    data: {
+      status: JobStatus.RUNNING,
+      startedAt,
+      attempts: { increment: 1 },
+      workerId: input.workerId,
+      runAfter: startedAt,
+      finishedAt: null,
+      lastError: null,
+      result: Prisma.DbNull,
+    },
+  });
+  if (claimed.count === 0) {
+    throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_CLAIM_FAILED:${input.jobId}`);
+  }
+
+  const job = await prisma.jobQueue.findUnique({
+    where: { id: input.jobId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      payload: true,
+      attempts: true,
+      workerId: true,
+    },
+  });
+  if (
+    !job
+    || job.type !== JobType.AUTOLEARN
+    || job.status !== JobStatus.RUNNING
+    || job.workerId !== input.workerId
+  ) {
+    throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_NOT_RUNNING:${input.jobId}`);
+  }
+
+  return {
+    id: job.id,
+    type: job.type,
+    payload: job.payload as ClaimedJob["payload"],
+    attempts: job.attempts,
+  };
 }
 
 async function completeApproval(input: {
@@ -595,10 +733,14 @@ async function completeApproval(input: {
     approvalId: input.approvalId,
     userId: input.userId,
     status: "COMPLETED",
+    runtimeState: "COMPLETED",
     cookieState,
     requestedAction: null,
     pendingCode: null,
     errorMessage: null,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
+    restartRequired: false,
     completedAt: new Date(),
     expiresAt: buildApprovalExpiry(new Date(), true),
   });
@@ -613,34 +755,112 @@ async function failApprovalAction(input: {
   await updatePortalApprovalSessionStateForWorker({
     approvalId: input.approvalId,
     userId: input.userId,
+    runtimeState: "FAILED",
     cookieState: input.page ? await exportCookieState(input.page) : undefined,
     requestedAction: null,
     pendingCode: null,
     errorMessage: input.message,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
     expiresAt: buildApprovalExpiry(new Date(), true),
   });
 }
 
-export async function processCyberCampusApproval(approvalId: string) {
-  const approval = await getPortalApprovalSessionState(approvalId);
-  if (!approval) {
+function isTerminalApprovalStatus(status: string): boolean {
+  return status === "COMPLETED" || status === "CANCELED" || status === "EXPIRED";
+}
+
+async function expireApprovalSession(input: {
+  approvalId: string;
+  userId: string;
+  jobId: string;
+}) {
+  await updatePortalApprovalSessionStateForWorker({
+    approvalId: input.approvalId,
+    userId: input.userId,
+    status: "EXPIRED",
+    runtimeState: "FAILED",
+    requestedAction: null,
+    pendingCode: null,
+    workerLeaseId: null,
+    workerHeartbeatAt: null,
+  });
+  await failBlockedAutoLearnJob(input.jobId, input.userId, "SECONDARY_AUTH_TIMEOUT");
+}
+
+async function waitForApprovalState(
+  approvalId: string,
+  input: {
+    workerId: string;
+    runtimeState: PortalApprovalRuntimeState;
+    userId: string;
+    waitForCode: boolean;
+  },
+) {
+  let heartbeatAt = 0;
+
+  while (true) {
+    const now = Date.now();
+    if (heartbeatAt === 0 || now - heartbeatAt >= CYBER_CAMPUS_APPROVAL_WORKER_HEARTBEAT_MS) {
+      await updatePortalApprovalSessionStateForWorker({
+        approvalId,
+        userId: input.userId,
+        runtimeState: input.runtimeState,
+        workerLeaseId: input.workerId,
+        workerHeartbeatAt: new Date(now),
+      });
+      heartbeatAt = now;
+    }
+
+    const approval = await getPortalApprovalSessionState(approvalId);
+    if (!approval) {
+      throw new Error(`Cyber Campus approval session not found: ${approvalId}`);
+    }
+    if (isTerminalApprovalStatus(approval.status)) {
+      return approval;
+    }
+    if (approval.expiresAt.getTime() <= Date.now()) {
+      await expireApprovalSession({
+        approvalId,
+        userId: approval.userId,
+        jobId: approval.jobId,
+      });
+      const expired = await getPortalApprovalSessionState(approvalId);
+      if (!expired) {
+        throw new Error(`Cyber Campus approval session not found: ${approvalId}`);
+      }
+      return expired;
+    }
+
+    if (approval.requestedAction === "START") {
+      return approval;
+    }
+    if (approval.requestedAction === "CONFIRM" && (!input.waitForCode || approval.pendingCode)) {
+      return approval;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, CYBER_CAMPUS_APPROVAL_WORKER_POLL_MS));
+  }
+}
+
+export async function processCyberCampusApproval(
+  approvalId: string,
+  workerId = `worker-${process.pid}`,
+) {
+  const initialApproval = await getPortalApprovalSessionState(approvalId);
+  if (!initialApproval) {
     throw new Error(`Cyber Campus approval session not found: ${approvalId}`);
   }
-  if (!approval.requestedAction) {
-    return { type: "CYBER_CAMPUS_APPROVAL", state: "NO_ACTION", approvalId };
-  }
-  if (approval.status === "COMPLETED" || approval.status === "CANCELED" || approval.status === "EXPIRED") {
+  let approval = initialApproval;
+  if (isTerminalApprovalStatus(approval.status)) {
     return { type: "CYBER_CAMPUS_APPROVAL", state: approval.status, approvalId };
   }
   if (approval.expiresAt.getTime() <= Date.now()) {
-    await updatePortalApprovalSessionStateForWorker({
+    await expireApprovalSession({
       approvalId,
       userId: approval.userId,
-      status: "EXPIRED",
-      requestedAction: null,
-      pendingCode: null,
+      jobId: approval.jobId,
     });
-    await failBlockedAutoLearnJob(approval.jobId, approval.userId, "SECONDARY_AUTH_TIMEOUT");
     return { type: "CYBER_CAMPUS_APPROVAL", state: "EXPIRED", approvalId };
   }
 
@@ -659,8 +879,16 @@ export async function processCyberCampusApproval(approvalId: string) {
   const context = await browser.newContext(createBrowserContextOptions());
   const page = await context.newPage();
   let continuation: CyberCampusApprovalAutoLearnContinuation | null = null;
+  const approvalLease = createApprovalLeaseManager({
+    approvalId,
+    userId: approval.userId,
+    workerId,
+    initialRuntimeState: "BOOTSTRAPPING",
+  });
 
   try {
+    await approvalLease.start();
+
     await ensureSession(page, approval.cookieState, {
       cu12Id: creds.cu12Id,
       cu12Password: creds.cu12Password,
@@ -678,28 +906,29 @@ export async function processCyberCampusApproval(approvalId: string) {
     });
 
     if (contextResult.kind !== "APPROVAL_REQUIRED") {
+      await approvalLease.stop();
       await completeApproval({
         approvalId,
         userId: approval.userId,
         page,
       });
       if (shouldResumeBlockedAutoLearnForApprovalContext(contextResult.kind)) {
-        await reactivateBlockedAutoLearnJob(approval.jobId, approval.userId);
+        continuation = {
+          browser,
+          context,
+          page,
+          job: await claimBlockedAutoLearnContinuationJob({
+            jobId: approval.jobId,
+            userId: approval.userId,
+            workerId,
+          }),
+        };
       } else {
         await succeedBlockedAutoLearnJob(
           approval.jobId,
           approval.userId,
           buildCyberCampusApprovalNoPendingAutoLearnResult(jobRequest),
         );
-      }
-      if (contextResult.kind === "NO_APPROVAL_REQUIRED") {
-        continuation = {
-          browser,
-          context,
-          page,
-          jobId: approval.jobId,
-          userId: approval.userId,
-        };
       }
       return {
         type: "CYBER_CAMPUS_APPROVAL",
@@ -709,153 +938,274 @@ export async function processCyberCampusApproval(approvalId: string) {
       };
     }
 
-    if (approval.requestedAction === "BOOTSTRAP") {
-      const methods = await loadSecondaryAuthMethods(page);
-      await updatePortalApprovalSessionStateForWorker({
-        approvalId,
-        userId: approval.userId,
-        status: "PENDING",
-        cookieState: await exportCookieState(page),
-        methods,
-        requestedAction: null,
-        pendingCode: null,
-        selectedWay: null,
-        selectedParam: null,
-        selectedTarget: null,
-        authSeq: null,
-        requestCode: null,
-        displayCode: null,
-        errorMessage: null,
-        expiresAt: buildApprovalExpiry(),
-        completedAt: null,
-        canceledAt: null,
-      });
-      return { type: "CYBER_CAMPUS_APPROVAL", state: "READY", approvalId };
-    }
+    approval = await getPortalApprovalSessionState(approvalId) ?? approval;
+    const methods = approval.methods.length > 0
+      ? approval.methods
+      : await loadSecondaryAuthMethods(page);
+    const runtimeState: PortalApprovalRuntimeState =
+      approval.requestedAction === "START"
+        ? "STARTING_METHOD"
+        : approval.requestedAction === "CONFIRM"
+          ? "CONFIRMING"
+          : "WAITING_METHOD";
+    approvalLease.setRuntimeState(runtimeState);
 
-    const method = approval.methods.find((item) => (
-      item.way === approval.selectedWay
-      && item.param === (approval.selectedParam ?? "")
-    ));
-    if (!method) {
-      throw new Error("사이버캠퍼스 인증 수단을 다시 선택해 주세요.");
-    }
-
-    if (approval.requestedAction === "START") {
-      const started = await startSecondaryAuth(page, method);
-      await updatePortalApprovalSessionStateForWorker({
-        approvalId,
-        userId: approval.userId,
-        status: "ACTIVE",
-        cookieState: await exportCookieState(page),
-        requestedAction: null,
-        pendingCode: null,
-        selectedWay: method.way,
-        selectedParam: method.param,
-        selectedTarget: method.target,
-        authSeq: started.authSeq,
-        requestCode: started.requestCode,
-        displayCode: started.displayCode,
-        errorMessage: null,
-        expiresAt: started.expiresAt ?? buildApprovalExpiry(new Date(), true),
-      });
-      return { type: "CYBER_CAMPUS_APPROVAL", state: "ACTIVE", approvalId };
-    }
-
-    if (method.requiresCode && !approval.pendingCode) {
-      throw new Error("인증 코드를 입력한 뒤 다시 시도해 주세요.");
-    }
-
-    let authSeq = approval.authSeq ?? "";
-    let requestCode = approval.requestCode;
-    let displayCode = approval.displayCode;
-
-    if (!authSeq) {
-      const started = await startSecondaryAuth(page, method);
-      authSeq = started.authSeq;
-      requestCode = started.requestCode;
-      displayCode = started.displayCode;
-    }
-
-    const confirmation = await confirmSecondaryAuth(page, {
-      authSeq,
-      method,
-      code: method.requiresCode ? approval.pendingCode : null,
-    });
-
-    if (!confirmation.completed) {
-      await updatePortalApprovalSessionStateForWorker({
-        approvalId,
-        userId: approval.userId,
-        status: "ACTIVE",
-        cookieState: await exportCookieState(page),
-        requestedAction: null,
-        pendingCode: null,
-        selectedWay: method.way,
-        selectedParam: method.param,
-        selectedTarget: method.target,
-        authSeq,
-        requestCode,
-        displayCode,
-        errorMessage: confirmation.pending ? null : confirmation.message,
-        expiresAt: buildApprovalExpiry(new Date(), true),
-      });
-      return {
-        type: "CYBER_CAMPUS_APPROVAL",
-        state: confirmation.pending ? "PENDING" : "ACTIVE",
-        approvalId,
-      };
-    }
-
-    const approvalContext = contextResult.context;
-    if (!approvalContext) {
-      throw new Error("CYBER_CAMPUS_APPROVAL_CONTEXT_MISSING");
-    }
-
-    const confirmedTaskAccess = await waitForConfirmedTaskAccess(page, approvalContext);
-    if (!confirmedTaskAccess.verified) {
-      await updatePortalApprovalSessionStateForWorker({
-        approvalId,
-        userId: approval.userId,
-        status: "ACTIVE",
-        cookieState: await exportCookieState(page),
-        requestedAction: null,
-        pendingCode: null,
-        selectedWay: method.way,
-        selectedParam: method.param,
-        selectedTarget: method.target,
-        authSeq,
-        requestCode,
-        displayCode,
-        errorMessage: null,
-        expiresAt: buildApprovalExpiry(new Date(), true),
-      });
-      return {
-        type: "CYBER_CAMPUS_APPROVAL",
-        state: "PENDING",
-        approvalId,
-      };
-    }
-
-    await completeApproval({
+    await updatePortalApprovalSessionStateForWorker({
       approvalId,
       userId: approval.userId,
-      page,
+      status: approval.authSeq ? "ACTIVE" : "PENDING",
+      runtimeState,
+      cookieState: await exportCookieState(page),
+      methods,
+      requestedAction: approval.requestedAction === "BOOTSTRAP" ? null : approval.requestedAction,
+      pendingCode: approval.pendingCode ?? null,
+      selectedWay: approval.selectedWay ?? null,
+      selectedParam: approval.selectedParam ?? null,
+      selectedTarget: approval.selectedTarget ?? null,
+      authSeq: approval.authSeq ?? null,
+      requestCode: approval.requestCode ?? null,
+      displayCode: approval.displayCode ?? null,
+      errorMessage: null,
+      workerLeaseId: workerId,
+      workerHeartbeatAt: new Date(),
+      restartRequired: false,
+      expiresAt: approval.authSeq ? buildApprovalExpiry(new Date(), true) : buildApprovalExpiry(),
+      completedAt: null,
+      canceledAt: null,
     });
-    await reactivateBlockedAutoLearnJob(approval.jobId, approval.userId);
-    continuation = {
-      browser,
-      context,
-      page,
-      jobId: approval.jobId,
-      userId: approval.userId,
-    };
-    return { type: "CYBER_CAMPUS_APPROVAL", state: "COMPLETED", approvalId, continuation };
+
+    while (true) {
+      approval = await getPortalApprovalSessionState(approvalId) ?? approval;
+      if (isTerminalApprovalStatus(approval.status)) {
+        return { type: "CYBER_CAMPUS_APPROVAL", state: approval.status, approvalId };
+      }
+      if (approval.expiresAt.getTime() <= Date.now()) {
+        await approvalLease.stop();
+        await expireApprovalSession({
+          approvalId,
+          userId: approval.userId,
+          jobId: approval.jobId,
+        });
+        return { type: "CYBER_CAMPUS_APPROVAL", state: "EXPIRED", approvalId };
+      }
+
+      const method = approval.methods.find((item) => (
+        item.way === approval.selectedWay
+        && item.param === (approval.selectedParam ?? "")
+      ));
+
+      if (approval.requestedAction === "START") {
+        if (!method) {
+          throw new Error("?ъ씠踰꾩틺?쇱뒪 ?몄쬆 ?섎떒???ㅼ떆 ?좏깮??二쇱꽭??");
+        }
+
+        await approvalLease.sync("STARTING_METHOD");
+        const started = await startSecondaryAuth(page, method);
+        approvalLease.setRuntimeState("WAITING_CODE");
+        await updatePortalApprovalSessionStateForWorker({
+          approvalId,
+          userId: approval.userId,
+          status: "ACTIVE",
+          runtimeState: "WAITING_CODE",
+          cookieState: await exportCookieState(page),
+          requestedAction: null,
+          pendingCode: null,
+          selectedWay: method.way,
+          selectedParam: method.param,
+          selectedTarget: method.target,
+          authSeq: started.authSeq,
+          requestCode: started.requestCode,
+          displayCode: started.displayCode,
+          errorMessage: null,
+          workerLeaseId: workerId,
+          workerHeartbeatAt: new Date(),
+          restartRequired: false,
+          expiresAt: started.expiresAt ?? buildApprovalExpiry(new Date(), true),
+        });
+        continue;
+      }
+
+      if (approval.requestedAction === "CONFIRM") {
+        if (!method) {
+          throw new Error("?ъ씠踰꾩틺?쇱뒪 ?몄쬆 ?섎떒???ㅼ떆 ?좏깮??二쇱꽭??");
+        }
+        if (method.requiresCode && !approval.pendingCode) {
+          approvalLease.setRuntimeState("WAITING_CODE");
+          await updatePortalApprovalSessionStateForWorker({
+            approvalId,
+            userId: approval.userId,
+            status: "ACTIVE",
+            runtimeState: "WAITING_CODE",
+            cookieState: await exportCookieState(page),
+            requestedAction: null,
+            pendingCode: null,
+            selectedWay: method.way,
+            selectedParam: method.param,
+            selectedTarget: method.target,
+            authSeq: approval.authSeq ?? null,
+            requestCode: approval.requestCode ?? null,
+            displayCode: approval.displayCode ?? null,
+            errorMessage: "?몄쬆 肄붾뱶瑜??낅젰?????ㅼ떆 ?쒕룄??二쇱꽭??",
+            workerLeaseId: workerId,
+            workerHeartbeatAt: new Date(),
+            restartRequired: false,
+            expiresAt: buildApprovalExpiry(new Date(), true),
+          });
+          continue;
+        }
+
+        let authSeq = approval.authSeq ?? "";
+        let requestCode = approval.requestCode;
+        let displayCode = approval.displayCode;
+
+        if (!authSeq) {
+          const started = await startSecondaryAuth(page, method);
+          authSeq = started.authSeq;
+          requestCode = started.requestCode;
+          displayCode = started.displayCode;
+        }
+
+        await approvalLease.sync("CONFIRMING");
+        const confirmation = await confirmSecondaryAuth(page, {
+          authSeq,
+          method,
+          code: method.requiresCode ? approval.pendingCode : null,
+        });
+
+        if (!confirmation.completed) {
+          approvalLease.setRuntimeState("WAITING_CODE");
+          await updatePortalApprovalSessionStateForWorker({
+            approvalId,
+            userId: approval.userId,
+            status: "ACTIVE",
+            runtimeState: "WAITING_CODE",
+            cookieState: await exportCookieState(page),
+            requestedAction: null,
+            pendingCode: null,
+            selectedWay: method.way,
+            selectedParam: method.param,
+            selectedTarget: method.target,
+            authSeq,
+            requestCode,
+            displayCode,
+            errorMessage: confirmation.pending ? null : confirmation.message,
+            workerLeaseId: workerId,
+            workerHeartbeatAt: new Date(),
+            restartRequired: false,
+            expiresAt: buildApprovalExpiry(new Date(), true),
+          });
+          continue;
+        }
+
+        const approvalContext = contextResult.context;
+        if (!approvalContext) {
+          throw new Error("CYBER_CAMPUS_APPROVAL_CONTEXT_MISSING");
+        }
+
+        approvalLease.setRuntimeState("VERIFIED");
+        await updatePortalApprovalSessionStateForWorker({
+          approvalId,
+          userId: approval.userId,
+          status: "ACTIVE",
+          runtimeState: "VERIFIED",
+          cookieState: await exportCookieState(page),
+          requestedAction: null,
+          pendingCode: null,
+          selectedWay: method.way,
+          selectedParam: method.param,
+          selectedTarget: method.target,
+          authSeq,
+          requestCode,
+          displayCode,
+          errorMessage: null,
+          workerLeaseId: workerId,
+          workerHeartbeatAt: new Date(),
+          restartRequired: false,
+          expiresAt: buildApprovalExpiry(new Date(), true),
+        });
+
+        const confirmedTaskAccess = await waitForConfirmedTaskAccess(page, approvalContext);
+        if (!confirmedTaskAccess.verified) {
+          approvalLease.setRuntimeState("WAITING_CODE");
+          await updatePortalApprovalSessionStateForWorker({
+            approvalId,
+            userId: approval.userId,
+            status: "ACTIVE",
+            runtimeState: "WAITING_CODE",
+            cookieState: await exportCookieState(page),
+            requestedAction: null,
+            pendingCode: null,
+            selectedWay: method.way,
+            selectedParam: method.param,
+            selectedTarget: method.target,
+            authSeq,
+            requestCode,
+            displayCode,
+            errorMessage: null,
+            workerLeaseId: workerId,
+            workerHeartbeatAt: new Date(),
+            restartRequired: false,
+            expiresAt: buildApprovalExpiry(new Date(), true),
+          });
+          continue;
+        }
+
+        approvalLease.setRuntimeState("RESUMING_AUTOLEARN");
+        await updatePortalApprovalSessionStateForWorker({
+          approvalId,
+          userId: approval.userId,
+          status: "ACTIVE",
+          runtimeState: "RESUMING_AUTOLEARN",
+          cookieState: await exportCookieState(page),
+          requestedAction: null,
+          pendingCode: null,
+          selectedWay: method.way,
+          selectedParam: method.param,
+          selectedTarget: method.target,
+          authSeq,
+          requestCode,
+          displayCode,
+          errorMessage: null,
+          workerLeaseId: workerId,
+          workerHeartbeatAt: new Date(),
+          restartRequired: false,
+          expiresAt: buildApprovalExpiry(new Date(), true),
+        });
+
+        await approvalLease.stop();
+        await completeApproval({
+          approvalId,
+          userId: approval.userId,
+          page,
+        });
+        continuation = {
+          browser,
+          context,
+          page,
+          job: await claimBlockedAutoLearnContinuationJob({
+            jobId: approval.jobId,
+            userId: approval.userId,
+            workerId,
+          }),
+        };
+        return { type: "CYBER_CAMPUS_APPROVAL", state: "COMPLETED", approvalId, continuation };
+      }
+
+      approvalLease.setRuntimeState(approval.authSeq ? "WAITING_CODE" : "WAITING_METHOD");
+      approval = await waitForApprovalState(approvalId, {
+        workerId,
+        runtimeState: approval.authSeq ? "WAITING_CODE" : "WAITING_METHOD",
+        userId: approval.userId,
+        waitForCode: Boolean(method?.requiresCode),
+      });
+    }
+
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isReauthRequiredMessage(message)) {
       await markAccountNeedsReauth(approval.userId, message);
     }
+    await approvalLease.stop();
     await failApprovalAction({
       approvalId,
       userId: approval.userId,
@@ -872,6 +1222,7 @@ export async function processCyberCampusApproval(approvalId: string) {
       message,
     };
   } finally {
+    await approvalLease.stop();
     if (!continuation) {
       await context.close();
       await browser.close();

@@ -352,6 +352,14 @@ function createCyberCampusDialogSignals(): CyberCampusDialogSignals {
   };
 }
 
+function mergeCyberCampusDialogSignals(
+  target: CyberCampusDialogSignals,
+  source: CyberCampusDialogSignals,
+) {
+  target.secondaryAuthBlocked ||= source.secondaryAuthBlocked;
+  target.dialogMessages.push(...source.dialogMessages);
+}
+
 function attachCyberCampusDialogTracking(page: Page, signals: CyberCampusDialogSignals): () => void {
   const onDialog = async (dialog: Dialog) => {
     const message = dialog.message();
@@ -436,16 +444,21 @@ async function extractCyberCampusLaunchParams(
   return launchParams;
 }
 
-async function submitCyberCampusTaskLaunchForm(page: Page): Promise<Page | null> {
-  return resolveCyberCampusPlayerPageAfterAction(page, async () => {
-    await page.evaluate(() => {
-      const form = document.forms.namedItem("myform") as HTMLFormElement | null;
-      if (!form) {
-        throw new Error("CYBER_CAMPUS_TASK_FORM_MISSING");
-      }
-      form.submit();
-    });
-  });
+async function submitCyberCampusTaskLaunchForm(
+  page: Page,
+): Promise<{ playerPage: Page | null; signals: CyberCampusDialogSignals }> {
+  const { result: playerPage, signals } = await withCyberCampusDialogTracking(page, async () =>
+    resolveCyberCampusPlayerPageAfterAction(page, async () => {
+      await page.evaluate(() => {
+        const form = document.forms.namedItem("myform") as HTMLFormElement | null;
+        if (!form) {
+          throw new Error("CYBER_CAMPUS_TASK_FORM_MISSING");
+        }
+        form.submit();
+      });
+    }),
+  );
+  return { playerPage, signals };
 }
 
 async function finalizeCyberCampusPlayback(
@@ -511,41 +524,69 @@ async function enterCyberCampusTaskContextLegacy(
   page: Page,
   input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
 ): Promise<CyberCampusTaskEntryContext> {
-  const secondaryAuthBlocked = await withSecondaryAuthDialogTracking(page, async () => {
-    await page.goto(
-      `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${input.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(input.externalLectureId)}`,
-      { waitUntil: "domcontentloaded" },
-    );
-    await page.waitForTimeout(2000);
-    await page.evaluate(
-      ({ weekNo, lessonSeq }) => {
-        const form = document.forms.namedItem("myform") as HTMLFormElement | null;
-        if (!form) return;
-        const lectureWeeks = form.querySelector<HTMLInputElement>('input[name="lecture_weeks"]');
-        const weekNoInput = form.querySelector<HTMLInputElement>('input[name="WEEK_NO"]');
-        const itemIdInput = form.querySelector<HTMLInputElement>('input[name="item_id"]');
-        if (lectureWeeks) lectureWeeks.value = String(lessonSeq);
-        if (weekNoInput) weekNoInput.value = String(weekNo);
-        if (itemIdInput) itemIdInput.value = "";
-        form.submit();
-      },
-      { weekNo: input.weekNo, lessonSeq: input.courseContentsSeq },
-    );
-    await page.waitForTimeout(3000);
-  });
+  const { result: initialPlayerPage, signals } = await withCyberCampusDialogTracking(page, async () =>
+    resolveCyberCampusPlayerPageAfterAction(page, async () => {
+      await page.goto(
+        `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${input.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(input.externalLectureId)}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await page.waitForTimeout(2000);
+      await page.evaluate(
+        ({ weekNo, lessonSeq }) => {
+          const form = document.forms.namedItem("myform") as HTMLFormElement | null;
+          if (!form) return;
+          const lectureWeeks = form.querySelector<HTMLInputElement>('input[name="lecture_weeks"]');
+          const weekNoInput = form.querySelector<HTMLInputElement>('input[name="WEEK_NO"]');
+          const itemIdInput = form.querySelector<HTMLInputElement>('input[name="item_id"]');
+          if (lectureWeeks) lectureWeeks.value = String(lessonSeq);
+          if (weekNoInput) weekNoInput.value = String(weekNo);
+          if (itemIdInput) itemIdInput.value = "";
+          form.submit();
+        },
+        { weekNo: input.weekNo, lessonSeq: input.courseContentsSeq },
+      );
+      await page.waitForTimeout(3000);
+    }),
+  );
+
+  const secondaryAuth = await checkCyberCampusSecondaryAuth(page);
+  let playerPage = initialPlayerPage;
+  let pageUrl = playerPage?.url() ?? page.url();
+
+  if (!playerPage && secondaryAuth.ready) {
+    const fallback = await submitCyberCampusTaskLaunchForm(page).catch(() => null);
+    if (fallback) {
+      mergeCyberCampusDialogSignals(signals, fallback.signals);
+      playerPage = fallback.playerPage;
+    }
+    pageUrl = playerPage?.url() ?? page.url();
+  }
 
   return {
-    secondaryAuthBlocked,
-    secondaryAuthReady: false,
-    secondaryAuthMessage: null,
-    secondaryAuthMessageCode: null,
-    playerPage: null,
-    pageUrl: page.url(),
-    dialogMessages: [],
+    secondaryAuthBlocked: signals.secondaryAuthBlocked,
+    secondaryAuthReady: secondaryAuth.ready,
+    secondaryAuthMessage: secondaryAuth.message,
+    secondaryAuthMessageCode: secondaryAuth.messageCode,
+    playerPage,
+    pageUrl,
+    dialogMessages: signals.dialogMessages,
   };
 }
 
-async function enterCyberCampusTaskContext(
+export function shouldUseLegacyCyberCampusLaunchFallback(
+  input: Pick<LearningTask, "weekNo">,
+  error: unknown,
+): boolean {
+  if (input.weekNo <= 0) {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("CYBER_CAMPUS_TASK_ROW_NOT_FOUND")
+    || message.includes("CYBER_CAMPUS_TASK_LAUNCH_PARAMS_MISSING");
+}
+
+async function enterCyberCampusTaskContextOnlineList(
   page: Page,
   input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
 ): Promise<CyberCampusTaskEntryContext> {
@@ -580,7 +621,9 @@ async function enterCyberCampusTaskContext(
   let pageUrl = playerPage?.url() ?? page.url();
 
   if (!playerPage && secondaryAuth.ready) {
-    playerPage = await submitCyberCampusTaskLaunchForm(page);
+    const fallback = await submitCyberCampusTaskLaunchForm(page);
+    mergeCyberCampusDialogSignals(signals, fallback.signals);
+    playerPage = fallback.playerPage;
     pageUrl = playerPage?.url() ?? page.url();
   }
 
@@ -593,6 +636,24 @@ async function enterCyberCampusTaskContext(
     pageUrl,
     dialogMessages: signals.dialogMessages,
   };
+}
+
+async function enterCyberCampusTaskContext(
+  page: Page,
+  input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
+): Promise<CyberCampusTaskEntryContext> {
+  if (input.weekNo <= 0) {
+    return enterCyberCampusTaskContextLegacy(page, input);
+  }
+
+  try {
+    return await enterCyberCampusTaskContextOnlineList(page, input);
+  } catch (error) {
+    if (!shouldUseLegacyCyberCampusLaunchFallback(input, error)) {
+      throw error;
+    }
+    return enterCyberCampusTaskContextLegacy(page, input);
+  }
 }
 
 async function checkCyberCampusSecondaryAuth(page: Page) {
