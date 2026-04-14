@@ -391,6 +391,23 @@ function resolveHandoffTrigger(jobTypes: JobType[]): "autolearn" | "sync" | null
   return null;
 }
 
+async function dispatchPendingHandoff(handoffTrigger: "autolearn" | "sync" | null) {
+  if (!handoffTrigger) return;
+
+  try {
+    const pendingTypes = handoffTrigger === "autolearn"
+      ? [JobType.AUTOLEARN]
+      : [JobType.SYNC, JobType.NOTICE_SCAN];
+    const pending = await hasPendingJobs(pendingTypes);
+    if (pending) {
+      const dispatch = await requestWorkerDispatch(handoffTrigger);
+      console.log(`[WORKER] handoff trigger=${handoffTrigger} state=${dispatch.state}`);
+    }
+  } catch (error) {
+    console.warn(`[WORKER] handoff dispatch failed: ${errMessage(error)}`);
+  }
+}
+
 async function reportJobProgress(jobId: string, workerId: string, progress: AutoLearnProgress) {
   try {
     await progressJob(jobId, workerId, {
@@ -1543,6 +1560,7 @@ async function main() {
   const workerId = env.WORKER_ID ?? `worker-${process.pid}`;
   const approvalId = args.get("approvalId");
   if (approvalId) {
+    let shouldCheckHandoff = false;
     const result = await processCyberCampusApproval(approvalId, workerId);
     const continuation =
       "continuation" in result && result.continuation
@@ -1561,6 +1579,7 @@ async function main() {
         continuationConsumed = true;
         try {
           await processClaimedAutoLearnJob(claimedJob, workerId, continuation);
+          shouldCheckHandoff = true;
         } catch (jobError) {
           const message = errMessage(jobError);
           const terminalStatus = await getJobStatus(claimedJob.id);
@@ -1596,6 +1615,10 @@ async function main() {
         await continuation.context.close();
         await continuation.browser.close();
       }
+    }
+
+    if (shouldCheckHandoff) {
+      await dispatchPendingHandoff("autolearn");
     }
 
     const serializableResult = continuation
@@ -1737,19 +1760,8 @@ async function main() {
   } finally {
     heartbeat.stop();
 
-    if (once && shouldCheckHandoff && handoffTrigger) {
-      try {
-        const pendingTypes = handoffTrigger === "autolearn"
-          ? [JobType.AUTOLEARN]
-          : [JobType.SYNC, JobType.NOTICE_SCAN];
-        const pending = await hasPendingJobs(pendingTypes);
-        if (pending) {
-          const dispatch = await requestWorkerDispatch(handoffTrigger);
-          console.log(`[WORKER] handoff trigger=${handoffTrigger} state=${dispatch.state}`);
-        }
-      } catch (error) {
-        console.warn(`[WORKER] handoff dispatch failed: ${errMessage(error)}`);
-      }
+    if (once && shouldCheckHandoff) {
+      await dispatchPendingHandoff(handoffTrigger);
     }
   }
 }
