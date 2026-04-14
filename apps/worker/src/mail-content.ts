@@ -684,15 +684,22 @@ export function buildAutoLearnResultMail(input: {
   continuationQueued?: boolean;
   chainLimitReached?: boolean;
   chainSegment?: number;
+  limitReached?: boolean;
+  remainingTaskCount?: number;
   estimatedTotalSeconds: number;
   noOpReason?: string | null;
   planned?: AutoLearnPlannedTask[];
+  remainingPlanned?: AutoLearnPlannedTask[];
 }): MailDocument {
   const noOpReasonLabel = formatAutoLearnNoOpReason(input.noOpReason);
   const notes: string[] = [];
 
   if (typeof input.chainSegment === "number" && Number.isFinite(input.chainSegment) && input.chainSegment > 1) {
     notes.push(`연속 실행 세그먼트: ${input.chainSegment}`);
+  }
+  if (input.limitReached) {
+    notes.push("1회 요청 최대 수강 한도에 도달해 이번 자동 수강 요청은 여기까지 완료했습니다.");
+    notes.push("남은 강의가 있어 자동 수강을 다시 요청해야 합니다.");
   }
   if (input.truncated) {
     notes.push("이번 실행은 청크 제한으로 분할 처리되었습니다.");
@@ -702,6 +709,9 @@ export function buildAutoLearnResultMail(input: {
   }
   if (input.chainLimitReached) {
     notes.push("연속 실행 한도에 도달해 추가 예약은 중단되었습니다.");
+  }
+  if (typeof input.remainingTaskCount === "number" && input.remainingTaskCount > 0) {
+    notes.push(`남은 차시 ${input.remainingTaskCount}개가 있습니다.`);
   }
   if (noOpReasonLabel) {
     notes.push(`실행 없음 사유: ${noOpReasonLabel}`);
@@ -755,6 +765,34 @@ export function buildAutoLearnResultMail(input: {
         {
           href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.COURSES),
           label: "강의 현황 보기",
+        },
+      ),
+    );
+  }
+
+  const remainingItems = (input.remainingPlanned ?? [])
+    .map((row) => {
+      const remainingSeconds = Math.max(0, row.remainingSeconds);
+      const taskMeta = formatSummaryMeta([
+        row.taskTitle,
+        `잔여 학습 시간 ${formatDuration(remainingSeconds)}`,
+      ]);
+      return renderListItem([
+        { text: `<strong>${escapeHtml(row.courseTitle)}</strong> ${row.weekNo}주차 ${row.lessonNo}차시` },
+        { text: escapeHtml(taskMeta), muted: true },
+        { text: escapeHtml(`학습 가능 ${formatKoDateTime(row.availableFrom)} ~ 마감 ${formatKoDateTime(row.dueAt)}`), muted: true },
+      ]);
+    })
+    .filter((item) => item.length > 0);
+
+  if (remainingItems.length > 0) {
+    sections.push(
+      renderMailSection(
+        "남은 차시",
+        renderMailList(remainingItems, 8),
+        {
+          href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.COURSES),
+          label: "남은 강의 보기",
         },
       ),
     );

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   describeAutoNoOpForDashboard,
+  formatAutoLimitReachedMessage,
   formatAutoNoOpReason,
   parseAutoLearnNoOpReason,
 } from "../src/lib/autolearn-noop";
@@ -55,4 +56,9 @@ test("describeAutoNoOpForDashboard explains future-only Cyber Campus lectures", 
 
 test("formatAutoNoOpReason keeps generic CU12 messaging", () => {
   assert.equal(formatAutoNoOpReason("NO_PENDING_SUPPORTED_TASKS"), "자동 처리 가능한 강의/자료/퀴즈가 없습니다.");
+});
+
+test("formatAutoLimitReachedMessage explains that a new request is required", () => {
+  assert.match(formatAutoLimitReachedMessage(2), /2/);
+  assert.match(formatAutoLimitReachedMessage(2), /다시 요청/);
 });

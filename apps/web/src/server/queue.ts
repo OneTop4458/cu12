@@ -74,6 +74,8 @@ interface AutoLearnResultLike {
   continuationQueued?: unknown;
   chainLimitReached?: unknown;
   chainSegment?: unknown;
+  limitReached?: unknown;
+  remainingTaskCount?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -93,6 +95,18 @@ function normalizeAutoLearnMode(value: unknown): QueuePayload["autoLearnMode"] |
     return value as QueuePayload["autoLearnMode"];
   }
   return null;
+}
+
+export function shouldQueueAutoLearnContinuation(input: {
+  provider?: QueuePayload["provider"];
+  truncated: boolean;
+  chainLimitReached: boolean;
+}): boolean {
+  if (input.provider === "CYBER_CAMPUS") {
+    return false;
+  }
+
+  return input.truncated && !input.chainLimitReached;
 }
 
 export function shouldRetryFailedJob(type: JobType, attempts: number, errorMessage: string): boolean {
@@ -672,13 +686,21 @@ export async function markJobSucceeded(jobId: string, workerId: string, result?:
       const totalElapsed = previousElapsed + elapsedSeconds;
       const truncated = resultPatch.truncated === true;
       const chainLimitReached = truncated && totalElapsed >= chainMaxSeconds;
+      const shouldQueueContinuation = shouldQueueAutoLearnContinuation({
+        provider: payload?.provider,
+        truncated,
+        chainLimitReached,
+      });
 
       resultPatch.elapsedSeconds = elapsedSeconds;
       resultPatch.chainSegment = chainSegment;
       resultPatch.chainLimitReached = chainLimitReached;
       resultPatch.continuationQueued = false;
+      if (!shouldQueueContinuation && payload?.provider === "CYBER_CAMPUS") {
+        resultPatch.limitReached = truncated;
+      }
 
-      if (truncated && !chainLimitReached && payload && typeof payload.userId === "string" && payload.userId.length > 0) {
+      if (shouldQueueContinuation && payload && typeof payload.userId === "string" && payload.userId.length > 0) {
         const mode = normalizeAutoLearnMode(payload.autoLearnMode)
           ?? normalizeAutoLearnMode(resultPatch.mode)
           ?? "ALL_COURSES";

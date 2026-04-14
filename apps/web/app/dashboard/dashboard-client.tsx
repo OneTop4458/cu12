@@ -19,6 +19,7 @@ import {
 } from "../../src/lib/cyber-campus-approval-ui";
 import {
   describeAutoNoOpForDashboard,
+  formatAutoLimitReachedMessage,
   parseAutoLearnNoOpReason,
   type AutoLearnNoOpReason,
 } from "../../src/lib/autolearn-noop";
@@ -361,9 +362,13 @@ interface AutoLearnResult {
   lectureSeqs: number[];
   plannedTaskCount: number;
   truncated: boolean;
+  continuationQueued?: boolean;
+  limitReached?: boolean;
+  remainingTaskCount?: number;
   estimatedTotalSeconds: number;
   noOpReason?: AutoLearnNoOpReason | null;
   planned?: AutoLearnPlannedTask[];
+  remainingPlanned?: AutoLearnPlannedTask[];
 }
 
 interface SyncProgress {
@@ -554,10 +559,16 @@ function parseAutoResult(value: unknown): AutoLearnResult | null {
     lectureSeqs: maybe.lectureSeqs.filter((item): item is number => typeof item === "number"),
     plannedTaskCount: maybe.plannedTaskCount,
     truncated: maybe.truncated,
+    continuationQueued: maybe.continuationQueued === true,
+    limitReached: maybe.limitReached === true,
+    remainingTaskCount: typeof maybe.remainingTaskCount === "number" ? maybe.remainingTaskCount : 0,
     estimatedTotalSeconds: maybe.estimatedTotalSeconds,
     noOpReason: parseAutoLearnNoOpReason(maybe.noOpReason),
     planned: Array.isArray(maybe.planned)
       ? maybe.planned.map(parseAutoLearnPlannedTask).filter((item): item is AutoLearnPlannedTask => item !== null)
+      : [],
+    remainingPlanned: Array.isArray(maybe.remainingPlanned)
+      ? maybe.remainingPlanned.map(parseAutoLearnPlannedTask).filter((item): item is AutoLearnPlannedTask => item !== null)
       : [],
   };
 }
@@ -1082,6 +1093,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const autoTruncated = autoProgress?.progress.truncated
     ?? autoResult?.truncated
     ?? false;
+  const autoContinuationQueued = autoResult?.continuationQueued ?? false;
+  const autoLimitReached = autoResult?.limitReached === true;
+  const autoRemainingTaskCount = autoResult?.remainingTaskCount ?? 0;
   const syncProgressRatio = syncProgress
     ? toRatio(syncProgress.progress.completedCourses, Math.max(1, syncProgress.progress.totalCourses))
     : 0;
@@ -2521,9 +2535,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                     </p>
                   </>
                 ) : null}
-                {autoTruncated ? (
+                {autoLimitReached ? (
                   <p className="muted" style={{ color: "var(--warn)" }}>
-                    일부 차시는 최대 처리 회차 제한으로 다음 실행에서 이어집니다.
+                    {formatAutoLimitReachedMessage(autoRemainingTaskCount)}
+                  </p>
+                ) : autoTruncated ? (
+                  <p className="muted" style={{ color: "var(--warn)" }}>
+                    {autoContinuationQueued
+                      ? "일부 차시는 최대 처리 회차 제한으로 다음 실행에서 이어집니다."
+                      : "일부 차시는 최대 처리 회차 제한으로 이번 요청에서 제외되었습니다."}
                   </p>
                 ) : null}
                 <div className="table-wrap mobile-card-table">

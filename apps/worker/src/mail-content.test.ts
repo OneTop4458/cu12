@@ -136,3 +136,40 @@ test("autolearn result mail omits empty notes and plan sections", () => {
   assert.doesNotMatch(mail.html, /계획 차시/);
   assert.match(mail.html, /실행 요약/);
 });
+
+test("autolearn result mail explains when a request stops at the cyber campus limit", () => {
+  const mail = buildAutoLearnResultMail({
+    dashboardBaseUrl: DASHBOARD_BASE_URL,
+    generatedAt: new Date("2026-04-07T09:00:00+09:00"),
+    mode: "ALL_COURSES",
+    watchedTaskCount: 2,
+    watchedSeconds: 3600,
+    plannedTaskCount: 4,
+    truncated: true,
+    limitReached: true,
+    remainingTaskCount: 2,
+    estimatedTotalSeconds: 3600,
+    planned: [],
+    remainingPlanned: [
+      {
+        lectureSeq: 123,
+        courseContentsSeq: 456,
+        courseTitle: "Cyber Campus",
+        weekNo: 6,
+        lessonNo: 3,
+        taskTitle: "Remaining lesson",
+        state: "PENDING",
+        activityType: "VOD",
+        requiredSeconds: 1800,
+        learnedSeconds: 0,
+        availableFrom: "2026-04-07T09:00:00+09:00",
+        dueAt: "2026-04-20T23:59:00+09:00",
+        remainingSeconds: 1800,
+      },
+    ],
+  });
+
+  assert.match(mail.html, /1회 요청 최대 수강 한도/);
+  assert.match(mail.html, /다시 요청/);
+  assert.match(mail.html, /남은 차시/);
+});

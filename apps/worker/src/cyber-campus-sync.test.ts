@@ -137,7 +137,7 @@ test("planCyberCampusAutoLearnTasks reports future-only lectures as no available
   assert.equal(plan.noOpReason, "NO_AVAILABLE_VOD_TASKS");
 });
 
-test("selectCyberCampusChunkTasks keeps an overflow lesson as a partial tail for continuation", () => {
+test("selectCyberCampusChunkTasks stops before an overflow lesson and leaves it for a later request", () => {
   const plan = planCyberCampusAutoLearnTasks(
     [
       createTask({
@@ -175,14 +175,15 @@ test("selectCyberCampusChunkTasks keeps an overflow lesson as a partial tail for
     AUTOLEARN_TIME_FACTOR: 1,
   });
 
-  assert.equal(chunk.planned.length, 2);
+  assert.equal(chunk.planned.length, 1);
   assert.equal(chunk.planned[0]?.courseContentsSeq, 11);
-  assert.equal(chunk.planned[1]?.courseContentsSeq, 12);
-  assert.equal(chunk.estimatedTotalSeconds, 3600);
+  assert.equal(chunk.estimatedTotalSeconds, 1200);
+  assert.equal(chunk.remainingTaskCount, 2);
+  assert.equal(chunk.remainingPlanned[0]?.courseContentsSeq, 12);
   assert.equal(chunk.truncated, true);
 });
 
-test("selectCyberCampusChunkTasks truncates a single long lesson to the chunk budget", () => {
+test("selectCyberCampusChunkTasks allows the first long lesson even when it exceeds the request limit", () => {
   const plan = planCyberCampusAutoLearnTasks(
     [
       createTask({
@@ -208,8 +209,9 @@ test("selectCyberCampusChunkTasks truncates a single long lesson to the chunk bu
 
   assert.equal(chunk.planned.length, 1);
   assert.equal(chunk.planned[0]?.courseContentsSeq, 21);
-  assert.equal(chunk.estimatedTotalSeconds, 3600);
-  assert.equal(chunk.truncated, true);
+  assert.equal(chunk.estimatedTotalSeconds, 10800);
+  assert.equal(chunk.remainingTaskCount, 0);
+  assert.equal(chunk.truncated, false);
 });
 
 test("extractCyberCampusLaunchParamsFromHtml reads the real viewGo argument order", () => {
