@@ -32,6 +32,7 @@ import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state
 import { resolveRestoredCyberCampusSessionCookieState } from "./cyber-campus-session-options";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import { getEnv } from "./env";
+import { upsertPortalSessionCookieState } from "./sync-store";
 
 export interface CyberCampusCredentials {
   cu12Id: string;
@@ -67,6 +68,10 @@ export type CyberCampusDialogKind =
   | "DUPLICATE_PLAYBACK"
   | "LEARNING_WINDOW_WARNING"
   | "OTHER";
+
+function buildCyberCampusSessionExpiry(now = new Date()): Date {
+  return new Date(now.getTime() + 12 * 60 * 60 * 1000);
+}
 
 function createBrowserContextOptions(): BrowserContextOptions {
   const env = getEnv();
@@ -221,6 +226,11 @@ async function applyCookieStateToContext(
       url: getEnv().CYBER_CAMPUS_BASE_URL,
     })),
   );
+}
+
+async function exportCyberCampusCookieState(page: Page): Promise<CyberCampusCookieStateEntry[]> {
+  const cookies = await page.context().cookies(getEnv().CYBER_CAMPUS_BASE_URL);
+  return cookies.map((cookie) => ({ name: cookie.name, value: cookie.value }));
 }
 
 async function ensureCyberCampusSession(
@@ -1124,6 +1134,17 @@ interface CyberCampusAutoLearnPlan {
   scopedAvailableVodCount: number;
 }
 
+type AutoLearnChunkEnv = Pick<
+  ReturnType<typeof getEnv>,
+  "AUTOLEARN_MAX_TASKS" | "AUTOLEARN_CHUNK_TARGET_SECONDS" | "AUTOLEARN_TIME_FACTOR"
+>;
+
+interface CyberCampusChunkSelection {
+  planned: AutoLearnPlannedTask[];
+  estimatedTotalSeconds: number;
+  truncated: boolean;
+}
+
 export function planCyberCampusAutoLearnTasks(
   tasks: LearningTask[],
   options: {
@@ -1160,6 +1181,50 @@ export function planCyberCampusAutoLearnTasks(
     noOpReason,
     scopedPendingVodCount: scopedPendingVods.length,
     scopedAvailableVodCount: scopedAvailableVods.length,
+  };
+}
+
+export function selectCyberCampusChunkTasks(
+  plannedAll: AutoLearnPlannedTask[],
+  env: AutoLearnChunkEnv = getEnv(),
+): CyberCampusChunkSelection {
+  const maxTasks = Math.max(1, env.AUTOLEARN_MAX_TASKS);
+  const targetSeconds = Math.max(300, env.AUTOLEARN_CHUNK_TARGET_SECONDS);
+  const planned: AutoLearnPlannedTask[] = [];
+  let estimatedTotalSeconds = 0;
+  let truncated = false;
+
+  for (const task of plannedAll) {
+    if (planned.length >= maxTasks) {
+      truncated = true;
+      break;
+    }
+
+    const taskSeconds = getCyberCampusPlaybackWaitSeconds(task.remainingSeconds, env.AUTOLEARN_TIME_FACTOR);
+    const remainingBudgetSeconds = Math.max(0, targetSeconds - estimatedTotalSeconds);
+    const wouldExceedTarget = estimatedTotalSeconds + taskSeconds > targetSeconds;
+
+    if (wouldExceedTarget) {
+      truncated = true;
+      if (remainingBudgetSeconds > 0) {
+        planned.push(task);
+        estimatedTotalSeconds = targetSeconds;
+      }
+      break;
+    }
+
+    planned.push(task);
+    estimatedTotalSeconds += taskSeconds;
+  }
+
+  if (!truncated) {
+    truncated = planned.length < plannedAll.length;
+  }
+
+  return {
+    planned,
+    estimatedTotalSeconds,
+    truncated,
   };
 }
 
@@ -1318,6 +1383,16 @@ export async function runCyberCampusAutoLearning(
     : await browser.newContext(createBrowserContextOptions());
   let page = sessionOptions?.existingPage ?? await context!.newPage();
   const shouldCancel = onCancelCheck ?? (async () => false);
+  const persistReusableSession = async () => {
+    const cookieState = await exportCyberCampusCookieState(page);
+    await upsertPortalSessionCookieState({
+      userId,
+      provider: "CYBER_CAMPUS",
+      cookieState,
+      expiresAt: buildCyberCampusSessionExpiry(),
+      status: "ACTIVE",
+    });
+  };
   try {
     await ensureCyberCampusSession(page, creds, sessionOptions);
     const planningState = await retryOnceAfterEmptyStoredSession({
@@ -1355,13 +1430,12 @@ export async function runCyberCampusAutoLearning(
       lectureSeq: options.lectureSeq,
       nowMs: Date.now(),
     });
-    const planned = plan.planned;
     const env = getEnv();
+    const chunk = selectCyberCampusChunkTasks(plan.planned, env);
+    const planned = chunk.planned;
+    const truncated = chunk.truncated;
     const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
-    const estimatedTotalSeconds = planned.reduce(
-      (sum, task) => sum + getCyberCampusPlaybackWaitSeconds(task.remainingSeconds, env.AUTOLEARN_TIME_FACTOR),
-      0,
-    );
+    const estimatedTotalSeconds = chunk.estimatedTotalSeconds;
 
     if (onProgress) {
       await onProgress({
@@ -1374,19 +1448,20 @@ export async function runCyberCampusAutoLearning(
         noOpReason: plan.noOpReason,
         plannedTaskCount: planned.length,
         planned,
-        truncated: false,
+        truncated,
         heartbeatAt: new Date().toISOString(),
       });
     }
 
     if (planned.length === 0) {
+      await persistReusableSession();
       return {
         mode: options.mode,
         lectureSeqs: [],
         processedTaskCount: 0,
         elapsedSeconds: 0,
         plannedTaskCount: 0,
-        truncated: false,
+        truncated,
         estimatedTotalSeconds,
         noOpReason: plan.noOpReason,
         planned,
@@ -1420,6 +1495,11 @@ export async function runCyberCampusAutoLearning(
         plannedTask.remainingSeconds,
         env.AUTOLEARN_TIME_FACTOR,
       );
+      const remainingChunkSeconds = Math.max(0, estimatedTotalSeconds - elapsedSecondsTotal);
+      const playbackBudgetSeconds = truncated
+        ? Math.min(playbackSeconds, remainingChunkSeconds)
+        : playbackSeconds;
+      const partialPlayback = playbackBudgetSeconds < playbackSeconds;
       const taskContext = await enterCyberCampusTaskContext(page, {
         courseContentsSeq: plannedTask.courseContentsSeq,
         weekNo: plannedTask.weekNo,
@@ -1463,14 +1543,14 @@ export async function runCyberCampusAutoLearning(
             weekNo: plannedTask.weekNo,
             lessonNo: plannedTask.lessonNo,
             activityType: plannedTask.activityType,
-            remainingSeconds: playbackSeconds,
+            remainingSeconds: playbackBudgetSeconds,
             elapsedSeconds: 0,
             courseTitle: plannedTask.courseTitle,
             taskTitle: plannedTask.taskTitle,
           },
           plannedTaskCount: planned.length,
           planned,
-          truncated: false,
+          truncated,
           heartbeatAt: new Date().toISOString(),
         });
       }
@@ -1481,7 +1561,7 @@ export async function runCyberCampusAutoLearning(
       );
       try {
         let lastReportedElapsedSeconds = 0;
-        await waitForCyberCampusPlayback(playerPage, playbackSeconds, shouldCancel, async ({ elapsedSeconds, remainingSeconds }) => {
+        await waitForCyberCampusPlayback(playerPage, playbackBudgetSeconds, shouldCancel, async ({ elapsedSeconds, remainingSeconds }) => {
           if (!onProgress) return;
           if (remainingSeconds > 0 && elapsedSeconds % heartbeatIntervalSeconds !== 0) return;
           if (elapsedSeconds <= lastReportedElapsedSeconds && remainingSeconds > 0) return;
@@ -1507,7 +1587,7 @@ export async function runCyberCampusAutoLearning(
             noOpReason: plan.noOpReason,
             plannedTaskCount: planned.length,
             planned,
-            truncated: false,
+            truncated,
             heartbeatAt: new Date().toISOString(),
           });
         });
@@ -1526,11 +1606,15 @@ export async function runCyberCampusAutoLearning(
 
       const remainingTasks = await fetchCyberCampusPendingVodTasks(page, userId);
       if (isCyberCampusTaskStillPending(remainingTasks, plannedTask)) {
+        if (partialPlayback) {
+          elapsedSecondsTotal += playbackBudgetSeconds;
+          break;
+        }
         throw new Error("CYBER_CAMPUS_LEARNING_NOT_CONFIRMED");
       }
 
       processedTaskCount += 1;
-      elapsedSecondsTotal += playbackSeconds;
+      elapsedSecondsTotal += playbackBudgetSeconds;
     }
 
     if (onProgress) {
@@ -1544,10 +1628,12 @@ export async function runCyberCampusAutoLearning(
         noOpReason: plan.noOpReason,
         plannedTaskCount: planned.length,
         planned,
-        truncated: false,
+        truncated,
         heartbeatAt: new Date().toISOString(),
       });
     }
+
+    await persistReusableSession();
 
     return {
       mode: options.mode,
@@ -1555,7 +1641,7 @@ export async function runCyberCampusAutoLearning(
       processedTaskCount,
       elapsedSeconds: elapsedSecondsTotal,
       plannedTaskCount: planned.length,
-      truncated: false,
+      truncated,
       estimatedTotalSeconds,
       planned,
     };
