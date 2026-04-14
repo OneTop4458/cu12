@@ -7,6 +7,7 @@ import {
   getCyberCampusPlaybackWaitSeconds,
   mergeCyberCampusTaskWithDetail,
   planCyberCampusAutoLearnTasks,
+  selectCyberCampusChunkTasks,
   shouldUseLegacyCyberCampusLaunchFallback,
 } from "./cyber-campus-sync";
 
@@ -134,6 +135,81 @@ test("planCyberCampusAutoLearnTasks reports future-only lectures as no available
   assert.equal(plan.scopedPendingVodCount, 1);
   assert.equal(plan.scopedAvailableVodCount, 0);
   assert.equal(plan.noOpReason, "NO_AVAILABLE_VOD_TASKS");
+});
+
+test("selectCyberCampusChunkTasks keeps an overflow lesson as a partial tail for continuation", () => {
+  const plan = planCyberCampusAutoLearnTasks(
+    [
+      createTask({
+        lectureSeq: 373653502,
+        courseContentsSeq: 11,
+        activityType: "VOD",
+        taskTitle: "lesson 11",
+        requiredSeconds: 1200,
+      }),
+      createTask({
+        lectureSeq: 373653502,
+        courseContentsSeq: 12,
+        activityType: "VOD",
+        taskTitle: "lesson 12",
+        requiredSeconds: 3000,
+      }),
+      createTask({
+        lectureSeq: 373653502,
+        courseContentsSeq: 13,
+        activityType: "VOD",
+        taskTitle: "lesson 13",
+        requiredSeconds: 1800,
+      }),
+    ],
+    {
+      mode: "SINGLE_ALL",
+      lectureSeq: 373653502,
+      nowMs: Date.parse("2026-04-10T11:00:00+09:00"),
+    },
+  );
+
+  const chunk = selectCyberCampusChunkTasks(plan.planned, {
+    AUTOLEARN_MAX_TASKS: 50,
+    AUTOLEARN_CHUNK_TARGET_SECONDS: 3600,
+    AUTOLEARN_TIME_FACTOR: 1,
+  });
+
+  assert.equal(chunk.planned.length, 2);
+  assert.equal(chunk.planned[0]?.courseContentsSeq, 11);
+  assert.equal(chunk.planned[1]?.courseContentsSeq, 12);
+  assert.equal(chunk.estimatedTotalSeconds, 3600);
+  assert.equal(chunk.truncated, true);
+});
+
+test("selectCyberCampusChunkTasks truncates a single long lesson to the chunk budget", () => {
+  const plan = planCyberCampusAutoLearnTasks(
+    [
+      createTask({
+        lectureSeq: 377289926,
+        courseContentsSeq: 21,
+        activityType: "VOD",
+        taskTitle: "long lesson",
+        requiredSeconds: 10800,
+      }),
+    ],
+    {
+      mode: "SINGLE_ALL",
+      lectureSeq: 377289926,
+      nowMs: Date.parse("2026-04-10T11:00:00+09:00"),
+    },
+  );
+
+  const chunk = selectCyberCampusChunkTasks(plan.planned, {
+    AUTOLEARN_MAX_TASKS: 50,
+    AUTOLEARN_CHUNK_TARGET_SECONDS: 3600,
+    AUTOLEARN_TIME_FACTOR: 1,
+  });
+
+  assert.equal(chunk.planned.length, 1);
+  assert.equal(chunk.planned[0]?.courseContentsSeq, 21);
+  assert.equal(chunk.estimatedTotalSeconds, 3600);
+  assert.equal(chunk.truncated, true);
 });
 
 test("extractCyberCampusLaunchParamsFromHtml reads the real viewGo argument order", () => {
