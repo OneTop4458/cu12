@@ -22,6 +22,14 @@ export interface AutoLearnCourseLike {
   pendingTaskTypeCounts: ActivityTypeCountsLike | null;
 }
 
+export function formatAutoLimitReachedMessage(remainingTaskCount?: number | null): string {
+  if (typeof remainingTaskCount === "number" && Number.isFinite(remainingTaskCount) && remainingTaskCount > 0) {
+    return `1회 요청 최대 수강 한도에 도달했습니다. 남은 차시 ${remainingTaskCount}개가 있어 자동 수강을 다시 요청해야 합니다.`;
+  }
+
+  return "1회 요청 최대 수강 한도에 도달했습니다. 남은 강의가 있어 자동 수강을 다시 요청해야 합니다.";
+}
+
 type PortalProvider = "CU12" | "CYBER_CAMPUS";
 type AutoLearnMode = "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
 

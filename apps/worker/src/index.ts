@@ -303,7 +303,11 @@ interface AutoLearnJobResultPayload {
   plannedTaskCount: number;
   noOpReason?: string | null;
   planned?: AutoLearnPlannedTask[];
+  remainingPlanned?: AutoLearnPlannedTask[];
   truncated: boolean;
+  continuationQueued?: boolean;
+  limitReached?: boolean;
+  remainingTaskCount?: number;
   estimatedTotalSeconds: number;
   chainSegment?: number;
 }
@@ -583,9 +587,12 @@ async function sendAutoLearnResultMail(
     continuationQueued?: boolean;
     chainLimitReached?: boolean;
     chainSegment?: number;
+    limitReached?: boolean;
+    remainingTaskCount?: number;
     estimatedTotalSeconds: number;
     noOpReason?: string | null;
     planned?: AutoLearnPlannedTask[];
+    remainingPlanned?: AutoLearnPlannedTask[];
   },
 ) {
   const pref = await getUserMailPreference(userId);
@@ -603,9 +610,12 @@ async function sendAutoLearnResultMail(
     continuationQueued: payload.continuationQueued,
     chainLimitReached: payload.chainLimitReached,
     chainSegment: payload.chainSegment,
+    limitReached: payload.limitReached,
+    remainingTaskCount: payload.remainingTaskCount,
     estimatedTotalSeconds: payload.estimatedTotalSeconds,
     noOpReason: payload.noOpReason,
     planned: payload.planned,
+    remainingPlanned: payload.remainingPlanned,
   });
 
   try {
@@ -1270,9 +1280,12 @@ async function processClaimedAutoLearnJob(
         continuationQueued,
         chainLimitReached: finished.autoLearn?.chainLimitReached === true,
         chainSegment: finished.autoLearn?.chainSegment ?? result.chainSegment,
+        limitReached: result.limitReached,
+        remainingTaskCount: result.remainingTaskCount,
         estimatedTotalSeconds: result.estimatedTotalSeconds,
         noOpReason: result.noOpReason,
         planned: result.planned,
+        remainingPlanned: result.remainingPlanned,
       });
     }
   }

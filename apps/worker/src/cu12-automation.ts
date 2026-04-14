@@ -120,8 +120,11 @@ export interface AutoLearnResult {
   continuationQueued?: boolean;
   chainLimitReached?: boolean;
   chainSegment?: number;
+  limitReached?: boolean;
+  remainingTaskCount?: number;
   noOpReason?: AutoLearnNoOpReason | null;
   planned?: AutoLearnPlannedTask[];
+  remainingPlanned?: AutoLearnPlannedTask[];
   estimatedTotalSeconds: number;
 }
 
