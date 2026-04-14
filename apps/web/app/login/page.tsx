@@ -18,15 +18,16 @@ const COPY = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: { reason?: string | string[] };
+  searchParams?: Promise<{ reason?: string | string[] }> | { reason?: string | string[] };
 }) {
-  const reasonRaw = searchParams?.reason;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const reasonRaw = resolvedSearchParams?.reason;
   const reason = Array.isArray(reasonRaw) ? reasonRaw[0] : reasonRaw;
   const sessionExpiredReason =
     reason === "session-timeout" || reason === "session-expired" ? reason : undefined;
 
   const session = await getServerActiveSession();
-  if (session) {
+  if (session && !sessionExpiredReason) {
     redirect("/dashboard");
   }
 
