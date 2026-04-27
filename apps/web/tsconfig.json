@@ -10,6 +10,9 @@
     "types": ["node"],
     "customConditions": ["node"],
     "paths": {
+      "@/components/*": ["./components/*"],
+      "@/hooks/*": ["./hooks/*"],
+      "@/lib/utils": ["./lib/utils"],
       "@/*": ["./src/*"],
       "@cu12/core/*": ["../../packages/core/src/*"]
     }

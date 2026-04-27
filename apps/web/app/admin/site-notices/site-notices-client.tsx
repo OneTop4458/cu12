@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { UserMenu } from "../../../components/layout/user-menu";
+import { AppMobileNav } from "../../../components/layout/app-mobile-nav";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { formatSiteNoticeDisplayTargetLabel } from "@/lib/site-notice-display";
@@ -381,6 +382,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
             </div>
           </div>
           <div className="topbar-actions">
+            <AppMobileNav mode="admin" />
             <button className="icon-btn" type="button" onClick={() => void loadNotices()} disabled={loading}>
               <RefreshCw size={16} />
             </button>

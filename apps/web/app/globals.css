@@ -1,41 +1,76 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css");
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --bg: #f4f7ff;
-  --bg-soft: #f0f4ff;
+  --bg: #f6f7f9;
+  --bg-soft: #eef1f4;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
-  --text: #0f172a;
-  --text-muted: #475569;
-  --primary: #1f4ea6;
+  --text: #18181b;
+  --text-muted: #5f6470;
+  --primary: oklch(0.48 0.19 258);
   --primary-ink: #f8fbff;
-  --primary-soft: #dbe8ff;
+  --primary-soft: #dbeafe;
   --danger: #b42318;
   --danger-soft: #fef2f2;
   --success: #047857;
   --success-soft: #d1fae5;
   --warn: #b54708;
   --warn-soft: #fff7ed;
-  --border: #d5deef;
+  --border: oklch(0.89 0.01 260);
   --session-banner-height: 44px;
   --session-notice-collapsed-height: 86px;
-  --radius-lg: 18px;
-  --radius-md: 12px;
-  --radius-sm: 10px;
-  --shadow-soft: 0 20px 40px rgb(15 23 42 / 10%);
-  --shadow-mid: 0 10px 22px rgb(15 23 42 / 14%);
+  --radius-lg: 8px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / 8%), 0 8px 24px rgb(15 23 42 / 6%);
+  --shadow-mid: 0 1px 2px rgb(15 23 42 / 10%), 0 12px 30px rgb(15 23 42 / 10%);
   --focus-ring: 0 0 0 4px rgb(59 130 246 / 18%);
-  --panel-gradient: linear-gradient(145deg, rgb(255 255 255 / 88%), rgb(250 252 255 / 88%));
+  --panel-gradient: none;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.5rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-  --bg: #0b1220;
-  --bg-soft: #101a2e;
-  --surface: #111c33;
-  --surface-elevated: #14203b;
-  --text: #e5ecff;
-  --text-muted: #b3c0df;
-  --primary: #7fb4ff;
+  --bg: #0b0f17;
+  --bg-soft: #111827;
+  --surface: #11151f;
+  --surface-elevated: #171c27;
+  --text: #f4f7fb;
+  --text-muted: #a3adbd;
+  --primary: oklch(0.68 0.14 250);
   --primary-ink: #020617;
   --primary-soft: #22395f;
   --danger: #fda4af;
@@ -44,11 +79,40 @@
   --success-soft: #1d3d32;
   --warn: #fbbf24;
   --warn-soft: #462a10;
-  --border: #263c60;
-  --shadow-soft: 0 18px 38px rgb(0 0 0 / 45%);
-  --shadow-mid: 0 10px 24px rgb(0 0 0 / 50%);
+  --border: oklch(1 0 0 / 12%);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 34%), 0 10px 30px rgb(0 0 0 / 24%);
+  --shadow-mid: 0 1px 2px rgb(0 0 0 / 38%), 0 14px 34px rgb(0 0 0 / 30%);
   --focus-ring: 0 0 0 4px rgb(125 211 252 / 25%);
   --panel-gradient: linear-gradient(145deg, rgb(18 34 65 / 72%), rgb(18 45 85 / 72%));
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 * {
@@ -62,11 +126,7 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(42rem 42rem at 8% -10%, rgb(129 161 255 / 18%), transparent 62%),
-    radial-gradient(34rem 34rem at 92% 4%, rgb(239 68 68 / 16%), transparent 58%),
-    radial-gradient(56rem 26rem at 55% 88%, rgb(96 165 250 / 12%), transparent 62%),
-    var(--bg);
+  background: var(--background);
   color: var(--text);
   font-family:
     Pretendard,
@@ -86,6 +146,7 @@ a {
 
 .app-root {
   min-height: 100dvh;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--bg) 88%, var(--surface)), var(--bg));
 }
 
 .site-footer {
@@ -419,18 +480,18 @@ main {
   background: var(--surface);
   background-image: var(--panel-gradient);
   box-shadow: var(--shadow-soft);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
 .card:hover,
 .section-card:hover {
-  transform: translateY(-1px);
+  transform: none;
   box-shadow: var(--shadow-mid);
 }
 
 .card::before,
 .section-card::before {
-  content: "";
+  content: none;
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -517,7 +578,7 @@ button {
   font: inherit;
   border: 0;
   border-radius: var(--radius-sm);
-  padding: 10px 14px;
+  padding: 9px 12px;
   cursor: pointer;
   transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
   background: var(--primary);
@@ -533,7 +594,7 @@ button {
 
 .btn:hover,
 button:hover {
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .btn:disabled,
@@ -625,10 +686,11 @@ textarea:focus {
 }
 
 .metric {
-  font-size: 2rem;
-  margin: 8px 0;
-  font-weight: 700;
+  font-size: 1.85rem;
+  margin: 6px 0;
+  font-weight: 750;
   color: var(--text);
+  letter-spacing: 0;
 }
 
 .metric-sub {
@@ -719,6 +781,13 @@ textarea:focus {
 
 .check-field input {
   width: auto;
+}
+
+.check-field [data-slot="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  padding: 0;
 }
 
 .login-options-row {
@@ -1091,8 +1160,13 @@ textarea:focus {
   align-items: stretch;
   justify-content: flex-start;
   margin: 0;
-  padding: 12px 24px 0;
+  padding: 10px 24px 0;
   pointer-events: auto;
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .topbar-main {
@@ -1105,10 +1179,10 @@ textarea:focus {
   border: 1px solid var(--border);
   width: min(1280px, 100%);
   margin: 0 auto;
-  background: var(--surface);
+  background: color-mix(in oklab, var(--surface) 94%, transparent);
   backdrop-filter: blur(8px);
-  box-shadow: 0 10px 18px rgb(15 23 42 / 10%);
-  padding: 12px 14px;
+  box-shadow: var(--shadow-soft);
+  padding: 10px 12px;
 }
 
 .topbar-brand {
@@ -1123,7 +1197,7 @@ textarea:focus {
 }
 
 .topbar-brand h1 {
-  font-size: 1.05rem;
+  font-size: 1rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1136,9 +1210,9 @@ textarea:focus {
 }
 
 .topbar-brand img {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   border: 1px solid var(--border);
 }
 
@@ -1152,6 +1226,36 @@ textarea:focus {
 
 .topbar-actions > * {
   flex-shrink: 0;
+}
+
+.mobile-nav-trigger {
+  display: none;
+}
+
+.app-mobile-sheet {
+  width: min(84vw, 360px);
+}
+
+.app-mobile-nav-list {
+  display: grid;
+  gap: 6px;
+  padding: 0 16px 16px;
+}
+
+.app-mobile-nav-link {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.app-mobile-nav-link:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .topbar-notice-stack {
@@ -1291,7 +1395,7 @@ textarea:focus {
 .theme-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden;
 }
@@ -1299,15 +1403,16 @@ textarea:focus {
 .theme-toggle-item {
   border-radius: 0;
   border: 0;
-  min-width: 72px;
-  height: 36px;
-  padding: 0 10px;
+  min-width: 68px;
+  height: 34px;
+  padding: 0 9px;
   color: var(--text);
   background: transparent;
+  box-shadow: none;
 }
 
 .theme-toggle-item.active {
-  background: var(--bg-soft);
+  background: var(--accent);
   color: var(--primary);
 }
 
@@ -1965,6 +2070,10 @@ code {
     justify-content: flex-start;
   }
 
+  .mobile-nav-trigger {
+    display: inline-flex;
+  }
+
   .admin-hero .header-actions {
     justify-content: flex-start;
   }
@@ -2074,6 +2183,21 @@ code {
     width: auto;
   }
 
+  .auth-toolbar .theme-toggle {
+    width: min(100%, 232px);
+  }
+
+  .theme-toggle .theme-toggle-item {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .check-field [data-slot="checkbox"] {
+    width: 1rem;
+    min-width: 1rem;
+  }
+
   .topbar-brand h1 {
     white-space: normal;
     line-height: 1.24;
@@ -2168,5 +2292,60 @@ code {
   .table-wrap.mobile-card-table td .action-row > *,
   .table-wrap.mobile-card-table td .button-row > * {
     width: 100%;
+  }
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
   }
 }

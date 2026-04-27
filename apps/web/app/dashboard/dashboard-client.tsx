@@ -26,6 +26,7 @@ import {
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
+import { AppMobileNav } from "../../components/layout/app-mobile-nav";
 
 interface DashboardClientProps {
   initialUser: {
@@ -2248,6 +2249,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             </div>
           </div>
           <div className="topbar-actions">
+            <AppMobileNav mode="dashboard" includeAdmin={initialUser.role === "ADMIN"} />
             <button
               className="icon-btn"
               onClick={() => void refreshAll(false)}

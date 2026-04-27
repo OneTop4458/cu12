@@ -10,6 +10,7 @@ import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-r
 import { NotificationCenter } from "../../components/notifications/notification-center";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { UserMenu } from "../../components/layout/user-menu";
+import { AppMobileNav } from "../../components/layout/app-mobile-nav";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
@@ -799,6 +800,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             </div>
           </div>
           <div className="topbar-actions">
+            <AppMobileNav mode="admin" />
             <button
               className="icon-btn"
               type="button"

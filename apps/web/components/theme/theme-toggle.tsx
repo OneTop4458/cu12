@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 function ThemeOptionButton({
   active,
@@ -20,17 +22,24 @@ function ThemeOptionButton({
   value: "light" | "dark" | "system";
 }) {
   return (
-    <button
-      type="button"
-      className={`theme-toggle-item ${active ? "active" : ""}`}
-      aria-pressed={active}
-      aria-label={ariaLabel ?? `${label} 테마 설정`}
-      onClick={onClick}
-      data-theme-option={value}
-    >
-      <Icon className="theme-toggle-icon" size={14} strokeWidth={2.2} />
-      <span>{label}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant={active ? "secondary" : "ghost"}
+          size="sm"
+          className={`theme-toggle-item ${active ? "active" : ""}`}
+          aria-pressed={active}
+          aria-label={ariaLabel ?? `${label} 테마 설정`}
+          onClick={onClick}
+          data-theme-option={value}
+        >
+          <Icon className="theme-toggle-icon" size={14} strokeWidth={2.2} />
+          <span>{label}</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{ariaLabel ?? `${label} 테마 설정`}</TooltipContent>
+    </Tooltip>
   );
 }
 

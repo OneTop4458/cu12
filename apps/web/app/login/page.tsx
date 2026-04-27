@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { getServerActiveSession } from "@/lib/session-user";
 import { LoginForm } from "./login-form";
 import { LoginNotices } from "./login-notices";
@@ -48,20 +49,24 @@ export default async function LoginPage({
           <p className="brand-mark">{COPY.brandMark}</p>
         </section>
 
-        <section className="card auth-card brand-login">
+        <Card className="auth-card brand-login">
           <div className="brand-ribbon" />
-          <h1>{COPY.loginTitle}</h1>
-          <p className="muted">{COPY.loginIntro}</p>
-          <Suspense fallback={null}>
-            <LoginNotices />
-          </Suspense>
-          <LoginForm sessionExpiredReason={sessionExpiredReason} />
-          <div className="auth-card-links" aria-label="로그인 도움말">
-            <Link href={"/faq" as Route} className="auth-card-link">
-              서비스 FAQ 보기
-            </Link>
-          </div>
-        </section>
+          <CardHeader className="auth-card-header">
+            <CardTitle>{COPY.loginTitle}</CardTitle>
+            <CardDescription>{COPY.loginIntro}</CardDescription>
+          </CardHeader>
+          <CardContent className="auth-card-content">
+            <Suspense fallback={null}>
+              <LoginNotices />
+            </Suspense>
+            <LoginForm sessionExpiredReason={sessionExpiredReason} />
+            <div className="auth-card-links" aria-label="로그인 도움말">
+              <Link href={"/faq" as Route} className="auth-card-link">
+                서비스 FAQ 보기
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
       </section>
     </main>
   );

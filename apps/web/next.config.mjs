@@ -29,9 +29,12 @@ const nextConfig = {
     root: turbopackRoot,
   },
   async headers() {
+    const scriptSrc = process.env.NODE_ENV === "production"
+      ? "script-src 'self' 'unsafe-inline'"
+      : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      scriptSrc,
       "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
       "font-src 'self' data: https://cdn.jsdelivr.net",
       "img-src 'self' data: blob:",
