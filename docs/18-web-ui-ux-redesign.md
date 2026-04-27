@@ -37,3 +37,19 @@
   - `pnpm run prisma:generate`
   - `pnpm run typecheck`
   - `pnpm run build:web`
+
+## 2026-04-27 shadcn/ui Follow-up
+
+- Added Tailwind CSS v4 and shadcn/ui source components to `apps/web`.
+- Kept the existing App Router routes, API contracts, authentication stages, and Prisma schema unchanged.
+- Added a shared mobile sheet navigation component for dashboard and admin surfaces.
+- Updated the shared theme toggle, notification center, user menu, and login shell to use shadcn primitives while preserving the existing data flow.
+- Shifted the visual system toward a compact operational dashboard style: neutral background, tighter radius, reduced decorative motion, clearer card/table density, and token-based light/dark colors.
+
+## Codex Skills Review
+
+- Installed official `openai/skills` curated skills: `figma`, `figma-use`, `figma-implement-design`, `figma-generate-design`, `figma-create-design-system-rules`, `screenshot`, `playwright`, `playwright-interactive`, `security-best-practices`, `security-threat-model`, `gh-address-comments`, `gh-fix-ci`, and `vercel-deploy`.
+- Did not install third-party skill repositories. Review status:
+  - `ComposioHQ/awesome-codex-skills`: active repository, no detected repository-level license metadata from GitHub API, hold for manual license review.
+  - `mxyhi/ok-skills`: active repository with Apache-2.0 metadata, still requires folder-level `SKILL.md` and dependency review before install.
+  - `proflead/codex-skills-library`: older activity than the other candidates and no detected repository-level license metadata, hold for manual review.

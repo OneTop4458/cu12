@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
+import { AppMobileNav } from "../../../components/layout/app-mobile-nav";
 
 type RoleType = "ADMIN" | "USER";
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
@@ -613,6 +614,7 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
             </div>
           </div>
           <div className="topbar-actions">
+            <AppMobileNav mode="admin" />
             <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary || reconcileBusy}>
               <RefreshCw size={16} />
             </button>

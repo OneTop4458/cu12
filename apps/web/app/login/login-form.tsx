@@ -4,6 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 
 type SessionExpiredReason = "session-timeout" | "session-expired";
@@ -552,9 +556,9 @@ export function LoginForm({
       ) : null}
 
       <form onSubmit={onSubmit} className="form-stack">
-        <label className="field">
+        <Label className="field">
           <span>{COPY.accountIdLabel}</span>
-          <input
+          <Input
             value={cu12Id}
             onChange={(event) => setCu12Id(event.target.value)}
             autoComplete="username"
@@ -562,11 +566,11 @@ export function LoginForm({
             minLength={4}
             placeholder={"ID"}
           />
-        </label>
+        </Label>
 
-        <label className="field">
+        <Label className="field">
           <span>{COPY.passwordLabel}</span>
-          <input
+          <Input
             type="password"
             value={cu12Password}
             onChange={(event) => setCu12Password(event.target.value)}
@@ -575,7 +579,7 @@ export function LoginForm({
             minLength={4}
             placeholder={COPY.passwordLabel}
           />
-        </label>
+        </Label>
 
         <label className="field">
           <span>{COPY.campusLabel}</span>
@@ -589,12 +593,11 @@ export function LoginForm({
         </label>
 
         <div className="login-options-row">
-          <label className="check-field">
-            <input
-              type="checkbox"
+          <Label className="check-field">
+            <Checkbox
               checked={saveCu12Id}
-              onChange={(event) => {
-                const checked = event.target.checked;
+              onCheckedChange={(value) => {
+                const checked = value === true;
                 setSaveCu12Id(checked);
                 if (!checked) {
                   syncSavedCu12Id(false, cu12Id);
@@ -602,7 +605,7 @@ export function LoginForm({
               }}
             />
             <span>{COPY.saveId}</span>
-          </label>
+          </Label>
           <a
             className="btn ghost-btn login-reset-link"
             href="https://www.cu12.ac.kr/el/member/pw_reset_form.acl"
@@ -615,10 +618,10 @@ export function LoginForm({
 
         {error ? <p className="error-text">{error}</p> : null}
 
-        <button type="submit" disabled={submitting} className="btn btn-success">
+        <Button type="submit" disabled={submitting} className="btn btn-success">
           {submitting ? <Loader2 className="spin" size={16} /> : null}
           {submitting ? COPY.submitting : COPY.submit}
-        </button>
+        </Button>
       </form>
 
       {showInviteModal ? (
@@ -636,7 +639,7 @@ export function LoginForm({
             <form onSubmit={onSubmitInvite} className="form-stack">
               <label className="field">
                 <span>{COPY.inviteCode}</span>
-                <input
+                <Input
                   value={inviteCode}
                   onChange={(event) => setInviteCode(event.target.value)}
                   required
@@ -649,17 +652,18 @@ export function LoginForm({
               {inviteError ? <p className="error-text">{inviteError}</p> : null}
 
               <div className="button-row">
-                <button type="submit" disabled={inviteSubmitting} className="btn">
+                <Button type="submit" disabled={inviteSubmitting} className="btn">
                   {inviteSubmitting ? COPY.submitting : COPY.confirm}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="ghost-btn"
                   onClick={() => setShowInviteModal(false)}
                   disabled={inviteSubmitting}
+                  variant="outline"
                 >
                   {COPY.close}
-                </button>
+                </Button>
               </div>
             </form>
           </section>
@@ -732,13 +736,12 @@ export function LoginForm({
                     {policy.content}
                   </pre>
                   <label className="check-field top-gap">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={policyChecks[policy.type] === true}
-                      onChange={(event) =>
+                      onCheckedChange={(value) =>
                         setPolicyChecks((prev) => ({
                           ...prev,
-                          [policy.type]: event.target.checked,
+                          [policy.type]: value === true,
                         }))}
                     />
                     <span>{`${policy.title} (${COPY.consentRequired}`}</span>
@@ -749,17 +752,18 @@ export function LoginForm({
               {consentError ? <p className="error-text">{consentError}</p> : null}
 
               <div className="button-row">
-                <button type="submit" className="btn btn-success" disabled={consentSubmitting || !allPoliciesChecked}>
+                <Button type="submit" className="btn btn-success" disabled={consentSubmitting || !allPoliciesChecked}>
                   {consentSubmitting ? COPY.submitting : COPY.consentSubmit}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="ghost-btn"
                   onClick={declineConsent}
                   disabled={consentSubmitting}
+                  variant="outline"
                 >
                   {COPY.consentDecline}
-                </button>
+                </Button>
               </div>
             </form>
           </section>

@@ -1,7 +1,10 @@
 ﻿"use client";
 
-import * as Popover from "@radix-ui/react-popover";
 import { Bell } from "lucide-react";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { ScrollArea } from "../ui/scroll-area";
 
 interface DashboardNotification {
   provider?: "CU12" | "CYBER_CAMPUS";
@@ -62,15 +65,14 @@ export function NotificationCenter({
   }
 
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button className="notification-trigger" type="button" aria-label={`알림 ${unreadCount}건`}>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button className="notification-trigger" type="button" aria-label={`알림 ${unreadCount}건`} variant="outline" size="icon">
           <Bell size={17} />
-          {unreadCount > 0 ? <span className="notification-badge">{unreadCount}</span> : null}
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
+          {unreadCount > 0 ? <Badge className="notification-badge">{unreadCount}</Badge> : null}
+        </Button>
+      </PopoverTrigger>
+        <PopoverContent
           className="notification-panel"
           align="end"
           side="bottom"
@@ -83,33 +85,37 @@ export function NotificationCenter({
               {showHistory ? `예전 알림 ${latest.length}건` : `알림 · 읽지 않음 ${unreadCount}건`}
             </span>
             <div className="notification-panel-actions">
-              <button
+              <Button
                 type="button"
                 className="notification-secondary-btn"
                 onClick={onToggleHistory}
                 disabled={historyLoading}
+                variant="outline"
+                size="sm"
               >
                 {showHistory ? "최신 알림 보기" : "예전 알림 보기"}
-              </button>
+              </Button>
               {!showHistory && onClearVisible && latest.length > 0 ? (
-                <button
+                <Button
                   type="button"
                   className="notification-clear-btn"
                   onClick={() => onClearVisible(latest.map((item) => item.id))}
                   disabled={clearing}
+                  variant="destructive"
+                  size="sm"
                 >
                   {clearing ? "삭제 중..." : "현재 목록 삭제"}
-                </button>
+                </Button>
               ) : null}
             </div>
           </div>
-          <div className="notification-panel-list">
+          <ScrollArea className="notification-panel-list">
             {historyLoading ? <p className="notification-empty">예전 알림을 불러오는 중...</p> : null}
             {latest.length === 0 ? (
               <p className="notification-empty">{showHistory ? "예전 알림이 없습니다." : "알림이 없습니다."}</p>
             ) : (
               latest.map((item) => (
-                <button
+                <Button
                   key={item.id}
                   className={`notification-list-item ${item.isUnread ? "unread" : ""} ${item.isArchived ? "archived" : ""}`}
                   onClick={() => {
@@ -117,16 +123,16 @@ export function NotificationCenter({
                     if (item.isUnread) onMarkRead(item);
                   }}
                   type="button"
+                  variant="ghost"
                 >
                   <span className="notification-list-title">{item.courseTitle || "시스템 알림"}</span>
                   <span className="notification-list-message">{sanitizeMessage(item.message)}</span>
                   <span className="notification-list-time">{formatDate(item.occurredAt ?? item.createdAt)}</span>
-                </button>
+                </Button>
               ))
             )}
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+          </ScrollArea>
+        </PopoverContent>
+    </Popover>
   );
 }

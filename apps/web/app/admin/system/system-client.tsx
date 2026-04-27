@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { ThemeToggle } from "../../../components/theme/theme-toggle";
 import { UserMenu } from "../../../components/layout/user-menu";
+import { AppMobileNav } from "../../../components/layout/app-mobile-nav";
 
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 type NoticeType = "BROADCAST" | "MAINTENANCE";
@@ -484,6 +485,7 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
             </div>
           </div>
           <div className="topbar-actions">
+            <AppMobileNav mode="admin" />
             <button
               className="icon-btn"
               type="button"
