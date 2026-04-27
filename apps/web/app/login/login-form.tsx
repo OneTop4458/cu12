@@ -34,9 +34,14 @@ interface AuthenticatedResponse {
   session?: SessionPolicy;
 }
 
-interface InviteRequiredResponse {
-  stage: "INVITE_REQUIRED";
-  challengeToken: string;
+interface ApprovalPendingResponse {
+  stage: "APPROVAL_PENDING";
+  user: {
+    userId: string;
+    provider?: PortalProvider;
+    cu12Id: string;
+    role: "ADMIN" | "USER";
+  };
 }
 
 interface PolicyDocumentResponse {
@@ -77,7 +82,7 @@ interface ApiErrorResponse {
   errorCode?: string;
 }
 
-type LoginResponse = AuthenticatedResponse | InviteRequiredResponse | ConsentRequiredResponse;
+type LoginResponse = AuthenticatedResponse | ApprovalPendingResponse | ConsentRequiredResponse;
 
 const LAST_ACTIVITY_STORAGE_KEY = "cu12:last-activity-at";
 const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
@@ -91,13 +96,13 @@ const COPY = {
   authFailed: "ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
   accountDisabled: "\uACC4\uC815\uC774 \uBE44\uD65C\uC131\uD654\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBB38\uC758\uD574 \uC8FC\uC138\uC694.",
   policyNotConfigured: "\uD544\uC218 \uC57D\uAD00\uC774 \uC544\uC9C1 \uB4F1\uB85D\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBB38\uC758\uD574 \uC8FC\uC138\uC694.",
+  approvalPending: "\uAD00\uB9AC\uC790 \uC2B9\uC778 \uC694\uCCAD\uC774 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC2B9\uC778 \uD6C4 \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
+  approvalRejected: "\uAD00\uB9AC\uC790 \uC2B9\uC778 \uC694\uCCAD\uC774 \uAC70\uC808\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBB38\uC758\uD574 \uC8FC\uC138\uC694.",
   rateLimited: "\uC694\uCCAD\uC774 \uB9CE\uC544 \uC7A0\uC2DC \uCC28\uB2E8\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
   loginFallback: "\uB85C\uADF8\uC778 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
-  inviteFallback: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
   consentIncomplete: "\uD544\uC218 \uC57D\uAD00\uC5D0 \uBAA8\uB450 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
   consentMismatch: "\uC57D\uAD00 \uBC84\uC804\uC774 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uCD5C\uC2E0 \uC57D\uAD00\uC5D0 \uB2E4\uC2DC \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
   consentFallback: "\uC57D\uAD00 \uB3D9\uC758 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
-  challengeInvalid: "\uB85C\uADF8\uC778 \uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
   consentSessionInvalid: "\uB3D9\uC758 \uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
   sessionExpiredTitle: "\uC138\uC158\uC774 \uB9CC\uB8CC\uB418\uC5B4 \uB85C\uADF8\uC544\uC6C3 \uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   sessionExpiredContent: "\uAC1C\uC778\uC815\uBCF4 \uBCF4\uD638 \uBC0F \uBCF4\uC548 \uAC15\uD654\uB97C \uC704\uD55C \uC790\uB3D9 \uB85C\uADF8\uC544\uC6C3 \uC815\uCC45\uC5D0 \uB530\uB77C \uC138\uC158\uC774 \uC885\uB8CC \uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
@@ -112,14 +117,6 @@ const COPY = {
   loginUnavailable: "\uB85C\uADF8\uC778 \uC11C\uBE44\uC2A4\uC5D0 \uC77C\uC2DC\uC801\uC73C\uB85C \uC811\uC18D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyResponse: "\uC11C\uBC84 \uC751\uB2F5\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.",
   invalidResponse: "\uC11C\uBC84 \uC751\uB2F5\uC744 \uD574\uC11D\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
-  inviteTitle: "\uCD08\uB300 \uCF54\uB4DC \uC785\uB825",
-  inviteIntro: "\uAD00\uB9AC\uC790\uAC00 \uBC1C\uAE09\uD55C \uCD08\uB300 \uCF54\uB4DC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
-  inviteCode: "\uCD08\uB300 \uCF54\uB4DC",
-  confirm: "\uD655\uC778",
-  close: "\uB2EB\uAE30",
-  inviteNetwork: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
-  inviteSessionMissing: "\uCD08\uB300 \uCF54\uB4DC \uC778\uC99D \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.",
-  inviteVerificationFailed: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   consentTitle: "\uD544\uC218 \uC57D\uAD00 \uB3D9\uC758",
   consentIntro: "\uC11C\uBE44\uC2A4 \uC774\uC6A9\uC744 \uC704\uD574 \uD544\uC218 \uC57D\uAD00\uC5D0 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
   consentUpdateTitle: "\uC57D\uAD00 \uC5C5\uB370\uC774\uD2B8 \uC7AC\uB3D9\uC758",
@@ -175,6 +172,9 @@ export function toLoginErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "ACCOUNT_DISABLED") {
     return COPY.accountDisabled;
   }
+  if (payload.errorCode === "APPROVAL_REJECTED") {
+    return COPY.approvalRejected;
+  }
   if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
     return COPY.policyNotConfigured;
   }
@@ -192,28 +192,6 @@ export function toLoginErrorMessage(payload: ApiErrorResponse): string {
     return payload.error ?? COPY.loginFallback;
   }
   return payload.error ?? COPY.loginFallback;
-}
-
-export function toInviteErrorMessage(payload: ApiErrorResponse): string {
-  if (payload.errorCode === "INVITE_VERIFICATION_FAILED") {
-    return payload.error ?? COPY.inviteVerificationFailed;
-  }
-  if (payload.errorCode === "ACCOUNT_DISABLED") {
-    return COPY.accountDisabled;
-  }
-  if (payload.errorCode === "POLICY_NOT_CONFIGURED") {
-    return COPY.policyNotConfigured;
-  }
-  if (payload.errorCode === "RATE_LIMITED") {
-    return COPY.rateLimited;
-  }
-  if (payload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-    return COPY.challengeInvalid;
-  }
-  if (payload.errorCode === "INTERNAL_ERROR") {
-    return payload.error ?? COPY.inviteVerificationFailed;
-  }
-  return payload.error ?? COPY.inviteFallback;
 }
 
 export function toConsentErrorMessage(payload: ApiErrorResponse): string {
@@ -287,12 +265,6 @@ export function LoginForm({
     }
   }, []);
 
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [challengeToken, setChallengeToken] = useState<string | null>(null);
-  const [inviteCode, setInviteCode] = useState("");
-  const [inviteSubmitting, setInviteSubmitting] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentToken, setConsentToken] = useState<string | null>(null);
   const [consentMode, setConsentMode] = useState<PolicyConsentMode>("INITIAL_REQUIRED");
@@ -307,14 +279,12 @@ export function LoginForm({
     [consentPolicies, policyChecks],
   );
 
-  const isProcessing = submitting || inviteSubmitting || consentSubmitting;
+  const isProcessing = submitting || consentSubmitting;
   const processingMessage = submitting
     ? "\uB85C\uADF8\uC778 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
-    : inviteSubmitting
-      ? "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC744 \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
-      : consentSubmitting
-        ? "\uC57D\uAD00 \uB3D9\uC758\uB97C \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
-        : null;
+    : consentSubmitting
+      ? "\uC57D\uAD00 \uB3D9\uC758\uB97C \uCC98\uB9AC\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."
+      : null;
 
   function clearConsentState() {
     setShowConsentModal(false);
@@ -337,11 +307,6 @@ export function LoginForm({
       nextChecks[policy.type] = false;
     });
 
-    setShowInviteModal(false);
-    setChallengeToken(null);
-    setInviteCode("");
-    setInviteError(null);
-
     setConsentToken(payload.consentToken);
     setConsentMode(payload.consentMode);
     setPolicyChanges(payload.policyChanges ?? []);
@@ -357,7 +322,6 @@ export function LoginForm({
     event.preventDefault();
     setSubmitting(true);
     setError(null);
-    setInviteError(null);
     setConsentError(null);
 
     try {
@@ -391,12 +355,9 @@ export function LoginForm({
       }
 
       syncSavedCu12Id(saveCu12Id, cu12Id);
-      if (payload.stage === "INVITE_REQUIRED") {
+      if (payload.stage === "APPROVAL_PENDING") {
         clearConsentState();
-        setChallengeToken(payload.challengeToken);
-        setInviteCode("");
-        setInviteError(null);
-        setShowInviteModal(true);
+        setError(COPY.approvalPending);
         return;
       }
 
@@ -412,72 +373,6 @@ export function LoginForm({
       setError(COPY.networkLogin);
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function onSubmitInvite(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!challengeToken) {
-      setInviteError(COPY.inviteSessionMissing);
-      return;
-    }
-
-    setInviteSubmitting(true);
-    setInviteError(null);
-    setConsentError(null);
-
-    try {
-      const response = await fetch("/api/auth/login/invite", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          challengeToken,
-          inviteCode: inviteCode.trim(),
-          rememberSession: false,
-        }),
-      });
-
-      if (!response.ok) {
-        let payload: ApiErrorResponse | null = null;
-        try {
-          payload = await readJsonBody<ApiErrorResponse>(response);
-        } catch {
-          setInviteError(COPY.invalidResponse);
-          return;
-        }
-
-        const safePayload = payload ?? { error: resolveClientResponseError(response, payload, "Invite verification failed.") };
-        const message = toInviteErrorMessage(safePayload);
-        setInviteError(message);
-        if (safePayload.errorCode === "LOGIN_CHALLENGE_INVALID") {
-          setShowInviteModal(false);
-          setChallengeToken(null);
-          setError(message);
-        }
-        return;
-      }
-
-      const payload = await readJsonBody<AuthenticatedResponse | ConsentRequiredResponse>(response);
-      if (!payload) {
-        setInviteError(COPY.emptyResponse);
-        return;
-      }
-
-      syncSavedCu12Id(saveCu12Id, cu12Id);
-      if (payload.stage === "CONSENT_REQUIRED") {
-        startConsentFlow(payload);
-        return;
-      }
-
-      applySessionPolicy(payload.session);
-      setShowInviteModal(false);
-      setChallengeToken(null);
-      router.push("/dashboard" as Route);
-      router.refresh();
-    } catch {
-      setInviteError(COPY.inviteNetwork);
-    } finally {
-      setInviteSubmitting(false);
     }
   }
 
@@ -623,52 +518,6 @@ export function LoginForm({
           {submitting ? COPY.submitting : COPY.submit}
         </Button>
       </form>
-
-      {showInviteModal ? (
-        <div className="modal-overlay" role="presentation" onClick={() => !inviteSubmitting && setShowInviteModal(false)}>
-          <section
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-label={COPY.inviteTitle}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2>{COPY.inviteTitle}</h2>
-            <p className="muted">{COPY.inviteIntro}</p>
-
-            <form onSubmit={onSubmitInvite} className="form-stack">
-              <label className="field">
-                <span>{COPY.inviteCode}</span>
-                <Input
-                  value={inviteCode}
-                  onChange={(event) => setInviteCode(event.target.value)}
-                  required
-                  minLength={8}
-                  autoFocus
-                  placeholder={"ABCD-1234"}
-                />
-              </label>
-
-              {inviteError ? <p className="error-text">{inviteError}</p> : null}
-
-              <div className="button-row">
-                <Button type="submit" disabled={inviteSubmitting} className="btn">
-                  {inviteSubmitting ? COPY.submitting : COPY.confirm}
-                </Button>
-                <Button
-                  type="button"
-                  className="ghost-btn"
-                  onClick={() => setShowInviteModal(false)}
-                  disabled={inviteSubmitting}
-                  variant="outline"
-                >
-                  {COPY.close}
-                </Button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
 
       {showConsentModal ? (
         <div className="modal-overlay" role="presentation">

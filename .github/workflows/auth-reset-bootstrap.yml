@@ -8,17 +8,8 @@ on:
         required: true
         type: string
       adminCu12Id:
-        description: "Admin CU12 ID to receive new invite token"
+        description: "Admin CU12 ID to pre-approve after reset"
         required: true
-        type: string
-      inviteCodeHash:
-        description: "SHA-256 hash of the admin invite code (64 lowercase hex chars)"
-        required: true
-        type: string
-      expiresHours:
-        description: "Admin invite expiration in hours (1-720)"
-        required: false
-        default: "72"
         type: string
 
 permissions:
@@ -32,8 +23,6 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       CONFIRM_RESET: ${{ inputs.confirmReset }}
       ADMIN_CU12_ID: ${{ inputs.adminCu12Id }}
-      INVITE_CODE_HASH: ${{ inputs.inviteCodeHash }}
-      EXPIRES_HOURS: ${{ inputs.expiresHours }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -49,10 +38,11 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
-      - name: Reset auth data and issue ADMIN invite token
+      - name: Reset auth data and pre-approve ADMIN account
         run: |
           node <<'NODE'
-          const { PrismaClient, UserRole } = require("@prisma/client");
+          const crypto = require("node:crypto");
+          const { PrismaClient } = require("@prisma/client");
 
           async function main() {
             if (process.env.CONFIRM_RESET !== "RESET_CU12_AUTH") {
@@ -60,21 +50,12 @@ jobs:
             }
 
             const cu12Id = (process.env.ADMIN_CU12_ID || "").trim();
-            const inviteCodeHash = (process.env.INVITE_CODE_HASH || "").trim().toLowerCase();
-            const expiresHoursRaw = Number(process.env.EXPIRES_HOURS || "72");
-            const expiresHours = Number.isFinite(expiresHoursRaw) ? expiresHoursRaw : 72;
             if (!cu12Id || cu12Id.length < 4) {
               throw new Error("Invalid adminCu12Id");
             }
-            if (!/^[a-f0-9]{64}$/.test(inviteCodeHash)) {
-              throw new Error("inviteCodeHash must be a 64-char lowercase SHA-256 hex string");
-            }
-            if (expiresHours < 1 || expiresHours > 720) {
-              throw new Error("expiresHours out of range");
-            }
 
             const prisma = new PrismaClient();
-
+            await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "InviteToken" CASCADE;`);
             await prisma.$executeRawUnsafe(`
               TRUNCATE TABLE
                 "MailDelivery",
@@ -87,26 +68,40 @@ jobs:
                 "JobQueue",
                 "WorkerHeartbeat",
                 "Cu12Account",
-                "InviteToken",
                 "User"
               RESTART IDENTITY CASCADE;
             `);
 
-            const invite = await prisma.inviteToken.create({
+            const now = new Date();
+            const passwordHash = "portal-approved-placeholder:" + crypto.randomUUID();
+            const user = await prisma.user.create({
               data: {
-                cu12Id,
-                role: UserRole.ADMIN,
-                tokenHash: inviteCodeHash,
-                expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
+                email: cu12Id,
+                name: cu12Id,
+                passwordHash,
+                role: "ADMIN",
+                isActive: true,
+                isTestUser: false,
+                approvalStatus: "APPROVED",
+                approvalRequestedAt: null,
+                approvalDecidedAt: now,
+                approvalDecidedByUserId: null,
+                approvalRejectedReason: null,
+              },
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                approvalStatus: true,
               },
             });
 
             await prisma.$disconnect();
 
             console.log("Auth data reset complete.");
-            console.log("adminCu12Id=" + cu12Id);
-            console.log("inviteId=" + invite.id);
-            console.log("expiresAt=" + invite.expiresAt.toISOString());
+            console.log("adminCu12Id=" + user.email);
+            console.log("adminUserId=" + user.id);
+            console.log("approvalStatus=" + user.approvalStatus);
           }
 
           main().catch((error) => {

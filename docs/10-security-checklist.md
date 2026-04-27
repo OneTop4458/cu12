@@ -3,7 +3,7 @@
 ## Credentials and Secrets
 
 - [ ] CU12 password is encrypted at rest.
-- [ ] Invite token plaintext is never stored.
+- [ ] Pending approval users do not have portal passwords stored.
 - [ ] `AUTH_JWT_SECRET` length and entropy are sufficient.
 - [ ] `APP_MASTER_KEY` is rotated with a documented procedure.
 - [ ] `WORKER_SHARED_TOKEN` is rotated and synchronized.
@@ -12,10 +12,10 @@
 ## Session and Auth
 
 - [ ] Session cookie is `httpOnly` and `secure` in production.
-- [ ] Login and invite verification responses are normalized to avoid account/invite enumeration.
-- [ ] Login and invite verification endpoints enforce rate limiting / lockout.
-- [ ] One-time invite requirement is enforced for first login.
-- [ ] Invite code consumption is atomic (single-use is race-safe).
+- [ ] Login responses are normalized enough to avoid account enumeration beyond the approval state the user already created.
+- [ ] Login endpoint enforces rate limiting / lockout.
+- [ ] Admin approval is enforced before any session cookie is issued to a first-login user.
+- [ ] Approval and rejection decisions are audited.
 - [ ] Admin APIs check role before read/write.
 - [ ] Authenticated state-changing APIs enforce same-origin CSRF validation (`Origin`/`Referer`).
 

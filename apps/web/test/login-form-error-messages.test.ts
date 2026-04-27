@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   getConsentModalCopy,
   toConsentErrorMessage,
-  toInviteErrorMessage,
   toLoginErrorMessage,
 } from "../app/login/login-form";
 
@@ -34,13 +33,12 @@ test("toLoginErrorMessage surfaces Cyber Campus unavailability", () => {
   );
 });
 
-test("toInviteErrorMessage handles invite verification failures", () => {
+test("toLoginErrorMessage maps rejected approval requests", () => {
   assert.equal(
-    toInviteErrorMessage({
-      errorCode: "INVITE_VERIFICATION_FAILED",
-      error: "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+    toLoginErrorMessage({
+      errorCode: "APPROVAL_REJECTED",
     }),
-    "\uCD08\uB300 \uCF54\uB4DC \uD655\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+    "\uAD00\uB9AC\uC790 \uC2B9\uC778 \uC694\uCCAD\uC774 \uAC70\uC808\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBB38\uC758\uD574 \uC8FC\uC138\uC694.",
   );
 });
 

@@ -48,6 +48,11 @@ async function listAdminMembers(limit: number, q?: string) {
         role: true,
         isActive: true,
         isTestUser: true,
+        approvalStatus: true,
+        approvalRequestedAt: true,
+        approvalDecidedAt: true,
+        approvalDecidedByUserId: true,
+        approvalRejectedReason: true,
         createdAt: true,
         updatedAt: true,
         cu12Account: {
@@ -96,6 +101,11 @@ async function listAdminMembers(limit: number, q?: string) {
         role: true,
         isActive: true,
         isTestUser: true,
+        approvalStatus: true,
+        approvalRequestedAt: true,
+        approvalDecidedAt: true,
+        approvalDecidedByUserId: true,
+        approvalRejectedReason: true,
         createdAt: true,
         updatedAt: true,
         cu12Account: {
@@ -236,6 +246,11 @@ export async function POST(request: NextRequest) {
           role,
           isTestUser,
           isActive,
+          approvalStatus: "APPROVED",
+          approvalRequestedAt: null,
+          approvalDecidedAt: new Date(),
+          approvalDecidedByUserId: context.actor.userId,
+          approvalRejectedReason: null,
         },
         select: { id: true },
       });
@@ -249,12 +264,20 @@ export async function POST(request: NextRequest) {
         name: string | undefined;
         email: string;
         passwordHash?: string;
+        approvalStatus: "APPROVED";
+        approvalDecidedAt: Date;
+        approvalDecidedByUserId: string;
+        approvalRejectedReason: null;
       } = {
         role,
         isTestUser,
         isActive,
         name: body.name ?? undefined,
         email: body.cu12Id,
+        approvalStatus: "APPROVED",
+        approvalDecidedAt: new Date(),
+        approvalDecidedByUserId: context.actor.userId,
+        approvalRejectedReason: null,
       };
 
       if (isTestUser && localPassword) {
@@ -285,6 +308,11 @@ export async function POST(request: NextRequest) {
         role: true,
         isTestUser: true,
         isActive: true,
+        approvalStatus: true,
+        approvalRequestedAt: true,
+        approvalDecidedAt: true,
+        approvalDecidedByUserId: true,
+        approvalRejectedReason: true,
         createdAt: true,
         cu12Account: {
           select: {

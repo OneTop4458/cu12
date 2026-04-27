@@ -8,14 +8,14 @@ Accepted
 
 - Session-only strategies are brittle for long-running automation.
 - CU12 access requires recurring authenticated browser sessions.
-- First-login onboarding must be restricted to approved CU12 IDs.
+- First-login onboarding must be restricted to administrator-approved CU12 users.
 
 ## Decision
 
 1. Use signed JWT cookie for app session (`cu12_session`).
-2. Use short-lived login challenge token for step handoff (`/api/auth/login` -> `/api/auth/login/invite`).
-3. Use one-time invite token hashed in DB and bound to `cu12Id`.
-4. Store CU12 password encrypted so worker can re-authenticate as needed.
+2. Use `APPROVAL_PENDING` state for first-login users after real-time portal verification.
+3. Do not store portal passwords or issue session cookies until an administrator approves the user and the user logs in again.
+4. Store CU12 password encrypted after approved login so worker can re-authenticate as needed.
 
 ## Consequences
 
@@ -27,5 +27,5 @@ Accepted
 
 ### Trade-offs
 
-- Adds complexity to login flow and token validation.
+- Adds an administrator approval queue to the login flow.
 - Increases key management responsibility for operators.

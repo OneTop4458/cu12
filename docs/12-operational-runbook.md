@@ -32,10 +32,10 @@
 ## New Environment Bootstrap
 
 1. Run `DB Bootstrap`.
-2. Run `Auth Reset Bootstrap` with the SHA-256 hash of the chosen admin invite code.
+2. Run `Auth Reset Bootstrap` with the initial admin CU12 ID.
 3. Deploy the web app and verify `/api/health`.
 4. Log in as admin and publish the required policy documents.
-5. Issue invite codes for end users.
+5. Approve pending end users from `/admin` after they complete first-login credential verification.
 6. Trigger `worker-consume.yml` once to verify queue processing.
 
 ## Incident Response

@@ -31,10 +31,10 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 ## Authentication Model
 
 1. Every login starts with real-time CU12 credential verification.
-2. New users must complete one-time invite verification.
-3. Invite token is bound to `cu12Id` and single-use.
-4. Invite code entry is handled in the post-login modal stage.
-5. Registration page flow is not used.
+2. New users must pass real-time portal credential verification and then wait for administrator approval.
+3. Pending users do not receive session cookies and their portal passwords are not stored.
+4. After administrator approval, users must log in again to complete account linking and policy consent.
+5. Registration pages are not used.
 
 ## Documentation Policy
 
@@ -45,7 +45,7 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 ## Public Repository Rules
 
 1. This repository is PUBLIC. Assume every commit, PR comment, and workflow log is externally visible.
-2. Never commit secrets or sensitive values (passwords, tokens, cookies, private keys, internal-only credentials, real invite codes).
+2. Never commit secrets or sensitive values (passwords, tokens, cookies, private keys, internal-only credentials, real approval data).
 3. Never print secrets in CI logs, PR comments, or automation script output.
 4. `main` must be updated only through pull requests. Direct push to `main` is prohibited.
 5. Every AI/operator task must start by fetching `origin/main`, updating the task/session branch onto the latest `origin/main`, and then working from that isolated branch.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPolicyUpdateMail } from "./mail-content";
+import { buildAdminApprovalRequestMail, buildPolicyUpdateMail } from "./mail-content";
 
 const DASHBOARD_BASE_URL = "https://cu12.example.com";
 
@@ -25,4 +25,18 @@ test("buildPolicyUpdateMail renders current, previous, and diff links", () => {
   assert.match(mail.html, /terms\?version=3/);
   assert.match(mail.html, /terms\?version=2/);
   assert.match(mail.html, /compareTo=2/);
+});
+
+test("buildAdminApprovalRequestMail renders admin approval link without secrets", () => {
+  const mail = buildAdminApprovalRequestMail({
+    dashboardBaseUrl: DASHBOARD_BASE_URL,
+    generatedAt: new Date("2026-04-27T12:00:00+09:00"),
+    requestedCu12Id: "student1234",
+    requestedAt: "2026-04-27T11:30:00+09:00",
+  });
+
+  assert.match(mail.subject, /관리자 승인 요청/);
+  assert.match(mail.html, /student1234/);
+  assert.match(mail.html, /\/admin/);
+  assert.doesNotMatch(mail.html, /password|token|cookie/i);
 });

@@ -87,6 +87,7 @@ test("db sync workflows keep the guarded prisma push sequence", () => {
     "pnpm install --frozen-lockfile",
     "pnpm run prisma:generate",
     "node scripts/db-ensure-auth-policy-constraints.mjs",
+    "node scripts/db-drop-invite-token.mjs",
     "pnpm exec prisma db push --schema prisma/schema.prisma",
     "node scripts/db-backfill-auth-policy-columns.mjs",
   ];
@@ -191,4 +192,15 @@ test("AGENTS documents all-test validation before PR creation", () => {
     ],
     "AGENTS.md operator execution rule",
   );
+});
+
+test("invite-code onboarding routes are removed from the public API contract", () => {
+  const openApi = readRepoFile("docs/04-api/openapi.yaml");
+
+  assertDoesNotContain(openApi, "/api/auth/login/invite", "OpenAPI");
+  assertDoesNotContain(openApi, "/api/auth/invite", "OpenAPI");
+  assertDoesNotContain(openApi, "LoginInviteRequired", "OpenAPI");
+  assertDoesNotContain(openApi, "InviteToken:", "OpenAPI");
+  assert.equal(fs.existsSync(path.join(repoRoot, "apps/web/app/api/auth/login/invite/route.ts")), false);
+  assert.equal(fs.existsSync(path.join(repoRoot, "apps/web/app/api/auth/invite/route.ts")), false);
 });

@@ -73,6 +73,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         id: true,
         isTestUser: true,
         withdrawnAt: true,
+        approvalStatus: true,
       },
     });
     if (!user) {
@@ -84,6 +85,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     if (userId === context.actor.userId && body.isActive === false) {
       return jsonError("Cannot deactivate own account", 400);
+    }
+    if (body.isActive === true && user.approvalStatus !== "APPROVED") {
+      return jsonError("Approve the member before activating the account.", 409, "MEMBER_APPROVAL_REQUIRED");
     }
 
     const userData: {
@@ -155,6 +159,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         role: true,
         isActive: true,
         isTestUser: true,
+        approvalStatus: true,
+        approvalRequestedAt: true,
+        approvalDecidedAt: true,
+        approvalDecidedByUserId: true,
+        approvalRejectedReason: true,
         cu12Account: {
           select: {
             cu12Id: true,

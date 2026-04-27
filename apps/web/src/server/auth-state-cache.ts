@@ -19,6 +19,7 @@ export interface CachedActiveUser {
   role: "ADMIN" | "USER";
   isActive: boolean;
   withdrawnAt: Date | null;
+  approvalStatus?: "PENDING" | "APPROVED" | "REJECTED" | null;
   createdAt: Date;
 }
 
@@ -77,6 +78,7 @@ async function loadActiveUser(userId: string): Promise<CachedActiveUser | null> 
           role: true,
           isActive: true,
           withdrawnAt: true,
+          approvalStatus: true,
           createdAt: true,
         },
       }),
@@ -89,12 +91,13 @@ async function loadActiveUser(userId: string): Promise<CachedActiveUser | null> 
           name: true,
           role: true,
           isActive: true,
+          approvalStatus: true,
           createdAt: true,
         },
       }),
   );
 
-  if (!user || !user.isActive || user.withdrawnAt !== null) {
+  if (!user || !user.isActive || user.withdrawnAt !== null || user.approvalStatus === "PENDING" || user.approvalStatus === "REJECTED") {
     return null;
   }
 

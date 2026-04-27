@@ -4,7 +4,7 @@ const WINDOW_MS = 15 * 60 * 1000;
 const BLOCK_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 8;
 
-export type AuthScope = "login" | "invite";
+export type AuthScope = "login";
 
 export interface AuthThrottleStatus {
   blocked: boolean;

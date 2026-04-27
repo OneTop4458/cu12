@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
-import type { PortalCampus, PortalProvider } from "@cu12/core";
 import { getEnv } from "./env";
 
 export const SESSION_COOKIE_NAME = "cu12_session";
@@ -9,7 +8,6 @@ export const IDLE_SESSION_COOKIE_NAME = "cu12_idle";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 export const REMEMBER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export const IDLE_SESSION_MAX_AGE_SECONDS = 60 * 30;
-const LOGIN_CHALLENGE_PURPOSE = "INVITE_LOGIN_CHALLENGE";
 const POLICY_CONSENT_CHALLENGE_PURPOSE = "POLICY_CONSENT_CHALLENGE";
 const IMPERSONATION_PURPOSE = "ADMIN_IMPERSONATION";
 const IDLE_SESSION_PURPOSE = "IDLE_SESSION";
@@ -18,15 +16,6 @@ export interface SessionTokenPayload {
   userId: string;
   email: string;
   role: "ADMIN" | "USER";
-}
-
-export interface LoginChallengePayload {
-  purpose: typeof LOGIN_CHALLENGE_PURPOSE;
-  provider: PortalProvider;
-  cu12Id: string;
-  campus?: PortalCampus | null;
-  encryptedCu12Password: string;
-  nonce: string;
 }
 
 export interface ImpersonationPayload {
@@ -156,61 +145,6 @@ export async function verifyActiveSession(sessionToken?: string, idleToken?: str
   if (idle.userId !== session.userId) return null;
 
   return session;
-}
-
-export async function signLoginChallengeToken(payload: Omit<LoginChallengePayload, "purpose">): Promise<string> {
-  return new SignJWT({
-    purpose: LOGIN_CHALLENGE_PURPOSE,
-    provider: payload.provider,
-    cu12Id: payload.cu12Id,
-    campus: payload.campus ?? null,
-    encryptedCu12Password: payload.encryptedCu12Password,
-    nonce: payload.nonce,
-  } satisfies LoginChallengePayload as unknown as JWTPayload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("5m")
-    .sign(jwtSecret());
-}
-
-export async function verifyLoginChallengeToken(token: string): Promise<LoginChallengePayload | null> {
-  try {
-    const verified = await jwtVerify(token, jwtSecret());
-    const value = verified.payload as Partial<LoginChallengePayload>;
-    if (
-      value.purpose !== LOGIN_CHALLENGE_PURPOSE ||
-      !value.provider ||
-      !value.cu12Id ||
-      !value.encryptedCu12Password ||
-      !value.nonce
-    ) {
-      return null;
-    }
-
-    if (value.provider !== "CU12" && value.provider !== "CYBER_CAMPUS") {
-      return null;
-    }
-
-    if (
-      value.campus !== undefined
-      && value.campus !== null
-      && value.campus !== "SONGSIM"
-      && value.campus !== "SONGSIN"
-    ) {
-      return null;
-    }
-
-    return {
-      purpose: LOGIN_CHALLENGE_PURPOSE,
-      provider: value.provider,
-      cu12Id: value.cu12Id,
-      campus: value.campus ?? null,
-      encryptedCu12Password: value.encryptedCu12Password,
-      nonce: value.nonce,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export async function signPolicyConsentChallengeToken(

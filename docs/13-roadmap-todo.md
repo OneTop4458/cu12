@@ -3,7 +3,7 @@
 ## Completed
 
 - [x] Real-time CU12 credential verification
-- [x] Invite-only first-login flow
+- [x] Administrator approval based first-login flow
 - [x] Policy consent gating and consent history
 - [x] Provider-aware dashboard surfaces for CU12 and Cyber Campus
 - [x] Queue-based sync and auto-learning orchestration

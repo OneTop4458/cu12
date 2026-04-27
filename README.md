@@ -1,17 +1,17 @@
 # Catholic University Automation
 
-Catholic University Automation is a cloud-native control plane for a small invited group using CU12 and Cyber Campus. It verifies real portal credentials at login time, keeps course and notice data synchronized, queues long-running learning jobs, and exposes admin/operator tooling without requiring an always-on local machine.
+Catholic University Automation is a cloud-native control plane for a small administrator-approved group using CU12 and Cyber Campus. It verifies real portal credentials at login time, keeps course and notice data synchronized, queues long-running learning jobs, and exposes admin/operator tooling without requiring an always-on local machine.
 
 ## Product Snapshot
 
 | Area | Current behavior |
 | --- | --- |
-| Authentication | Real-time portal verification, invite-only first login, policy-consent gate, idle/session cookies |
+| Authentication | Real-time portal verification, admin-approved first login, policy-consent gate, idle/session cookies |
 | Providers | CU12 and Cyber Campus provider-aware sync and dashboard views |
 | Learning automation | Queue-based auto-learning with VOD, material, and optional OpenAI-backed quiz execution |
 | Worker runtime | GitHub Actions orchestration with HTTP sync paths plus Playwright execution where browser automation is required |
 | Notifications | Dashboard notices/messages plus optional immediate mail alerts and hourly digest dispatch |
-| Admin operations | Member management, invite issuance, worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
+| Admin operations | Member management, approval requests, worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
 
 ## Architecture
 
@@ -56,15 +56,12 @@ sequenceDiagram
       Web-->>U: AUTHENTICATED + session cookies
     end
   else First login
-    Web-->>U: INVITE_REQUIRED + challengeToken
-    U->>Web: POST /api/auth/login/invite
-    Web->>DB: Consume invite, link account
-    Web->>DB: Check policy-consent requirement
-    alt Consent required
-      Web-->>U: CONSENT_REQUIRED + consentToken
-    else Consent already current
-      Web-->>U: AUTHENTICATED + session cookies
-    end
+    Web->>DB: Create pending approval user
+    Web-->>U: APPROVAL_PENDING
+    Web-->>Admin: Queue approval request mail
+    Admin->>Web: POST /api/admin/members/{userId}/approval
+    U->>Web: Re-login after approval
+    Web->>DB: Link account and check policy-consent requirement
   end
 ```
 
@@ -253,9 +250,9 @@ See `.env.example`, `apps/web/src/lib/env.ts`, and `apps/worker/src/env.ts` for 
 
 1. Configure GitHub Secrets and Vercel production environment variables.
 2. Run `DB Bootstrap`.
-3. Run `Auth Reset Bootstrap` with `inviteCodeHash` for the initial admin invite.
+3. Run `Auth Reset Bootstrap` with the initial admin CU12 ID.
 4. Deploy the web application and confirm `/api/health` returns `200`.
-5. Log in as admin, publish the required policy documents, and issue user invite codes.
+5. Log in as admin, publish the required policy documents, and approve pending users.
 6. Trigger `worker-consume.yml` once and confirm queue jobs progress to a terminal state.
 7. Review `Reconcile Health Check` and `secret-scan` as part of normal operations.
 

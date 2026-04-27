@@ -81,7 +81,7 @@ paths:
       description: >-
         Verifies the shared Catholic University portal credential in real time.
         The same credential is reused across CU12 and Cyber Campus.
-        Returns AUTHENTICATED for mapped users, INVITE_REQUIRED for first-login users,
+        Returns AUTHENTICATED for approved mapped users, APPROVAL_PENDING for first-login users,
         or CONSENT_REQUIRED when required policies must be accepted.
         Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       requestBody:
@@ -107,13 +107,13 @@ paths:
                   default: false
       responses:
         "200":
-          description: Authenticated or invite required
+          description: Authenticated, approval pending, or consent required
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/LoginAuthenticated"
-                  - $ref: "#/components/schemas/LoginInviteRequired"
+                  - $ref: "#/components/schemas/LoginApprovalPending"
                   - $ref: "#/components/schemas/LoginConsentRequired"
         "400":
           description: Validation failed (invalid JSON body or missing/invalid fields)
@@ -122,13 +122,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Authentication failed (AUTH_FAILED or ACCOUNT_DISABLED)
+          description: Authentication failed or account disabled
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: Forbidden (invalid CSRF origin)
+          description: Forbidden (invalid CSRF origin or approval rejected)
           content:
             application/json:
               schema:
@@ -147,71 +147,6 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Internal database or server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /api/auth/login/invite:
-    post:
-      tags: [Auth]
-      summary: Step 2 invite verification (first login)
-      description: >-
-        Validates one-time invite code after CU12 login challenge.
-        Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [challengeToken, inviteCode]
-              properties:
-                challengeToken:
-                  type: string
-                  minLength: 20
-                inviteCode:
-                  type: string
-                  minLength: 8
-                  maxLength: 200
-                rememberSession:
-                  type: boolean
-                  default: false
-      responses:
-        "200":
-          description: Authenticated after invite verification or consent required
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - $ref: "#/components/schemas/LoginAuthenticated"
-                  - $ref: "#/components/schemas/LoginConsentRequired"
-        "401":
-          description: Challenge token invalid/expired, invite verification failed, or account disabled
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden (invalid CSRF origin)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "429":
-          description: Too many invite verification attempts
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
-          description: Required policy documents are not configured
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Internal server error
           content:
             application/json:
               schema:
@@ -338,104 +273,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-  /api/auth/invite:
-    get:
-      tags: [Admin]
-      summary: List invite tokens (admin only)
-      security:
-        - cookieAuth: []
-      responses:
-        "200":
-          description: Invite list
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [invites]
-                properties:
-                  invites:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/InviteToken"
-        "403":
-          description: Forbidden
-    post:
-      tags: [Admin]
-      summary: Create invite token (admin only)
-      security:
-        - cookieAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [cu12Id]
-              properties:
-                cu12Id:
-                  type: string
-                  minLength: 4
-                  maxLength: 80
-                role:
-                  $ref: "#/components/schemas/UserRole"
-                expiresHours:
-                  type: integer
-                  minimum: 1
-                  maximum: 720
-                  default: 72
-                isActive:
-                  type: boolean
-                  default: true
-      responses:
-        "200":
-          description: Invite token created
-        "403":
-          description: Forbidden
-    patch:
-      tags: [Admin]
-      summary: Activate/deactivate invite token
-      security:
-        - cookieAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [inviteId, isActive]
-              properties:
-                inviteId:
-                  type: string
-                isActive:
-                  type: boolean
-      responses:
-        "200":
-          description: Invite token updated
-        "403":
-          description: Forbidden
-    delete:
-      tags: [Admin]
-      summary: Delete invite token
-      security:
-        - cookieAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [inviteId]
-              properties:
-                inviteId:
-                  type: string
-      responses:
-        "200":
-          description: Invite token deleted
-        "403":
-          description: Forbidden
-        "404":
-          description: Invite token not found
 
   /api/admin/policies:
     get:
@@ -2330,6 +2167,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/admin/members/{userId}/approval:
+    post:
+      tags: [Admin]
+      summary: Approve or reject a pending member
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [APPROVE, REJECT]
+                role:
+                  $ref: "#/components/schemas/UserRole"
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Member approval updated
+        "400":
+          description: Invalid approval action
+        "403":
+          description: Forbidden
+        "404":
+          description: Member not found
+        "409":
+          description: Member is withdrawn
+
   /api/admin/members/{userId}/sync:
     post:
       tags: [Admin]
@@ -2607,6 +2484,10 @@ components:
       type: string
       enum: [ADMIN, USER]
 
+    UserApprovalStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED]
+
     PolicyDocumentType:
       type: string
       enum: [PRIVACY_POLICY, TERMS_OF_SERVICE]
@@ -2671,15 +2552,23 @@ components:
         session:
           $ref: "#/components/schemas/SessionPolicy"
 
-    LoginInviteRequired:
+    LoginApprovalPending:
       type: object
-      required: [stage, challengeToken]
+      required: [stage, user]
       properties:
         stage:
           type: string
-          enum: [INVITE_REQUIRED]
-        challengeToken:
-          type: string
+          enum: [APPROVAL_PENDING]
+        user:
+          type: object
+          required: [userId, cu12Id, role]
+          properties:
+            userId:
+              type: string
+            cu12Id:
+              type: string
+            role:
+              $ref: "#/components/schemas/UserRole"
 
     LoginConsentRequired:
       type: object
@@ -3160,35 +3049,6 @@ components:
         hasNextPage:
           type: boolean
         hasPrevPage:
-          type: boolean
-
-    InviteToken:
-      type: object
-      required: [id, cu12Id, role, createdAt, expiresAt, state]
-      properties:
-        id:
-          type: string
-        cu12Id:
-          type: string
-        role:
-          $ref: "#/components/schemas/UserRole"
-        createdAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-        usedAt:
-          type: string
-          format: date-time
-          nullable: true
-        usedByEmail:
-          type: string
-          nullable: true
-        state:
-          type: string
-          enum: [ACTIVE, INACTIVE, USED, EXPIRED]
-        isActive:
           type: boolean
 
     Cu12Account:
@@ -4823,4 +4683,3 @@ components:
         updatedAt:
           type: string
           format: date-time
-

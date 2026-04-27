@@ -15,13 +15,14 @@ Implementation-detail tests are still valid when they guard an externally observ
 
 1. Login with valid portal credentials and an existing mapping.
 2. Login with invalid credentials returns generalized `AUTH_FAILED`.
-3. First login with valid credentials returns `INVITE_REQUIRED`.
-4. Invite verification rejects invalid, expired, inactive, mismatched, or already-used invite codes with generalized failure responses.
-5. Policy consent returns:
+3. First login with valid credentials creates a pending user and returns `APPROVAL_PENDING` without a session cookie.
+4. Pending users cannot log in until an admin approves them; rejected users receive `APPROVAL_REJECTED`.
+5. Approved first-login users must log in again before credentials are encrypted and account linking completes.
+6. Policy consent returns:
    - `LOGIN_CHALLENGE_INVALID` for expired/invalid consent token
    - `POLICY_VERSION_MISMATCH` when the client submits a stale version
    - `POLICY_NOT_CONFIGURED` for non-admin bootstrap cases where documents are missing
-6. Upstream portal unavailability returns the expected temporary error behavior and does not count as a credential failure.
+7. Upstream portal unavailability returns the expected temporary error behavior and does not count as a credential failure.
 
 ## Queue and Worker
 

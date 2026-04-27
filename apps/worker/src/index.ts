@@ -29,6 +29,7 @@ import {
   buildAutoLearnResultMail,
   buildAutoLearnStartMail,
   buildAutoLearnTerminalMail,
+  buildAdminApprovalRequestMail,
   buildDigestMail,
   buildPolicyUpdateMail,
   buildSyncAlertMail,
@@ -346,11 +347,29 @@ interface PolicyUpdateMailPayload {
   }>;
 }
 
+interface AdminApprovalRequestMailPayload {
+  userId: string;
+  mailKind: "ADMIN_APPROVAL_REQUEST";
+  requestedUserId: string;
+  requestedCu12Id: string;
+  requestedAt: string;
+}
+
 function isPolicyUpdateMailPayload(value: unknown): value is PolicyUpdateMailPayload {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   if (record.mailKind !== "POLICY_UPDATE" || typeof record.userId !== "string") return false;
   return Array.isArray(record.policyChanges);
+}
+
+function isAdminApprovalRequestMailPayload(value: unknown): value is AdminApprovalRequestMailPayload {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return record.mailKind === "ADMIN_APPROVAL_REQUEST"
+    && typeof record.userId === "string"
+    && typeof record.requestedUserId === "string"
+    && typeof record.requestedCu12Id === "string"
+    && typeof record.requestedAt === "string";
 }
 
 const AUTOLEARN_CANCEL_ERROR = "AUTOLEARN_CANCELLED";
@@ -1559,7 +1578,101 @@ async function processPolicyUpdateMail(payload: PolicyUpdateMailPayload) {
   }
 }
 
+async function processAdminApprovalRequestMail(payload: AdminApprovalRequestMailPayload) {
+  const email = await getMandatoryMailRecipient(payload.userId);
+  const mailDocument = buildAdminApprovalRequestMail({
+    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
+    generatedAt: new Date(),
+    requestedCu12Id: payload.requestedCu12Id,
+    requestedAt: payload.requestedAt,
+  });
+
+  if (!email) {
+    await recordMailDelivery(
+      payload.userId,
+      "missing-mail-subscription@example.invalid",
+      mailDocument.subject,
+      "SKIPPED",
+      "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+    );
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: payload.userId,
+      message: "Admin approval request mail skipped",
+      meta: {
+        requestedUserId: payload.requestedUserId,
+        requestedCu12Id: payload.requestedCu12Id,
+        reason: "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+      },
+    });
+    return {
+      type: "MAIL_DIGEST",
+      userId: payload.userId,
+      sent: false,
+      reason: "MAIL_SUBSCRIPTION_EMAIL_MISSING",
+      mailKind: payload.mailKind,
+    };
+  }
+
+  try {
+    const result = await sendMail(email, mailDocument.subject, mailDocument.html);
+    if (result.sent) {
+      await recordMailDelivery(payload.userId, email, mailDocument.subject, "SENT");
+      await writeAuditLog({
+        category: "MAIL",
+        severity: "INFO",
+        targetUserId: payload.userId,
+        message: "Admin approval request mail sent",
+        meta: {
+          to: email,
+          subject: mailDocument.subject,
+          requestedUserId: payload.requestedUserId,
+          requestedCu12Id: payload.requestedCu12Id,
+        },
+      });
+      return {
+        type: "MAIL_DIGEST",
+        userId: payload.userId,
+        sent: true,
+        mailKind: payload.mailKind,
+      };
+    }
+
+    const reason = result.reason ?? "UNKNOWN_REASON";
+    await recordMailDelivery(payload.userId, email, mailDocument.subject, "SKIPPED", reason);
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "WARN",
+      targetUserId: payload.userId,
+      message: "Admin approval request mail skipped",
+      meta: { to: email, subject: mailDocument.subject, reason },
+    });
+    return {
+      type: "MAIL_DIGEST",
+      userId: payload.userId,
+      sent: false,
+      reason,
+      mailKind: payload.mailKind,
+    };
+  } catch (error) {
+    await recordMailDelivery(payload.userId, email, mailDocument.subject, "FAILED", errMessage(error));
+    await writeAuditLog({
+      category: "MAIL",
+      severity: "ERROR",
+      targetUserId: payload.userId,
+      message: "Admin approval request mail failed",
+      meta: { to: email, subject: mailDocument.subject, error: errMessage(error) },
+    });
+    throw error;
+  }
+}
+
 async function processMailJob(userId: string, payload: unknown) {
+  if (isAdminApprovalRequestMailPayload(payload)) {
+    return processAdminApprovalRequestMail(payload);
+  }
+
   if (isPolicyUpdateMailPayload(payload)) {
     return processPolicyUpdateMail(payload);
   }
