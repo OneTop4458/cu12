@@ -46,7 +46,7 @@ export function UserMenu({
               <ShieldCheck size={12} />
               <span>
                 {role === "ADMIN" ? "관리자" : "일반 사용자"}
-                {impersonating ? " (대리접속)" : ""}
+                {impersonating ? " (대리 접속)" : ""}
               </span>
             </span>
           </span>
@@ -60,35 +60,34 @@ export function UserMenu({
         collisionPadding={8}
         avoidCollisions
       >
-          <DropdownMenuLabel className="user-menu-label">
-            <UserRound size={16} />
-            <span>사용자 메뉴</span>
-          </DropdownMenuLabel>
-          {onDashboard ? (
-            <DropdownMenuItem className="user-menu-item" onSelect={onDashboard}>
-              <LayoutDashboard size={16} />
-              <span>대시보드</span>
-            </DropdownMenuItem>
-          ) : null}
-          {role === "ADMIN" && onGoAdmin ? (
-            <DropdownMenuItem className="user-menu-item" onSelect={onGoAdmin}>
-              <ShieldCheck size={16} />
-              <span>관리자 화면</span>
-            </DropdownMenuItem>
-          ) : null}
-          {onOpenSettings ? (
-            <DropdownMenuItem className="user-menu-item" onSelect={onOpenSettings}>
-              <Settings size={16} />
-              <span>설정</span>
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuSeparator className="user-menu-separator" />
-          <DropdownMenuItem className="user-menu-item danger" onSelect={onLogout} variant="destructive">
-            <LogOut size={16} />
-            <span>로그아웃</span>
+        <DropdownMenuLabel className="user-menu-label">
+          <UserRound size={16} />
+          <span>사용자 메뉴</span>
+        </DropdownMenuLabel>
+        {onDashboard ? (
+          <DropdownMenuItem className="user-menu-item" onSelect={onDashboard}>
+            <LayoutDashboard size={16} />
+            <span>대시보드</span>
           </DropdownMenuItem>
+        ) : null}
+        {role === "ADMIN" && onGoAdmin ? (
+          <DropdownMenuItem className="user-menu-item" onSelect={onGoAdmin}>
+            <ShieldCheck size={16} />
+            <span>관리자 화면</span>
+          </DropdownMenuItem>
+        ) : null}
+        {onOpenSettings ? (
+          <DropdownMenuItem className="user-menu-item" onSelect={onOpenSettings}>
+            <Settings size={16} />
+            <span>설정</span>
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator className="user-menu-separator" />
+        <DropdownMenuItem className="user-menu-item danger" onSelect={onLogout} variant="destructive">
+          <LogOut size={16} />
+          <span>로그아웃</span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
-

@@ -2,16 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
-import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
-import { NotificationCenter } from "../../components/notifications/notification-center";
-import { ThemeToggle } from "../../components/theme/theme-toggle";
-import { UserMenu } from "../../components/layout/user-menu";
-import { AppMobileNav } from "../../components/layout/app-mobile-nav";
+import { AppTopbar } from "../../components/layout/app-topbar";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
@@ -134,15 +128,6 @@ interface MemberApprovalResponse {
   user: Member;
 }
 
-interface AdminNotification {
-  id: string;
-  courseTitle: string;
-  message: string;
-  occurredAt: string | null;
-  createdAt: string;
-  isUnread: boolean;
-}
-
 interface MemberSyncResponse {
   jobId: string;
   status: string;
@@ -231,7 +216,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [logBusy, setLogBusy] = useState(false);
   const [logPurgeBusy, setLogPurgeBusy] = useState(false);
   const [logPage, setLogPage] = useState(1);
-  const [activeNotification, setActiveNotification] = useState<AdminNotification | null>(null);
   const [logFilters, setLogFilters] = useState<LogFilters>(INITIAL_LOG_FILTERS);
   const [logFilterDraft, setLogFilterDraft] = useState<LogFilters>(INITIAL_LOG_FILTERS);
 
@@ -664,79 +648,26 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const testMemberCount = useMemo(() => members.filter((member) => member.isTestUser).length, [members]);
   const pendingMembers = useMemo(() => members.filter((member) => member.approvalStatus === "PENDING"), [members]);
   const rejectedMemberCount = useMemo(() => members.filter((member) => member.approvalStatus === "REJECTED").length, [members]);
-  const recentLogNotifications = useMemo(
-    () =>
-      logs.map((log) => ({
-        id: log.id,
-        courseTitle: log.severity,
-        message: `[${log.category}] ${log.actor?.email ?? "-"} => ${log.target?.email ?? "-"} / ${log.message}`,
-        occurredAt: log.createdAt,
-        createdAt: log.createdAt,
-        isUnread: false,
-      })),
-    [logs],
-  );
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar">
-        <div className="topbar-main">
-          <div className="topbar-brand">
-            <Image
-              src="/brand/catholic/crest-mark.png"
-              alt="Catholic University crest"
-              width={34}
-              height={34}
-              loading="lazy"
-            />
-            <div>
-              <p className="brand-kicker">Catholic University Automation</p>
-              <h1>운영 관리센터</h1>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            <AppMobileNav mode="admin" />
-            <button
-              className="icon-btn"
-              type="button"
-              onClick={() => void refreshAll(logPage, false)}
-              disabled={loading || !!blockingMessage}
-              title="새로고침"
-            >
-              <RotateCw size={16} />
-            </button>
-            <Link className="ghost-btn" href={"/admin/site-notices" as any}>
-              공지/점검 설정
-            </Link>
-            <Link className="ghost-btn" href={"/admin/operations" as any}>
-              운영 메뉴
-            </Link>
-            <Link className="ghost-btn" href={"/admin/system" as any}>
-              시스템 상태
-            </Link>
-            <Link className="ghost-btn" href={"/admin/system/policies" as any}>
-              약관/고지
-            </Link>
-            <ThemeToggle />
-            <NotificationCenter
-              notifications={recentLogNotifications}
-              historyNotifications={[]}
-              showHistory={false}
-              onToggleHistory={() => {}}
-              onOpen={(item) => setActiveNotification(item)}
-              onMarkRead={() => {}}
-            />
-            <UserMenu
-              email={context.effective.email}
-              role={initialUser.role}
-              impersonating={context.impersonating}
-              onDashboard={() => goDashboard()}
-              onOpenSettings={undefined}
-              onLogout={logout}
-            />
-          </div>
-        </div>
-      </header>
+      <AppTopbar
+        mode="admin"
+        title="운영 관리센터"
+        navLinks={[
+          { href: "/admin/site-notices", label: "공지/점검 설정" },
+          { href: "/admin/operations", label: "운영 메뉴" },
+          { href: "/admin/system", label: "시스템 상태" },
+          { href: "/admin/system/policies", label: "약관/고지" },
+        ]}
+        email={context.effective.email}
+        role={initialUser.role}
+        impersonating={context.impersonating}
+        refreshing={loading || !!blockingMessage}
+        onRefresh={() => void refreshAll(logPage, false)}
+        onDashboard={() => goDashboard()}
+        onLogout={logout}
+      />
       <section className="card admin-hero">
         <div>
           <p className="brand-kicker">가톨릭대학교 수강 지원 솔루션 관리자</p>
@@ -1216,20 +1147,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         </div>
       ) : null}
 
-      {activeNotification ? (
-        <div className="modal-overlay" onClick={() => setActiveNotification(null)}>
-          <section className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <h2>최근 로그 알림</h2>
-            <p className="muted">
-              {toDateTime(activeNotification.occurredAt ?? activeNotification.createdAt)} · {activeNotification.courseTitle}
-            </p>
-            <p>{activeNotification.message}</p>
-            <button type="button" className="ghost-btn" onClick={() => setActiveNotification(null)}>
-              닫기
-            </button>
-          </section>
-        </div>
-      ) : null}
+
     </main>
   );
 }
