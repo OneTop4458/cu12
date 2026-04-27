@@ -27,7 +27,6 @@ corepack pnpm run build:web
 ## 운영 스케줄
 
 - 동기화: `sync-schedule.yml` 이 2시간마다 실행됩니다.
-- 다이제스트: `mail-digest-schedule.yml` 이 매시간 실행됩니다.
 - 자동 학습 예약: `autolearn-dispatch.yml` 이 매일 `00:20 UTC` 에 실행됩니다.
 - 상태 점검: `reconcile-health-check.yml` 이 4시간마다 실행됩니다.
 

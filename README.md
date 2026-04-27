@@ -10,7 +10,7 @@ Catholic University Automation is a cloud-native control plane for a small admin
 | Providers | CU12 and Cyber Campus provider-aware sync and dashboard views |
 | Learning automation | Queue-based auto-learning with VOD, material, and optional OpenAI-backed quiz execution |
 | Worker runtime | GitHub Actions orchestration with HTTP sync paths plus Playwright execution where browser automation is required |
-| Notifications | Dashboard notices/messages plus optional immediate mail alerts and hourly digest dispatch |
+| Notifications | Unified dashboard activity plus action-required mail for deadlines, policy, approvals, and auto-learning results |
 | Admin operations | Member management, approval requests, worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
 
 ## Architecture
@@ -198,7 +198,6 @@ Use named arguments directly. Do not use the legacy double-dash forwarding form.
 | Workflow | Schedule | Current behavior |
 | --- | --- | --- |
 | `sync-schedule.yml` | `0 */2 * * *` UTC | Enqueue provider-aware sync work every 2 hours, then request centralized worker dispatch |
-| `mail-digest-schedule.yml` | `0 * * * *` UTC | Enqueue digest jobs hourly and filter delivery by each user's KST `digestHour` |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
 | `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs and fail on divergence |
 | `db-retention-cleanup.yml` | see workflow file | Remove rows past retention policy windows |
@@ -226,7 +225,7 @@ Use named arguments directly. Do not use the legacy double-dash forwarding form.
 
 | Variable | Surface | Purpose |
 | --- | --- | --- |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | Enable immediate alerts, digest mail, policy/test mail flows |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | Enable action-required mail, policy/admin approval mail, and test mail flows |
 | `OPENAI_API_KEY` | worker | Enable quiz auto-solve for eligible users |
 | `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS` | worker | Tune the quiz-answering model request |
 

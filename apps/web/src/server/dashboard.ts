@@ -70,6 +70,23 @@ interface CourseNoticeSampleRow {
   updatedAt: Date;
 }
 
+export type DashboardActivityKind = "NOTICE" | "NOTIFICATION" | "MESSAGE" | "SYSTEM";
+
+export interface DashboardActivityItem {
+  id: string;
+  sourceId: string;
+  kind: DashboardActivityKind;
+  provider: PortalProvider;
+  title: string;
+  courseTitle: string;
+  message: string;
+  occurredAt: Date | null;
+  createdAt: Date;
+  isUnread: boolean;
+  isArchived: boolean;
+  needsAttention: boolean;
+}
+
 const AUTO_SYNC_INTERVAL_HOURS = 2;
 const AUTO_SYNC_MIN_INTERVAL_MINUTES = AUTO_SYNC_INTERVAL_HOURS * 60;
 
@@ -222,6 +239,21 @@ function toDateOrNull(value: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function isAttentionNotification(input: {
+  category: string | null;
+  message: string;
+  isUnread: boolean;
+  isCanceled?: boolean | null;
+}): boolean {
+  if (!input.isUnread || input.isCanceled) return false;
+  const text = `${input.category ?? ""} ${input.message}`.toLowerCase();
+  return /deadline|due|failed|failure|error|approval|auth|urgent|마감|기한|실패|오류|에러|승인|인증|긴급|자동수강/.test(text);
+}
+
+function normalizeActivityDate(value: Date | null, fallback: Date): Date {
+  return value && !Number.isNaN(value.getTime()) ? value : fallback;
 }
 
 function normalizeCourseSnapshotRow(row: {
@@ -1448,6 +1480,215 @@ export async function getNotices(userId: string, lectureSeq: number, provider: P
   return dedupeNoticeRows(rows);
 }
 
+export async function getActivity(
+  userId: string,
+  provider: PortalProvider = "CU12",
+  limit = 50,
+): Promise<DashboardActivityItem[]> {
+  const take = Math.min(Math.max(limit, 1), 100);
+  const now = new Date();
+  const urgentUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  const [notices, notifications, messages, urgentTasks] = await Promise.all([
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseNotice.findMany({
+        where: { userId, provider, isRead: false },
+        orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
+        take: Math.min(take, 30),
+        select: { id: true, provider: true, title: true, bodyText: true, postedAt: true, createdAt: true, isRead: true },
+      }),
+      () => prisma.courseNotice.findMany({
+        where: { userId, isRead: false },
+        orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
+        take: Math.min(take, 30),
+        select: { id: true, provider: true, title: true, bodyText: true, postedAt: true, createdAt: true, isRead: true },
+      }),
+      [],
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.notificationEvent.findMany({
+        where: { userId, provider, isArchived: false },
+        orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          provider: true,
+          courseTitle: true,
+          category: true,
+          message: true,
+          occurredAt: true,
+          createdAt: true,
+          isUnread: true,
+          isCanceled: true,
+          isArchived: true,
+        },
+      }),
+      () => prisma.notificationEvent.findMany({
+        where: { userId, isArchived: false },
+        orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          provider: true,
+          courseTitle: true,
+          category: true,
+          message: true,
+          occurredAt: true,
+          createdAt: true,
+          isUnread: true,
+          isCanceled: true,
+          isArchived: true,
+        },
+      }),
+      [],
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.portalMessage.findMany({
+        where: { userId, provider, isArchived: false },
+        orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          provider: true,
+          title: true,
+          senderName: true,
+          bodyText: true,
+          sentAt: true,
+          createdAt: true,
+          isRead: true,
+          isArchived: true,
+        },
+      }),
+      () => prisma.portalMessage.findMany({
+        where: { userId, isArchived: false },
+        orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          provider: true,
+          title: true,
+          senderName: true,
+          bodyText: true,
+          sentAt: true,
+          createdAt: true,
+          isRead: true,
+          isArchived: true,
+        },
+      }),
+      [],
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.learningTask.findMany({
+        where: { userId, provider, state: "PENDING", dueAt: { gte: now, lte: urgentUntil } },
+        orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+        take: 20,
+        select: { id: true, provider: true, lectureSeq: true, weekNo: true, lessonNo: true, dueAt: true, createdAt: true },
+      }),
+      () => prisma.learningTask.findMany({
+        where: { userId, state: "PENDING", dueAt: { gte: now, lte: urgentUntil } },
+        orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+        take: 20,
+        select: { id: true, provider: true, lectureSeq: true, weekNo: true, lessonNo: true, dueAt: true, createdAt: true },
+      }),
+      [],
+    ),
+  ]);
+
+  const lectureSeqs = Array.from(new Set(urgentTasks.map((task) => task.lectureSeq)));
+  const titleRows = lectureSeqs.length > 0
+    ? await withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, provider, lectureSeq: { in: lectureSeqs } },
+        select: { lectureSeq: true, title: true },
+      }),
+      () => prisma.courseSnapshot.findMany({
+        where: { userId, lectureSeq: { in: lectureSeqs } },
+        select: { lectureSeq: true, title: true },
+      }),
+      [],
+    )
+    : [];
+  const titleBySeq = new Map(titleRows.map((row) => [row.lectureSeq, row.title]));
+
+  const activities: DashboardActivityItem[] = [
+    ...notices.map((notice) => ({
+      id: `notice:${notice.provider}:${notice.id}`,
+      sourceId: notice.id,
+      kind: "NOTICE" as const,
+      provider: notice.provider,
+      title: notice.title,
+      courseTitle: notice.title,
+      message: notice.bodyText,
+      occurredAt: notice.postedAt,
+      createdAt: notice.createdAt,
+      isUnread: !notice.isRead,
+      isArchived: false,
+      needsAttention: false,
+    })),
+    ...notifications.map((notification) => ({
+      id: `notification:${notification.provider}:${notification.id}`,
+      sourceId: notification.id,
+      kind: "NOTIFICATION" as const,
+      provider: notification.provider,
+      title: notification.courseTitle || notification.category || "Portal notification",
+      courseTitle: notification.courseTitle || notification.category || "Portal notification",
+      message: notification.message,
+      occurredAt: notification.occurredAt,
+      createdAt: notification.createdAt,
+      isUnread: notification.isUnread,
+      isArchived: notification.isArchived,
+      needsAttention: isAttentionNotification(notification),
+    })),
+    ...messages.map((message) => ({
+      id: `message:${message.provider}:${message.id}`,
+      sourceId: message.id,
+      kind: "MESSAGE" as const,
+      provider: message.provider,
+      title: message.title,
+      courseTitle: message.title,
+      message: message.bodyText || message.senderName || "",
+      occurredAt: message.sentAt,
+      createdAt: message.createdAt,
+      isUnread: !message.isRead,
+      isArchived: message.isArchived,
+      needsAttention: !message.isRead,
+    })),
+    ...urgentTasks.map((task) => ({
+      id: `system:${task.provider}:${task.id}`,
+      sourceId: task.id,
+      kind: "SYSTEM" as const,
+      provider: task.provider,
+      title: "Urgent deadline",
+      courseTitle: titleBySeq.get(task.lectureSeq) ?? `Course ${task.lectureSeq}`,
+      message: `${titleBySeq.get(task.lectureSeq) ?? `Course ${task.lectureSeq}`} - week ${task.weekNo}, lesson ${task.lessonNo}`,
+      occurredAt: task.dueAt,
+      createdAt: task.createdAt,
+      isUnread: true,
+      isArchived: false,
+      needsAttention: true,
+    })),
+  ];
+
+  return activities
+    .sort((a, b) => {
+      const attentionDelta = Number(b.needsAttention) - Number(a.needsAttention);
+      if (attentionDelta !== 0) return attentionDelta;
+      return normalizeActivityDate(b.occurredAt, b.createdAt).getTime()
+        - normalizeActivityDate(a.occurredAt, a.createdAt).getTime();
+    })
+    .slice(0, take);
+}
+
 export async function getNotifications(
   userId: string,
   provider: PortalProvider = "CU12",
@@ -1516,12 +1757,12 @@ export async function getMessages(
     userId,
     provider,
     () => portalMessageStore.findMany({
-      where: { userId, provider },
+      where: { userId, provider, isArchived: false },
       orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
       take: Math.min(Math.max(limit, 1), 100),
     }) as Promise<Array<Prisma.PortalMessageGetPayload<object>>>,
     () => portalMessageStore.findMany({
-      where: { userId },
+      where: { userId, isArchived: false },
       orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
       take: Math.min(Math.max(limit, 1), 100),
     }) as Promise<Array<Prisma.PortalMessageGetPayload<object>>>,

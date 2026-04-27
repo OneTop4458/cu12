@@ -27,7 +27,6 @@ import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import {
   buildAutoLearnResultMail,
-  buildAutoLearnStartMail,
   buildAutoLearnTerminalMail,
   buildAdminApprovalRequestMail,
   buildDigestMail,
@@ -514,7 +513,7 @@ async function sendSyncAlertMail(
 
   if (pref.alertOnDeadline && summary.deadlineTasks.length > 0) {
     const now = new Date();
-    const thresholdSet = new Set([7, 3, 1, 0]);
+    const thresholdSet = new Set([1, 0]);
 
     for (const task of summary.deadlineTasks) {
       const dueAt = new Date(task.dueAt);
@@ -548,9 +547,9 @@ async function sendSyncAlertMail(
   const mailDocument = buildSyncAlertMail({
     dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
     generatedAt: new Date(),
-    newNotices: pref.alertOnNotice ? summary.newNotices : [],
-    newUnreadNotifications: pref.alertOnNotice ? summary.newUnreadNotifications : [],
-    newMessages: pref.alertOnNotice ? summary.newMessages : [],
+    newNotices: [],
+    newUnreadNotifications: [],
+    newMessages: [],
     unreadMessageCount: summary.unreadMessageCount,
     deadlineAlerts: pref.alertOnDeadline ? deadlineAlerts : [],
   });
@@ -667,61 +666,6 @@ async function sendAutoLearnResultMail(
       severity: "ERROR",
       targetUserId: userId,
       message: "Autolearn result mail failed",
-      meta: { to: pref.email, subject: mailDocument.subject, error: errMessage(error) },
-    });
-  }
-}
-
-async function sendAutoLearnStartMail(
-  userId: string,
-  payload: {
-    mode: AutoLearnMode;
-    lectureSeq?: number;
-    chainSegment?: number;
-  },
-) {
-  const pref = await getUserMailPreference(userId);
-  if (!pref || !pref.enabled || !pref.alertOnAutolearn) {
-    return;
-  }
-  const mailDocument = buildAutoLearnStartMail({
-    dashboardBaseUrl: getEnv().WEB_INTERNAL_BASE_URL,
-    generatedAt: new Date(),
-    mode: payload.mode,
-    lectureSeq: payload.lectureSeq,
-    chainSegment: payload.chainSegment,
-  });
-
-  try {
-    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
-    if (result.sent) {
-      await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
-      await writeAuditLog({
-        category: "MAIL",
-        severity: "INFO",
-        targetUserId: userId,
-        message: "Autolearn start mail sent",
-        meta: { to: pref.email, subject: mailDocument.subject },
-      });
-      return;
-    }
-
-    const reason = result.reason ?? "UNKNOWN_REASON";
-    await recordMailDelivery(userId, pref.email, mailDocument.subject, "SKIPPED", reason);
-    await writeAuditLog({
-      category: "MAIL",
-      severity: "WARN",
-      targetUserId: userId,
-      message: "Autolearn start mail skipped",
-      meta: { to: pref.email, subject: mailDocument.subject, reason },
-    });
-  } catch (error) {
-    await recordMailDelivery(userId, pref.email, mailDocument.subject, "FAILED", errMessage(error));
-    await writeAuditLog({
-      category: "MAIL",
-      severity: "ERROR",
-      targetUserId: userId,
-      message: "Autolearn start mail failed",
       meta: { to: pref.email, subject: mailDocument.subject, error: errMessage(error) },
     });
   }
@@ -1032,13 +976,7 @@ async function processAutolearn(
     stallDetected = true;
     console.error(`[AUTOLEARN] stalled job=${jobId} idle=${Math.floor(idleMs / 1000)}s`);
   }, 5000);
-  if (options?.sendStartMail) {
-    await sendAutoLearnStartMail(userId, {
-      mode,
-      lectureSeq,
-      chainSegment: options.chainSegment,
-    });
-  }
+  void options?.sendStartMail;
   try {
     console.log(formatAutoLearnStartLog({
       jobId,
@@ -1311,7 +1249,9 @@ async function processClaimedAutoLearnJob(
 }
 
 async function processDigestMail(userId: string) {
-  const pref = await getUserMailPreference(userId);
+  return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
+
+  const pref = (await getUserMailPreference(userId))!;
   if (!pref || !pref.enabled || !pref.digestEnabled) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "DIGEST_DISABLED" };
   }
@@ -1434,7 +1374,7 @@ async function processDigestMail(userId: string) {
       ...task,
       courseTitle: titleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
     })),
-  });
+  })!;
   if (!mailDocument) {
     return { type: "MAIL_DIGEST", userId, sent: false, reason: "NO_MEANINGFUL_CONTENT" };
   }

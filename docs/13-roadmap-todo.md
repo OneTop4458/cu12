@@ -8,14 +8,14 @@
 - [x] Provider-aware dashboard surfaces for CU12 and Cyber Campus
 - [x] Queue-based sync and auto-learning orchestration
 - [x] Cyber Campus approval-session flow for secondary authentication
-- [x] Mail alerts and hourly digest dispatch
+- [x] Action-required mail alerts and unified dashboard activity
 - [x] Admin operations center for workers, jobs, members, policies, and site notices
 
 ## Near Term
 
 - [ ] Better queue observability for latency, throughput, and stale-run patterns
 - [ ] Admin workflow refinements for approval/session recovery
-- [ ] UX improvements for notice/message history and provider switching
+- [ ] UX improvements for activity history and provider switching
 
 ## Mid Term
 

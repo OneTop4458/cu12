@@ -8,7 +8,7 @@ Keep CU12 Automation within free-tier limits for GitHub Actions, Vercel, and Neo
 
 1. Scheduled sync frequency changed from every 30 minutes to every 2 hours.
 2. Scheduled workflows now skip consume stage when dispatch created zero jobs.
-3. `worker-consume` now supports job-type filtering and skips Playwright install for digest-only execution.
+3. `worker-consume` supports job-type filtering; routine digest dispatch is disabled.
 4. CodeQL changed to weekly schedule only (manual runs remain available).
 5. Dashboard initial load now uses aggregated bootstrap API and adaptive polling.
 6. Daily retention cleanup removes old operational data.

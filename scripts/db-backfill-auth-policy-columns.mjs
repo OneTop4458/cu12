@@ -169,6 +169,22 @@ try {
       console.log(`[db-sync] Backfilled accountStatus on ${updated} Cu12Account rows.`);
     }
   }
+
+  if (await tableExists("MailSubscription")) {
+    const hasAlertOnNotice = await columnExists("MailSubscription", "alertOnNotice");
+    const hasDigestEnabled = await columnExists("MailSubscription", "digestEnabled");
+
+    if (hasAlertOnNotice && hasDigestEnabled) {
+      const updated = await prisma.$executeRawUnsafe(`
+        UPDATE "MailSubscription"
+        SET "alertOnNotice" = false,
+            "digestEnabled" = false
+        WHERE "alertOnNotice" = true
+           OR "digestEnabled" = true
+      `);
+      console.log(`[db-sync] Quieted noisy mail preferences for ${updated} MailSubscription rows.`);
+    }
+  }
 } finally {
   await prisma.$disconnect();
 }

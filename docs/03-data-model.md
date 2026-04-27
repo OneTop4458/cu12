@@ -11,7 +11,7 @@
 
 2. `Cu12Account`
    - Shared portal-account mapping for the user.
-   - Stores encrypted portal password, current provider, campus, account status, and automation toggles such as quiz auto-solve and digest enablement.
+   - Stores encrypted portal password, current provider, campus, account status, and automation toggles such as quiz auto-solve.
    - Pending users do not receive a `Cu12Account` row until they are approved and log in again.
 
 3. `AuthRateLimit`
@@ -55,7 +55,7 @@
     - Provider-scoped notification feed items, unread/archive state, and dashboard history.
 
 14. `PortalMessage`
-    - Provider-scoped inbox/message snapshots with read state.
+    - Provider-scoped inbox/message snapshots with read and archive state.
 
 15. `LearningTask`
     - Provider-scoped task inventory across `VOD`, `MATERIAL`, `QUIZ`, `ASSIGNMENT`, and `ETC`.
@@ -68,7 +68,7 @@
     - Dedupe table for deadline notifications by user, provider, task identity, threshold, and due time.
 
 18. `MailSubscription` and `MailDelivery`
-    - User-configured mail delivery preferences and immutable delivery history.
+    - User-configured action-required mail preferences and immutable delivery history. Daily digest mail is disabled.
 
 19. `SiteNotice`
     - Admin-managed notices shown on login and dashboard surfaces.

@@ -436,6 +436,7 @@ model PortalMessage {
   bodyText   String
   sentAt     DateTime?
   isRead     Boolean  @default(false)
+  isArchived Boolean  @default(false)
   syncedAt   DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -444,6 +445,7 @@ model PortalMessage {
   @@unique([userId, provider, messageSeq])
   @@index([userId, provider, sentAt])
   @@index([userId, provider, isRead, sentAt])
+  @@index([userId, provider, isArchived, sentAt])
 }
 
 model LearningTask {
@@ -492,10 +494,10 @@ model MailSubscription {
   userId           String   @unique
   email            String
   enabled          Boolean  @default(true)
-  alertOnNotice    Boolean  @default(true)
+  alertOnNotice    Boolean  @default(false)
   alertOnDeadline  Boolean  @default(true)
   alertOnAutolearn Boolean  @default(true)
-  digestEnabled    Boolean  @default(true)
+  digestEnabled    Boolean  @default(false)
   digestHour       Int      @default(8)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

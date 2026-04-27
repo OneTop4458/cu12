@@ -33,16 +33,14 @@ async function resolvePreference(userId: string) {
     return null;
   }
 
-  const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
-
   if (!subscription) {
     return {
       email: user.email,
       enabled: true,
-      alertOnNotice: true,
+      alertOnNotice: false,
       alertOnDeadline: true,
       alertOnAutolearn: true,
-      digestEnabled: accountDigestEnabled,
+      digestEnabled: false,
       digestHour: 8,
       updatedAt: null,
     };
@@ -54,7 +52,7 @@ async function resolvePreference(userId: string) {
     alertOnNotice: subscription.alertOnNotice,
     alertOnDeadline: subscription.alertOnDeadline,
     alertOnAutolearn: subscription.alertOnAutolearn,
-    digestEnabled: subscription.digestEnabled && accountDigestEnabled,
+    digestEnabled: false,
     digestHour: subscription.digestHour,
     updatedAt: subscription.updatedAt,
   };
@@ -95,8 +93,6 @@ export async function PATCH(request: NextRequest) {
       return jsonError("User not found", 404);
     }
 
-    const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
-
     const saved = await prisma.mailSubscription.upsert({
       where: { userId: context.effective.userId },
       update: {
@@ -105,17 +101,17 @@ export async function PATCH(request: NextRequest) {
         alertOnNotice: body.alertOnNotice,
         alertOnDeadline: body.alertOnDeadline,
         alertOnAutolearn: body.alertOnAutolearn,
-        digestEnabled: body.digestEnabled,
+        digestEnabled: false,
         digestHour: body.digestHour,
       },
       create: {
         userId: context.effective.userId,
         email: body.email ?? user.email,
         enabled: body.enabled ?? true,
-        alertOnNotice: body.alertOnNotice ?? true,
+        alertOnNotice: body.alertOnNotice ?? false,
         alertOnDeadline: body.alertOnDeadline ?? true,
         alertOnAutolearn: body.alertOnAutolearn ?? true,
-        digestEnabled: body.digestEnabled ?? accountDigestEnabled,
+        digestEnabled: false,
         digestHour: body.digestHour ?? 8,
       },
     });
@@ -123,7 +119,7 @@ export async function PATCH(request: NextRequest) {
     await prisma.cu12Account.updateMany({
       where: { userId: context.effective.userId },
       data: {
-        emailDigestEnabled: saved.digestEnabled,
+        emailDigestEnabled: false,
       },
     });
 
@@ -135,7 +131,7 @@ export async function PATCH(request: NextRequest) {
         alertOnNotice: saved.alertOnNotice,
         alertOnDeadline: saved.alertOnDeadline,
         alertOnAutolearn: saved.alertOnAutolearn,
-        digestEnabled: saved.digestEnabled,
+        digestEnabled: false,
         digestHour: saved.digestHour,
         updatedAt: saved.updatedAt,
       },

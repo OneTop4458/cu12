@@ -38,7 +38,7 @@ Implementation-detail tests are still valid when they guard an externally observ
 ## Dashboard Data
 
 1. Bootstrap payload includes actor/effective context, provider summaries, queue state, account settings, Cyber Campus state, and mail preference.
-2. Notifications and messages respect explicit or inferred provider scope.
+2. Unified activity merges notices, notifications, messages, and urgent deadline items while respecting explicit or inferred provider scope.
 3. Site notices and maintenance notice surfaces align with the active visibility window, including fixed maintenance exposure on login and dashboard top.
 4. `BROADCAST` display targets route notices correctly across login-only, topbar-only, and dual-surface modes.
 5. Broadcast notice accordions start collapsed and preserve multiline bodies when expanded, while dashboard maintenance warning copy stays visible by default.

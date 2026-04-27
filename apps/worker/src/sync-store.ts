@@ -791,8 +791,6 @@ export async function getUserMailPreference(userId: string): Promise<MailPrefere
     prisma.mailSubscription.findUnique({ where: { userId } }),
   ]);
 
-  const accountDigestEnabled = user?.cu12Account?.emailDigestEnabled ?? true;
-
   if (!user?.email) {
     return null;
   }
@@ -801,10 +799,10 @@ export async function getUserMailPreference(userId: string): Promise<MailPrefere
     return {
       enabled: true,
       email: user.email,
-      alertOnNotice: true,
+      alertOnNotice: false,
       alertOnDeadline: true,
       alertOnAutolearn: true,
-      digestEnabled: accountDigestEnabled,
+      digestEnabled: false,
       digestHour: 8,
     };
   }
@@ -815,7 +813,7 @@ export async function getUserMailPreference(userId: string): Promise<MailPrefere
     alertOnNotice: subscription.alertOnNotice,
     alertOnDeadline: subscription.alertOnDeadline,
     alertOnAutolearn: subscription.alertOnAutolearn,
-    digestEnabled: subscription.digestEnabled && accountDigestEnabled,
+    digestEnabled: false,
     digestHour: subscription.digestHour,
   };
 }

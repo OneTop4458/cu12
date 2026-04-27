@@ -20,9 +20,9 @@
    - Schedule: `0 */2 * * *` UTC.
    - Enqueues provider-aware sync work and requests centralized dispatch only when pending work exists.
 
-5. `mail-digest-schedule.yml`
-   - Schedule: `0 * * * *` UTC.
-   - Enqueues digest jobs hourly and lets the worker filter by each user's KST `digestHour`.
+5. Daily digest mail
+   - Disabled. No scheduled digest workflow should enqueue routine summary mail.
+   - `MAIL_DIGEST` remains as the internal queue type for mandatory policy and admin approval mail payloads.
 
 6. `autolearn-dispatch.yml`
    - Schedule: `20 0 * * *` UTC.
