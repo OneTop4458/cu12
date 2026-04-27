@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const LAST_ACTIVITY_KEY = "cu12:last-activity-at";
 const SESSION_EXPIRED_STATE_KEY = "cu12:session-timeout-state";
@@ -88,7 +88,7 @@ export function SessionActivityGuard() {
   const [warningMode, setWarningMode] = useState<boolean>(false);
   const shouldRender = shouldTrack;
 
-  const setActiveStateNow = (timestamp: number) => {
+  const setActiveStateNow = useCallback((timestamp: number) => {
     lastActivityAtRef.current = timestamp;
     setRemainingSeconds(Math.ceil(getIdleTimeoutMs() / 1000));
     setWarningMode(false);
@@ -97,15 +97,15 @@ export function SessionActivityGuard() {
     } catch {
       // Ignore storage errors.
     }
-  };
+  }, []);
 
-  const navigateToLogin = (reason: SessionExpiredReason) => {
+  const navigateToLogin = useCallback((reason: SessionExpiredReason) => {
     const url = new URL("/login", window.location.origin);
     url.searchParams.set("reason", reason);
     window.location.assign(`${url.pathname}${url.search}`);
-  };
+  }, []);
 
-  const markSessionExpired = async (reason: SessionExpiredReason) => {
+  const markSessionExpired = useCallback(async (reason: SessionExpiredReason) => {
     if (loggingOutRef.current) return;
     loggingOutRef.current = true;
     setRemainingSeconds(0);
@@ -123,9 +123,9 @@ export function SessionActivityGuard() {
       writeSessionExpiredState(reason);
       navigateToLogin(reason);
     }
-  };
+  }, [navigateToLogin]);
 
-  const tryRefresh = async (now: number) => {
+  const tryRefresh = useCallback(async (now: number) => {
     if (loggingOutRef.current) return;
     if (now - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
     lastRefreshAtRef.current = now;
@@ -143,22 +143,22 @@ export function SessionActivityGuard() {
     } catch {
       // Ignore transient network failures.
     }
-  };
+  }, [markSessionExpired]);
 
-  const registerActivity = (now: number) => {
+  const registerActivity = useCallback((now: number) => {
     if (loggingOutRef.current) return;
     if (now - lastActivityHandledAtRef.current < ACTIVITY_APPLY_GAP_MS) return;
     lastActivityHandledAtRef.current = now;
     setActiveStateNow(now);
     void tryRefresh(now);
-  };
+  }, [setActiveStateNow, tryRefresh]);
 
-  const extendSession = async () => {
+  const extendSession = useCallback(async () => {
     if (loggingOutRef.current) return;
     const now = Date.now();
     await tryRefresh(now);
     setActiveStateNow(now);
-  };
+  }, [setActiveStateNow, tryRefresh]);
 
   useEffect(() => {
     if (shouldTrack) return;
@@ -255,7 +255,7 @@ export function SessionActivityGuard() {
       window.removeEventListener("storage", onStorage);
       window.clearInterval(intervalId);
     };
-  }, [shouldTrack]);
+  }, [markSessionExpired, navigateToLogin, registerActivity, setActiveStateNow, shouldTrack, tryRefresh]);
 
   if (!shouldRender) return null;
 

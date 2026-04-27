@@ -19,16 +19,16 @@ jobs:
       matrix:
         language: ["javascript-typescript"]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b307475762933b98ed359c036b0e51f26b63b74b
         with:
           run_install: false
-      - uses: github/codeql-action/init@5c8a8a642e79153f5d047b10ec1cba1d1cc65699
+      - uses: github/codeql-action/init@e6985fd516cce3b1a0e8db34a4013d2e50a1e252
         with:
           languages: ${{ matrix.language }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "20"
           cache: "pnpm"
@@ -37,4 +37,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
       - run: pnpm run build:web
-      - uses: github/codeql-action/analyze@5c8a8a642e79153f5d047b10ec1cba1d1cc65699
+      - uses: github/codeql-action/analyze@e6985fd516cce3b1a0e8db34a4013d2e50a1e252

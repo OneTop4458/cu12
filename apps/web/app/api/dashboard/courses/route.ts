@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     );
 
     return applyServerTimingHeader(jsonOk({
-      courses: courses.map(({ weekSummaries, taskTypeCounts, pendingTaskTypeCounts, ...course }) => ({
+      courses: courses.map((course) => ({
         ...course,
         provider,
         weekSummaries: [],

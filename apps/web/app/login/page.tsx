@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
@@ -39,9 +40,11 @@ export default async function LoginPage({
       </div>
       <section className="auth-stage">
         <section className="auth-brand">
-          <img
+          <Image
             src="/brand/catholic/logo-wordmark.png"
             alt="Catholic University logo"
+            width={300}
+            height={72}
             className="brand-wordmark"
           />
           <h1>{COPY.title}</h1>
