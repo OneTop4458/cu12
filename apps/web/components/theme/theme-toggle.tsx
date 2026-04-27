@@ -46,7 +46,7 @@ function ThemeOptionButton({
 }
 
 export function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -54,19 +54,18 @@ export function ThemeToggle() {
   }, []);
 
   const current = (mounted && theme ? theme : "system") as "light" | "dark" | "system";
-  const visibleTheme = resolvedTheme ?? current;
 
   return (
     <div className="theme-toggle" role="group" aria-label="테마 설정">
       <ThemeOptionButton
-        active={mounted && visibleTheme === "light"}
+        active={mounted && current === "light"}
         onClick={() => setTheme("light")}
         icon={Sun}
         label="라이트"
         value="light"
       />
       <ThemeOptionButton
-        active={mounted && visibleTheme === "dark"}
+        active={mounted && current === "dark"}
         onClick={() => setTheme("dark")}
         icon={Moon}
         label="다크"
