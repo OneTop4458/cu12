@@ -21,6 +21,8 @@ function ThemeOptionButton({
   ariaLabel?: string;
   value: "light" | "dark" | "system";
 }) {
+  const resolvedLabel = ariaLabel ?? `${label} 테마 설정`;
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -30,7 +32,7 @@ function ThemeOptionButton({
           size="sm"
           className={`theme-toggle-item ${active ? "active" : ""}`}
           aria-pressed={active}
-          aria-label={ariaLabel ?? `${label} 테마 설정`}
+          aria-label={resolvedLabel}
           onClick={onClick}
           data-theme-option={value}
         >
@@ -38,7 +40,7 @@ function ThemeOptionButton({
           <span>{label}</span>
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{ariaLabel ?? `${label} 테마 설정`}</TooltipContent>
+      <TooltipContent>{resolvedLabel}</TooltipContent>
     </Tooltip>
   );
 }
@@ -75,7 +77,7 @@ export function ThemeToggle() {
         onClick={() => setTheme("system")}
         icon={Monitor}
         label="시스템"
-        ariaLabel="시스템(시간 자동) 테마 설정"
+        ariaLabel="시스템 설정에 맞춰 테마 자동 선택"
         value="system"
       />
     </div>

@@ -3,11 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
-import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { NotificationCenter } from "../../components/notifications/notification-center";
-import { RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   formatDashboardDeadlineRemainingLabel,
@@ -25,9 +21,13 @@ import {
   type AutoLearnNoOpReason,
 } from "../../src/lib/autolearn-noop";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
-import { ThemeToggle } from "../../components/theme/theme-toggle";
-import { UserMenu } from "../../components/layout/user-menu";
-import { AppMobileNav } from "../../components/layout/app-mobile-nav";
+import { AppTopbar } from "../../components/layout/app-topbar";
+import {
+  createDeadlineLoadState,
+  finishDeadlineLoad,
+  startDeadlineLoad,
+  type DeadlineLoadState,
+} from "../../src/lib/deadline-load-state";
 
 interface DashboardClientProps {
   initialUser: {
@@ -121,10 +121,7 @@ interface Deadline {
   daysLeft: number | null;
 }
 
-interface AllDeadlinesState {
-  status: "idle" | "loading" | "loaded";
-  items: Deadline[] | null;
-}
+type AllDeadlinesState = DeadlineLoadState<Deadline>;
 
 interface Notice {
   provider: PortalProvider;
@@ -134,32 +131,6 @@ interface Notice {
   postedAt: string | null;
   bodyText: string;
   isRead: boolean;
-}
-
-interface Notification {
-  provider: PortalProvider;
-  id: string;
-  courseTitle: string;
-  message: string;
-  occurredAt: string | null;
-  createdAt: string;
-  isUnread: boolean;
-  isArchived?: boolean;
-}
-
-interface ActivityItem {
-  provider: PortalProvider;
-  id: string;
-  sourceId: string;
-  kind: "NOTICE" | "NOTIFICATION" | "MESSAGE" | "SYSTEM";
-  title: string;
-  courseTitle: string;
-  message: string;
-  occurredAt: string | null;
-  createdAt: string;
-  isUnread: boolean;
-  isArchived: boolean;
-  needsAttention: boolean;
 }
 
 interface SiteNotice {
@@ -843,17 +814,11 @@ function formatNextDeadline(task: Course["nextPendingTask"]): string {
   return toDateTime(task?.dueAt ?? task?.availableFrom ?? null);
 }
 
-function sanitizeNotificationMessage(message: string): string {
-  return message
-    .replace(/^(?:\s*\[[^\]]+\]\s*)?/, "")
-    .replace(/\s*(미확인|읽지않음|not-read|not_checked|아직\s*읽지\s*않음)\s*$/gi, "")
-    .trim();
-}
-
 export function DashboardClient({ initialUser }: DashboardClientProps) {
   const router = useRouter();
   const bootstrapRef = useRef(false);
   const lastInteractionAtRef = useRef(Date.now());
+  const allDeadlinesRequestRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -881,16 +846,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [deadlinesLoading, setDeadlinesLoading] = useState(true);
-  const [allDeadlinesState, setAllDeadlinesState] = useState<AllDeadlinesState>({
-    status: "idle",
-    items: null,
-  });
+  const [allDeadlinesState, setAllDeadlinesState] = useState<AllDeadlinesState>(() => createDeadlineLoadState());
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
-  const [notifications, setNotifications] = useState<ActivityItem[]>([]);
-  const [, setNotificationsLoading] = useState(true);
-  const [notificationHistory, setNotificationHistory] = useState<ActivityItem[]>([]);
-  const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
-  const [notificationHistoryLoading, setNotificationHistoryLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
@@ -929,7 +886,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   });
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [syncQueueCleanupSubmitting, setSyncQueueCleanupSubmitting] = useState(false);
-  const [notificationClearing, setNotificationClearing] = useState(false);
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalCode, setApprovalCode] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
@@ -944,7 +900,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [noticeCourse, setNoticeCourse] = useState<Course | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
-  const [activeNotification, setActiveNotification] = useState<ActivityItem | null>(null);
   const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<string>>(() => new Set());
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
@@ -1037,7 +992,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }),
     [courses],
   );
-  const deadlineLoading = deadlineFilter === "ALL" && allDeadlinesState.status === "loading";
+  const deadlineLoading = deadlineFilter === "ALL"
+    && allDeadlinesState.status === "loading"
+    && (allDeadlinesState.items?.length ?? 0) === 0;
   const deadlineD7Items = useMemo(
     () => deadlines.filter((item) => item.daysLeft !== null && item.daysLeft >= 0 && item.daysLeft <= 7),
     [deadlines],
@@ -1046,6 +1003,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const displayedDeadlines = deadlineFilter === "D7"
     ? deadlineD7Items
     : deadlineAllItems;
+  const deadlineLoadError = deadlineFilter === "ALL" ? allDeadlinesState.error : null;
   const currentWeekPendingStats = useMemo(
     () =>
       courses.reduce(
@@ -1200,27 +1158,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     return payload;
   }, [router]);
 
-  const loadNotificationHistory = useCallback(async () => {
-    setNotificationHistoryLoading(true);
-    try {
-      const payload = await fetchJson<{ activities: ActivityItem[] }>("/api/dashboard/activity?limit=100");
-      setNotificationHistory(payload.activities);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setNotificationHistoryLoading(false);
-    }
-  }, [fetchJson]);
-
-  const toggleNotificationHistory = useCallback(() => {
-    setNotificationHistoryOpen((prev) => {
-      if (!prev) {
-        void loadNotificationHistory();
-      }
-      return !prev;
-    });
-  }, [loadNotificationHistory]);
-
   const loadCourses = useCallback(async (options?: DashboardLoadOptions) => {
     setCoursesLoading(true);
     try {
@@ -1261,16 +1198,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   const loadDeadlines = useCallback(async (limit = 30, options?: DashboardLoadOptions) => {
     setDeadlinesLoading(true);
+    allDeadlinesRequestRef.current += 1;
     try {
       const payloads = await Promise.all(
         PORTAL_PROVIDERS.map((provider) =>
           fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=${limit}`)),
       );
       setDeadlines(payloads.flatMap((payload) => payload.deadlines));
-      setAllDeadlinesState({
-        status: "idle",
-        items: null,
-      });
+      setAllDeadlinesState(createDeadlineLoadState(allDeadlinesRequestRef.current));
     } catch (err) {
       if (options?.reportError ?? true) {
         reportDashboardError(err);
@@ -1279,23 +1214,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setDeadlinesLoading(false);
     }
   }, [fetchJson, reportDashboardError]);
-
-  const loadNotifications = useCallback(async (options?: DashboardLoadOptions) => {
-    setNotificationsLoading(true);
-    try {
-      const payload = await fetchJson<{ activities: ActivityItem[] }>("/api/dashboard/activity?limit=80");
-      setNotifications(payload.activities);
-      if (notificationHistoryOpen) {
-        void loadNotificationHistory();
-      }
-    } catch (err) {
-      if (options?.reportError ?? true) {
-        reportDashboardError(err);
-      }
-    } finally {
-      setNotificationsLoading(false);
-    }
-  }, [fetchJson, notificationHistoryOpen, loadNotificationHistory, reportDashboardError]);
 
   const loadJobs = useCallback(async (options?: DashboardLoadOptions) => {
     setJobsLoading(true);
@@ -1347,10 +1265,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     await Promise.allSettled([
       loadCourses({ reportError: false }),
       loadDeadlines(30, { reportError: false }),
-      loadNotifications({ reportError: false }),
       loadJobs({ reportError: false }),
     ]);
-  }, [loadCourses, loadDeadlines, loadNotifications, loadJobs]);
+  }, [loadCourses, loadDeadlines, loadJobs]);
 
   const refreshStatus = useCallback(async (silent = true) => {
     if (silent) {
@@ -1743,42 +1660,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     };
   }, [trackingJobId, fetchJson, refreshAll, refreshStatus]);
 
-  useEffect(() => {
-    if (deadlineFilter !== "ALL" || allDeadlinesState.status !== "idle") return;
+  const loadAllDeadlines = useCallback(async () => {
+    if (allDeadlinesState.status === "loading") return;
 
-    let cancelled = false;
-    const load = async () => {
-      setAllDeadlinesState((prev) => ({
-        status: "loading",
-        items: prev.items,
-      }));
-      try {
-        const payloads = await Promise.all(
-          PORTAL_PROVIDERS.map((provider) =>
-            fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=100`)),
-        );
-        if (!cancelled) {
-          setAllDeadlinesState({
-            status: "loaded",
-            items: payloads.flatMap((payload) => payload.deadlines),
-          });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError((err as Error).message);
-          setAllDeadlinesState({
-            status: "loaded",
-            items: null,
-          });
-        }
-      }
-    };
+    const requestId = allDeadlinesRequestRef.current + 1;
+    allDeadlinesRequestRef.current = requestId;
+    setAllDeadlinesState((prev) => startDeadlineLoad(prev, requestId));
 
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [allDeadlinesState.status, deadlineFilter, fetchJson]);
+    const results = await Promise.allSettled(
+      PORTAL_PROVIDERS.map((provider) =>
+        fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=100`)),
+    );
+    if (allDeadlinesRequestRef.current !== requestId) return;
+
+    const deadlineResults = results.map((result): PromiseSettledResult<Deadline[]> =>
+      result.status === "fulfilled"
+        ? { status: "fulfilled", value: result.value.deadlines }
+        : result,
+    );
+    setAllDeadlinesState(finishDeadlineLoad(deadlineResults, requestId, {
+      partialFailure: "일부 서비스의 마감 차시는 불러오지 못했습니다.",
+      totalFailure: "전체 마감 차시를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    }));
+  }, [allDeadlinesState.status, fetchJson]);
 
   const handleAutoLearnProviderChange = useCallback((provider: PortalProvider) => {
     setAutoLearnProvider(provider);
@@ -1787,13 +1691,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   const handleDeadlineFilterChange = useCallback((nextFilter: DeadlineFilter) => {
     setDeadlineFilter(nextFilter);
-    if (nextFilter === "ALL" && allDeadlinesState.status === "loaded" && allDeadlinesState.items === null) {
-      setAllDeadlinesState({
-        status: "idle",
-        items: null,
-      });
+    if (nextFilter === "ALL" && allDeadlinesState.status !== "loaded" && allDeadlinesState.status !== "loading") {
+      void loadAllDeadlines();
     }
-  }, [allDeadlinesState.items, allDeadlinesState.status]);
+  }, [allDeadlinesState.status, loadAllDeadlines]);
 
   async function cancelSyncQueueJobs() {
     if (!syncQueueStaleJobIds.length || syncQueueCleanupSubmitting) return;
@@ -2067,62 +1968,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
-  async function markNotificationRead(item: ActivityItem) {
-    setActiveNotification(item);
-    if (!item.isUnread) return;
-    try {
-      await fetchJson("/api/dashboard/activity", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          items: [{ kind: item.kind, id: item.sourceId, provider: item.provider }],
-        }),
-      });
-      setNotifications((prev) => prev.map((row) =>
-        row.id === item.id ? { ...row, isUnread: false, needsAttention: false } : row,
-      ));
-      if (notificationHistoryOpen) {
-        void loadNotificationHistory();
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  async function clearVisibleNotifications(ids: string[]) {
-    if (ids.length === 0 || notificationClearing) return;
-    setNotificationClearing(true);
-
-    const uniqueIds = Array.from(new Set(ids));
-    const targetIds = new Set(uniqueIds);
-    const targetItems = notifications
-      .filter((item) => targetIds.has(item.id) && item.kind !== "SYSTEM")
-      .map((item) => ({ kind: item.kind, id: item.sourceId, provider: item.provider }));
-
-    try {
-      const payload = targetItems.length > 0
-        ? await fetchJson<{ updatedCount: number }>("/api/dashboard/activity", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ items: targetItems }),
-        }).then((result) => ({ ...result, deletedCount: result.updatedCount }))
-        : { updatedCount: 0, deletedCount: 0 };
-
-      setNotifications((prev) => prev.map((item) =>
-        targetIds.has(item.id) ? { ...item, isUnread: false, needsAttention: item.kind === "SYSTEM" } : item,
-      ));
-      setActiveNotification((prev) => (prev && targetIds.has(prev.id) ? null : prev));
-      if (notificationHistoryOpen) {
-        void loadNotificationHistory();
-      }
-      setMessage(`알림 ${payload.deletedCount}건을 예전 알림으로 이동했습니다.`);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setNotificationClearing(false);
-    }
-  }
-
   async function openNotices(course: Course) {
     setNoticeModalOpen(true);
     setNoticeCourse(course);
@@ -2212,68 +2057,24 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   return (
     <>
       {siteNoticePortal}
-      <header className="topbar" id="notifications">
-        <div className="topbar-main">
-          <div className="topbar-brand">
-            <Image
-              src="/brand/catholic/crest-mark.png"
-              alt="Catholic University crest"
-              width={34}
-              height={34}
-              loading="lazy"
-            />
-            <div>
-              <p className="brand-kicker">Catholic University Automation</p>
-              <h1>나의 학습 홈</h1>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            <AppMobileNav mode="dashboard" includeAdmin={initialUser.role === "ADMIN"} />
-            <button
-              className="icon-btn"
-              onClick={() => void refreshAll(false)}
-              disabled={loading || refreshing}
-              title="새로고침"
-              type="button"
-            >
-              <RotateCw size={16} />
-            </button>
-            <ThemeToggle />
-            <Link className="ghost-btn" href={"/notices" as any}>
-              전체 공지
-            </Link>
-            <Link className="ghost-btn" href={"/maintenance" as any}>
-              점검 안내
-            </Link>
-            <NotificationCenter
-              notifications={notifications}
-              historyNotifications={notificationHistory}
-              showHistory={notificationHistoryOpen}
-              historyLoading={notificationHistoryLoading}
-              onToggleHistory={toggleNotificationHistory}
-              onOpen={(item) => setActiveNotification(item as ActivityItem)}
-              onMarkRead={(item) => {
-                if (item.isUnread) {
-                  void markNotificationRead(item as ActivityItem);
-                }
-              }}
-              onClearVisible={(ids) => {
-                void clearVisibleNotifications(ids);
-              }}
-              clearing={notificationClearing}
-            />
-            <UserMenu
-              email={context?.effective.email ?? initialUser.email}
-              role={initialUser.role}
-              impersonating={context?.impersonating ?? false}
-              onDashboard={undefined}
-              onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
-              onOpenSettings={() => setSettingsOpen(true)}
-              onLogout={logout}
-            />
-          </div>
-        </div>
-      </header>
+      <AppTopbar
+        id="notifications"
+        mode="dashboard"
+        title="나의 학습 현황"
+        includeAdmin={initialUser.role === "ADMIN"}
+        navLinks={[
+          { href: "/notices", label: "전체 공지" },
+          { href: "/maintenance", label: "점검 안내" },
+        ]}
+        email={context?.effective.email ?? initialUser.email}
+        role={initialUser.role}
+        impersonating={context?.impersonating ?? false}
+        refreshing={loading || refreshing}
+        onRefresh={() => void refreshAll(false)}
+        onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onLogout={logout}
+      />
       {error ? <p className="error-text">{error}</p> : null}
 
       <section className="grid-kpi" id="overview">
@@ -2563,23 +2364,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
       </section>
 
-      <section className="card" id="activity">
-        <h2>활동함</h2>
-        <div className="notice-list">
-          {notifications.length === 0 ? (
-            <p className="muted">새 활동이 없습니다.</p>
-          ) : notifications.slice(0, 20).map((item) => (
-            <article key={item.id} className={`notification-item ${item.isUnread ? "is-unread" : ""}`}>
-              <strong>[{getProviderShortLabel(item.provider)}] {item.title}</strong>
-              <p className="muted">
-                {item.kind} · {toDateTime(item.occurredAt ?? item.createdAt)}
-              </p>
-              <p className="notification-item-message">{sanitizeNotificationMessage(item.message)}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="card" id="deadlines">
         <h2>마감 임박 차시</h2>
         <div className="deadline-filter-bar">
@@ -2606,6 +2390,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </div>
         {deadlineFilter === "ALL" && deadlineLoading ? (
           <p className="muted">전체 마감 차시를 불러오는 중...</p>
+        ) : null}
+        {deadlineLoadError ? (
+          <p className="muted">{deadlineLoadError}</p>
         ) : null}
         {deadlinesLoading && displayedDeadlines.length === 0 ? (
           <p className="muted">마감 차시를 불러오는 중입니다.</p>
@@ -3012,17 +2799,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 ) : <p className="muted">공지를 선택해 주세요.</p>}
               </article>
             </div>
-          </section>
-        </div>
-      ) : null}
-
-      {activeNotification ? (
-        <div className="modal-overlay" onClick={() => setActiveNotification(null)}>
-          <section className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <h2>{activeNotification.title || "활동"}</h2>
-            <p className="muted">{toDateTime(activeNotification.occurredAt ?? activeNotification.createdAt)}</p>
-            <p>{sanitizeNotificationMessage(activeNotification.message)}</p>
-            <button className="ghost-btn" onClick={() => setActiveNotification(null)}>닫기</button>
           </section>
         </div>
       ) : null}

@@ -3,13 +3,11 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
-import { ChevronLeft, RefreshCw, RotateCw } from "lucide-react";
+import { RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
-import { ThemeToggle } from "../../../components/theme/theme-toggle";
-import { UserMenu } from "../../../components/layout/user-menu";
-import { AppMobileNav } from "../../../components/layout/app-mobile-nav";
+import { AppTopbar } from "../../../components/layout/app-topbar";
 
 type RoleType = "ADMIN" | "USER";
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
@@ -605,43 +603,28 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar">
-        <div className="topbar-main">
-          <div className="topbar-brand">
-            <div>
-              <p className="brand-kicker">시스템 운영</p>
-              <h1>운영자 | 작업/워커 관리</h1>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            <AppMobileNav mode="admin" />
-            <button className="icon-btn" type="button" onClick={() => void refreshAll()} disabled={loadingJobs || loadingWorkers || loadingSummary || reconcileBusy}>
-              <RefreshCw size={16} />
-            </button>
-            <ThemeToggle />
-            <Link className="ghost-btn" href={"/admin/system" as any} as={"/admin/system" as any}>
-              시스템 상태
-            </Link>
-            <button type="button" className="ghost-btn" onClick={() => router.push("/admin")}>
-              <ChevronLeft size={16} />
-              운영자 홈
-            </button>
-            <UserMenu
-              email={initialUser.email}
-              role={initialUser.role}
-              impersonating={false}
-              onDashboard={() => router.push("/dashboard")}
-              onGoAdmin={() => router.push("/admin")}
-              onLogout={() => {
-                void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
-                  router.push("/login");
-                  router.refresh();
-                });
-              }}
-            />
-          </div>
-        </div>
-      </header>
+      <AppTopbar
+        mode="admin"
+        title="운영 도구"
+        kicker="시스템 운영"
+        navLinks={[
+          { href: "/admin", label: "운영 관리센터" },
+          { href: "/admin/system", label: "시스템 상태" },
+          { href: "/admin/site-notices", label: "공지/점검 설정" },
+        ]}
+        email={initialUser.email}
+        role={initialUser.role}
+        refreshing={loadingJobs || loadingWorkers || loadingSummary || reconcileBusy}
+        onRefresh={() => void refreshAll()}
+        onDashboard={() => router.push("/dashboard")}
+        onGoAdmin={() => router.push("/admin")}
+        onLogout={() => {
+          void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
+            router.push("/login");
+            router.refresh();
+          });
+        }}
+      />
       <section className="admin-stats">
         <article className="admin-stat card">
           <h2>전체 작업</h2>

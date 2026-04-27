@@ -2,14 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
-import Image from "next/image";
 import Link from "next/link";
-import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
-import { ThemeToggle } from "../../../components/theme/theme-toggle";
-import { UserMenu } from "../../../components/layout/user-menu";
-import { AppMobileNav } from "../../../components/layout/app-mobile-nav";
+import { AppTopbar } from "../../../components/layout/app-topbar";
 
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 type NoticeType = "BROADCAST" | "MAINTENANCE";
@@ -476,62 +472,28 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
 
   return (
     <main className="dashboard-main page-shell">
-      <header className="topbar">
-        <div className="topbar-main">
-          <div className="topbar-brand">
-            <Image
-              src="/brand/catholic/crest-mark.png"
-              alt="Catholic University crest"
-              width={34}
-              height={34}
-              loading="lazy"
-            />
-            <div>
-              <p className="brand-kicker">Catholic University Automation</p>
-              <h1>시스템 상태</h1>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            <AppMobileNav mode="admin" />
-            <button
-              className="icon-btn"
-              type="button"
-              onClick={() => void refreshAll(true)}
-              disabled={loading || refreshing}
-              title="새로고침"
-            >
-              <RefreshCw size={16} />
-            </button>
-            <Link className="ghost-btn" href="/admin/site-notices">
-              공지/점검 설정
-            </Link>
-            <Link className="ghost-btn" href={"/admin/system/policies" as Route}>
-              약관 관리
-            </Link>
-            <Link className="ghost-btn" href="/admin/operations">
-              작업 운영
-            </Link>
-            <Link className="ghost-btn" href="/admin">
-              관리자
-            </Link>
-            <ThemeToggle />
-            <UserMenu
-              email={initialUser.email}
-              role={initialUser.role}
-              impersonating={false}
-              onDashboard={() => router.push("/dashboard")}
-              onGoAdmin={() => router.push("/admin")}
-              onLogout={() => {
-                void fetch("/api/auth/logout", { method: "POST" }).then(() => {
-                  router.push("/login");
-                  router.refresh();
-                });
-              }}
-            />
-          </div>
-        </div>
-      </header>
-
+      <AppTopbar
+        mode="admin"
+        title={view === "policies" ? "약관/고지 관리" : "시스템 상태"}
+        navLinks={[
+          { href: "/admin", label: "운영 관리센터" },
+          { href: "/admin/site-notices", label: "공지/점검 설정" },
+          { href: "/admin/system/policies", label: "약관/고지" },
+          { href: "/admin/operations", label: "운영 메뉴" },
+        ]}
+        email={initialUser.email}
+        role={initialUser.role}
+        refreshing={loading || refreshing}
+        onRefresh={() => void refreshAll(true)}
+        onDashboard={() => router.push("/dashboard")}
+        onGoAdmin={() => router.push("/admin")}
+        onLogout={() => {
+          void fetch("/api/auth/logout", { method: "POST" }).then(() => {
+            router.push("/login");
+            router.refresh();
+          });
+        }}
+      />
       {loading ? <p className="muted">시스템 상태를 불러오는 중입니다...</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
 

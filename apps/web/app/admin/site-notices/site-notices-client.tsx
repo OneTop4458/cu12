@@ -2,13 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Route } from "next";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { UserMenu } from "../../../components/layout/user-menu";
-import { AppMobileNav } from "../../../components/layout/app-mobile-nav";
-import { ThemeToggle } from "../../../components/theme/theme-toggle";
+import { AppTopbar } from "../../../components/layout/app-topbar";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
 import { formatSiteNoticeDisplayTargetLabel } from "@/lib/site-notice-display";
 
@@ -373,47 +370,28 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
 
   return (
     <>
-      <header className="topbar">
-        <div className="topbar-main">
-          <div className="topbar-brand">
-            <div>
-              <p className="brand-kicker">운영자 공지 페이지 설정</p>
-              <h1>전체 공지 / 점검 관리</h1>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            <AppMobileNav mode="admin" />
-            <button className="icon-btn" type="button" onClick={() => void loadNotices()} disabled={loading}>
-              <RefreshCw size={16} />
-            </button>
-            <ThemeToggle />
-            <Link className="ghost-btn" href={"/admin/operations" as Route}>
-              작업 운영
-            </Link>
-            <Link className="ghost-btn" href={"/admin/system" as Route}>
-              시스템 상태
-            </Link>
-            <button type="button" className="ghost-btn" onClick={() => router.push("/admin" as Route)}>
-              <ChevronLeft size={16} />
-              운영 홈
-            </button>
-            <UserMenu
-              email={initialUser.email}
-              role={initialUser.role}
-              impersonating={false}
-              onDashboard={() => router.push("/dashboard" as Route)}
-              onGoAdmin={() => router.push("/admin" as Route)}
-              onLogout={() => {
-                void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
-                  router.push("/login" as Route);
-                  router.refresh();
-                });
-              }}
-            />
-          </div>
-        </div>
-      </header>
-
+      <AppTopbar
+        mode="admin"
+        title="공지/점검 관리"
+        kicker="운영 공지 및 점검 안내 설정"
+        navLinks={[
+          { href: "/admin", label: "운영 관리센터" },
+          { href: "/admin/operations", label: "운영 메뉴" },
+          { href: "/admin/system", label: "시스템 상태" },
+        ]}
+        email={initialUser.email}
+        role={initialUser.role}
+        refreshing={loading}
+        onRefresh={() => void loadNotices()}
+        onDashboard={() => router.push("/dashboard" as Route)}
+        onGoAdmin={() => router.push("/admin" as Route)}
+        onLogout={() => {
+          void fetchJson("/api/auth/logout", { method: "POST" }).then(() => {
+            router.push("/login" as Route);
+            router.refresh();
+          });
+        }}
+      />
       <section className="admin-stats">
         <article className="admin-stat card">
           <h2>전체 공지</h2>

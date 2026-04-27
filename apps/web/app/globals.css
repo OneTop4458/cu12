@@ -574,7 +574,7 @@ tbody tr:hover {
 }
 
 .btn,
-button {
+button:not([data-slot="button"]) {
   font: inherit;
   border: 0;
   border-radius: var(--radius-sm);
@@ -593,12 +593,12 @@ button {
 }
 
 .btn:hover,
-button:hover {
+button:not([data-slot="button"]):hover {
   transform: none;
 }
 
 .btn:disabled,
-button:disabled {
+button:not([data-slot="button"]):disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -1220,8 +1220,9 @@ textarea:focus {
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .topbar-actions > * {
@@ -1377,6 +1378,7 @@ textarea:focus {
 }
 
 .notification-trigger,
+.topbar-menu-trigger,
 .icon-btn,
 .user-menu-trigger {
   width: 40px;
@@ -1429,8 +1431,30 @@ textarea:focus {
   border-left: 1px solid var(--border);
 }
 
-.notification-trigger {
+.notification-trigger,
+.topbar-menu-trigger {
   position: relative;
+}
+
+.topbar-menu-content {
+  min-width: 210px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-mid);
+  padding: 8px;
+  z-index: 1000;
+}
+
+.topbar-menu-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 4px 8px;
+}
+
+.topbar-menu-item {
+  border-radius: 10px;
+  padding: 8px;
 }
 
 .notification-badge {
@@ -1449,7 +1473,7 @@ textarea:focus {
 }
 
 .notification-panel {
-  width: min(360px, 84vw);
+  width: min(420px, calc(100vw - 24px));
   border-radius: 12px;
   border: 1px solid var(--border);
   padding: 8px;
@@ -1460,14 +1484,32 @@ textarea:focus {
   position: relative;
 }
 
+.notification-sheet {
+  width: min(92vw, 430px);
+  max-width: 430px;
+  padding: 0;
+}
+
+.notification-sheet-head {
+  padding: 18px 18px 8px;
+}
+
+.notification-panel-sheet {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .notification-panel-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 8px;
   border-bottom: 1px solid var(--border);
   color: var(--text-muted);
   gap: 8px;
+  min-width: 0;
 }
 
 .notification-panel-head-copy {
@@ -1513,7 +1555,7 @@ textarea:focus {
 
 .notification-panel-list {
   display: grid;
-  max-height: 340px;
+  max-height: min(420px, calc(100vh - 180px));
   overflow: auto;
   padding: 6px;
   gap: 6px;
@@ -1529,6 +1571,8 @@ textarea:focus {
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
+  min-width: 0;
+  width: 100%;
 }
 
 .notification-list-item.unread {
@@ -1663,6 +1707,8 @@ textarea:focus {
 
 .notification-trigger:hover,
 .notification-trigger:focus-visible,
+.topbar-menu-trigger:hover,
+.topbar-menu-trigger:focus-visible,
 .user-menu-trigger:hover,
 .user-menu-trigger:focus-visible,
 .icon-btn:hover,
@@ -2145,10 +2191,12 @@ code {
 
   .topbar-actions {
     gap: 6px;
-    align-items: stretch;
+    align-items: center;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 
-  button,
+  button:not([data-slot="button"]),
   .btn {
     width: 100%;
   }
@@ -2160,11 +2208,21 @@ code {
 
   .user-menu-trigger,
   .notification-trigger,
+  .topbar-menu-trigger,
   .theme-toggle,
   .topbar-actions .btn,
-  .topbar-actions button,
+  .topbar-actions button:not([data-slot="button"]),
   .topbar-actions .ghost-btn {
     width: auto;
+  }
+
+  .user-menu-meta,
+  .theme-toggle-item span {
+    display: none;
+  }
+
+  .theme-toggle-item {
+    min-width: 34px;
   }
 
   .auth-toolbar .theme-toggle {

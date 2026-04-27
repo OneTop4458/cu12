@@ -45,20 +45,43 @@ test("sync mail only sends deadline alerts and digest scheduling is disabled", (
   assert.equal(fs.existsSync(digestWorkflowPath), false);
 });
 
-test("dashboard activity API replaces standalone message UI", () => {
+test("dashboard activity API is accessed from notification center only", () => {
   const activityRoute = readRepoFile("apps/web/app/api/dashboard/activity/route.ts");
   const dashboard = readRepoFile("apps/web/app/dashboard/dashboard-client.tsx");
   const mobileNav = readRepoFile("apps/web/components/layout/app-mobile-nav.tsx");
+  const activityCenter = readRepoFile("apps/web/components/notifications/activity-center.tsx");
   const openapi = readRepoFile("docs/04-api/openapi.yaml");
 
   assert.match(activityRoute, /export async function GET/);
   assert.match(activityRoute, /export async function PATCH/);
   assert.match(activityRoute, /getActivity/);
-  assert.match(dashboard, /\/api\/dashboard\/activity\?limit=80/);
-  assert.match(dashboard, /id="activity"/);
+  assert.match(activityCenter, /\/api\/dashboard\/activity\?limit=80/);
+  assert.doesNotMatch(dashboard, /id="activity"/);
   assert.doesNotMatch(dashboard, /id="messages"/);
-  assert.match(mobileNav, /dashboard#activity/);
+  assert.doesNotMatch(mobileNav, /dashboard#activity/);
   assert.doesNotMatch(mobileNav, /dashboard#messages/);
   assert.match(openapi, /\/api\/dashboard\/activity:/);
   assert.match(openapi, /DashboardActivityItem:/);
+});
+
+test("dashboard and admin pages use common topbar without legacy button override", () => {
+  const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
+  const notificationCenter = readRepoFile("apps/web/components/notifications/notification-center.tsx");
+  const css = readRepoFile("apps/web/app/globals.css");
+  const pageFiles = [
+    "apps/web/app/dashboard/dashboard-client.tsx",
+    "apps/web/app/admin/admin-client.tsx",
+    "apps/web/app/admin/system/system-client.tsx",
+    "apps/web/app/admin/site-notices/site-notices-client.tsx",
+    "apps/web/app/admin/operations/operations-client.tsx",
+  ].map(readRepoFile);
+
+  assert.match(topbar, /export function AppTopbar/);
+  for (const file of pageFiles) {
+    assert.match(file, /<AppTopbar/);
+    assert.doesNotMatch(file, /<header className="topbar"/);
+  }
+  assert.match(notificationCenter, /mode\?: "popover" \| "sheet"/);
+  assert.match(css, /button:not\(\[data-slot="button"\]\)/);
+  assert.doesNotMatch(css, /\.btn,\s*button\s*\{/);
 });
