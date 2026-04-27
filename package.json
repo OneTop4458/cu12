@@ -14,7 +14,13 @@
       "prisma",
       "sharp",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "brace-expansion@<1.1.14": "1.1.14",
+      "flatted@<=3.4.1": "3.4.2",
+      "postcss@<8.5.10": "8.5.12",
+      "undici@<7.24.0": "7.25.0"
+    }
   },
   "scripts": {
     "dev:web": "corepack pnpm --filter @cu12/web run dev",

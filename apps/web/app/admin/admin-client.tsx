@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
@@ -408,19 +409,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     router.push("/dashboard" as Route);
   }, [router]);
 
-  const refreshNow = useCallback(() => {
-    void refreshAll(logPage, false);
-  }, [logPage, refreshAll]);
-
-  const stopImpersonation = useCallback(() => {
-    if (!context.impersonating) return;
-    void withBlocking("대리 접속 종료 처리 중...", async () => {
-      await fetchJson("/api/admin/impersonation", { method: "DELETE" });
-      await refreshAll(logPage, true);
-      setMessage("대리 접속이 종료되었습니다.");
-    });
-  }, [context.impersonating, fetchJson, logPage, refreshAll, withBlocking]);
-
   const startImpersonation = useCallback((member: Member) => {
     void withBlocking(`${member.email} 계정으로 대리 접속 중...`, async () => {
       await fetchJson("/api/admin/impersonation", {
@@ -789,9 +777,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
-            <img
+            <Image
               src="/brand/catholic/crest-mark.png"
               alt="Catholic University crest"
+              width={34}
+              height={34}
               loading="lazy"
             />
             <div>

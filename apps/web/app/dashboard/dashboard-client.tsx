@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotificationCenter } from "../../components/notifications/notification-center";
@@ -404,7 +405,6 @@ const POLL_IDLE_MS = 300000;
 const POLL_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 const POLL_ACTIVE_WITH_WORK_MS = 45000;
 const POLL_APPROVAL_ACTIVE_MS = 3000;
-const POLL_TRACKING_MS = 10000;
 const POLL_TRACKING_RUNNING_MS = 2500;
 const POLL_TRACKING_PENDING_MS = 4500;
 const POLL_TRACKING_HIDDEN_MS = 12000;
@@ -598,15 +598,6 @@ function getAutoModeDescription(mode: AutoProgress["progress"]["mode"]): string 
   return "진행 중인 전체 강좌의 미완료 강의/자료/퀴즈를 순서대로 자동 처리합니다.";
 }
 
-function formatAutoNoOpReason(reason: AutoLearnNoOpReason | null | undefined): string {
-  if (!reason) return "현재 자동 수강 가능한 차시가 없습니다.";
-  if (reason === "NO_ACTIVE_COURSES") return "진행 중인 과목이 없습니다.";
-  if (reason === "LECTURE_NOT_FOUND") return "요청한 강좌가 진행 대상이 아니거나 비활성 상태입니다.";
-  if (reason === "NO_PENDING_TASKS") return "현재 진행 대상 차시가 없습니다.";
-  if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 강의/자료/퀴즈가 없습니다.";
-  if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "학습 가능 기간에 있는 강의/자료/퀴즈가 없습니다.";
-  return "자동 수강 대상이 없습니다.";
-}
 
 function formatAutoPhaseLabel(phase: AutoProgress["progress"]["phase"]): string {
   if (phase === "PLANNING") return "대상 차시 계산 중";
@@ -891,7 +882,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   });
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [, setNotificationsLoading] = useState(true);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
@@ -942,6 +933,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const autoLearnProviderHydratedRef = useRef(false);
   const approvalAutoOpenKeyRef = useRef<string | null>(null);
   const approvalAutoConfirmKeyRef = useRef<string | null>(null);
+  const runActionRef = useRef<((action: "SYNC" | "AUTOLEARN", silent?: boolean, providers?: PortalProvider[]) => Promise<void>) | null>(null);
+  const confirmCyberCampusApprovalRef = useRef<(() => Promise<void>) | null>(null);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
   const [noticeLoading, setNoticeLoading] = useState(false);
@@ -1586,7 +1579,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     approvalAutoConfirmKeyRef.current = confirmKey;
 
     const timer = setTimeout(() => {
-      void confirmCyberCampusApproval();
+      void confirmCyberCampusApprovalRef.current?.();
     }, 5000);
     return () => clearTimeout(timer);
   }, [approvalModalOpen, activeCyberCampusApproval, approvalSubmitting, approvalUiState]);
@@ -1603,7 +1596,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       bootstrapRef.current = true;
       setBootstrapSyncing(true);
       setBlockingMessage("최초 동기화를 진행 중입니다.");
-      void runAction("SYNC", true);
+      void runActionRef.current?.("SYNC", true);
     }
   }, [summary, loading, syncInProgress]);
 
@@ -1838,7 +1831,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
             method: "POST",
           });
           if (payload.updated) cancelledCount += 1;
-        } catch (inner) {
+        } catch {
           hasFailure = true;
         }
       }
@@ -2226,6 +2219,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
+  runActionRef.current = runAction;
+  confirmCyberCampusApprovalRef.current = confirmCyberCampusApproval;
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login" as Route);
@@ -2238,9 +2234,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       <header className="topbar" id="notifications">
         <div className="topbar-main">
           <div className="topbar-brand">
-            <img
+            <Image
               src="/brand/catholic/crest-mark.png"
               alt="Catholic University crest"
+              width={34}
+              height={34}
               loading="lazy"
             />
             <div>

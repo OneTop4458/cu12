@@ -536,8 +536,7 @@ export async function getSyncQueueSummaryForUserByProvider(
   });
 
   const filteredRows = rows
-    .filter((row) => getSyncJobProvider(row.payload) === provider)
-    .map(({ payload: _payload, ...row }) => row);
+    .filter((row) => getSyncJobProvider(row.payload) === provider);
 
   const runningWorkerIds = Array.from(
     new Set(

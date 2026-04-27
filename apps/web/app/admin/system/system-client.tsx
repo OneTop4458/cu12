@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -478,7 +479,13 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
       <header className="topbar">
         <div className="topbar-main">
           <div className="topbar-brand">
-            <img src="/brand/catholic/crest-mark.png" alt="Catholic University crest" loading="lazy" />
+            <Image
+              src="/brand/catholic/crest-mark.png"
+              alt="Catholic University crest"
+              width={34}
+              height={34}
+              loading="lazy"
+            />
             <div>
               <p className="brand-kicker">Catholic University Automation</p>
               <h1>시스템 상태</h1>

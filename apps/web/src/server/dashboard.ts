@@ -1070,7 +1070,6 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
         ?? pendingWithWindow[0]?.weekNo
         ?? latestTask?.weekNo
         ?? null);
-    const thisWeekPending = currentWeekNo === null ? [] : pendingWithWindow.filter((task) => task.weekNo === currentWeekNo);
     const courseDeadlineTask = isCourseCompleted
       ? (lastWindowTask ?? firstWindowTask ?? earliestPendingTask)
       : (nextWindowPending ?? firstWindowTask ?? earliestPendingTask);

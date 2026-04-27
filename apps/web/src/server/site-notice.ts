@@ -298,7 +298,7 @@ export async function listPublicSiteNotices(
   return listPublicSiteNoticesCached(type ?? null, options?.surface ?? null);
 }
 
-export async function getActiveSiteNotice(type: SiteNoticeType, now = new Date()): Promise<SiteNoticePayload | null> {
+export async function getActiveSiteNotice(type: SiteNoticeType): Promise<SiteNoticePayload | null> {
   const [notice] = await listSiteNotices(type, false);
   return notice ?? null;
 }

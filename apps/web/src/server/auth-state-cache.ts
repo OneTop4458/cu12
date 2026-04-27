@@ -30,7 +30,6 @@ type CacheStore = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
   var __cu12AuthStateCache: CacheStore | undefined;
 }
 
