@@ -31,6 +31,5 @@ jobs:
       - run: pnpm run prisma:generate
       - run: pnpm run lint
       - run: pnpm run typecheck
-      - run: pnpm run test:web
-      - run: pnpm run test:ops
+      - run: pnpm run test:all
       - run: pnpm run build:web

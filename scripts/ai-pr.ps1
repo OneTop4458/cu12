@@ -145,8 +145,7 @@ Invoke-Checked "Validate text quality" { Invoke-Pnpm @('run', 'check:text') }
 Invoke-Checked "Validate OpenAPI sync" { Invoke-Pnpm @('run', 'check:openapi') }
 Invoke-Checked "Generate Prisma client" { Invoke-Pnpm @('run', 'prisma:generate') }
 Invoke-Checked "Typecheck all workspaces" { Invoke-Pnpm @('run', 'typecheck') }
-Invoke-Checked "Run web regression tests" { Invoke-Pnpm @('run', 'test:web') }
-Invoke-Checked "Run workflow and release guard tests" { Invoke-Pnpm @('run', 'test:ops') }
+Invoke-Checked "Run all regression tests" { Invoke-Pnpm @('run', 'test:all') }
 if (-not $SkipBuildWeb) {
   Invoke-Checked "Build web app" { Invoke-Pnpm @('run', 'build:web') }
 }
@@ -181,8 +180,7 @@ Validation executed in order:
 - pnpm run check:openapi
 - pnpm run prisma:generate
 - pnpm run typecheck
-- pnpm run test:web
-- pnpm run test:ops
+- pnpm run test:all
 - pnpm run build:web
 "@
 }
