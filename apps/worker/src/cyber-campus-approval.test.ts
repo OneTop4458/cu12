@@ -15,6 +15,8 @@ const {
   shouldResumeBlockedAutoLearnForApprovalContext,
 } = await import("./cyber-campus-approval");
 
+const ACTIVE_WINDOW_NOW_MS = Date.parse("2026-04-10T12:00:00+09:00");
+
 function makeTask(overrides: Partial<LearningTask>): LearningTask {
   return {
     userId: "user-1",
@@ -56,7 +58,7 @@ test("selectCyberCampusApprovalProbeTasks ignores unrelated lectures for single-
   const selected = selectCyberCampusApprovalProbeTasks(tasks, {
     mode: "SINGLE_ALL",
     lectureSeq: 202,
-  });
+  }, ACTIVE_WINDOW_NOW_MS);
 
   assert.deepEqual(
     selected.map((task) => [task.lectureSeq, task.courseContentsSeq]),
@@ -65,7 +67,6 @@ test("selectCyberCampusApprovalProbeTasks ignores unrelated lectures for single-
 });
 
 test("selectCyberCampusApprovalProbeTasks skips tasks outside the active learning window", () => {
-  const nowMs = Date.parse("2026-04-10T12:00:00+09:00");
   const tasks = [
     makeTask({
       lectureSeq: 101,
@@ -94,7 +95,7 @@ test("selectCyberCampusApprovalProbeTasks skips tasks outside the active learnin
   const selected = selectCyberCampusApprovalProbeTasks(tasks, {
     mode: "SINGLE_NEXT",
     lectureSeq: 101,
-  }, nowMs);
+  }, ACTIVE_WINDOW_NOW_MS);
 
   assert.deepEqual(
     selected.map((task) => [task.courseContentsSeq, task.weekNo, task.lessonNo]),
@@ -138,7 +139,7 @@ test("selectCyberCampusApprovalProbeTasks keeps all runnable all-course tasks in
   const selected = selectCyberCampusApprovalProbeTasks(tasks, {
     mode: "ALL_COURSES",
     lectureSeq: null,
-  });
+  }, ACTIVE_WINDOW_NOW_MS);
 
   assert.deepEqual(
     selected.map((task) => [task.lectureSeq, task.courseContentsSeq]),

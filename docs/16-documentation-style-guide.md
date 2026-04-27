@@ -49,6 +49,7 @@ corepack pnpm run check:text
 corepack pnpm run check:openapi
 corepack pnpm run prisma:generate
 corepack pnpm run typecheck
+corepack pnpm run test:all
 corepack pnpm run build:web
 ```
 

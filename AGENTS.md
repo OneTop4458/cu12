@@ -107,6 +107,7 @@ pnpm run prisma:generate
 pnpm run check:text
 pnpm run check:openapi
 pnpm run typecheck
+pnpm run test:all
 pnpm run build:web
 ```
 
@@ -117,7 +118,8 @@ pnpm run build:web
    2. `pnpm run check:openapi`
    3. `pnpm run prisma:generate` when required by the rules above or when running in CI/fresh installs
    4. `pnpm run typecheck`
-   5. `pnpm run build:web` (for web scope changes)
+   5. `pnpm run test:all`
+   6. `pnpm run build:web` (for web scope changes)
 2. Do not commit or push if the above checks fail.
 3. For AI-assisted changes, run the validation sequence first, then commit and push in the same workflow.
 4. `AGENTS.md` is policy guidance, not a hard runtime guard. Enforced protections must live in scripts such as `ai:start` and `ai:ship`.
@@ -132,6 +134,7 @@ pnpm run ai:ship --commit "type(scope): summary" --title "type(scope): summary"
 ```
 
 3. `ai:ship` executes validation, then stages, commits, pushes, and opens a PR.
+   - Validation must include `pnpm run test:all`, which covers web, worker, and ops tests.
 4. `--commit` / `--title` are optional. When omitted, `ai:ship` generates defaults from the current branch slug.
 5. `gh` authentication must be active before running automation (`gh auth status`).
 6. If validation fails, fix the root cause first. Do not bypass checks to force PR creation.
@@ -187,9 +190,10 @@ pnpm run ai:ship --commit "type(scope): summary" --title "type(scope): summary"
 3. `pnpm run check:text` must pass.
 4. `pnpm run check:openapi` must pass.
 5. `pnpm run typecheck` must pass.
-6. Run `pnpm run prisma:generate` after fresh installs and Prisma-affecting changes.
-7. Run `pnpm run build:web` when touching web code.
-8. AI-assisted changes must complete validation and then commit/push together.
+6. `pnpm run test:all` must pass.
+7. Run `pnpm run prisma:generate` after fresh installs and Prisma-affecting changes.
+8. Run `pnpm run build:web` when touching web code.
+9. AI-assisted changes must complete validation and then commit/push together.
 
 ## Prohibited Actions
 

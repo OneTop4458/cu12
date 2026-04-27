@@ -11,6 +11,10 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8").replace(/\r\n/g, "\n");
 }
 
+function readRepoJson(relativePath) {
+  return JSON.parse(readRepoFile(relativePath));
+}
+
 function assertContainsInOrder(content, snippets, label) {
   let cursor = 0;
 
@@ -130,14 +134,28 @@ test("autolearn dispatch keeps the stale pending drain check", () => {
   );
 });
 
-test("ci, deploy verify, and ai ship run policy tests before build or deploy", () => {
+test("root test scripts include web, worker, ops, and all-test gates", () => {
+  const rootPackage = readRepoJson("package.json");
+  const workerPackage = readRepoJson("apps/worker/package.json");
+
+  assert.equal(workerPackage.scripts["test:unit"], "tsx --test src/*.test.ts");
+  assert.equal(rootPackage.scripts["test:web"], "corepack pnpm --filter @cu12/web run test:auth");
+  assert.equal(rootPackage.scripts["test:worker"], "corepack pnpm --filter @cu12/worker run test:unit");
+  assert.equal(rootPackage.scripts["test:ops"], "node --test test/ops/*.test.mjs");
+  assertContainsInOrder(
+    rootPackage.scripts["test:all"],
+    ["corepack pnpm run test:web", "corepack pnpm run test:worker", "corepack pnpm run test:ops"],
+    "package.json test:all",
+  );
+});
+
+test("ci, deploy verify, and ai ship run all tests before build or deploy", () => {
   const releaseGateSequence = [
     "pnpm run check:text",
     "pnpm run check:openapi",
     "pnpm run prisma:generate",
     "pnpm run typecheck",
-    "pnpm run test:web",
-    "pnpm run test:ops",
+    "pnpm run test:all",
     "pnpm run build:web",
   ];
 
@@ -147,4 +165,30 @@ test("ci, deploy verify, and ai ship run policy tests before build or deploy", (
 
   const deployWorkflow = readRepoFile(".github/workflows/deploy-vercel.yml");
   assertContainsInOrder(deployWorkflow, ['db-sync:', 'needs: verify', 'deploy:', 'needs: db-sync'], "deploy-vercel.yml job ordering");
+});
+
+test("AGENTS documents all-test validation before PR creation", () => {
+  const agents = readRepoFile("AGENTS.md");
+
+  assertContainsInOrder(
+    agents,
+    [
+      "pnpm run prisma:generate",
+      "pnpm run check:text",
+      "pnpm run check:openapi",
+      "pnpm run typecheck",
+      "pnpm run test:all",
+      "pnpm run build:web",
+    ],
+    "AGENTS.md required local validation",
+  );
+  assertContainsInOrder(
+    agents,
+    [
+      "`pnpm run typecheck`",
+      "`pnpm run test:all`",
+      "`pnpm run build:web`",
+    ],
+    "AGENTS.md operator execution rule",
+  );
 });

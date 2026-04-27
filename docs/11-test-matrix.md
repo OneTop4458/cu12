@@ -1,5 +1,16 @@
 # Test Matrix
 
+## Coverage Basis
+
+Test cases are kept when they protect a documented product or operational contract in:
+
+1. `docs/01-prd.md`
+2. `docs/02-architecture.md`
+3. `docs/04-api/openapi.yaml`
+4. This matrix
+
+Implementation-detail tests are still valid when they guard an externally observable workflow, safety invariant, parser contract, or release gate.
+
 ## API and Auth
 
 1. Login with valid portal credentials and an existing mapping.
@@ -44,6 +55,11 @@
 2. `corepack pnpm run check:openapi`
 3. `corepack pnpm run prisma:generate`
 4. `corepack pnpm run typecheck`
-5. `corepack pnpm run test:web`
-6. `corepack pnpm run test:ops`
-7. `corepack pnpm run build:web`
+5. `corepack pnpm run test:all`
+6. `corepack pnpm run build:web`
+
+`test:all` is the required all-pass regression gate for pull requests, AI shipping, and deployment verification. It runs:
+
+1. `corepack pnpm run test:web`
+2. `corepack pnpm run test:worker`
+3. `corepack pnpm run test:ops`
