@@ -16,7 +16,7 @@
     "@cu12/core": "file:../../packages/core",
     "@prisma/client": "^6.19.3",
     "cheerio": "^1.0.0",
-    "nodemailer": "^8.0.5",
+    "nodemailer": "^8.0.6",
     "playwright": "^1.59.1",
     "zod": "^3.24.2"
   },
