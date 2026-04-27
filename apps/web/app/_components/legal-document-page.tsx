@@ -51,11 +51,11 @@ export function LegalDocumentPage({
           <>
             <div className="button-row top-gap" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
               <a className="ghost-btn" href={buildPolicyVersionPath(policy.type)}>
-                최신 보기
+                최신 문서
               </a>
               {comparePolicy ? (
                 <a className="ghost-btn" href={buildPolicyVersionPath(comparePolicy.type, comparePolicy.version)}>
-                  비교 기준 보기
+                  비교 기준 문서
                 </a>
               ) : null}
               {!comparePolicy && history.length > 1 ? (
@@ -63,7 +63,7 @@ export function LegalDocumentPage({
                   className="ghost-btn"
                   href={buildPolicyDiffPath(policy.type, policy.version, history[1]!.version)}
                 >
-                  신구 비교
+                  이전 버전 비교
                 </a>
               ) : null}
               {comparePolicy ? (
@@ -71,16 +71,16 @@ export function LegalDocumentPage({
                   className="ghost-btn"
                   href={buildPolicyDiffPath(policy.type, policy.version, comparePolicy.version)}
                 >
-                  신구 비교 링크
+                  비교 버전 변경
                 </a>
               ) : null}
             </div>
 
             <section className="card top-gap">
-              <h2>버전 이력</h2>
+              <h2>문서 이력</h2>
               {missingHistoricalVersions ? (
                 <p className="error-text top-gap">
-                  일부 이전 버전 데이터가 현재 시스템에 없습니다. 구조 개편 전 약관은 수동 복구 전까지 이력 링크를 제공할 수 없습니다.
+                  현재 문서 버전 번호와 게시된 이력 개수가 맞지 않습니다. 누락된 기록이 있을 수 있어 비교 링크가 일부 표시되지 않을 수 있습니다.
                 </p>
               ) : null}
               <div className="button-row top-gap" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
@@ -107,7 +107,7 @@ export function LegalDocumentPage({
 
             {comparePolicy ? (
               <section className="card top-gap">
-                <h2>신구 비교</h2>
+                <h2>이전 버전 비교</h2>
                 <div
                   style={{
                     display: "grid",
@@ -146,7 +146,7 @@ export function LegalDocumentPage({
             ) : null}
 
             <section className="card top-gap">
-              <h2>{comparePolicy ? `v${policy.version} 본문` : "본문"}</h2>
+              <h2>{comparePolicy ? `v${policy.version} 문서` : "문서 내용"}</h2>
               <pre className="legal-content">{policy.content}</pre>
             </section>
           </>

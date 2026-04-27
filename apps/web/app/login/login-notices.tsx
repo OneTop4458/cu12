@@ -5,7 +5,8 @@ import { LoginNoticeAccordion } from "./login-notice-accordion";
 
 const COPY = {
   noticeTitle: "공지",
-  noticesLink: "전체 공지 보기",
+  noticesLink: "전체 공지",
+  maintenanceLink: "점검 안내",
 } as const;
 
 export async function LoginNotices() {
@@ -25,19 +26,15 @@ export async function LoginNotices() {
   }
 
   return (
-    <section className="top-gap card">
-      <p className="brand-kicker">{COPY.noticeTitle}</p>
-      <LoginNoticeAccordion notices={recentLoginNotices} />
-      <div className="button-row" style={{ marginTop: 8 }}>
-        <Link className="ghost-btn" href="/notices" style={{ alignSelf: "flex-start" }}>
-          {COPY.noticesLink}
-        </Link>
-        {hasMaintenanceNotice ? (
-          <Link className="ghost-btn" href="/maintenance" style={{ alignSelf: "flex-start" }}>
-            점검 안내 보기
-          </Link>
-        ) : null}
+    <section className="login-notice-panel">
+      <div className="login-notice-panel-head">
+        <p className="brand-kicker">{COPY.noticeTitle}</p>
+        <div className="login-notice-links">
+          <Link href="/notices">{COPY.noticesLink}</Link>
+          {hasMaintenanceNotice ? <Link href="/maintenance">{COPY.maintenanceLink}</Link> : null}
+        </div>
       </div>
+      <LoginNoticeAccordion notices={recentLoginNotices} />
     </section>
   );
 }

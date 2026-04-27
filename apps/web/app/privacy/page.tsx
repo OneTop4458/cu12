@@ -25,19 +25,22 @@ export default async function PrivacyPolicyPage({
   const resolvedSearchParams = await searchParams;
   const requestedVersion = parsePositiveInt(resolvedSearchParams.version);
   const compareToVersion = parsePositiveInt(resolvedSearchParams.compareTo);
+  const canLoadPolicies = Boolean(process.env.DATABASE_URL);
 
-  const policy = requestedVersion
-    ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, requestedVersion)
-    : await getActivePolicyDocument(PolicyDocumentType.PRIVACY_POLICY);
-  const comparePolicy = policy && compareToVersion
+  const policy = canLoadPolicies
+    ? requestedVersion
+      ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, requestedVersion)
+      : await getActivePolicyDocument(PolicyDocumentType.PRIVACY_POLICY)
+    : null;
+  const comparePolicy = canLoadPolicies && policy && compareToVersion
     ? await getPolicyDocumentVersion(PolicyDocumentType.PRIVACY_POLICY, compareToVersion)
     : null;
-  const history = await getPolicyHistoryForPublic(PolicyDocumentType.PRIVACY_POLICY);
+  const history = canLoadPolicies ? await getPolicyHistoryForPublic(PolicyDocumentType.PRIVACY_POLICY) : [];
 
   return (
     <LegalDocumentPage
-      title="개인정보 처리 방침"
-      emptyMessage="현재 등록된 개인정보 처리 방침이 없습니다."
+      title="개인정보처리방침"
+      emptyMessage="현재 등록된 개인정보처리방침이 없습니다."
       policy={policy}
       comparePolicy={comparePolicy}
       history={history}
