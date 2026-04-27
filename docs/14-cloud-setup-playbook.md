@@ -48,7 +48,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
 5. Run `Auth Reset Bootstrap`.
 6. Deploy the web app with `Deploy Vercel`.
 7. Verify `/api/health`.
-8. Log in as admin, publish the required policy documents, and issue invite codes.
+8. Log in as admin, publish the required policy documents, and approve pending users.
 9. Trigger `worker-consume.yml` once to confirm the worker can claim and finish queued work.
 
 ## Concurrency Guidance (~5 users)

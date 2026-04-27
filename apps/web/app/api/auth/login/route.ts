@@ -1,22 +1,22 @@
-import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
+  hashPassword,
   resolveSessionLifetimePolicy,
   signPolicyConsentChallengeToken,
   verifyPassword,
   signIdleSessionToken,
-  signLoginChallengeToken,
   signSessionToken,
 } from "@/lib/auth";
-import { encryptSecret } from "@/lib/crypto";
 import { getRequestIp, hasValidCsrfOrigin, jsonError, jsonOk } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { setIdleSessionCookieWithMaxAge, setSessionCookieWithMaxAge } from "@/lib/session-cookie";
 import { withIsTestUserFallback } from "@/lib/test-user-compat";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
+import { generateToken } from "@/lib/token";
+import { queueAdminApprovalRequestMailJobs } from "@/server/admin-approval-mail";
 import {
   checkAuthThrottleBestEffort,
   clearAuthFailuresBestEffort,
@@ -35,6 +35,12 @@ const BodySchema = z.object({
   campus: z.enum(["SONGSIM", "SONGSIN"]).default("SONGSIM"),
   rememberSession: z.boolean().optional().default(false),
 });
+
+type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+function approvalStatusOrApproved(value: ApprovalStatus | null | undefined): ApprovalStatus {
+  return value ?? "APPROVED";
+}
 
 function isPrismaError(error: unknown): boolean {
   if (
@@ -126,6 +132,7 @@ async function loadAuthLookupFallback(cu12Id: string) {
         ...legacyUser,
         withdrawnAt: null,
         isTestUser: false,
+        approvalStatus: "APPROVED" as const,
       }
       : null,
   };
@@ -150,6 +157,7 @@ async function loadExistingUserByEmailFallback(cu12Id: string) {
     ? {
       ...legacyUser,
       withdrawnAt: null,
+      approvalStatus: "APPROVED" as const,
     }
     : null;
 }
@@ -173,6 +181,7 @@ async function loadExistingUserByIdFallback(userId: string) {
     ? {
       ...legacyUser,
       withdrawnAt: null,
+      approvalStatus: "APPROVED" as const,
     }
     : null;
 }
@@ -215,6 +224,37 @@ function scheduleAuthSuccessSideEffects(input: {
         actorUserId: input.userId,
         targetUserId: input.userId,
         message: input.message,
+        meta: {
+          provider: input.provider,
+          cu12Id: input.cu12Id,
+          campus: input.campus,
+          loginIp: input.loginIp,
+        },
+      }),
+    ]);
+  });
+}
+
+function scheduleApprovalRequestSideEffects(input: {
+  userId: string;
+  cu12Id: string;
+  requestedAt: Date;
+  campus: "SONGSIM" | "SONGSIN";
+  provider: "CU12" | "CYBER_CAMPUS";
+  loginIp: string | null;
+}) {
+  runInBackground(async () => {
+    await Promise.allSettled([
+      queueAdminApprovalRequestMailJobs({
+        requestedUserId: input.userId,
+        requestedCu12Id: input.cu12Id,
+        requestedAt: input.requestedAt,
+      }),
+      writeAuditLogBestEffort({
+        category: "AUTH",
+        severity: "INFO",
+        targetUserId: input.userId,
+        message: "First-login user queued for admin approval",
         meta: {
           provider: input.provider,
           cu12Id: input.cu12Id,
@@ -275,6 +315,7 @@ export async function POST(request: NextRequest) {
         withdrawnAt: Date | null;
         isTestUser: boolean;
         passwordHash: string;
+        approvalStatus?: ApprovalStatus | null;
       }
       | null;
 
@@ -298,6 +339,7 @@ export async function POST(request: NextRequest) {
                       withdrawnAt: true,
                       isTestUser: true,
                       passwordHash: true,
+                      approvalStatus: true,
                     },
                   }),
                 () =>
@@ -310,6 +352,7 @@ export async function POST(request: NextRequest) {
                       isActive: true,
                       withdrawnAt: true,
                       passwordHash: true,
+                      approvalStatus: true,
                     },
                   }),
               ),
@@ -325,6 +368,7 @@ export async function POST(request: NextRequest) {
                       isActive: true,
                       isTestUser: true,
                       passwordHash: true,
+                      approvalStatus: true,
                     },
                   }),
                 () =>
@@ -336,6 +380,7 @@ export async function POST(request: NextRequest) {
                       role: true,
                       isActive: true,
                       passwordHash: true,
+                      approvalStatus: true,
                     },
                   }),
               ),
@@ -358,6 +403,22 @@ export async function POST(request: NextRequest) {
     const resolvedCurrentProvider = explicitProviderHint ?? storedCurrentProvider;
 
     if (localCandidate?.isTestUser) {
+      const approvalStatus = approvalStatusOrApproved(localCandidate.approvalStatus);
+      if (approvalStatus === "PENDING") {
+        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        return timedOk({
+          stage: "APPROVAL_PENDING" as const,
+          user: {
+            userId: localCandidate.id,
+            cu12Id: body.cu12Id,
+            role: localCandidate.role,
+          },
+        });
+      }
+      if (approvalStatus === "REJECTED") {
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        return timedError("Account approval request was rejected.", 403, "APPROVAL_REJECTED");
+      }
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
@@ -516,6 +577,7 @@ export async function POST(request: NextRequest) {
         role: "ADMIN" | "USER";
         isActive: boolean;
         withdrawnAt: Date | null;
+        approvalStatus?: ApprovalStatus | null;
       }
       | null;
 
@@ -525,12 +587,12 @@ export async function POST(request: NextRequest) {
           () =>
             prisma.user.findUnique({
               where: { email: body.cu12Id },
-              select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+              select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true, approvalStatus: true },
             }),
           () =>
             prisma.user.findUnique({
               where: { email: body.cu12Id },
-              select: { id: true, email: true, role: true, isActive: true },
+              select: { id: true, email: true, role: true, isActive: true, approvalStatus: true },
             }),
         ),
       );
@@ -559,6 +621,7 @@ export async function POST(request: NextRequest) {
           role: "ADMIN" | "USER";
           isActive: boolean;
           withdrawnAt: Date | null;
+          approvalStatus?: ApprovalStatus | null;
         }
         | null;
 
@@ -568,12 +631,12 @@ export async function POST(request: NextRequest) {
             () =>
               prisma.user.findUnique({
                 where: { id: existingAccount.userId },
-                select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true },
+                select: { id: true, email: true, role: true, isActive: true, withdrawnAt: true, approvalStatus: true },
               }),
             () =>
               prisma.user.findUnique({
                 where: { id: existingAccount.userId },
-                select: { id: true, email: true, role: true, isActive: true },
+                select: { id: true, email: true, role: true, isActive: true, approvalStatus: true },
               }),
           ),
         );
@@ -589,6 +652,23 @@ export async function POST(request: NextRequest) {
       if (!found) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return timedError("Authentication failed.", 401, "AUTH_FAILED");
+      }
+      const approvalStatus = approvalStatusOrApproved(found.approvalStatus);
+      if (approvalStatus === "PENDING") {
+        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        return timedOk({
+          stage: "APPROVAL_PENDING" as const,
+          user: {
+            userId: found.id,
+            provider: currentProvider,
+            cu12Id: body.cu12Id,
+            role: found.role,
+          },
+        });
+      }
+      if (approvalStatus === "REJECTED") {
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        return timedError("Account approval request was rejected.", 403, "APPROVAL_REJECTED");
       }
       if (!found.isActive || found.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
@@ -620,6 +700,23 @@ export async function POST(request: NextRequest) {
         console.warn("[auth] Skipping account credential refresh after successful portal auth due to Prisma compatibility error.", describePrismaError(error));
       }
     } else if (existingUserByEmail) {
+      const approvalStatus = approvalStatusOrApproved(existingUserByEmail.approvalStatus);
+      if (approvalStatus === "PENDING") {
+        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        return timedOk({
+          stage: "APPROVAL_PENDING" as const,
+          user: {
+            userId: existingUserByEmail.id,
+            provider: currentProvider,
+            cu12Id: body.cu12Id,
+            role: existingUserByEmail.role,
+          },
+        });
+      }
+      if (approvalStatus === "REJECTED") {
+        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        return timedError("Account approval request was rejected.", 403, "APPROVAL_REJECTED");
+      }
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
         await recordAuthFailureBestEffort("login", throttleIdentifiers);
         return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
@@ -643,35 +740,74 @@ export async function POST(request: NextRequest) {
         console.warn("[auth] Skipping account credential refresh after successful portal auth due to Prisma compatibility error.", describePrismaError(error));
       }
     } else {
-      const challengeToken = await timing.measure("session", () =>
-        signLoginChallengeToken({
-          provider: verifiedProvider,
-          cu12Id: body.cu12Id,
-          campus: verifiedProvider === "CU12" ? campus : null,
-          encryptedCu12Password: encryptSecret(body.cu12Password),
-          nonce: randomUUID(),
-        }),
-      );
+      const requestedAt = new Date();
+      let pendingUser:
+        | {
+          id: string;
+          email: string;
+          role: "ADMIN" | "USER";
+          approvalRequestedAt: Date | null;
+        };
 
-      runInBackground(async () => {
-        await Promise.allSettled([
-          writeAuditLogBestEffort({
-            category: "AUTH",
-            severity: "INFO",
-            message: "Login challenge issued for first-time portal user",
-            meta: {
-              provider: verifiedProvider,
-              cu12Id: body.cu12Id,
-              campus,
+      try {
+        pendingUser = await timing.measure("approval-request", async () =>
+          prisma.user.create({
+            data: {
+              email: body.cu12Id,
+              name: body.cu12Id,
+              passwordHash: await hashPassword(generateToken(32)),
+              role: "USER",
+              isActive: false,
+              approvalStatus: "PENDING",
+              approvalRequestedAt: requestedAt,
+            },
+            select: {
+              id: true,
+              email: true,
+              role: true,
+              approvalRequestedAt: true,
             },
           }),
-        ]);
+        );
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+          throw error;
+        }
+
+        const existingPending = await prisma.user.findUnique({
+          where: { email: body.cu12Id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            approvalStatus: true,
+            approvalRequestedAt: true,
+          },
+        });
+        if (!existingPending || existingPending.approvalStatus !== "PENDING") {
+          throw error;
+        }
+        pendingUser = existingPending;
+      }
+
+      scheduleApprovalRequestSideEffects({
+        userId: pendingUser.id,
+        cu12Id: body.cu12Id,
+        requestedAt: pendingUser.approvalRequestedAt ?? requestedAt,
+        campus,
+        provider: verifiedProvider,
+        loginIp,
       });
       await clearAuthFailuresBestEffort("login", throttleIdentifiers);
 
       return timedOk({
-        stage: "INVITE_REQUIRED" as const,
-        challengeToken,
+        stage: "APPROVAL_PENDING" as const,
+        user: {
+          userId: pendingUser.id,
+          provider: verifiedProvider,
+          cu12Id: body.cu12Id,
+          role: pendingUser.role,
+        },
       });
     }
 

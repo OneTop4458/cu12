@@ -4,7 +4,7 @@
 
 1. **Web application (`apps/web`)**
    - Next.js App Router application hosted on Vercel.
-   - Owns login, invite verification, policy consent, dashboard APIs, admin APIs, and public pages.
+   - Owns login, administrator approval onboarding, policy consent, dashboard APIs, admin APIs, and public pages.
    - Enqueues jobs, applies manual redispatch policy, and exposes internal endpoints for worker callbacks and centralized dispatch.
 
 2. **Worker (`apps/worker`)**
@@ -32,9 +32,9 @@
    - if policy consent is current, session + idle cookies are issued immediately
    - if consent is missing/outdated, server returns `CONSENT_REQUIRED` with a short-lived consent token
 4. First login:
-   - server returns `INVITE_REQUIRED` with a short-lived login challenge token
-   - client exchanges the challenge token plus invite code at `POST /api/auth/login/invite`
-   - after account linking, the flow either completes authentication or continues to policy consent
+   - server verifies the CU12 credential, creates a pending `User`, and returns `APPROVAL_PENDING` without cookies
+   - administrators approve or reject the pending user from `/admin`
+   - after approval, the user logs in again; the server stores the encrypted portal credential and then completes authentication or continues to policy consent
 5. `POST /api/auth/consent` records immutable consent rows and issues the final authenticated cookies.
 
 ## Dashboard and Data Flow

@@ -4,31 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       adminCu12Id:
-        description: "Admin CU12 ID"
+        description: "Admin CU12 ID to pre-approve"
         required: true
-        type: string
-      inviteCodeHash:
-        description: "SHA-256 hash of the admin invite code (64 lowercase hex chars)"
-        required: true
-        type: string
-      expiresHours:
-        description: "Invite expiration in hours (1-720)"
-        required: false
-        default: "72"
         type: string
 
 permissions:
   contents: read
 
 jobs:
-  issue-admin-invite:
+  approve-admin:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       ADMIN_CU12_ID: ${{ inputs.adminCu12Id }}
-      INVITE_CODE_HASH: ${{ inputs.inviteCodeHash }}
-      EXPIRES_HOURS: ${{ inputs.expiresHours }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -44,43 +33,62 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
-      - name: Issue ADMIN invite token
+      - name: Pre-approve ADMIN account
         run: |
           node <<'NODE'
-          const { PrismaClient, UserRole } = require("@prisma/client");
+          const crypto = require("node:crypto");
+          const { PrismaClient } = require("@prisma/client");
 
           async function main() {
             const prisma = new PrismaClient();
             const cu12Id = (process.env.ADMIN_CU12_ID || "").trim();
-            const inviteCodeHash = (process.env.INVITE_CODE_HASH || "").trim().toLowerCase();
-            const expiresHoursRaw = Number(process.env.EXPIRES_HOURS || "72");
-            const expiresHours = Number.isFinite(expiresHoursRaw) ? expiresHoursRaw : 72;
 
             if (!cu12Id || cu12Id.length < 4) {
               throw new Error("Invalid adminCu12Id");
             }
-            if (!/^[a-f0-9]{64}$/.test(inviteCodeHash)) {
-              throw new Error("inviteCodeHash must be a 64-char lowercase SHA-256 hex string");
-            }
-            if (expiresHours < 1 || expiresHours > 720) {
-              throw new Error("expiresHours out of range");
-            }
 
-            const invite = await prisma.inviteToken.create({
-              data: {
-                cu12Id,
-                role: UserRole.ADMIN,
-                tokenHash: inviteCodeHash,
-                expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
+            const now = new Date();
+            const passwordHash = "portal-approved-placeholder:" + crypto.randomUUID();
+            const user = await prisma.user.upsert({
+              where: { email: cu12Id },
+              create: {
+                email: cu12Id,
+                name: cu12Id,
+                passwordHash,
+                role: "ADMIN",
+                isActive: true,
+                isTestUser: false,
+                approvalStatus: "APPROVED",
+                approvalRequestedAt: null,
+                approvalDecidedAt: now,
+                approvalDecidedByUserId: null,
+                approvalRejectedReason: null,
+              },
+              update: {
+                role: "ADMIN",
+                isActive: true,
+                isTestUser: false,
+                approvalStatus: "APPROVED",
+                approvalRequestedAt: null,
+                approvalDecidedAt: now,
+                approvalDecidedByUserId: null,
+                approvalRejectedReason: null,
+              },
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                approvalStatus: true,
               },
             });
 
             await prisma.$disconnect();
 
-            console.log("Admin invite issued:");
-            console.log("inviteId=" + invite.id);
-            console.log("cu12Id=" + cu12Id);
-            console.log("expiresAt=" + invite.expiresAt.toISOString());
+            console.log("Admin account pre-approved:");
+            console.log("userId=" + user.id);
+            console.log("cu12Id=" + user.email);
+            console.log("role=" + user.role);
+            console.log("approvalStatus=" + user.approvalStatus);
           }
 
           main().catch((error) => {

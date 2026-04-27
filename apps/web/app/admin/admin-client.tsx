@@ -16,7 +16,7 @@ import { AppMobileNav } from "../../components/layout/app-mobile-nav";
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
 type PortalProvider = "CU12" | "CYBER_CAMPUS";
-type InviteState = "ACTIVE" | "USED" | "EXPIRED" | "INACTIVE";
+type UserApprovalStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 interface AdminClientProps {
   initialUser: {
@@ -58,22 +58,14 @@ interface Member {
   name: string | null;
   isActive: boolean;
   isTestUser: boolean;
+  approvalStatus: UserApprovalStatus;
+  approvalRequestedAt: string | null;
+  approvalDecidedAt: string | null;
+  approvalDecidedByUserId: string | null;
+  approvalRejectedReason: string | null;
   createdAt: string;
   cu12Account: Cu12Account | null;
   mailPreference: MailPreference | null;
-}
-
-interface Invite {
-  id: string;
-  provider?: PortalProvider;
-  cu12Id: string;
-  role: RoleType;
-  isActive: boolean;
-  state: InviteState;
-  createdAt: string;
-  expiresAt: string;
-  usedAt: string | null;
-  usedByEmail?: string | null;
 }
 
 interface AdminLog {
@@ -117,10 +109,6 @@ interface MembersPayload {
   members: Member[];
 }
 
-interface InvitesPayload {
-  invites: Invite[];
-}
-
 interface LogsPayload {
   logs: AdminLog[];
   pagination: LogPagination;
@@ -132,27 +120,16 @@ interface LogPurgeResponse {
   retainedLogId: string;
 }
 
-interface InviteCreateResponse {
-  inviteId: string;
-  provider?: PortalProvider;
-  token: string;
-  expiresAt: string;
-}
-
-interface InviteDeleteResponse {
-  deleted: boolean;
-  inviteId: string;
-}
-
-interface InviteToggleResponse {
-  invite: Pick<Invite, "id" | "cu12Id" | "isActive" | "expiresAt" | "usedAt">;
-}
-
 interface MemberCreateResponse {
   created: boolean;
 }
 
 interface MemberUpdateResponse {
+  updated: boolean;
+  user: Member;
+}
+
+interface MemberApprovalResponse {
   updated: boolean;
   user: Member;
 }
@@ -213,22 +190,20 @@ function toDateTime(value: string | null): string {
   return formatDateTime(value);
 }
 
-function statusChipClassForInvite(state: InviteState) {
-  switch (state) {
-    case "ACTIVE":
-      return "status-used";
-    case "USED":
-      return "status-active";
-    case "EXPIRED":
-      return "status-expired";
-    case "INACTIVE":
-    default:
-      return "status-failed";
-  }
-}
-
 function statusChipClassForMember(isActive: boolean) {
   return isActive ? "status-active" : "status-failed";
+}
+
+function approvalStatusLabel(status: UserApprovalStatus) {
+  if (status === "PENDING") return "승인 대기";
+  if (status === "REJECTED") return "승인 거절";
+  return "승인 완료";
+}
+
+function statusChipClassForApproval(status: UserApprovalStatus) {
+  if (status === "PENDING") return "status-used";
+  if (status === "REJECTED") return "status-failed";
+  return "status-active";
 }
 
 export function AdminClient({ initialUser }: AdminClientProps) {
@@ -241,7 +216,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   });
 
   const [members, setMembers] = useState<Member[]>([]);
-  const [invites, setInvites] = useState<Invite[]>([]);
   const [logs, setLogs] = useState<AdminLog[]>([]);
   const [logPagination, setLogPagination] = useState<LogPagination | null>(null);
 
@@ -253,7 +227,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
   const [memberSyncBusyId, setMemberSyncBusyId] = useState<string | null>(null);
   const [mailTestUserId, setMailTestUserId] = useState<string | null>(null);
-  const [inviteBusyId, setInviteBusyId] = useState<string | null>(null);
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logPurgeBusy, setLogPurgeBusy] = useState(false);
   const [logPage, setLogPage] = useState(1);
@@ -273,11 +247,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
-  const [inviteCu12Id, setInviteCu12Id] = useState("");
-  const [inviteRole, setInviteRole] = useState<RoleType>("USER");
-  const [inviteExpiresHours, setInviteExpiresHours] = useState(72);
-  const [inviteSubmitting, setInviteSubmitting] = useState(false);
-  const [latestToken, setLatestToken] = useState<string | null>(null);
   const isEditMode = editingMemberId !== null;
   const originalEditModeIsTestUser = editingMember?.isTestUser ?? false;
 
@@ -350,16 +319,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     if (to) query.set("to", to);
 
     try {
-      const [contextPayload, membersPayload, invitesPayload, logsPayload] = await Promise.all([
+      const [contextPayload, membersPayload, logsPayload] = await Promise.all([
         fetchJson<SessionContext>("/api/session/context"),
         fetchJson<MembersPayload>("/api/admin/members"),
-        fetchJson<InvitesPayload>("/api/auth/invite"),
         fetchJson<LogsPayload>(`/api/admin/logs?${query.toString()}`),
       ]);
 
       setContext(contextPayload);
       setMembers(Array.isArray(membersPayload.members) ? membersPayload.members : []);
-      setInvites(Array.isArray(invitesPayload.invites) ? invitesPayload.invites : []);
       setLogs(Array.isArray(logsPayload.logs) ? logsPayload.logs : []);
       setLogPagination(logsPayload.pagination ?? null);
       setLogPage(logsPayload.pagination?.page ?? safePage);
@@ -368,7 +335,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       if (messageText !== "Unauthorized") {
         setError(messageText);
         setMembers([]);
-        setInvites([]);
         setLogs([]);
         setLogPagination(null);
       }
@@ -609,86 +575,23 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     });
   }, [context.actor.userId, fetchJson, logPage, refreshAll, withBlocking, memberBusyId]);
 
-  const createInvite = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (inviteSubmitting) return;
-    if (!inviteCu12Id.trim()) return;
+  const decideMemberApproval = useCallback((member: Member, action: "APPROVE" | "REJECT", role?: RoleType) => {
+    if (approvalBusyId) return;
+    if (action === "REJECT" && !window.confirm(member.email + " 승인 요청을 거절할까요?")) return;
 
-    setInviteSubmitting(true);
-    const result = await withBlocking("초대 코드 생성 중...", async () => {
-      const payload = await fetchJson<InviteCreateResponse>("/api/auth/invite", {
+    setApprovalBusyId(member.id);
+    void withBlocking(action === "APPROVE" ? "회원 승인 처리 중..." : "회원 승인 거절 처리 중...", async () => {
+      const reason = action === "REJECT" ? "관리자 승인 거절" : undefined;
+      await fetchJson<MemberApprovalResponse>("/api/admin/members/" + member.id + "/approval", {
         method: "POST",
-        body: JSON.stringify({
-          cu12Id: inviteCu12Id.trim(),
-          role: inviteRole,
-          expiresHours: inviteExpiresHours,
-          isActive: true,
-        }),
+        body: JSON.stringify({ action, role, reason }),
       });
-      setLatestToken(payload.token);
-      setMessage("초대 코드가 생성되었습니다.");
-      return payload;
-    });
-
-    setInviteSubmitting(false);
-    if (result) {
-      setInviteCu12Id("");
-      runAfterMutation(logPage);
-    }
-  }, [
-    fetchJson,
-    inviteSubmitting,
-    inviteCu12Id,
-    inviteRole,
-    inviteExpiresHours,
-    logPage,
-    runAfterMutation,
-    withBlocking,
-  ]);
-
-  const copyInviteToken = useCallback(async () => {
-    if (!latestToken) return;
-    if (!navigator.clipboard) {
-      setError("클립보드 API를 사용할 수 없습니다.");
-      return;
-    }
-    await navigator.clipboard.writeText(latestToken);
-    setMessage("초대 코드가 클립보드에 복사되었습니다.");
-  }, [latestToken]);
-
-  const toggleInvite = useCallback((invite: Invite) => {
-    if (inviteBusyId) return;
-
-    setInviteBusyId(invite.id);
-    const next = !invite.isActive;
-    void withBlocking(`${next ? "초대 코드 활성화" : "초대 코드 비활성화"} 처리 중...`, async () => {
-      await fetchJson<InviteToggleResponse>("/api/auth/invite", {
-        method: "PATCH",
-        body: JSON.stringify({ inviteId: invite.id, isActive: next }),
-      });
-      setMessage(`${invite.cu12Id} 초대 코드가 ${next ? "활성화" : "비활성화"}되었습니다.`);
+      setMessage(action === "APPROVE" ? member.email + " 계정을 승인했습니다." : member.email + " 승인 요청을 거절했습니다.");
       await refreshAll(logPage, true);
     }).finally(() => {
-      setInviteBusyId(null);
+      setApprovalBusyId(null);
     });
-  }, [fetchJson, logPage, refreshAll, withBlocking, inviteBusyId]);
-
-  const deleteInvite = useCallback((invite: Invite) => {
-    if (inviteBusyId) return;
-    if (!window.confirm(`${invite.cu12Id} 초대 코드를 삭제할까요?`)) return;
-
-    setInviteBusyId(invite.id);
-    void withBlocking("초대 코드 삭제 처리 중...", async () => {
-      await fetchJson<InviteDeleteResponse>("/api/auth/invite", {
-        method: "DELETE",
-        body: JSON.stringify({ inviteId: invite.id }),
-      });
-      setMessage(`${invite.cu12Id} 초대 코드가 삭제되었습니다.`);
-      await refreshAll(logPage, true);
-    }).finally(() => {
-      setInviteBusyId(null);
-    });
-  }, [fetchJson, inviteBusyId, logPage, refreshAll, withBlocking]);
+  }, [approvalBusyId, fetchJson, logPage, refreshAll, withBlocking]);
 
   const goToLogPage = useCallback((page: number) => {
     if (!logPagination || loading || logBusy) return;
@@ -759,6 +662,8 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   const activeMemberCount = useMemo(() => members.filter((member) => member.isActive).length, [members]);
   const testMemberCount = useMemo(() => members.filter((member) => member.isTestUser).length, [members]);
+  const pendingMembers = useMemo(() => members.filter((member) => member.approvalStatus === "PENDING"), [members]);
+  const rejectedMemberCount = useMemo(() => members.filter((member) => member.approvalStatus === "REJECTED").length, [members]);
   const recentLogNotifications = useMemo(
     () =>
       logs.map((log) => ({
@@ -837,7 +742,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <p className="brand-kicker">가톨릭대학교 수강 지원 솔루션 관리자</p>
           <h1>운영 관리센터</h1>
           <p className="text-small muted">
-            회원 {members.length}명, 초대 코드 {invites.length}개, 로그 {logPagination?.total ?? 0}건
+            회원 {members.length}명, 승인 대기 {pendingMembers.length}명, 로그 {logPagination?.total ?? 0}건
           </p>
         </div>
       </section>
@@ -854,9 +759,9 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           <p className="muted">운영 배포 제외 계정</p>
         </article>
         <article className="admin-stat card">
-          <h2>초대 코드</h2>
-          <p className="metric">{invites.length}개</p>
-          <p className="muted">활성 {invites.filter((invite) => invite.isActive).length}개</p>
+          <h2>승인 대기</h2>
+          <p className="metric">{pendingMembers.length}명</p>
+          <p className="muted">거절 {rejectedMemberCount}명</p>
         </article>
         <article className="admin-stat card">
           <h2>로그 페이지</h2>
@@ -998,6 +903,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                 <th>역할</th>
                 <th>상태</th>
                 <th>계정 유형</th>
+                <th>승인</th>
                 <th>CU12 ID</th>
                 <th>메일</th>
                 <th>등록일</th>
@@ -1007,7 +913,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <tbody>
               {members.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>등록된 회원이 없습니다.</td>
+                  <td colSpan={9}>등록된 회원이 없습니다.</td>
                 </tr>
               ) : (
                 members.map((member) => (
@@ -1020,6 +926,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                       </span>
                     </td>
                     <td data-label="계정 유형">{member.isTestUser ? "테스트 계정" : "CU12 계정"}</td>
+                    <td data-label="승인">
+                      <span className={`status-chip ${statusChipClassForApproval(member.approvalStatus)}`}>
+                        {approvalStatusLabel(member.approvalStatus)}
+                      </span>
+                    </td>
                     <td data-label="CU12 ID">{member.cu12Account?.cu12Id ?? "-"}</td>
                     <td data-label="메일">{member.mailPreference?.email ?? "-"}</td>
                     <td data-label="등록일">{formatDateTime(member.createdAt)}</td>
@@ -1050,7 +961,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                           type="button"
                           className="ghost-btn"
                           onClick={() => void toggleMemberActive(member)}
-                          disabled={memberBusyId === member.id}
+                          disabled={memberBusyId === member.id || member.approvalStatus !== "APPROVED"}
                         >
                           {memberBusyId === member.id ? "처리 중..." : member.isActive ? "비활성화" : "활성화"}
                         </button>
@@ -1082,106 +993,61 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
       <section className="card">
         <div className="table-toolbar">
-          <h2>초대 코드 관리</h2>
-          <span className="text-small muted">통합 포털 계정 승인을 위한 초대 코드를 발급합니다.</span>
+          <h2>승인 대기</h2>
+          <span className="text-small muted">최초 로그인 후 관리자 승인을 기다리는 계정입니다.</span>
         </div>
-        <form className="form-grid top-gap" onSubmit={createInvite}>
-          <label className="field">
-            <span>통합 포털 ID</span>
-            <input
-              value={inviteCu12Id}
-              onChange={(event) => setInviteCu12Id(event.target.value)}
-              minLength={4}
-              required
-            />
-          </label>
-          <label className="field">
-            <span>역할</span>
-            <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as RoleType)}>
-              <option value="USER">USER</option>
-              <option value="ADMIN">ADMIN</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>유효시간 (시간)</span>
-            <input
-              type="number"
-              min={1}
-              max={720}
-              value={inviteExpiresHours}
-              onChange={(event) => setInviteExpiresHours(Math.max(1, Number(event.target.value) || 1))}
-              required
-            />
-          </label>
-          <div className="align-end">
-            <button className="btn-success" type="submit" disabled={inviteSubmitting}>
-              {inviteSubmitting ? "처리 중..." : "초대 코드 생성"}
-            </button>
-          </div>
-        </form>
-
-        {latestToken ? (
-          <div className="invite-token">
-            <div>
-              <span className="text-small muted">최근 생성 코드</span>
-              <code>{latestToken}</code>
-            </div>
-            <button className="ghost-btn" type="button" onClick={() => void copyInviteToken()}>
-              클립보드 복사
-            </button>
-          </div>
-        ) : null}
-
         <div className="table-wrap top-gap mobile-card-table">
           <table>
             <thead>
               <tr>
                 <th>계정 ID</th>
-                <th>역할</th>
+                <th>요청일</th>
                 <th>상태</th>
-                <th>생성일</th>
-                <th>만료일</th>
-                <th>사용일</th>
-                <th>사용자</th>
-                <th>조작</th>
+                <th>처리</th>
               </tr>
             </thead>
             <tbody>
-              {invites.length === 0 ? (
+              {pendingMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>발급된 초대 코드가 없습니다.</td>
+                  <td colSpan={4}>승인 대기 계정이 없습니다.</td>
                 </tr>
               ) : (
-                invites.map((invite) => (
-                  <tr key={invite.id}>
-                    <td data-label="계정 ID">{invite.cu12Id}</td>
-                    <td data-label="역할">{invite.role}</td>
+                pendingMembers.map((member) => (
+                  <tr key={member.id}>
+                    <td data-label="계정 ID">{member.email}</td>
+                    <td data-label="요청일">{formatDateTime(member.approvalRequestedAt)}</td>
                     <td data-label="상태">
-                      <span className={`status-chip ${statusChipClassForInvite(invite.state)}`}>
-                        {invite.state}
+                      <span className={`status-chip ${statusChipClassForApproval(member.approvalStatus)}`}>
+                        {approvalStatusLabel(member.approvalStatus)}
                       </span>
                     </td>
-                    <td data-label="생성일">{formatDateTime(invite.createdAt)}</td>
-                    <td data-label="만료일">{formatDateTime(invite.expiresAt)}</td>
-                    <td data-label="사용일">{formatDateTime(invite.usedAt)}</td>
-                    <td data-label="사용자">{invite.usedByEmail ?? "-"}</td>
-                    <td data-label="조작">
-                      <button
-                        type="button"
-                        className="ghost-btn"
-                        onClick={() => void toggleInvite(invite)}
-                        disabled={inviteBusyId === invite.id}
-                      >
-                        {inviteBusyId === invite.id ? "처리 중..." : invite.isActive ? "비활성화" : "활성화"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        onClick={() => void deleteInvite(invite)}
-                        disabled={inviteBusyId === invite.id}
-                      >
-                        {inviteBusyId === invite.id ? "처리 중..." : "삭제"}
-                      </button>
+                    <td data-label="처리">
+                      <div className="action-row">
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => decideMemberApproval(member, "APPROVE", "USER")}
+                          disabled={approvalBusyId === member.id}
+                        >
+                          USER 승인
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => decideMemberApproval(member, "APPROVE", "ADMIN")}
+                          disabled={approvalBusyId === member.id}
+                        >
+                          ADMIN 승인
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          onClick={() => decideMemberApproval(member, "REJECT")}
+                          disabled={approvalBusyId === member.id}
+                        >
+                          거절
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

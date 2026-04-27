@@ -5,21 +5,19 @@
 ### Identity, auth, and policy
 
 1. `User`
-   - Application identity, role, activity flags, and last-login metadata.
+   - Application identity, role, activity flags, approval state, and last-login metadata.
+   - `approvalStatus` distinguishes `PENDING`, `APPROVED`, and `REJECTED` onboarding states.
    - Supports logical withdrawal through `withdrawnAt` instead of destructive hard delete.
 
-2. `InviteToken`
-   - One-time onboarding token bound to `cu12Id`.
-   - Stores only `tokenHash`, lifecycle timestamps, and role assignment.
-
-3. `Cu12Account`
+2. `Cu12Account`
    - Shared portal-account mapping for the user.
    - Stores encrypted portal password, current provider, campus, account status, and automation toggles such as quiz auto-solve and digest enablement.
+   - Pending users do not receive a `Cu12Account` row until they are approved and log in again.
 
-4. `AuthRateLimit`
-   - Persistent throttle buckets for login/invite abuse protection.
+3. `AuthRateLimit`
+   - Persistent throttle buckets for login abuse protection.
 
-5. `PolicyDocument`, `PolicyProfile`, `UserPolicyConsent`
+4. `PolicyDocument`, `PolicyProfile`, `UserPolicyConsent`
    - Published policy versions are append-only by `(type, version)`.
    - `PolicyProfile` supplies rendered placeholders for the legal documents.
    - `UserPolicyConsent` stores immutable per-user version acceptance history.
@@ -98,7 +96,7 @@
 ## Data Protection and Retention
 
 - Portal passwords are encrypted at rest using `APP_MASTER_KEY`.
-- Invite codes are stored only as hashes.
+- Pending approval users have no stored portal password.
 - `PortalSession` and `PortalApprovalSession` store encrypted cookie-state payloads, not plaintext cookies.
 - Session cookies are signed JWTs with bounded TTL plus a separate idle-session token.
 - Retention cleanup removes old terminal job rows, mail logs, and aged withdrawn-user consent history according to the scheduled workflow.

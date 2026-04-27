@@ -45,7 +45,7 @@
     - Applies Prisma schema and auth-policy post-sync backfills without a web deploy.
 
 11. `auth-reset-bootstrap.yml`
-    - Resets auth bootstrap state and provisions a fresh admin invite from `inviteCodeHash`.
+    - Resets auth bootstrap state and pre-approves the initial admin CU12 ID.
 
 ## Auxiliary Repository Workflows
 
@@ -137,10 +137,10 @@
 
 1. Set GitHub secrets and Vercel env vars.
 2. Run `DB Bootstrap`.
-3. Run `Auth Reset Bootstrap` with the SHA-256 `inviteCodeHash` for the initial admin invite.
+3. Run `Auth Reset Bootstrap` with the initial admin CU12 ID.
 4. Deploy the web app.
 5. Verify `/api/health`.
-6. Log in as admin, publish the required policy documents, and issue invite codes for users.
+6. Log in as admin, publish the required policy documents, and approve pending users from `/admin`.
 7. Trigger `worker-consume.yml` once and confirm the queue transitions as expected.
 8. Review `Reconcile Health Check` before declaring the environment healthy.
 

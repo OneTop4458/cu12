@@ -97,6 +97,13 @@ export interface PolicyUpdateMailChangeItem {
   diffUrl: string | null;
 }
 
+export interface AdminApprovalRequestMailInput {
+  dashboardBaseUrl: string;
+  generatedAt: Date;
+  requestedCu12Id: string;
+  requestedAt: Date | string;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -964,6 +971,37 @@ export function buildPolicyUpdateMail(input: {
       primaryLink: {
         href: buildDashboardLink(input.dashboardBaseUrl, DASHBOARD_SECTION_ID.OVERVIEW),
         label: "대시보드 열기",
+      },
+    }),
+  };
+}
+
+export function buildAdminApprovalRequestMail(input: AdminApprovalRequestMailInput): MailDocument {
+  const adminUrl = `${input.dashboardBaseUrl.replace(/\/+$/, "")}/admin`;
+  const summaryRows: SummaryRow[] = [];
+  pushSummaryRow(summaryRows, "요청 계정", input.requestedCu12Id);
+  pushSummaryRow(summaryRows, "요청 시각", formatKoDateTime(input.requestedAt));
+  pushSummaryRow(summaryRows, "알림 시각", formatKoDateTime(input.generatedAt));
+
+  return {
+    subject: "[CU12] 관리자 승인 요청",
+    html: renderMailLayout({
+      title: "관리자 승인 요청",
+      subtitle: "새 사용자가 최초 로그인 후 관리자 승인을 기다리고 있습니다.",
+      summaryRows,
+      sections: [
+        renderMailSection(
+          "처리 필요",
+          `<p style="margin:0;color:#111827;">관리자 페이지에서 계정 정보를 확인한 뒤 USER 또는 ADMIN으로 승인하거나 거절해 주세요.</p>`,
+          {
+            href: adminUrl,
+            label: "관리자 페이지 열기",
+          },
+        ),
+      ],
+      primaryLink: {
+        href: adminUrl,
+        label: "승인 요청 보기",
       },
     }),
   };

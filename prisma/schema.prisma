@@ -13,6 +13,12 @@ enum UserRole {
   USER
 }
 
+enum UserApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum SiteNoticeType {
   BROADCAST
   MAINTENANCE
@@ -134,13 +140,16 @@ model User {
   withdrawnAt    DateTime?
   isTestUser     Boolean            @default(false)
   role           UserRole           @default(USER)
+  approvalStatus UserApprovalStatus @default(APPROVED)
+  approvalRequestedAt DateTime?
+  approvalDecidedAt DateTime?
+  approvalDecidedByUserId String?
+  approvalRejectedReason String?
   lastLoginAt    DateTime?
   lastLoginIp    String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   cu12Account    Cu12Account?
-  inviteUsages   InviteToken[]      @relation("InviteUsedBy")
-  createdInvites InviteToken[]      @relation("InviteCreatedBy")
   jobs           JobQueue[]
   courseSnapshots CourseSnapshot[]
   courseNotices  CourseNotice[]
@@ -159,24 +168,8 @@ model User {
   updatedPolicyDocuments PolicyDocument[] @relation("PolicyUpdatedBy")
   updatedPolicyProfiles  PolicyProfile[]  @relation("PolicyProfileUpdatedBy")
   policyConsents UserPolicyConsent[]
-}
 
-model InviteToken {
-  id              String    @id @default(cuid())
-  provider        PortalProvider @default(CU12)
-  cu12Id          String
-  role            UserRole  @default(USER)
-  tokenHash       String    @unique
-  isActive        Boolean   @default(true)
-  createdByUserId String?
-  usedByUserId    String?
-  createdAt       DateTime  @default(now())
-  expiresAt       DateTime
-  usedAt          DateTime?
-  createdBy       User?     @relation("InviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  usedBy          User?     @relation("InviteUsedBy", fields: [usedByUserId], references: [id], onDelete: SetNull)
-
-  @@index([provider, cu12Id])
+  @@index([approvalStatus, createdAt])
 }
 
 model Cu12Account {

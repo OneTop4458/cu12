@@ -29,6 +29,10 @@ jobs:
       - run: pnpm run prisma:generate
       - name: Ensure auth/policy unique constraints are safe to apply
         run: node scripts/db-ensure-auth-policy-constraints.mjs
+      - name: Drop legacy invite token table
+        env:
+          ALLOW_DROP_INVITE_TOKEN: "true"
+        run: node scripts/db-drop-invite-token.mjs
       - name: Push Prisma schema
         run: pnpm exec prisma db push --schema prisma/schema.prisma
       - name: Backfill auth/policy columns after schema sync

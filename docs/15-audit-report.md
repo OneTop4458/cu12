@@ -13,15 +13,15 @@ This audit validates alignment between code, API contract, workflows, and docume
 
 ## Findings
 
-1. Login flow is implemented as CU12 verification first, invite verification second.
+1. Current login flow is implemented as CU12 verification first, administrator approval second for first-login users.
 2. Distinct failure modes exist for invalid CU12 credentials and unapproved CU12 IDs.
 3. Root route redirects to login/dashboard based on session state.
 4. Cloud workflows exist for DB bootstrap, deploy, and worker consumption.
 
 ## Remediation Applied
 
-1. Replaced inline invite input with post-login modal challenge flow.
-2. Updated OpenAPI to include `/api/auth/login/invite`.
+1. Historical versions used a post-login challenge flow; current versions use administrator approval instead.
+2. Updated OpenAPI to include the current login and approval contracts.
 3. Standardized docs to English and isolated Korean summary to `README.ko.md`.
 4. Added text-quality gate (`pnpm run check:text`) to CI.
 5. Current baseline additionally enforces OpenAPI drift check (`pnpm run check:openapi`) in CI.
