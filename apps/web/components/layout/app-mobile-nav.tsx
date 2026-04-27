@@ -23,7 +23,7 @@ const dashboardItems: Array<{ href: string; label: string }> = [
   { href: "/dashboard#overview", label: "개요" },
   { href: "/dashboard#sync", label: "동기화" },
   { href: "/dashboard#jobs", label: "작업" },
-  { href: "/dashboard#messages", label: "메시지" },
+  { href: "/dashboard#activity", label: "활동함" },
   { href: "/dashboard#deadlines", label: "마감" },
   { href: "/dashboard#courses", label: "강좌" },
   { href: "/notices", label: "공지" },

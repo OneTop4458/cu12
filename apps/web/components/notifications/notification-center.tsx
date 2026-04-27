@@ -9,12 +9,16 @@ import { ScrollArea } from "../ui/scroll-area";
 interface DashboardNotification {
   provider?: "CU12" | "CYBER_CAMPUS";
   id: string;
+  sourceId?: string;
+  kind?: "NOTICE" | "NOTIFICATION" | "MESSAGE" | "SYSTEM";
+  title?: string;
   courseTitle: string;
   message: string;
   occurredAt: string | null;
   createdAt: string;
   isUnread: boolean;
   isArchived?: boolean;
+  needsAttention?: boolean;
 }
 
 type NotificationCenterProps = {
@@ -40,7 +44,7 @@ export function NotificationCenter({
   onClearVisible,
   clearing = false,
 }: NotificationCenterProps) {
-  const unreadCount = notifications.filter((item) => item.isUnread).length;
+  const unreadCount = notifications.filter((item) => item.needsAttention ?? item.isUnread).length;
   const source = showHistory ? historyNotifications : notifications;
   const latest = [...source]
     .sort((a, b) => {
@@ -67,7 +71,7 @@ export function NotificationCenter({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button className="notification-trigger" type="button" aria-label={`알림 ${unreadCount}건`} variant="outline" size="icon">
+        <Button className="notification-trigger" type="button" aria-label={`활동 ${unreadCount}건`} variant="outline" size="icon">
           <Bell size={17} />
           {unreadCount > 0 ? <Badge className="notification-badge">{unreadCount}</Badge> : null}
         </Button>
@@ -82,7 +86,7 @@ export function NotificationCenter({
         >
           <div className="notification-panel-head">
             <span className="notification-panel-head-copy">
-              {showHistory ? `예전 알림 ${latest.length}건` : `알림 · 읽지 않음 ${unreadCount}건`}
+              {showHistory ? `지난 활동 ${latest.length}건` : `활동 · 주의 필요 ${unreadCount}건`}
             </span>
             <div className="notification-panel-actions">
               <Button
@@ -93,7 +97,7 @@ export function NotificationCenter({
                 variant="outline"
                 size="sm"
               >
-                {showHistory ? "최신 알림 보기" : "예전 알림 보기"}
+                {showHistory ? "최신 활동 보기" : "지난 활동 보기"}
               </Button>
               {!showHistory && onClearVisible && latest.length > 0 ? (
                 <Button
@@ -104,15 +108,15 @@ export function NotificationCenter({
                   variant="destructive"
                   size="sm"
                 >
-                  {clearing ? "삭제 중..." : "현재 목록 삭제"}
+                  {clearing ? "정리 중..." : "현재 활동 정리"}
                 </Button>
               ) : null}
             </div>
           </div>
           <ScrollArea className="notification-panel-list">
-            {historyLoading ? <p className="notification-empty">예전 알림을 불러오는 중...</p> : null}
+            {historyLoading ? <p className="notification-empty">지난 활동을 불러오는 중...</p> : null}
             {latest.length === 0 ? (
-              <p className="notification-empty">{showHistory ? "예전 알림이 없습니다." : "알림이 없습니다."}</p>
+              <p className="notification-empty">{showHistory ? "지난 활동이 없습니다." : "새 활동이 없습니다."}</p>
             ) : (
               latest.map((item) => (
                 <Button
@@ -125,7 +129,7 @@ export function NotificationCenter({
                   type="button"
                   variant="ghost"
                 >
-                  <span className="notification-list-title">{item.courseTitle || "시스템 알림"}</span>
+                  <span className="notification-list-title">{item.title || item.courseTitle || "시스템 활동"}</span>
                   <span className="notification-list-message">{sanitizeMessage(item.message)}</span>
                   <span className="notification-list-time">{formatDate(item.occurredAt ?? item.createdAt)}</span>
                 </Button>

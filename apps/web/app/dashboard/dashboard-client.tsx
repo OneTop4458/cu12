@@ -147,14 +147,19 @@ interface Notification {
   isArchived?: boolean;
 }
 
-interface MessageItem {
+interface ActivityItem {
   provider: PortalProvider;
   id: string;
+  sourceId: string;
+  kind: "NOTICE" | "NOTIFICATION" | "MESSAGE" | "SYSTEM";
   title: string;
-  senderName: string | null;
-  bodyText: string;
-  sentAt: string | null;
-  isRead: boolean;
+  courseTitle: string;
+  message: string;
+  occurredAt: string | null;
+  createdAt: string;
+  isUnread: boolean;
+  isArchived: boolean;
+  needsAttention: boolean;
 }
 
 interface SiteNotice {
@@ -881,11 +886,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     items: null,
   });
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<ActivityItem[]>([]);
   const [, setNotificationsLoading] = useState(true);
-  const [messages, setMessages] = useState<MessageItem[]>([]);
-  const [messagesLoading, setMessagesLoading] = useState(true);
-  const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
+  const [notificationHistory, setNotificationHistory] = useState<ActivityItem[]>([]);
   const [notificationHistoryOpen, setNotificationHistoryOpen] = useState(false);
   const [notificationHistoryLoading, setNotificationHistoryLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -941,7 +944,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [noticeCourse, setNoticeCourse] = useState<Course | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
-  const [activeNotification, setActiveNotification] = useState<Notification | null>(null);
+  const [activeNotification, setActiveNotification] = useState<ActivityItem | null>(null);
   const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<string>>(() => new Set());
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
@@ -1200,13 +1203,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const loadNotificationHistory = useCallback(async () => {
     setNotificationHistoryLoading(true);
     try {
-      const payloads = await Promise.all(
-        PORTAL_PROVIDERS.map((provider) =>
-          fetchJson<{ notifications: Notification[] }>(
-            `/api/dashboard/notifications?provider=${provider}&historyOnly=1&includeArchived=1&limit=80`,
-          )),
-      );
-      setNotificationHistory(payloads.flatMap((payload) => payload.notifications));
+      const payload = await fetchJson<{ activities: ActivityItem[] }>("/api/dashboard/activity?limit=100");
+      setNotificationHistory(payload.activities);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1285,11 +1283,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const loadNotifications = useCallback(async (options?: DashboardLoadOptions) => {
     setNotificationsLoading(true);
     try {
-      const payloads = await Promise.all(
-        PORTAL_PROVIDERS.map((provider) =>
-          fetchJson<{ notifications: Notification[] }>(`/api/dashboard/notifications?provider=${provider}&unreadOnly=1&limit=40`)),
-      );
-      setNotifications(payloads.flatMap((payload) => payload.notifications));
+      const payload = await fetchJson<{ activities: ActivityItem[] }>("/api/dashboard/activity?limit=80");
+      setNotifications(payload.activities);
       if (notificationHistoryOpen) {
         void loadNotificationHistory();
       }
@@ -1301,23 +1296,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setNotificationsLoading(false);
     }
   }, [fetchJson, notificationHistoryOpen, loadNotificationHistory, reportDashboardError]);
-
-  const loadMessages = useCallback(async (options?: DashboardLoadOptions) => {
-    setMessagesLoading(true);
-    try {
-      const payloads = await Promise.all(
-        PORTAL_PROVIDERS.map((provider) =>
-          fetchJson<{ messages: MessageItem[] }>(`/api/dashboard/messages?provider=${provider}&limit=20`)),
-      );
-      setMessages(payloads.flatMap((payload) => payload.messages));
-    } catch (err) {
-      if (options?.reportError ?? true) {
-        reportDashboardError(err);
-      }
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [fetchJson, reportDashboardError]);
 
   const loadJobs = useCallback(async (options?: DashboardLoadOptions) => {
     setJobsLoading(true);
@@ -1370,10 +1348,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       loadCourses({ reportError: false }),
       loadDeadlines(30, { reportError: false }),
       loadNotifications({ reportError: false }),
-      loadMessages({ reportError: false }),
       loadJobs({ reportError: false }),
     ]);
-  }, [loadCourses, loadDeadlines, loadNotifications, loadMessages, loadJobs]);
+  }, [loadCourses, loadDeadlines, loadNotifications, loadJobs]);
 
   const refreshStatus = useCallback(async (silent = true) => {
     if (silent) {
@@ -2090,12 +2067,20 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
-  async function markNotificationRead(item: Notification) {
+  async function markNotificationRead(item: ActivityItem) {
     setActiveNotification(item);
     if (!item.isUnread) return;
     try {
-      await fetchJson(`/api/dashboard/notifications/${item.id}/read?provider=${item.provider}`, { method: "PATCH" });
-      setNotifications((prev) => prev.filter((row) => row.id !== item.id));
+      await fetchJson("/api/dashboard/activity", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          items: [{ kind: item.kind, id: item.sourceId, provider: item.provider }],
+        }),
+      });
+      setNotifications((prev) => prev.map((row) =>
+        row.id === item.id ? { ...row, isUnread: false, needsAttention: false } : row,
+      ));
       if (notificationHistoryOpen) {
         void loadNotificationHistory();
       }
@@ -2110,26 +2095,22 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
     const uniqueIds = Array.from(new Set(ids));
     const targetIds = new Set(uniqueIds);
-    const idsByProvider = {
-      CU12: notifications.filter((item) => item.provider === "CU12" && targetIds.has(item.id)).map((item) => item.id),
-      CYBER_CAMPUS: notifications.filter((item) => item.provider === "CYBER_CAMPUS" && targetIds.has(item.id)).map((item) => item.id),
-    } satisfies Record<PortalProvider, string[]>;
+    const targetItems = notifications
+      .filter((item) => targetIds.has(item.id) && item.kind !== "SYSTEM")
+      .map((item) => ({ kind: item.kind, id: item.sourceId, provider: item.provider }));
 
     try {
-      const payloads = await Promise.all(
-        PORTAL_PROVIDERS
-          .filter((provider) => idsByProvider[provider].length > 0)
-          .map((provider) =>
-            fetchJson<{ deletedCount: number }>(`/api/dashboard/notifications?provider=${provider}`, {
-              method: "DELETE",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ ids: idsByProvider[provider] }),
-            })),
-      );
-      const deletedCount = payloads.reduce((sum, payload) => sum + payload.deletedCount, 0);
-      const payload = { deletedCount };
+      const payload = targetItems.length > 0
+        ? await fetchJson<{ updatedCount: number }>("/api/dashboard/activity", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ items: targetItems }),
+        }).then((result) => ({ ...result, deletedCount: result.updatedCount }))
+        : { updatedCount: 0, deletedCount: 0 };
 
-      setNotifications((prev) => prev.filter((item) => !targetIds.has(item.id)));
+      setNotifications((prev) => prev.map((item) =>
+        targetIds.has(item.id) ? { ...item, isUnread: false, needsAttention: item.kind === "SYSTEM" } : item,
+      ));
       setActiveNotification((prev) => (prev && targetIds.has(prev.id) ? null : prev));
       if (notificationHistoryOpen) {
         void loadNotificationHistory();
@@ -2270,10 +2251,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               showHistory={notificationHistoryOpen}
               historyLoading={notificationHistoryLoading}
               onToggleHistory={toggleNotificationHistory}
-              onOpen={(item) => setActiveNotification(item as Notification)}
+              onOpen={(item) => setActiveNotification(item as ActivityItem)}
               onMarkRead={(item) => {
                 if (item.isUnread) {
-                  void markNotificationRead(item as Notification);
+                  void markNotificationRead(item as ActivityItem);
                 }
               }}
               onClearVisible={(ids) => {
@@ -2582,20 +2563,18 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ) : null}
       </section>
 
-      <section className="card" id="messages">
-        <h2>Inbox</h2>
+      <section className="card" id="activity">
+        <h2>활동함</h2>
         <div className="notice-list">
-          {messagesLoading && messages.length === 0 ? (
-            <p className="muted">받은 쪽지를 불러오는 중입니다.</p>
-          ) : messages.length === 0 ? (
-            <p className="muted">표시할 받은쪽지가 없습니다.</p>
-          ) : messages.slice(0, 20).map((item) => (
-            <article key={item.id} className={`notification-item ${item.isRead ? "" : "is-unread"}`}>
+          {notifications.length === 0 ? (
+            <p className="muted">새 활동이 없습니다.</p>
+          ) : notifications.slice(0, 20).map((item) => (
+            <article key={item.id} className={`notification-item ${item.isUnread ? "is-unread" : ""}`}>
               <strong>[{getProviderShortLabel(item.provider)}] {item.title}</strong>
               <p className="muted">
-                {item.senderName ?? "-"} · {toDateTime(item.sentAt)}
+                {item.kind} · {toDateTime(item.occurredAt ?? item.createdAt)}
               </p>
-              <p className="notification-item-message">{item.bodyText || "본문 없음"}</p>
+              <p className="notification-item-message">{sanitizeNotificationMessage(item.message)}</p>
             </article>
           ))}
         </div>
@@ -2954,12 +2933,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </p>
                 <label className="field"><span>수신 이메일</span><input type="email" value={mailDraft.email} onChange={(event) => setMailDraft({ ...mailDraft, email: event.target.value })} required /></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.enabled} onChange={(event) => setMailDraft({ ...mailDraft, enabled: event.target.checked })} /><span>메일 알림 사용</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnNotice} onChange={(event) => setMailDraft({ ...mailDraft, alertOnNotice: event.target.checked })} /><span>신규 공지/알림 즉시 발송</span></label>
+                <label className="check-field" style={{ display: "none" }}><input type="checkbox" checked={mailDraft.alertOnNotice} onChange={(event) => setMailDraft({ ...mailDraft, alertOnNotice: event.target.checked })} /><span>신규 공지/알림 즉시 발송</span></label>
                 <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnDeadline} onChange={(event) => setMailDraft({ ...mailDraft, alertOnDeadline: event.target.checked })} /><span>차시 마감 임박 알림</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>자동 수강 시작/종료 알림 발송</span></label>
-                <label className="check-field"><input type="checkbox" checked={mailDraft.digestEnabled} onChange={(event) => setMailDraft({ ...mailDraft, digestEnabled: event.target.checked })} /><span>일일 요약 메일</span></label>
-                <label className="field"><span>요약 시각 (0~23)</span><input type="number" min={0} max={23} value={mailDraft.digestHour} onChange={(event) => setMailDraft({ ...mailDraft, digestHour: Number(event.target.value) })} /></label>
-                <p className="muted text-small">
+                <label className="check-field"><input type="checkbox" checked={mailDraft.alertOnAutolearn} onChange={(event) => setMailDraft({ ...mailDraft, alertOnAutolearn: event.target.checked })} /><span>자동 수강 결과 알림 발송</span></label>
+                <label className="check-field" style={{ display: "none" }}><input type="checkbox" checked={mailDraft.digestEnabled} onChange={(event) => setMailDraft({ ...mailDraft, digestEnabled: event.target.checked })} /><span>일일 요약 메일</span></label>
+                <label className="field" style={{ display: "none" }}><span>요약 시각 (0~23)</span><input type="number" min={0} max={23} value={mailDraft.digestHour} onChange={(event) => setMailDraft({ ...mailDraft, digestHour: Number(event.target.value) })} /></label>
+                <p className="muted text-small" style={{ display: "none" }}>
                   요약 메일은 KST(한국시간) 기준으로 매시간 검사되며 설정한 시각(0~23)에 발송됩니다. 자동 수강 알림은 시작 시 1회, 종료(성공/실패/취소) 시 1회 발송됩니다.
                 </p>
                 <label className="check-field">
@@ -3040,7 +3019,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       {activeNotification ? (
         <div className="modal-overlay" onClick={() => setActiveNotification(null)}>
           <section className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <h2>{activeNotification.courseTitle || "시스템 알림"}</h2>
+            <h2>{activeNotification.title || "활동"}</h2>
             <p className="muted">{toDateTime(activeNotification.occurredAt ?? activeNotification.createdAt)}</p>
             <p>{sanitizeNotificationMessage(activeNotification.message)}</p>
             <button className="ghost-btn" onClick={() => setActiveNotification(null)}>닫기</button>

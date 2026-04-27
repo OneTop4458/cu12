@@ -51,16 +51,14 @@ async function resolveMailPreference(userId: string) {
     return null;
   }
 
-  const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
-
   if (!subscription) {
     return {
       email: user.email,
       enabled: true,
-      alertOnNotice: true,
+      alertOnNotice: false,
       alertOnDeadline: true,
       alertOnAutolearn: true,
-      digestEnabled: accountDigestEnabled,
+      digestEnabled: false,
       digestHour: 8,
       updatedAt: null,
     };
@@ -72,7 +70,7 @@ async function resolveMailPreference(userId: string) {
     alertOnNotice: subscription.alertOnNotice,
     alertOnDeadline: subscription.alertOnDeadline,
     alertOnAutolearn: subscription.alertOnAutolearn,
-    digestEnabled: subscription.digestEnabled && accountDigestEnabled,
+    digestEnabled: false,
     digestHour: subscription.digestHour,
     updatedAt: subscription.updatedAt,
   };

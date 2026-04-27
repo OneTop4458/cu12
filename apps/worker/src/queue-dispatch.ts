@@ -48,28 +48,6 @@ async function cancelBlockedSyncJobsForTestUsers(): Promise<number> {
   return canceled.count;
 }
 
-function getSeoulHour(now = new Date()) {
-  try {
-    const raw = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Seoul",
-      hour: "numeric",
-      hour12: false,
-    }).format(now);
-    const hour = Number(raw);
-    if (!Number.isFinite(hour)) return null;
-    return hour;
-  } catch {
-    return null;
-  }
-}
-
-function toDigestHour(value: unknown, fallback = 8) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.min(23, Math.max(0, Math.floor(value)));
-}
-
 function toBoolArg(value: string | undefined, fallback = false) {
   if (typeof value !== "string") return fallback;
   const normalized = value.trim().toLowerCase();
@@ -156,41 +134,7 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
   }
 
   if (type === JobType.MAIL_DIGEST) {
-    const digestHour = getSeoulHour() ?? 8;
-    const users = await prisma.user.findMany({
-      where: {
-        isActive: true,
-      },
-      select: {
-        id: true,
-        cu12Account: {
-          select: {
-            emailDigestEnabled: true,
-          },
-        },
-        mailSubs: {
-          select: {
-            enabled: true,
-            digestEnabled: true,
-            digestHour: true,
-          },
-        },
-      },
-    });
-
-    return users
-      .filter((user) => {
-        const accountDigestEnabled = user.cu12Account?.emailDigestEnabled ?? true;
-        const subscription = user.mailSubs[0];
-        const enabled = subscription ? subscription.enabled : true;
-        const digestEnabled = subscription ? subscription.digestEnabled : true;
-        const targetHour = toDigestHour(subscription?.digestHour, 8);
-        return accountDigestEnabled && enabled && digestEnabled && targetHour === digestHour;
-      })
-      .map((user) => ({
-        id: user.id,
-        cu12Account: null,
-      }));
+    return [];
   }
 
   if (type === JobType.AUTOLEARN) {
