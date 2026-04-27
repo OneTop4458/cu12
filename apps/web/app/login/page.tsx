@@ -3,18 +3,19 @@ import Link from "next/link";
 import type { Route } from "next";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { ThemeToggle } from "../../components/theme/theme-toggle";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { getServerActiveSession } from "@/lib/session-user";
 import { LoginForm } from "./login-form";
 import { LoginNotices } from "./login-notices";
 
 const COPY = {
-  brandMark: "시스템 문의 : byungjun4458@catholic.ac.kr",
-  title: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uC218\uAC15 \uC9C0\uC6D0 \uC194\uB8E8\uC158",
-  subtitle: "Catholic University Automation \uB85C\uADF8\uC778 \uD398\uC774\uC9C0\uC785\uB2C8\uB2E4.",
-  loginTitle: "\uB85C\uADF8\uC778",
-  loginIntro: "\uAC00\uD1A8\uB9AD\uB300\uD559\uAD50 \uD3EC\uD138(\uD2B8\uB9AC\uB2C8\uD2F0) \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694.",
+  brandMark: "시스템 문의: byungjun4458@catholic.ac.kr",
+  title: "가톨릭대학교 수강 지원 솔루션",
+  subtitle: "가톨릭대학교 포털 기반 수강 정보와 학습 일정을 한곳에서 확인합니다.",
+  loginTitle: "로그인",
+  loginIntro: "가톨릭대학교 포털(트리니티) 계정으로 로그인하세요.",
+  navNotice: "공지",
+  navFaq: "FAQ",
 } as const;
 
 export default async function LoginPage({
@@ -35,21 +36,45 @@ export default async function LoginPage({
 
   return (
     <main className="auth-main">
-      <div className="auth-toolbar">
-        <ThemeToggle />
-      </div>
-      <section className="auth-stage">
-        <section className="auth-brand">
+      <header className="auth-public-topbar" aria-label="CU12">
+        <Link href={"/login" as Route} className="auth-public-logo">
           <Image
-            src="/brand/catholic/logo-wordmark.png"
+            src="/brand/catholic/logo-wordmark-mobile.png"
             alt="Catholic University logo"
-            width={300}
-            height={72}
-            className="brand-wordmark"
+            width={168}
+            height={34}
+            priority
           />
-          <h1>{COPY.title}</h1>
-          <p className="muted">{COPY.subtitle}</p>
-          <p className="brand-mark">{COPY.brandMark}</p>
+          <span>CU12 AUTO</span>
+        </Link>
+        <nav className="auth-public-nav" aria-label="공개 메뉴">
+          <Link href={"/notices" as Route}>{COPY.navNotice}</Link>
+          <Link href={"/faq" as Route}>{COPY.navFaq}</Link>
+        </nav>
+      </header>
+      <section className="auth-stage">
+        <section className="auth-brand" aria-label="서비스 소개">
+          <Image
+            src="/brand/catholic/cuk-campus-hero.png"
+            alt=""
+            fill
+            priority
+            sizes="(min-width: 1024px) 58vw, 100vw"
+            className="auth-brand-image"
+          />
+          <div className="auth-brand-copy">
+            <Image
+              src="/brand/catholic/logo-wordmark.png"
+              alt="Catholic University logo"
+              width={300}
+              height={72}
+              className="brand-wordmark"
+            />
+            <p className="brand-kicker">Catholic University Automation</p>
+            <h1>{COPY.title}</h1>
+            <p>{COPY.subtitle}</p>
+            <p className="brand-mark">{COPY.brandMark}</p>
+          </div>
         </section>
 
         <Card className="auth-card brand-login">

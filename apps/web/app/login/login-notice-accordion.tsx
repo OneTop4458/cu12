@@ -20,6 +20,7 @@ export function LoginNoticeAccordion({ notices }: LoginNoticeAccordionProps) {
     <ul className="login-notice-list">
       {notices.map((notice) => {
         const expanded = expandedNoticeId === notice.id;
+        const noticeLabel = notice.type === "MAINTENANCE" ? "점검" : "공지";
 
         return (
           <li key={notice.id} className={`login-notice-item ${expanded ? "is-expanded" : ""}`}>
@@ -31,7 +32,7 @@ export function LoginNoticeAccordion({ notices }: LoginNoticeAccordionProps) {
             >
               <span className="login-notice-trigger-copy">
                 <span className={`login-notice-badge ${notice.type === "MAINTENANCE" ? "is-maintenance" : "is-broadcast"}`}>
-                  {notice.type === "MAINTENANCE" ? "점검" : "공지"}
+                  {noticeLabel}
                 </span>
                 <span className="login-notice-trigger-title">{notice.title}</span>
               </span>

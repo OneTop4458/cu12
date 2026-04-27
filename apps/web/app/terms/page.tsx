@@ -25,14 +25,17 @@ export default async function TermsOfServicePage({
   const resolvedSearchParams = await searchParams;
   const requestedVersion = parsePositiveInt(resolvedSearchParams.version);
   const compareToVersion = parsePositiveInt(resolvedSearchParams.compareTo);
+  const canLoadPolicies = Boolean(process.env.DATABASE_URL);
 
-  const policy = requestedVersion
-    ? await getPolicyDocumentVersion(PolicyDocumentType.TERMS_OF_SERVICE, requestedVersion)
-    : await getActivePolicyDocument(PolicyDocumentType.TERMS_OF_SERVICE);
-  const comparePolicy = policy && compareToVersion
+  const policy = canLoadPolicies
+    ? requestedVersion
+      ? await getPolicyDocumentVersion(PolicyDocumentType.TERMS_OF_SERVICE, requestedVersion)
+      : await getActivePolicyDocument(PolicyDocumentType.TERMS_OF_SERVICE)
+    : null;
+  const comparePolicy = canLoadPolicies && policy && compareToVersion
     ? await getPolicyDocumentVersion(PolicyDocumentType.TERMS_OF_SERVICE, compareToVersion)
     : null;
-  const history = await getPolicyHistoryForPublic(PolicyDocumentType.TERMS_OF_SERVICE);
+  const history = canLoadPolicies ? await getPolicyHistoryForPublic(PolicyDocumentType.TERMS_OF_SERVICE) : [];
 
   return (
     <LegalDocumentPage

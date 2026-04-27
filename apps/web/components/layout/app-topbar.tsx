@@ -5,7 +5,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { MoreHorizontal, RefreshCw } from "lucide-react";
 import { ActivityCenter } from "../notifications/activity-center";
-import { ThemeToggle } from "../theme/theme-toggle";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -116,7 +115,6 @@ export function AppTopbar({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          <ThemeToggle />
           <ActivityCenter />
           <UserMenu
             email={email}
