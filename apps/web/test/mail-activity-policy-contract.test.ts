@@ -85,3 +85,18 @@ test("dashboard and admin pages use common topbar without legacy button override
   assert.match(css, /button:not\(\[data-slot="button"\]\)/);
   assert.doesNotMatch(css, /\.btn,\s*button\s*\{/);
 });
+
+test("mobile topbar, notification sheet, and link buttons keep readable responsive sizing", () => {
+  const css = readRepoFile("apps/web/app/globals.css").replace(/\r\n/g, "\n");
+  const themeToggle = readRepoFile("apps/web/components/theme/theme-toggle.tsx");
+
+  assert.match(css, /\.btn,\n\.ghost-btn,\n\.btn-quiet,\n\.btn-success,\n\.btn-danger,\nbutton:not\(\[data-slot="button"\]\) \{/);
+  assert.match(css, /\.theme-toggle-item\[aria-pressed="false"\] \{\n\s*background: transparent !important;\n\s*color: var\(--text\) !important;/);
+  assert.match(css, /\.theme-toggle-item\.active,\n\.theme-toggle-item\[aria-pressed="true"\] \{\n\s*background: var\(--primary\) !important;\n\s*color: var\(--primary-ink\) !important;/);
+  assert.match(themeToggle, /active=\{mounted && current === "light"\}/);
+  assert.match(themeToggle, /active=\{mounted && current === "dark"\}/);
+  assert.match(themeToggle, /active=\{mounted && current === "system"\}/);
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.topbar-actions \{[\s\S]+?flex-wrap: wrap;[\s\S]+?overflow: visible;/);
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.notification-sheet \{[\s\S]+?width: calc\(100vw - 16px\);[\s\S]+?height: calc\(100dvh - 16px\);/);
+  assert.match(css, /\.notification-list-item \{[\s\S]+?height: auto;[\s\S]+?min-height: 72px;/);
+});
