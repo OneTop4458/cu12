@@ -2580,7 +2580,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               disabled={dashboardManualSaving}
               aria-label="사용 매뉴얼 닫기"
             >
-              닫기
+              ×
             </button>
             <div className="manual-guide-layout">
               <div className="manual-guide-media">
@@ -2593,43 +2593,58 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 />
               </div>
               <div className="manual-guide-copy">
-                <p className="brand-kicker">CU12 사용 매뉴얼</p>
-                <h2 id="dashboard-manual-title">자동 수강은 백그라운드에서 진행됩니다</h2>
-                <div className="manual-guide-points" aria-label="핵심 안내">
+                <p className="brand-kicker">가입자용 안내</p>
+                <h2 id="dashboard-manual-title">CU12 간단 사용 설명서</h2>
+                <p className="manual-guide-intro">처음 쓰는 분들이 자주 놓치는 흐름만 먼저 확인해 주세요.</p>
+                <ol className="manual-guide-flow" aria-label="기본 사용 순서">
+                  <li>설정 확인</li>
+                  <li>자동 수강 요청</li>
+                  <li>진행 상태 확인</li>
+                  <li>결과와 알림 확인</li>
+                </ol>
+                <div className="manual-guide-points" aria-label="핵심 사용법">
                   <article>
                     <span>1</span>
                     <div>
-                      <h3>페이지에 계속 머물 필요가 없습니다</h3>
-                      <p>자동 수강은 서버 작업으로 진행됩니다. 요청 후 다른 페이지로 이동하거나 브라우저를 닫아도 작업 상태와 결과를 확인할 수 있습니다.</p>
+                      <h3>자동 수강 요청 후 페이지를 켜둘 필요가 없습니다</h3>
+                      <p>
+                        요청이 접수되면 <strong className="manual-guide-emphasis">브라우저를 닫아도 서버에서 계속 처리</strong>됩니다.
+                        작업 상태와 결과는 대시보드에서 다시 확인할 수 있습니다.
+                      </p>
                     </div>
                   </article>
                   <article>
                     <span>2</span>
                     <div>
-                      <h3>설정에서 옵션을 바꿀 수 있습니다</h3>
-                      <p>회원 설정에서 메일 알림, 공유대 정기 자동 수강, 퀴즈 자동 풀이 사용 여부를 조정할 수 있습니다.</p>
+                      <h3>설정에서 필요한 기능을 직접 바꿀 수 있습니다</h3>
+                      <p>
+                        회원 설정에서 <strong>메일 알림</strong>, <strong>공유대 정기 자동 수강</strong>,{" "}
+                        <strong>퀴즈 자동 풀이</strong> 사용 여부를 조정할 수 있습니다.
+                      </p>
                     </div>
                   </article>
                   <article>
                     <span>3</span>
                     <div>
-                      <h3>사캠은 수동 요청과 2차 인증이 필요합니다</h3>
-                      <p>사이버캠퍼스 자동 수강은 2차 인증 제약 때문에 필요할 때 직접 요청하고, 인증 창이 뜨면 승인까지 완료해야 시작됩니다.</p>
+                      <h3>공유대와 사캠은 시작 방식이 다릅니다</h3>
+                      <p>
+                        공유대는 설정에 따라 자동 요청할 수 있지만,{" "}
+                        <strong className="manual-guide-danger">사캠은 직접 요청하고 2차 인증 승인까지 완료</strong>해야 시작됩니다.
+                      </p>
+                    </div>
+                  </article>
+                  <article>
+                    <span>4</span>
+                    <div>
+                      <h3>결과는 대시보드와 알림에서 확인합니다</h3>
+                      <p>진행 중인 작업, 완료 결과, 새 공지와 작업 안내는 대시보드와 상단 알림에서 확인할 수 있습니다.</p>
                     </div>
                   </article>
                 </div>
-                <p className="muted text-small">이 안내는 한 번 닫으면 자동으로 다시 뜨지 않습니다. 상단의 사용 매뉴얼 버튼으로 언제든 다시 볼 수 있습니다.</p>
-                <div className="button-row">
-                  <button type="button" onClick={() => void dismissDashboardManual()} disabled={dashboardManualSaving}>
+                <p className="manual-guide-note">확인 후에는 자동으로 다시 뜨지 않습니다. 상단의 사용 매뉴얼 버튼으로 언제든 다시 볼 수 있습니다.</p>
+                <div className="manual-guide-actions">
+                  <button className="primary-btn" type="button" onClick={() => void dismissDashboardManual()} disabled={dashboardManualSaving}>
                     확인했습니다
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    onClick={() => void dismissDashboardManual()}
-                    disabled={dashboardManualSaving}
-                  >
-                    닫기
                   </button>
                 </div>
               </div>

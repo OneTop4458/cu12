@@ -846,7 +846,7 @@ textarea:focus {
 
 .manual-guide-card {
   position: relative;
-  width: min(100%, 1080px);
+  width: min(100%, 1120px);
   padding: 0;
   overflow: hidden;
 }
@@ -856,6 +856,13 @@ textarea:focus {
   top: 12px;
   right: 12px;
   z-index: 2;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 1.28rem;
+  line-height: 1;
+  background: rgb(255 255 255 / 88%);
 }
 
 .manual-guide-layout {
@@ -881,20 +888,48 @@ textarea:focus {
 .manual-guide-copy {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   padding: 34px;
 }
 
 .manual-guide-copy h2 {
   margin: 0;
   color: var(--cuk-ink);
-  font-size: 1.55rem;
+  font-size: 1.62rem;
   letter-spacing: 0;
+}
+
+.manual-guide-intro {
+  margin: -4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.96rem;
+}
+
+.manual-guide-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.manual-guide-flow li {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in oklab, var(--primary) 22%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--primary-soft) 58%, #ffffff);
+  color: var(--cuk-ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: center;
+  white-space: normal;
 }
 
 .manual-guide-points {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .manual-guide-points article {
@@ -902,7 +937,7 @@ textarea:focus {
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 12px;
   align-items: start;
-  padding: 12px 0;
+  padding: 11px 0;
   border-top: 1px solid var(--border);
 }
 
@@ -932,6 +967,45 @@ textarea:focus {
 .manual-guide-points p {
   margin: 0;
   color: var(--text-muted);
+}
+
+.manual-guide-points strong {
+  color: var(--cuk-ink);
+  font-weight: 900;
+}
+
+.manual-guide-emphasis {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--primary) 68%, transparent);
+}
+
+.manual-guide-danger {
+  color: #b42318 !important;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, #dc2626 70%, transparent);
+}
+
+.manual-guide-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in oklab, var(--primary-soft) 48%, #ffffff);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.manual-guide-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.manual-guide-actions button {
+  min-width: 136px;
 }
 
 .processing-card {
@@ -3274,6 +3348,10 @@ button:not([data-slot="button"]) {
 
   .manual-guide-copy h2 {
     font-size: 1.26rem;
+  }
+
+  .manual-guide-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .manual-guide-points article {
