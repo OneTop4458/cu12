@@ -423,7 +423,7 @@ function createEmptySummary(): Summary {
     nextDeadlineAt: null,
     lastSyncAt: null,
     nextAutoSyncAt: null,
-    autoSyncIntervalHours: 2,
+    autoSyncIntervalHours: 12,
     initialSyncRequired: false,
   };
 }

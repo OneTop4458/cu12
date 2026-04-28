@@ -12,7 +12,7 @@ function makeSummary(input: Partial<DashboardSummary>): DashboardSummary {
     nextDeadlineAt: null,
     lastSyncAt: null,
     nextAutoSyncAt: new Date("2026-04-08T00:00:00.000Z"),
-    autoSyncIntervalHours: 2,
+    autoSyncIntervalHours: 12,
     initialSyncRequired: false,
     ...input,
   };
@@ -77,9 +77,9 @@ test("createEmptyDashboardSummary returns zeroed counts", () => {
       urgentTaskCount: 0,
       nextDeadlineAt: null,
       lastSyncAt: null,
-      autoSyncIntervalHours: 2,
+      autoSyncIntervalHours: 12,
       initialSyncRequired: false,
     },
   );
-  assert.equal(summary.nextAutoSyncAt.toISOString(), "2026-04-10T02:00:00.000Z");
+  assert.equal(summary.nextAutoSyncAt.toISOString(), "2026-04-10T12:00:00.000Z");
 });

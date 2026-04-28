@@ -87,7 +87,7 @@ export interface DashboardActivityItem {
   needsAttention: boolean;
 }
 
-const AUTO_SYNC_INTERVAL_HOURS = 2;
+const AUTO_SYNC_INTERVAL_HOURS = 12;
 const AUTO_SYNC_MIN_INTERVAL_MINUTES = AUTO_SYNC_INTERVAL_HOURS * 60;
 
 export interface DashboardSummary {

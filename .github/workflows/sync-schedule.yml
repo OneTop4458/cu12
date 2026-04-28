@@ -2,13 +2,13 @@ name: Scheduled Sync Dispatch
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       minIntervalMinutes:
         description: "Minimum interval minutes between sync jobs"
         required: false
-        default: "120"
+        default: "720"
         type: string
 
 permissions:
@@ -42,7 +42,7 @@ jobs:
         run: |
           SUMMARY_JSON_WORKER="dispatch-summary.json"
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
-          MIN_INTERVAL="${MIN_INTERVAL_MINUTES:-120}"
+          MIN_INTERVAL="${MIN_INTERVAL_MINUTES:-720}"
           pnpm --filter @cu12/worker run dispatch:sync -- --min-interval-minutes="$MIN_INTERVAL" --summary-json="$SUMMARY_JSON_WORKER"
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
