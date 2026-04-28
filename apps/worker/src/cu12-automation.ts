@@ -459,10 +459,15 @@ function installDialogHandler(page: Page) {
   });
 }
 
+export const CU12_LOGIN_NAVIGATION_TIMEOUT_MS = 120_000;
+
 async function ensureLogin(page: Page, creds: Cu12Credentials) {
   const env = getEnv();
   const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
-  await page.goto(`${env.CU12_BASE_URL}/el/member/login_form.acl`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${env.CU12_BASE_URL}/el/member/login_form.acl`, {
+    waitUntil: "domcontentloaded",
+    timeout: CU12_LOGIN_NAVIGATION_TIMEOUT_MS,
+  });
 
   const catholicUniversityButton = page.locator("#catholic");
   if (await catholicUniversityButton.count()) {

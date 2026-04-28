@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { LearningTask } from "@cu12/core";
-import { buildTaskPlan } from "./cu12-automation";
+import { buildTaskPlan, CU12_LOGIN_NAVIGATION_TIMEOUT_MS } from "./cu12-automation";
 
 function createTask(input: Partial<LearningTask> & Pick<LearningTask, "lectureSeq" | "courseContentsSeq" | "activityType">): LearningTask {
   return {
@@ -19,6 +20,16 @@ function createTask(input: Partial<LearningTask> & Pick<LearningTask, "lectureSe
     dueAt: input.dueAt ?? null,
   };
 }
+
+test("CU12 autolearn login navigation allows 120 seconds for slow portal responses", () => {
+  assert.equal(CU12_LOGIN_NAVIGATION_TIMEOUT_MS, 120_000);
+
+  const source = readFileSync(new URL("./cu12-automation.ts", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /login_form\.acl`,\s*\{\s*waitUntil:\s*"domcontentloaded",\s*timeout:\s*CU12_LOGIN_NAVIGATION_TIMEOUT_MS,/s,
+  );
+});
 
 test("buildTaskPlan skips quiz tasks when quiz auto-solve is disabled", () => {
   const result = buildTaskPlan({
