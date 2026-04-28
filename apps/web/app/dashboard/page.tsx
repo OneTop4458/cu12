@@ -10,7 +10,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="dashboard-main page-shell">
+    <main className="dashboard-main page-shell dashboard-page">
       <DashboardClient
         initialUser={{
           email: session.email,

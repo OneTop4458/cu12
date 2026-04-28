@@ -1,6 +1,6 @@
 export default function DashboardLoading() {
   return (
-    <main className="dashboard-main page-shell">
+    <main className="dashboard-main page-shell dashboard-page">
       <section className="grid-kpi">
         {Array.from({ length: 4 }).map((_, index) => (
           <article key={index} className="card">

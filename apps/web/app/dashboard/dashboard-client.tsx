@@ -904,6 +904,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedCourseIds, setExpandedCourseIds] = useState<Set<string>>(() => new Set());
+  const [siteNoticeHost, setSiteNoticeHost] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setSiteNoticeHost(document.getElementById(SITE_NOTICE_HOST_ID));
+  }, []);
 
   const dedupedSiteNotices = useMemo(() => {
     const seen = new Set<string>();
@@ -1543,10 +1548,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [isNoticeExpanded]);
 
   const siteNoticePortal = useMemo(() => {
-    if (typeof window === "undefined") return null;
     if (!maintenanceNotice && visibleBroadcastNotices.length === 0) return null;
-    const host = document.getElementById(SITE_NOTICE_HOST_ID);
-    if (!host) return null;
+    if (!siteNoticeHost) return null;
 
     return createPortal(
       <div className="session-notice-stack">
@@ -1594,9 +1597,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           ))
         ) : null}
       </div>,
-      host,
+      siteNoticeHost,
     );
-  }, [maintenanceNotice, maintenanceNoticeBody, visibleBroadcastNotices, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded]);
+  }, [maintenanceNotice, maintenanceNoticeBody, visibleBroadcastNotices, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded, siteNoticeHost]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2089,7 +2092,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </article>
       </section>
 
-      <section className="grid-kpi">
+      <section className="grid-kpi provider-kpi">
         {PORTAL_PROVIDERS.map((provider) => (
           <article key={provider} className="card">
             <h2>{getProviderLabel(provider)}</h2>

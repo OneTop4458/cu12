@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { SessionActivityGuard } from "../../app/_components/session-activity-guard";
 import { AppMobileNav } from "./app-mobile-nav";
 import { UserMenu } from "./user-menu";
 
@@ -59,6 +60,8 @@ export function AppTopbar({
   onOpenSettings,
   onLogout,
 }: AppTopbarProps) {
+  const isDashboard = mode === "dashboard";
+
   return (
     <header className="topbar" id={id}>
       <div className="topbar-main">
@@ -76,8 +79,8 @@ export function AppTopbar({
           </div>
         </div>
         <div className="topbar-actions">
-          <AppMobileNav mode={mode} includeAdmin={includeAdmin} />
-          {onRefresh ? (
+          {!isDashboard ? <AppMobileNav mode={mode} includeAdmin={includeAdmin} /> : null}
+          {!isDashboard && onRefresh ? (
             <Button
               className="icon-btn"
               type="button"
@@ -91,7 +94,7 @@ export function AppTopbar({
               <RefreshCw size={16} />
             </Button>
           ) : null}
-          {navLinks.length > 0 ? (
+          {!isDashboard && navLinks.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -126,6 +129,10 @@ export function AppTopbar({
             onLogout={onLogout}
           />
         </div>
+      </div>
+      <div className="topbar-status">
+        <SessionActivityGuard />
+        <div id="dashboard-site-notice-host" className="session-notice-host" />
       </div>
     </header>
   );
