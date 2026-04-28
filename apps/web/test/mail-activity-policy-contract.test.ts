@@ -199,11 +199,15 @@ test("dashboard manual guide is persisted per user and can be reopened from the 
   assert.match(dashboard, /shouldAutoOpen/);
   assert.match(dashboard, /settingsOpen \|\| isMailSetupRequired/);
   assert.match(dashboard, /\/api\/user-guide\/dashboard-manual/);
-  assert.match(dashboard, /자동 수강은 서버 작업으로 진행됩니다/);
-  assert.match(dashboard, /설정에서 메일 알림, 공유대 정기 자동 수강, 퀴즈 자동 풀이/);
-  assert.match(dashboard, /사이버캠퍼스 자동 수강은 2차 인증 제약/);
+  assert.match(dashboard, /CU12 간단 사용 설명서/);
+  assert.match(dashboard, /브라우저를 닫아도 서버에서 계속 처리/);
+  assert.match(dashboard, /메일 알림<\/strong>, <strong>공유대 정기 자동 수강/);
+  assert.match(dashboard, /사캠은 직접 요청하고 2차 인증 승인까지 완료/);
+  assert.doesNotMatch(dashboard, /자동 수강은 백그라운드에서 진행됩니다/);
+  assert.match(dashboard, /manual-guide-actions/);
   assert.match(dashboard, /\/manual\/dashboard-guide-v1\.png/);
   assert.match(css, /\.manual-guide-card/);
+  assert.match(css, /\.manual-guide-danger/);
   assert.match(openapi, /\/api\/user-guide\/dashboard-manual:/);
   assert.match(openapi, /DashboardManualGuideState:/);
   assert.match(openapi, /userGuide:/);
