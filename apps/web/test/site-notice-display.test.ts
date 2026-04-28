@@ -55,8 +55,8 @@ test("topbar surface shows broadcast topbar notices and maintenance notices", ()
 });
 
 test("display target labels reflect broadcast options and fixed maintenance text", () => {
-  assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "LOGIN"), "로그인만");
-  assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "TOPBAR"), "상단만");
-  assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "BOTH"), "로그인+상단");
-  assert.equal(formatSiteNoticeDisplayTargetLabel("MAINTENANCE", "BOTH"), "로그인+상단 고정");
+  assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "LOGIN"), "\uB85C\uADF8\uC778\uB9CC");
+  assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "TOPBAR"), "\uC0C1\uB2E8\uB9CC");
+  assert.equal(formatSiteNoticeDisplayTargetLabel("BROADCAST", "BOTH"), "\uB85C\uADF8\uC778/\uC0C1\uB2E8");
+  assert.equal(formatSiteNoticeDisplayTargetLabel("MAINTENANCE", "BOTH"), "\uB85C\uADF8\uC778/\uC0C1\uB2E8 \uACE0\uC815");
 });

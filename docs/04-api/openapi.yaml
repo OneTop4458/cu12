@@ -1246,6 +1246,12 @@ paths:
           schema:
             type: string
             enum: [BROADCAST, MAINTENANCE]
+        - in: query
+          name: surface
+          required: false
+          schema:
+            type: string
+            enum: [LOGIN, TOPBAR]
       responses:
         "200":
           description: Active site notices

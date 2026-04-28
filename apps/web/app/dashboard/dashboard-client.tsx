@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -370,10 +369,6 @@ interface SyncProgress {
 
 type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
 type DeadlineFilter = "D7" | "ALL";
-
-const BROADCAST_NOTICE_DISMISS_KEY = "dashboard:dismissedBroadcastNoticeIds:v1";
-const SITE_NOTICE_HOST_ID = "dashboard-site-notice-host";
-const MAINTENANCE_NOTICE_SUMMARY = "작업 중 일부 기능이 원활하지 않을 수 있습니다.";
 
 const TERMINAL = new Set<Job["status"]>(["SUCCEEDED", "FAILED", "CANCELED"]);
 const POLL_ACTIVE_MS = 120000;
@@ -821,7 +816,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const allDeadlinesRequestRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [blockingMessage, setBlockingMessage] = useState<string | null>("데이터를 불러오는 중입니다...");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -850,7 +844,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("D7");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
-  const [siteNotices, setSiteNotices] = useState<SiteNotice[]>([]);
   const [mailDraft, setMailDraft] = useState<MailPreference | null>(null);
   const [autoLearnEnabledDraft, setAutoLearnEnabledDraft] = useState(true);
   const [quizAutoSolveEnabledDraft, setQuizAutoSolveEnabledDraft] = useState(true);
@@ -901,28 +894,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
   const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<string>>(() => new Set());
-  const [dismissedBroadcastNoticeIds, setDismissedBroadcastNoticeIds] = useState<Set<string>>(() => new Set());
-  const [expandedNoticeIds, setExpandedNoticeIds] = useState<Set<string>>(() => new Set());
   const [expandedCourseIds, setExpandedCourseIds] = useState<Set<string>>(() => new Set());
-  const [siteNoticeHost, setSiteNoticeHost] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setSiteNoticeHost(document.getElementById(SITE_NOTICE_HOST_ID));
-  }, []);
-
-  const dedupedSiteNotices = useMemo(() => {
-    const seen = new Set<string>();
-    return siteNotices.filter((notice) => {
-      const key = [
-        notice.type,
-        notice.title.trim().toLowerCase(),
-        notice.message.trim().toLowerCase(),
-      ].join("|");
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [siteNotices]);
 
   const sortedJobs = useMemo(
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -1275,9 +1247,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [loadCourses, loadDeadlines, loadJobs]);
 
   const refreshStatus = useCallback(async (silent = true) => {
-    if (silent) {
-      setRefreshing(true);
-    }
     try {
       const payload = await fetchJson<DashboardStatusPayload>("/api/dashboard/status?jobsLimit=20");
       setSummary(payload.summary);
@@ -1286,7 +1255,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setJobsLoading(false);
       setSyncQueueSummary(payload.syncQueue ?? null);
       setProviderSyncQueues(payload.providerSyncQueues);
-      setSiteNotices(payload.siteNotices);
       setCyberCampus(payload.cyberCampus ?? {
         session: {
           available: false,
@@ -1300,16 +1268,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (!silent) {
         reportDashboardError(err);
       }
-    } finally {
-      if (silent) {
-        setRefreshing(false);
-      }
     }
   }, [fetchJson, reportDashboardError]);
 
   const refreshAll = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true);
-    else {
+    if (!silent) {
       setLoading(true);
       if (!bootstrapSyncing) {
         setBlockingMessage("데이터를 불러오는 중입니다...");
@@ -1324,7 +1287,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setProviderSummaries(payload.providerSummaries);
       setSyncQueueSummary(payload.syncQueue ?? null);
       setProviderSyncQueues(payload.providerSyncQueues);
-      setSiteNotices(payload.siteNotices);
       setAccount(payload.account);
       if (!autoLearnProviderHydratedRef.current) {
         setAutoLearnProvider(payload.account?.provider ?? "CU12");
@@ -1352,7 +1314,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
     } finally {
       setLoading(false);
-      setRefreshing(false);
       if (!bootstrapSyncing) setBlockingMessage(null);
     }
   }, [fetchJson, bootstrapSyncing, refreshCollections]);
@@ -1498,125 +1459,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       void runActionRef.current?.("SYNC", true);
     }
   }, [summary, loading, syncInProgress]);
-
-  const broadcastNotices = useMemo(
-    () => dedupedSiteNotices.filter((notice) => notice.type === "BROADCAST"),
-    [dedupedSiteNotices],
-  );
-  const visibleBroadcastNotices = useMemo(
-    () => broadcastNotices.filter((notice) => !dismissedBroadcastNoticeIds.has(notice.id)),
-    [broadcastNotices, dismissedBroadcastNoticeIds],
-  );
-  const maintenanceNotice = useMemo(
-    () => dedupedSiteNotices.find((notice) => notice.type === "MAINTENANCE" && notice.isActive),
-    [dedupedSiteNotices],
-  );
-  const maintenanceNoticeBody = maintenanceNotice?.message || maintenanceNotice?.title || "공지 내용이 없습니다.";
-
-  const dismissBroadcastNotice = useCallback((noticeId: string) => {
-    setDismissedBroadcastNoticeIds((prev) => {
-      if (prev.has(noticeId)) return prev;
-      const next = new Set(prev);
-      next.add(noticeId);
-      try {
-        window.sessionStorage.setItem(BROADCAST_NOTICE_DISMISS_KEY, JSON.stringify(Array.from(next)));
-      } catch {
-        // no-op
-      }
-      return next;
-    });
-  }, []);
-
-  const toggleNoticeExpanded = useCallback((noticeId: string) => {
-    setExpandedNoticeIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(noticeId)) {
-        next.delete(noticeId);
-      } else {
-        next.add(noticeId);
-      }
-      return next;
-    });
-  }, []);
-
-  const isNoticeExpanded = useCallback((noticeId: string) => {
-    return expandedNoticeIds.has(noticeId);
-  }, [expandedNoticeIds]);
-
-  const getNoticeExpandedClass = useCallback((noticeId: string, baseClassName: string) => {
-    return `${baseClassName} ${isNoticeExpanded(noticeId) ? "is-expanded" : "is-collapsed"}`;
-  }, [isNoticeExpanded]);
-
-  const siteNoticePortal = useMemo(() => {
-    if (!maintenanceNotice && visibleBroadcastNotices.length === 0) return null;
-    if (!siteNoticeHost) return null;
-
-    return createPortal(
-      <div className="session-notice-stack">
-        {maintenanceNotice ? (
-          <section className="topbar-notice topbar-notice-warning maintenance-notice-card">
-            <p className="topbar-notice-title">시스템 점검</p>
-            <p className="topbar-notice-subtitle">{MAINTENANCE_NOTICE_SUMMARY}</p>
-            <p className="topbar-notice-body">{maintenanceNoticeBody}</p>
-          </section>
-        ) : null}
-        {visibleBroadcastNotices.length > 0 ? (
-          visibleBroadcastNotices.map((notice) => (
-            <section
-              key={notice.id}
-              className={getNoticeExpandedClass(notice.id, "topbar-notice topbar-notice-broadcast session-notice-card")}
-              role="button"
-              tabIndex={0}
-              aria-expanded={isNoticeExpanded(notice.id)}
-              onClick={() => toggleNoticeExpanded(notice.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  toggleNoticeExpanded(notice.id);
-                }
-              }}
-            >
-              <div className="topbar-notice-row">
-                <p className="topbar-notice-title">전체 공지</p>
-                <button
-                  className="topbar-notice-dismiss ghost-btn"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    dismissBroadcastNotice(notice.id);
-                  }}
-                >
-                  닫기
-                </button>
-              </div>
-              <p className="topbar-notice-subtitle">{notice.title}</p>
-              {isNoticeExpanded(notice.id) ? (
-                <p className="topbar-notice-body">{notice.message || "공지 내용이 없습니다."}</p>
-              ) : null}
-            </section>
-          ))
-        ) : null}
-      </div>,
-      siteNoticeHost,
-    );
-  }, [maintenanceNotice, maintenanceNoticeBody, visibleBroadcastNotices, dismissBroadcastNotice, isNoticeExpanded, getNoticeExpandedClass, toggleNoticeExpanded, siteNoticeHost]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.sessionStorage.getItem(BROADCAST_NOTICE_DISMISS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const next = new Set(
-          parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0),
-        );
-        setDismissedBroadcastNoticeIds(next);
-      }
-    } catch {
-      // keep default empty set
-    }
-  }, []);
 
   useEffect(() => {
     if (!trackingJobId) return;
@@ -2059,21 +1901,12 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
   return (
     <>
-      {siteNoticePortal}
       <AppTopbar
         id="notifications"
-        mode="dashboard"
         title="나의 학습 현황"
-        includeAdmin={initialUser.role === "ADMIN"}
-        navLinks={[
-          { href: "/notices", label: "전체 공지" },
-          { href: "/maintenance", label: "점검 안내" },
-        ]}
         email={context?.effective.email ?? initialUser.email}
         role={initialUser.role}
         impersonating={context?.impersonating ?? false}
-        refreshing={loading || refreshing}
-        onRefresh={() => void refreshAll(false)}
         onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
         onOpenSettings={() => setSettingsOpen(true)}
         onLogout={logout}

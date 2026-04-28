@@ -40,16 +40,16 @@ export function formatSiteNoticeDisplayTargetLabel(
   displayTarget: SiteNoticeDisplayTargetValue | null | undefined,
 ): string {
   if (type === "MAINTENANCE") {
-    return "로그인+상단 고정";
+    return "\uB85C\uADF8\uC778/\uC0C1\uB2E8 \uACE0\uC815";
   }
 
   switch (normalizeSiteNoticeDisplayTarget(type, displayTarget)) {
     case "LOGIN":
-      return "로그인만";
+      return "\uB85C\uADF8\uC778\uB9CC";
     case "TOPBAR":
-      return "상단만";
+      return "\uC0C1\uB2E8\uB9CC";
     case "BOTH":
     default:
-      return "로그인+상단";
+      return "\uB85C\uADF8\uC778/\uC0C1\uB2E8";
   }
 }

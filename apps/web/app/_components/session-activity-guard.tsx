@@ -13,6 +13,9 @@ const WARNING_THRESHOLD_MS = 5 * 60 * 1000;
 const ACTIVITY_APPLY_GAP_MS = 20 * 1000;
 const MOUSE_MOVE_THRESHOLD_PX = 36;
 type SessionExpiredReason = "session-timeout" | "session-expired";
+type SessionActivityGuardProps = {
+  variant?: "banner" | "chip";
+};
 
 function isProtectedPath(pathname: string): boolean {
   return pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
@@ -76,7 +79,7 @@ function getIdleTimeoutMs(): number {
   return IDLE_TIMEOUT_MS;
 }
 
-export function SessionActivityGuard() {
+export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuardProps) {
   const pathname = usePathname();
   const shouldTrack = isProtectedPath(pathname);
   const lastActivityAtRef = useRef<number>(Date.now());
@@ -259,7 +262,32 @@ export function SessionActivityGuard() {
 
   if (!shouldRender) return null;
 
+  const remainingText = formatRemaining(remainingSeconds * 1000);
+  const timeoutText = formatRemaining(getIdleTimeoutMs());
   const warningRatio = Math.min(1, remainingSeconds / (Math.max(1, getIdleTimeoutMs() / 1000)));
+  const chipLabel = "\uC790\uB3D9 \uB85C\uADF8\uC544\uC6C3";
+  const chipTitle = "\uC138\uC158 \uC5F0\uC7A5";
+  const chipAriaLabel = "\uC138\uC158 \uB0A8\uC740 \uC2DC\uAC04 " + remainingText + ". \uD074\uB9AD\uD558\uBA74 \uC138\uC158\uC744 \uC5F0\uC7A5\uD569\uB2C8\uB2E4.";
+  if (variant === "chip") {
+    return (
+      <button
+        type="button"
+        className={`session-chip ${warningMode ? "is-warning" : "is-active"}`}
+        onClick={() => {
+          void extendSession();
+        }}
+        aria-label={chipAriaLabel}
+        title={chipTitle}
+      >
+        <span className="session-chip-label">{chipLabel}</span>
+        <span className="session-chip-time">{remainingText}</span>
+        <span className="session-chip-meter" aria-hidden="true">
+          <span style={{ width: `${Math.max(2, warningRatio * 100)}%` }} />
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div
       role="status"
@@ -268,7 +296,7 @@ export function SessionActivityGuard() {
     >
       <div className="session-warning-copy">
         <div className="session-warning-title">{"\uC790\uB3D9 \uB85C\uADF8\uC544\uC6C3"}</div>
-        <div className="session-warning-sub">{`\uB0A8\uC740 \uC2DC\uAC04 ${formatRemaining(remainingSeconds * 1000)} / ${formatRemaining(getIdleTimeoutMs())}`}</div>
+        <div className="session-warning-sub">{`\uB0A8\uC740 \uC2DC\uAC04 ${remainingText} / ${timeoutText}`}</div>
       </div>
       <div className="session-warning-progress-wrap">
         <div
