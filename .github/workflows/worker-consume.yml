@@ -98,10 +98,13 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - id: resolve
         shell: bash
+        env:
+          INPUT_JOB_TYPES: ${{ inputs.jobTypes }}
+          INPUT_TRIGGER: ${{ inputs.trigger }}
         run: |
-          JOB_TYPES="${{ inputs.jobTypes }}"
+          JOB_TYPES="$INPUT_JOB_TYPES"
           if [ -z "$JOB_TYPES" ]; then
-            case "${{ inputs.trigger }}" in
+            case "$INPUT_TRIGGER" in
               autolearn) JOB_TYPES="AUTOLEARN" ;;
               digest) JOB_TYPES="MAIL_DIGEST" ;;
               sync) JOB_TYPES="SYNC,NOTICE_SCAN" ;;
@@ -109,10 +112,21 @@ jobs:
             esac
           fi
 
-          echo "job_types=$JOB_TYPES" >> "$GITHUB_OUTPUT"
+          NORMALIZED_JOB_TYPES=$(printf '%s' "$JOB_TYPES" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+          IFS=',' read -ra JOB_TYPE_ITEMS <<< "$NORMALIZED_JOB_TYPES"
+          for JOB_TYPE in "${JOB_TYPE_ITEMS[@]}"; do
+            case "$JOB_TYPE" in
+              SYNC|AUTOLEARN|NOTICE_SCAN|MAIL_DIGEST) ;;
+              *)
+                echo "Invalid job type: $JOB_TYPE" >&2
+                exit 1
+                ;;
+            esac
+          done
 
-          NORMALIZED_JOB_TYPES=$(echo "$JOB_TYPES" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
-          if [[ "${{ inputs.trigger }}" == "cyber-campus-approval" || ",$NORMALIZED_JOB_TYPES," == *",AUTOLEARN,"* || ",$NORMALIZED_JOB_TYPES," == *",SYNC,"* || ",$NORMALIZED_JOB_TYPES," == *",NOTICE_SCAN,"* ]]; then
+          printf 'job_types=%s\n' "$NORMALIZED_JOB_TYPES" >> "$GITHUB_OUTPUT"
+
+          if [[ "$INPUT_TRIGGER" == "cyber-campus-approval" || ",$NORMALIZED_JOB_TYPES," == *",AUTOLEARN,"* || ",$NORMALIZED_JOB_TYPES," == *",SYNC,"* || ",$NORMALIZED_JOB_TYPES," == *",NOTICE_SCAN,"* ]]; then
             echo "needs_playwright=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_playwright=false" >> "$GITHUB_OUTPUT"
@@ -131,12 +145,16 @@ jobs:
       - if: ${{ steps.resolve.outputs.needs_playwright == 'true' }}
         run: pnpm exec playwright install chromium
       - shell: bash
+        env:
+          RESOLVED_JOB_TYPES: ${{ steps.resolve.outputs.job_types }}
+          INPUT_USER_ID: ${{ inputs.userId }}
+          INPUT_APPROVAL_ID: ${{ inputs.approvalId }}
         run: |
-          RUN_ARGS="--types=${{ steps.resolve.outputs.job_types }}"
-          if [ -n "${{ inputs.userId }}" ]; then
-            RUN_ARGS="$RUN_ARGS --userId=${{ inputs.userId }}"
+          RUN_ARGS=("--types=$RESOLVED_JOB_TYPES")
+          if [ -n "$INPUT_USER_ID" ]; then
+            RUN_ARGS+=("--userId=$INPUT_USER_ID")
           fi
-          if [ -n "${{ inputs.approvalId }}" ]; then
-            RUN_ARGS="$RUN_ARGS --approvalId=${{ inputs.approvalId }}"
+          if [ -n "$INPUT_APPROVAL_ID" ]; then
+            RUN_ARGS+=("--approvalId=$INPUT_APPROVAL_ID")
           fi
-          pnpm --filter @cu12/worker run once -- $RUN_ARGS
+          pnpm --filter @cu12/worker run once -- "${RUN_ARGS[@]}"

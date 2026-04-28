@@ -39,29 +39,35 @@ jobs:
       - run: pnpm run prisma:generate
       - id: dispatch
         name: Dispatch autolearn jobs
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_USER_ID: ${{ inputs.userId }}
         run: |
           SUMMARY_JSON_WORKER="dispatch-summary.json"
           SUMMARY_JSON_ROOT="apps/worker/dispatch-summary.json"
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            pnpm --filter @cu12/worker run dispatch:autolearn -- --min-interval-minutes=1440 --eligible-window-only=true --summary-json="$SUMMARY_JSON_WORKER"
-          elif [ -n "${{ inputs.userId }}" ]; then
-            pnpm --filter @cu12/worker run dispatch:autolearn -- --userId=${{ inputs.userId }} --summary-json="$SUMMARY_JSON_WORKER"
-          else
-            pnpm --filter @cu12/worker run dispatch:autolearn -- --summary-json="$SUMMARY_JSON_WORKER"
+
+          DISPATCH_ARGS=("--summary-json=$SUMMARY_JSON_WORKER")
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            DISPATCH_ARGS=("--min-interval-minutes=1440" "--eligible-window-only=true" "--summary-json=$SUMMARY_JSON_WORKER")
+          elif [ -n "$INPUT_USER_ID" ]; then
+            DISPATCH_ARGS=("--userId=$INPUT_USER_ID" "--summary-json=$SUMMARY_JSON_WORKER")
           fi
+          pnpm --filter @cu12/worker run dispatch:autolearn -- "${DISPATCH_ARGS[@]}"
+
           CREATED_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.createdCount ?? 0));" "$SUMMARY_JSON_ROOT")
           EXISTING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           PENDING_COUNT=$(node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.skippedExistingPendingCount ?? 0));" "$SUMMARY_JSON_ROOT")
           SHOULD_DISPATCH=false
           if [ "$CREATED_COUNT" != "0" ] || [ "$PENDING_COUNT" != "0" ]; then
             SHOULD_DISPATCH=true
-          elif [ -z "${{ inputs.userId }}" ]; then
+          elif [ -z "$INPUT_USER_ID" ]; then
             SHOULD_DISPATCH=true
           fi
           if [ "$SHOULD_DISPATCH" = "true" ]; then
             TARGET_URL="${WEB_INTERNAL_BASE_URL%/}/internal/worker/dispatch"
-            if [ -n "${{ inputs.userId }}" ]; then
-              PAYLOAD=$(node -e "process.stdout.write(JSON.stringify({ trigger: 'autolearn', userId: process.argv[1] }));" "${{ inputs.userId }}")
+            if [ -n "$INPUT_USER_ID" ]; then
+              PAYLOAD=$(node -e "process.stdout.write(JSON.stringify({ trigger: 'autolearn', userId: process.argv[1] }));" "$INPUT_USER_ID")
             else
               PAYLOAD='{"trigger":"autolearn"}'
             fi
