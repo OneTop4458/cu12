@@ -28,7 +28,6 @@ type SiteNoticePayload = {
   siteNotices: SiteNotice[];
 };
 
-const DISMISSED_NOTICE_KEY = "cu12:topbar-dismissed-notice-ids:v1";
 const TOPBAR_NOTICE_TITLE = "\uC0C1\uB2E8 \uACF5\uC9C0";
 const TOPBAR_NOTICE_DESCRIPTION = "\uC11C\uBE44\uC2A4 \uACF5\uC9C0\uC640 \uC810\uAC80 \uC548\uB0B4\uB97C \uD655\uC778\uD569\uB2C8\uB2E4.";
 const NOTICE_LOAD_ERROR = "\uACF5\uC9C0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
@@ -40,27 +39,6 @@ const NOTICE_CLOSE = "\uB2EB\uAE30";
 const MAINTENANCE_LABEL = "\uC810\uAC80";
 const BROADCAST_LABEL = "\uACF5\uC9C0";
 const COUNT_UNIT = "\uAC74";
-
-function readDismissedNoticeIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.sessionStorage.getItem(DISMISSED_NOTICE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0));
-  } catch {
-    return new Set();
-  }
-}
-
-function writeDismissedNoticeIds(ids: Set<string>) {
-  try {
-    window.sessionStorage.setItem(DISMISSED_NOTICE_KEY, JSON.stringify(Array.from(ids)));
-  } catch {
-    // Session-only dismiss state is best effort.
-  }
-}
 
 function getNoticeTypeLabel(type: SiteNotice["type"]) {
   return type === "MAINTENANCE" ? MAINTENANCE_LABEL : BROADCAST_LABEL;
@@ -99,7 +77,6 @@ export function SiteNoticeCenter() {
   }, []);
 
   useEffect(() => {
-    setDismissedIds(readDismissedNoticeIds());
     void loadNotices();
   }, [loadNotices]);
 
@@ -118,7 +95,6 @@ export function SiteNoticeCenter() {
     setDismissedIds((previous) => {
       const next = new Set(previous);
       next.add(noticeId);
-      writeDismissedNoticeIds(next);
       return next;
     });
   }, []);

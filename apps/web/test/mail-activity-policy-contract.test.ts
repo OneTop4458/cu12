@@ -56,12 +56,18 @@ test("dashboard activity API is accessed from notification center only", () => {
   assert.match(activityRoute, /export async function GET/);
   assert.match(activityRoute, /export async function PATCH/);
   assert.match(activityRoute, /getActivity/);
+  assert.match(activityRoute, /markAll:\s*z\.literal\(true\)\.optional\(\)/);
+  assert.match(activityRoute, /prisma\.courseNotice\.updateMany\(\{[\s\S]+?isRead:\s*false[\s\S]+?prisma\.notificationEvent\.updateMany\(\{[\s\S]+?isUnread:\s*true[\s\S]+?prisma\.portalMessage\.updateMany\(\{[\s\S]+?isRead:\s*false/);
   assert.match(activityCenter, /\/api\/dashboard\/activity\?limit=80/);
+  assert.match(activityCenter, /JSON\.stringify\(\{ markAll: true \}\)/);
+  assert.doesNotMatch(activityCenter, /targetItems|onClearVisible|latest\.map\(\(item\) => item\.id\)/);
   assert.match(topbar, /<ActivityCenter \/>/);
   assert.doesNotMatch(dashboard, /id="activity"/);
   assert.doesNotMatch(dashboard, /id="messages"/);
   assert.equal(fs.existsSync(mobileNavPath), false);
   assert.match(openapi, /\/api\/dashboard\/activity:/);
+  assert.match(openapi, /markAll:/);
+  assert.match(openapi, /updatedCount:/);
   assert.match(openapi, /DashboardActivityItem:/);
 });
 
@@ -101,7 +107,7 @@ test("dashboard and admin pages use common topbar without legacy button override
   assert.doesNotMatch(topbar, /AppMobileNav|AppTopbarLink|MoreHorizontal|RefreshCw|DropdownMenu|dashboard-site-notice-host|topbar-status/);
   assert.doesNotMatch(topbar, /includeAdmin|navLinks|refreshing|onRefresh/);
   assert.match(siteNoticeCenter, /\/api\/site-notices\?surface=TOPBAR/);
-  assert.match(siteNoticeCenter, /cu12:topbar-dismissed-notice-ids:v1/);
+  assert.doesNotMatch(siteNoticeCenter, /sessionStorage|topbar-dismissed|DISMISSED_NOTICE_KEY|readDismissedNoticeIds|writeDismissedNoticeIds/);
   assert.match(notificationCenter, /mode\?: "popover" \| "sheet"/);
   assert.match(css, /button:not\(\[data-slot="button"\]\)/);
   assert.match(css, /\.session-chip \{/);
@@ -159,4 +165,26 @@ test("mobile topbar, notification sheet, and link buttons keep readable responsi
   assert.match(siteNoticesRoute, /listPublicSiteNotices\(parsed\.data\.type,\s*\{\s*surface:\s*parsed\.data\.surface\s*\}\)/);
   assert.match(openapi, /name: surface/);
   assert.match(openapi, /enum: \[LOGIN, TOPBAR\]/);
+});
+
+test("admin subpages rely on topbar navigation without duplicate body shortcut cards", () => {
+  const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
+  const system = readRepoFile("apps/web/app/admin/system/system-client.tsx");
+  const operations = readRepoFile("apps/web/app/admin/operations/operations-client.tsx");
+
+  assert.match(topbar, /href: "\/admin\/operations\/jobs"/);
+  assert.match(topbar, /href: "\/admin\/system\/policies"/);
+  assert.doesNotMatch(system, /href=\{?"\/admin\/system|href=\{?"\/admin\/system\/policies|href=\{?"\/admin\/site-notices/);
+  assert.doesNotMatch(operations, /\/admin\/operations\/jobs|\/admin\/operations\/workers|\/admin\/operations\/reconcile|\/admin\/operations\/cleanup/);
+  assert.doesNotMatch(operations, /작업 목록 열기|워커 목록 열기|정합성 점검 열기|정리 페이지 열기/);
+});
+
+test("login page surfaces expired-session copy when the idle cookie has expired", () => {
+  const login = readRepoFile("apps/web/app/login/page.tsx");
+
+  assert.match(login, /cookies\(\)/);
+  assert.match(login, /SESSION_COOKIE_NAME/);
+  assert.match(login, /hasSessionCookie/);
+  assert.match(login, /effectiveSessionExpiredReason/);
+  assert.match(login, /!session && hasSessionCookie \? "session-expired"/);
 });

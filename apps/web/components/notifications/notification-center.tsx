@@ -42,7 +42,7 @@ type NotificationCenterProps = {
   onToggleHistory: () => void;
   onOpen: (item: DashboardNotification) => void;
   onMarkRead: (item: DashboardNotification) => void;
-  onClearVisible?: (ids: string[]) => void;
+  onClearAll?: () => void;
   clearing?: boolean;
 };
 
@@ -59,10 +59,11 @@ export function NotificationCenter({
   onToggleHistory,
   onOpen,
   onMarkRead,
-  onClearVisible,
+  onClearAll,
   clearing = false,
 }: NotificationCenterProps) {
   const unreadCount = notifications.filter((item) => item.needsAttention ?? item.isUnread).length;
+  const clearableCount = notifications.filter((item) => item.kind !== "SYSTEM" && item.isUnread).length;
   const source = showHistory ? historyNotifications : notifications;
   const latest = [...source]
     .sort((a, b) => {
@@ -115,11 +116,11 @@ export function NotificationCenter({
             >
               {showHistory ? "최신 활동" : "지난 활동"}
             </Button>
-            {!showHistory && onClearVisible && latest.length > 0 ? (
+            {!showHistory && onClearAll && clearableCount > 0 ? (
               <Button
                 type="button"
                 className="notification-clear-btn"
-                onClick={() => onClearVisible(latest.map((item) => item.id))}
+                onClick={onClearAll}
                 disabled={clearing}
                 variant="destructive"
                 size="sm"

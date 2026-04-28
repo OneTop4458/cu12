@@ -3,7 +3,9 @@ import Link from "next/link";
 import type { Route } from "next";
 import Image from "next/image";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { SESSION_COOKIE_NAME } from "@/lib/auth";
 import { getServerActiveSession } from "@/lib/session-user";
 import { LoginForm } from "./login-form";
 import { LoginNotices } from "./login-notices";
@@ -27,8 +29,13 @@ export default async function LoginPage({
   const sessionExpiredReason =
     reason === "session-timeout" || reason === "session-expired" ? reason : undefined;
 
+  const cookieStore = await cookies();
+  const hasSessionCookie = Boolean(cookieStore.get(SESSION_COOKIE_NAME)?.value);
   const session = await getServerActiveSession();
-  if (session && !sessionExpiredReason) {
+  const effectiveSessionExpiredReason = sessionExpiredReason
+    ?? (!session && hasSessionCookie ? "session-expired" : undefined);
+
+  if (session && !effectiveSessionExpiredReason) {
     redirect("/dashboard");
   }
 
@@ -76,7 +83,7 @@ export default async function LoginPage({
             <Suspense fallback={null}>
               <LoginNotices />
             </Suspense>
-            <LoginForm sessionExpiredReason={sessionExpiredReason} />
+            <LoginForm sessionExpiredReason={effectiveSessionExpiredReason} />
             <div className="auth-card-links" aria-label="로그인 도움말">
               <Link href={"/faq" as Route} className="auth-card-link">
                 서비스 FAQ 보기

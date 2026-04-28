@@ -16,7 +16,7 @@
 4. For VOD tasks, keep the player context alive for the required duration and exit through the normal page flow.
 5. For material tasks, open `contents_material_view_form.acl` and verify the follow-up snapshot no longer reports the item as pending.
 6. For quiz tasks, open the quiz runner, parse each question from the live DOM, generate an answer with OpenAI, and submit through the page's own JS/DOM flow.
-7. If the run exceeds the chunk budget, enqueue a continuation AUTOLEARN job.
+7. If a CU12 run exceeds the chunk budget, enqueue a continuation AUTOLEARN job. Cyber Campus runs stop at the chunk budget and report `limitReached` / `remainingTaskCount` instead of continuing in a later runner.
 8. Refresh snapshots and record the `LearningRun` result.
 
 ## Runtime Controls
@@ -52,4 +52,5 @@
 
 - Updated snapshots and task state
 - `LearningRun` rows with processed counts and error metadata
-- Optional continuation queue rows for truncated AUTOLEARN chains
+- Optional continuation queue rows for truncated CU12 AUTOLEARN chains
+- Cyber Campus limit metadata (`limitReached`, `remainingTaskCount`) when a 6-hour GitHub-hosted runner window cannot cover all planned items

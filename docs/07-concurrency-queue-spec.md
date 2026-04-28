@@ -23,8 +23,9 @@
 - `SYNC` and `NOTICE_SCAN` can run even when AUTOLEARN exists for the same user.
 - `AUTOLEARN` is serialized per user.
 - `BLOCKED` AUTOLEARN is reserved for Cyber Campus approval-required flows and is not claimable until approval completion returns it to `PENDING`.
-- AUTOLEARN continuation jobs keep mode/target metadata and increment chain-segment metadata.
-- Continuation chains are capped by cumulative elapsed time using `AUTOLEARN_CHAIN_MAX_SECONDS`.
+- CU12 AUTOLEARN continuation jobs keep mode/target metadata and increment chain-segment metadata.
+- CU12 continuation chains are capped by cumulative elapsed time using `AUTOLEARN_CHAIN_MAX_SECONDS`.
+- Cyber Campus AUTOLEARN does not enqueue continuation jobs because secondary-auth browser state cannot be handed to a later GitHub Actions run. When a Cyber Campus chunk is truncated, the result carries `limitReached` and `remainingTaskCount` for user/operator visibility.
 - Manual duplicates can force redispatch when:
   - `PENDING` work is stale for at least 5 minutes
   - `RUNNING` work is stale for at least 10 minutes

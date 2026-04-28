@@ -29,6 +29,7 @@
    - Queues AUTOLEARN only for users who currently have eligible pending work.
    - Non-user-scoped runs still trigger a global drain check so stale AUTOLEARN `PENDING` rows can attach to a worker again.
    - Manual dispatch keeps operator-trigger behavior for explicit runs.
+   - Cyber Campus AUTOLEARN is bounded by the GitHub-hosted runner's 6-hour job limit and does not continue in a later run because secondary-auth state cannot be shared across runs.
 
 7. `reconcile-health-check.yml`
    - Schedule: `0 */4 * * *` UTC.
@@ -132,6 +133,8 @@
 - `AUTOLEARN_STALL_TIMEOUT_SECONDS`
 - `AUTOLEARN_CHUNK_TARGET_SECONDS`
 - `WORKER_ONCE_IDLE_GRACE_MS`
+
+`worker-consume.yml` sets `timeout-minutes: 360` and uses `AUTOLEARN_CHUNK_TARGET_SECONDS=20700` so the worker has time to refresh snapshots, write results, and send completion mail before the GitHub-hosted runner limit.
 
 ## Operator Sequence
 

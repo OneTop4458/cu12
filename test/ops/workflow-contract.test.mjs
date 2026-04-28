@@ -135,6 +135,19 @@ test("autolearn dispatch keeps the stale pending drain check", () => {
   );
 });
 
+test("worker consume keeps Cyber Campus autolearn within the GitHub-hosted runner window", () => {
+  const workflow = readRepoFile(".github/workflows/worker-consume.yml");
+  const queue = readRepoFile("apps/web/src/server/queue.ts");
+  const runbook = readRepoFile("docs/09-github-actions-runbook.md");
+
+  assert.match(workflow, /timeout-minutes:\s*360/);
+  assert.match(workflow, /AUTOLEARN_CHUNK_TARGET_SECONDS:\s*20700/);
+  assert.match(workflow, /AUTOLEARN_STALL_TIMEOUT_SECONDS:\s*1200/);
+  assert.match(queue, /input\.provider === "CYBER_CAMPUS"[\s\S]+?return false;/);
+  assert.match(runbook, /timeout-minutes: 360/);
+  assert.match(runbook, /AUTOLEARN_CHUNK_TARGET_SECONDS=20700/);
+});
+
 test("root test scripts include web, worker, ops, and all-test gates", () => {
   const rootPackage = readRepoJson("package.json");
   const workerPackage = readRepoJson("apps/worker/package.json");

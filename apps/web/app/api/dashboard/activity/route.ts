@@ -9,12 +9,17 @@ import { loadOptionalDashboardSegment } from "@/server/dashboard-fallback";
 const ActivityKindSchema = z.enum(["NOTICE", "NOTIFICATION", "MESSAGE", "SYSTEM"]);
 const PortalProviderSchema = z.enum(["CU12", "CYBER_CAMPUS"]);
 
+const ActivityItemSchema = z.object({
+  kind: ActivityKindSchema,
+  id: z.string().trim().min(1),
+  provider: PortalProviderSchema,
+});
+
 const ReadActivitySchema = z.object({
-  items: z.array(z.object({
-    kind: ActivityKindSchema,
-    id: z.string().trim().min(1),
-    provider: PortalProviderSchema,
-  })).min(1).max(50),
+  markAll: z.literal(true).optional(),
+  items: z.array(ActivityItemSchema).min(1).max(50).optional(),
+}).refine((payload) => payload.markAll === true || (payload.items?.length ?? 0) > 0, {
+  message: "Either markAll or items is required.",
 });
 
 function normalizeProvider(value: string | null): PortalProvider | null {
@@ -81,12 +86,46 @@ export async function PATCH(request: NextRequest) {
   try {
     const payload = await parseBody(request, ReadActivitySchema);
     const now = new Date();
+
+    if (payload.markAll === true) {
+      const [noticeResult, notificationResult, messageResult] = await prisma.$transaction([
+        prisma.courseNotice.updateMany({
+          where: {
+            userId: context.effective.userId,
+            isRead: false,
+          },
+          data: { isRead: true, updatedAt: now },
+        }),
+        prisma.notificationEvent.updateMany({
+          where: {
+            userId: context.effective.userId,
+            isUnread: true,
+            isArchived: false,
+          },
+          data: { isUnread: false, updatedAt: now },
+        }),
+        prisma.portalMessage.updateMany({
+          where: {
+            userId: context.effective.userId,
+            isRead: false,
+            isArchived: false,
+          },
+          data: { isRead: true, updatedAt: now },
+        }),
+      ]);
+
+      return jsonOk({
+        updated: true,
+        updatedCount: noticeResult.count + notificationResult.count + messageResult.count,
+      });
+    }
+
     const groups: Record<PortalProvider, Record<z.infer<typeof ActivityKindSchema>, string[]>> = {
       CU12: { NOTICE: [], NOTIFICATION: [], MESSAGE: [], SYSTEM: [] },
       CYBER_CAMPUS: { NOTICE: [], NOTIFICATION: [], MESSAGE: [], SYSTEM: [] },
     };
 
-    for (const item of payload.items) {
+    for (const item of payload.items ?? []) {
       if (item.kind === "SYSTEM") continue;
       groups[item.provider][item.kind].push(item.id);
     }

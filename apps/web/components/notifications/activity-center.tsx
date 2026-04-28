@@ -120,31 +120,28 @@ export function ActivityCenter() {
     }
   }, [loadHistory, showHistory]);
 
-  const clearVisible = useCallback(async (ids: string[]) => {
-    if (ids.length === 0 || clearing) return;
+  const clearAll = useCallback(async () => {
+    if (clearing) return;
     setClearing(true);
 
-    const targetIds = new Set(ids);
-    const targetItems = notifications
-      .filter((item) => targetIds.has(item.id) && item.kind && item.kind !== "SYSTEM" && item.provider && item.sourceId)
-      .map((item) => ({ kind: item.kind!, id: item.sourceId!, provider: item.provider! }));
-
     try {
-      if (targetItems.length > 0) {
-        await fetch("/api/dashboard/activity", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ items: targetItems }),
-        });
+      const response = await fetch("/api/dashboard/activity", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ markAll: true }),
+      });
+
+      if (!response.ok) {
+        throw new Error("활동을 읽음 처리하지 못했습니다.");
       }
-      setNotifications((previous) =>
-        previous.map((item) => (targetIds.has(item.id) ? { ...item, isUnread: false, needsAttention: false } : item)),
-      );
+      await loadLatest(false);
       if (showHistory) void loadHistory();
+    } catch {
+      // A bulk read-marker failure should not close the activity center or clear local state.
     } finally {
       setClearing(false);
     }
-  }, [clearing, loadHistory, notifications, showHistory]);
+  }, [clearing, loadHistory, loadLatest, showHistory]);
 
   return (
     <>
@@ -161,7 +158,7 @@ export function ActivityCenter() {
         onToggleHistory={toggleHistory}
         onOpen={(item) => setActiveItem(item)}
         onMarkRead={(item) => void markRead(item)}
-        onClearVisible={(ids) => void clearVisible(ids)}
+        onClearAll={() => void clearAll()}
         clearing={clearing}
       />
 

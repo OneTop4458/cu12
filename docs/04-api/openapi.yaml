@@ -1072,6 +1072,9 @@ paths:
     patch:
       tags: [Dashboard]
       summary: Mark dashboard activity items as read
+      description: >
+        Marks selected activity rows as read, or marks all unread non-system
+        activity for the effective user as read when `markAll` is true.
       security:
         - cookieAuth: []
       requestBody:
@@ -1079,28 +1082,46 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [items]
-              properties:
-                items:
-                  type: array
-                  minItems: 1
-                  maxItems: 50
-                  items:
-                    type: object
-                    required: [kind, id, provider]
-                    properties:
-                      kind:
-                        type: string
-                        enum: [NOTICE, NOTIFICATION, MESSAGE, SYSTEM]
-                      id:
-                        type: string
-                      provider:
-                        type: string
-                        enum: [CU12, CYBER_CAMPUS]
+              oneOf:
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      minItems: 1
+                      maxItems: 50
+                      items:
+                        type: object
+                        required: [kind, id, provider]
+                        properties:
+                          kind:
+                            type: string
+                            enum: [NOTICE, NOTIFICATION, MESSAGE, SYSTEM]
+                          id:
+                            type: string
+                          provider:
+                            type: string
+                            enum: [CU12, CYBER_CAMPUS]
+                - type: object
+                  required: [markAll]
+                  properties:
+                    markAll:
+                      type: boolean
+                      enum: [true]
       responses:
         "200":
           description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, updatedCount]
+                properties:
+                  updated:
+                    type: boolean
+                  updatedCount:
+                    type: integer
+                    description: Number of persisted notice, notification, and message rows changed.
 
   /api/dashboard/notifications:
     get:
