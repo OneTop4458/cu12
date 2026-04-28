@@ -70,13 +70,14 @@ test("dashboard and admin pages use common topbar without legacy button override
   const notificationCenter = readRepoFile("apps/web/components/notifications/notification-center.tsx");
   const siteNoticeCenter = readRepoFile("apps/web/components/layout/site-notice-center.tsx");
   const css = readRepoFile("apps/web/app/globals.css");
-  const pageFiles = [
-    "apps/web/app/dashboard/dashboard-client.tsx",
+  const dashboard = readRepoFile("apps/web/app/dashboard/dashboard-client.tsx");
+  const adminPageFiles = [
     "apps/web/app/admin/admin-client.tsx",
     "apps/web/app/admin/system/system-client.tsx",
     "apps/web/app/admin/site-notices/site-notices-client.tsx",
     "apps/web/app/admin/operations/operations-client.tsx",
   ].map(readRepoFile);
+  const pageFiles = [dashboard, ...adminPageFiles];
 
   assert.match(topbar, /export function AppTopbar/);
   for (const file of pageFiles) {
@@ -88,6 +89,13 @@ test("dashboard and admin pages use common topbar without legacy button override
     assert.doesNotMatch(file, /includeAdmin=/);
     assert.doesNotMatch(file, /mode="(?:dashboard|admin)"/);
   }
+  for (const file of adminPageFiles) {
+    assert.match(file, /showAdminNav/);
+  }
+  assert.doesNotMatch(dashboard, /showAdminNav/);
+  assert.match(topbar, /ADMIN_TOPBAR_LINKS/);
+  assert.match(topbar, /href: "\/admin\/site-notices"/);
+  assert.match(topbar, /className=\{`topbar-admin-link/);
   assert.match(topbar, /<SessionActivityGuard variant="chip" \/>/);
   assert.match(topbar, /<SiteNoticeCenter \/>/);
   assert.doesNotMatch(topbar, /AppMobileNav|AppTopbarLink|MoreHorizontal|RefreshCw|DropdownMenu|dashboard-site-notice-host|topbar-status/);
@@ -99,6 +107,9 @@ test("dashboard and admin pages use common topbar without legacy button override
   assert.match(css, /\.session-chip \{/);
   assert.match(css, /\.site-notice-trigger/);
   assert.match(css, /\.site-notice-popover/);
+  assert.match(css, /\.topbar-admin-nav \{/);
+  assert.match(css, /\.topbar-admin-link/);
+  assert.match(css, /\.topbar \{[\s\S]+?background: var\(--cuk-black\);[\s\S]+?\.topbar-main \{[\s\S]+?width: min\(1280px, calc\(100% - 48px\)\);/);
   assert.doesNotMatch(css, /\.btn,\s*button\s*\{/);
   assert.doesNotMatch(css, /dashboard-page|mobile-nav-trigger|app-mobile-nav|topbar-menu-trigger|icon-btn|topbar-status/);
 });

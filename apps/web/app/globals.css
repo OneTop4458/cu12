@@ -1090,6 +1090,47 @@ textarea:focus {
   padding: 10px 12px;
 }
 
+.topbar-admin-nav {
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  padding: 0 0 6px;
+  scrollbar-width: none;
+}
+
+.topbar-admin-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.topbar-admin-link {
+  flex: 0 0 auto;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 7px 10px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.topbar-admin-link:hover,
+.topbar-admin-link:focus-visible,
+.topbar-admin-link.is-active {
+  transform: none;
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in oklab, var(--primary-soft) 42%, var(--surface));
+}
+
 .topbar-brand {
   display: flex;
   gap: 10px;
@@ -1980,14 +2021,14 @@ body {
 
 .topbar {
   padding: 0;
+  gap: 0;
   background: var(--cuk-black);
   backdrop-filter: none;
   border-bottom: 1px solid rgb(255 255 255 / 12%);
 }
 
 .topbar-main {
-  width: calc(100% - 48px);
-  max-width: none;
+  width: min(1280px, calc(100% - 48px));
   min-height: 64px;
   border: 0;
   border-radius: 0;
@@ -1995,6 +2036,26 @@ body {
   box-shadow: none;
   backdrop-filter: none;
   padding: 0;
+}
+
+.topbar-admin-nav {
+  width: min(1280px, calc(100% - 48px));
+  padding: 0 0 10px;
+}
+
+.topbar-admin-link {
+  border-color: rgb(255 255 255 / 18%);
+  background: rgb(255 255 255 / 7%);
+  color: rgb(255 255 255 / 78%);
+  border-radius: 4px;
+}
+
+.topbar-admin-link:hover,
+.topbar-admin-link:focus-visible,
+.topbar-admin-link.is-active {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: var(--cuk-blue);
 }
 
 .topbar-brand h1 {
@@ -2513,6 +2574,10 @@ button:not([data-slot="button"]) {
     flex-direction: column;
   }
 
+  .topbar-admin-nav {
+    width: 100%;
+  }
+
   .topbar-actions {
     width: 100%;
     justify-content: flex-start;
@@ -2639,6 +2704,16 @@ button:not([data-slot="button"]) {
   .topbar-main {
     gap: 9px;
     padding: 10px;
+  }
+
+  .topbar-admin-nav {
+    padding-bottom: 8px;
+  }
+
+  .topbar-admin-link {
+    min-height: 32px;
+    padding: 7px 9px;
+    font-size: 0.78rem;
   }
 
   .topbar-actions {
@@ -2918,6 +2993,10 @@ button:not([data-slot="button"]) {
     padding: 12px 0;
   }
 
+  .topbar-admin-nav {
+    width: calc(100% - 32px);
+  }
+
   .topbar-actions {
     justify-content: flex-start;
   }
@@ -3034,6 +3113,16 @@ button:not([data-slot="button"]) {
   .site-footer-inner {
     padding: 72px 16px 24px;
     flex-direction: column;
+  }
+
+  .topbar-admin-nav {
+    padding-bottom: 8px;
+  }
+
+  .topbar-admin-link {
+    min-height: 32px;
+    padding: 7px 9px;
+    font-size: 0.78rem;
   }
 
   .admin-stats,

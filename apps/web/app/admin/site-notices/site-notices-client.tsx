@@ -375,6 +375,7 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
         kicker="운영 공지 및 점검 안내 설정"
         email={initialUser.email}
         role={initialUser.role}
+        showAdminNav
         onDashboard={() => router.push("/dashboard" as Route)}
         onGoAdmin={() => router.push("/admin" as Route)}
         onLogout={() => {

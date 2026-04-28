@@ -608,6 +608,7 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
         kicker="시스템 운영"
         email={initialUser.email}
         role={initialUser.role}
+        showAdminNav
         onDashboard={() => router.push("/dashboard")}
         onGoAdmin={() => router.push("/admin")}
         onLogout={() => {

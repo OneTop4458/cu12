@@ -656,6 +656,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         email={context.effective.email}
         role={initialUser.role}
         impersonating={context.impersonating}
+        showAdminNav
         onDashboard={() => goDashboard()}
         onLogout={logout}
       />
