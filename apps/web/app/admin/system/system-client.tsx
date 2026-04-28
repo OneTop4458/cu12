@@ -476,6 +476,7 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
         title={view === "policies" ? "약관/고지 관리" : "시스템 상태"}
         email={initialUser.email}
         role={initialUser.role}
+        showAdminNav
         onDashboard={() => router.push("/dashboard")}
         onGoAdmin={() => router.push("/admin")}
         onLogout={() => {
