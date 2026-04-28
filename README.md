@@ -1,5 +1,7 @@
 # Catholic University Automation
 
+Korean summary: [`README.ko.md`](README.ko.md)
+
 Catholic University Automation is a cloud-native control plane for a small administrator-approved group using CU12 and Cyber Campus. It verifies real portal credentials at login time, keeps course and notice data synchronized, queues long-running learning jobs, and exposes admin/operator tooling without requiring an always-on local machine.
 
 ## Product Snapshot
@@ -110,19 +112,19 @@ sequenceDiagram
   Worker->>Cyber: Reuse or establish browser session
   Worker->>Cyber: Probe actual planned lecture/task contexts
   alt No secondary auth required for current runnable tasks
-    Worker->>DB: Activate shared portal session + unblock AUTOLEARN
-    Worker->>Worker: Dispatch AUTOLEARN
+    Worker->>DB: Activate shared portal session + claim AUTOLEARN when runnable
+    Worker->>Worker: Continue AUTOLEARN in the same live session
   else Secondary auth required for at least one target task
     Worker->>DB: Persist available methods in PortalApprovalSession
     API-->>U: Dashboard polling exposes cyberCampus.approval
     U->>API: POST /api/cyber-campus/approval/{id}/start
-    API->>DB: Save selected method + dispatch worker
+    API->>DB: Save selected method + restart worker if needed
     Worker->>Cyber: Start selected method in browser context
     U->>API: POST /api/cyber-campus/approval/{id}/confirm
-    API->>DB: Save code (encrypted) + dispatch worker
+    API->>DB: Save code (encrypted) + restart worker if needed
     Worker->>Cyber: Confirm code / approval state
-    Worker->>DB: Mark approval completed, unblock AUTOLEARN
-    Worker->>Worker: Dispatch AUTOLEARN
+    Worker->>DB: Store portal session + mark approval completed
+    Worker->>Worker: Claim AUTOLEARN and continue playback when runnable
   end
 ```
 
@@ -144,7 +146,7 @@ User-action failures such as `CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED` are left in 
 | `apps/worker` | Queue consumer, HTTP snapshot sync, Playwright auto-learning, mail rendering/delivery hooks |
 | `packages/core` | Parser logic, provider helpers, queue payload types, shared contracts |
 | `prisma` | PostgreSQL schema for users, jobs, snapshots, policies, portal sessions, approvals, mail, audit |
-| `.github/workflows` | CI, deploy, bootstrap, schedule dispatch, reconcile, retention, secret scan |
+| `.github/workflows` | CI, deploy, bootstrap, schedule dispatch, reconcile, legacy cleanup, secret scan |
 
 ## Repository Layout
 
@@ -166,12 +168,11 @@ scripts/        Repo automation, validation, AI workflow helpers
 ```bash
 corepack enable pnpm
 corepack pnpm install --frozen-lockfile
-corepack pnpm run prisma:generate
 corepack pnpm run check:text
 corepack pnpm run check:openapi
+corepack pnpm run prisma:generate
 corepack pnpm run typecheck
-corepack pnpm run test:web
-corepack pnpm run test:ops
+corepack pnpm run test:all
 corepack pnpm run build:web
 ```
 
@@ -200,7 +201,7 @@ Use named arguments directly. Do not use the legacy double-dash forwarding form.
 | `sync-schedule.yml` | `0 */2 * * *` UTC | Enqueue provider-aware sync work every 2 hours, then request centralized worker dispatch |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
 | `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs and fail on divergence |
-| `db-retention-cleanup.yml` | see workflow file | Remove rows past retention policy windows |
+| `db-retention-cleanup.yml` | `10 1 * * *` UTC | Clean legacy bogus course notices; manual `user_repair` can also clear a selected user's notification events |
 
 ## Environment and Configuration
 

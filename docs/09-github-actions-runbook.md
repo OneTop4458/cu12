@@ -36,7 +36,8 @@
    - Fails when GitHub run visibility is unavailable or when DB `RUNNING` jobs diverge from active Actions runs.
 
 8. `db-retention-cleanup.yml`
-   - Deletes rows according to retention windows for audit logs, terminal jobs, mail delivery, and withdrawn-user policy-consent history.
+   - Scheduled default cleanup removes legacy bogus course notices.
+   - Manual `user_repair` mode can target a selected user and clear their notification events during focused repair.
 
 9. `db-bootstrap.yml`
    - Applies Prisma schema and auth-policy post-sync backfills for a new environment.

@@ -6,7 +6,7 @@ This repository uses **English as the default documentation language**. A Korean
 
 - `docs/01-prd.md`: Current product scope, requirements, and success metrics
 - `docs/02-architecture.md`: Runtime architecture, provider flows, dispatch model, and internal API boundaries
-- `docs/03-data-model.md`: Prisma domain model, ownership boundaries, retention, and protection rules
+- `docs/03-data-model.md`: Prisma domain model, ownership boundaries, cleanup posture, and protection rules
 - `docs/04-api/openapi.yaml`: Public and internal HTTP contract
 - `docs/05-cu12-endpoint-catalog.md`: Observed CU12 endpoint inventory used by sync and automation
 - `docs/06-session-token-lifecycle.md`: Cookie, challenge-token, portal-session, and approval-session lifecycle
@@ -38,4 +38,4 @@ This repository uses **English as the default documentation language**. A Korean
 
 ## Baseline Date
 
-- Current living-doc baseline: **2026-04-09**
+- Current living-doc baseline: **2026-04-28**
