@@ -160,3 +160,54 @@ test("mobile topbar, notification sheet, and link buttons keep readable responsi
   assert.match(openapi, /name: surface/);
   assert.match(openapi, /enum: \[LOGIN, TOPBAR\]/);
 });
+
+test("admin subpages rely on topbar navigation without duplicate body shortcut cards", () => {
+  const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
+  const system = readRepoFile("apps/web/app/admin/system/system-client.tsx");
+  const operations = readRepoFile("apps/web/app/admin/operations/operations-client.tsx");
+
+  assert.match(topbar, /href: "\/admin\/operations\/jobs"/);
+  assert.match(topbar, /href: "\/admin\/system\/policies"/);
+  assert.doesNotMatch(system, /href=\{?"\/admin\/system|href=\{?"\/admin\/system\/policies|href=\{?"\/admin\/site-notices/);
+  assert.doesNotMatch(operations, /\/admin\/operations\/jobs|\/admin\/operations\/workers|\/admin\/operations\/reconcile|\/admin\/operations\/cleanup/);
+  assert.doesNotMatch(operations, /작업 목록 열기|워커 목록 열기|정합성 점검 열기|정리 페이지 열기/);
+});
+
+test("dashboard manual guide is persisted per user and can be reopened from the topbar", () => {
+  const schema = readRepoFile("prisma/schema.prisma");
+  const bootstrapRoute = readRepoFile("apps/web/app/api/dashboard/bootstrap/route.ts");
+  const guideRoute = readRepoFile("apps/web/app/api/user-guide/dashboard-manual/route.ts");
+  const guideServer = readRepoFile("apps/web/src/server/user-guide.ts");
+  const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
+  const dashboard = readRepoFile("apps/web/app/dashboard/dashboard-client.tsx");
+  const css = readRepoFile("apps/web/app/globals.css");
+  const faq = readRepoFile("apps/web/app/faq/page.tsx");
+  const openapi = readRepoFile("docs/04-api/openapi.yaml");
+  const guideImagePath = path.join(repoRoot, "apps", "web", "public", "manual", "dashboard-guide-v1.png");
+
+  assert.match(schema, /model UserGuideState/);
+  assert.match(schema, /@@unique\(\[userId, guideKey\]\)/);
+  assert.match(guideServer, /DASHBOARD_MANUAL_GUIDE_KEY = "dashboard-manual"/);
+  assert.match(guideServer, /DASHBOARD_MANUAL_VERSION = "dashboard-manual-v1"/);
+  assert.match(bootstrapRoute, /getDashboardManualGuideState\(userId\)/);
+  assert.match(bootstrapRoute, /userGuide:\s*\{\s*dashboardManual: dashboardManualGuide/);
+  assert.match(guideRoute, /requireAuthContext\(request\)/);
+  assert.match(guideRoute, /context\.effective\.userId/);
+  assert.match(guideRoute, /markDashboardManualGuideSeen/);
+  assert.match(topbar, /onOpenManual/);
+  assert.match(topbar, /사용 매뉴얼/);
+  assert.match(dashboard, /shouldAutoOpen/);
+  assert.match(dashboard, /settingsOpen \|\| isMailSetupRequired/);
+  assert.match(dashboard, /\/api\/user-guide\/dashboard-manual/);
+  assert.match(dashboard, /자동 수강은 서버 작업으로 진행됩니다/);
+  assert.match(dashboard, /설정에서 메일 알림, 공유대 정기 자동 수강, 퀴즈 자동 풀이/);
+  assert.match(dashboard, /사이버캠퍼스 자동 수강은 2차 인증 제약/);
+  assert.match(dashboard, /\/manual\/dashboard-guide-v1\.png/);
+  assert.match(css, /\.manual-guide-card/);
+  assert.match(openapi, /\/api\/user-guide\/dashboard-manual:/);
+  assert.match(openapi, /DashboardManualGuideState:/);
+  assert.match(openapi, /userGuide:/);
+  assert.match(faq, /자동학습 요청 후 브라우저를 계속 켜 두어야 하나요\?/);
+  assert.match(faq, /사이버캠퍼스는 2차 인증 제약/);
+  assert.equal(fs.existsSync(guideImagePath), true);
+});

@@ -161,6 +161,7 @@ model User {
   learningRuns   LearningRun[]
   mailSubs       MailSubscription[]
   mailDeliveries MailDelivery[]
+  guideStates    UserGuideState[]
   taskDeadlineAlerts TaskDeadlineAlert[]
   auditActorLogs AuditLog[]         @relation("AuditActor")
   auditTargetLogs AuditLog[]        @relation("AuditTarget")
@@ -504,6 +505,21 @@ model MailSubscription {
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([enabled, digestEnabled])
+}
+
+model UserGuideState {
+  id          String   @id @default(cuid())
+  userId      String
+  guideKey    String
+  seenVersion String
+  dismissedAt DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, guideKey])
+  @@index([userId, guideKey])
+  @@index([guideKey, seenVersion])
 }
 
 model MailDelivery {

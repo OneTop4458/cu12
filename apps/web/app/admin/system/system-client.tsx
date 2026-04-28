@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { readJsonBody, resolveClientResponseError } from "../../../src/lib/client-response";
@@ -510,20 +509,6 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
           <p className="metric">{activeNotices.length}</p>
           <p className="muted">전체 {activeBroadcast} / 점검 {activeMaintenance}</p>
         </article>
-      </section>
-
-      <section className="card">
-        <div className="button-row" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
-          <Link className="ghost-btn" href="/admin/system">
-            시스템 개요
-          </Link>
-          <Link className="ghost-btn" href={"/admin/system/policies" as Route}>
-            약관 버전/고지 관리
-          </Link>
-          <Link className="ghost-btn" href="/admin/site-notices">
-            공지/점검 관리
-          </Link>
-        </div>
       </section>
 
       {view === "overview" ? (

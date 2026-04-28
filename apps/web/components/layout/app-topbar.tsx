@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BookOpen } from "lucide-react";
 import { ActivityCenter } from "../notifications/activity-center";
 import { SessionActivityGuard } from "../../app/_components/session-activity-guard";
 import { SiteNoticeCenter } from "./site-notice-center";
@@ -34,6 +35,7 @@ type AppTopbarProps = {
   onDashboard?: () => void;
   onGoAdmin?: () => void;
   onOpenSettings?: () => void;
+  onOpenManual?: () => void;
   onLogout: () => void;
 };
 
@@ -56,6 +58,7 @@ export function AppTopbar({
   onDashboard,
   onGoAdmin,
   onOpenSettings,
+  onOpenManual,
   onLogout,
 }: AppTopbarProps) {
   const pathname = usePathname();
@@ -81,6 +84,12 @@ export function AppTopbar({
           <SessionActivityGuard variant="chip" />
           <SiteNoticeCenter />
           <ActivityCenter />
+          {onOpenManual ? (
+            <button className="ghost-btn topbar-manual-btn" type="button" onClick={onOpenManual}>
+              <BookOpen size={16} />
+              <span>사용 매뉴얼</span>
+            </button>
+          ) : null}
           <UserMenu
             email={email}
             role={role}
