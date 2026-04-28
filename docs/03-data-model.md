@@ -24,53 +24,53 @@
 
 ### Queue, sessions, and operations
 
-6. `JobQueue`
+5. `JobQueue`
    - Stores `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, and `MAIL_DIGEST`.
    - Uses `PENDING`, `BLOCKED`, `RUNNING`, `SUCCEEDED`, `FAILED`, and `CANCELED`.
    - `BLOCKED` is used for approval-gated Cyber Campus AUTOLEARN flows.
 
-7. `WorkerHeartbeat`
+6. `WorkerHeartbeat`
    - Records active worker liveness for stale-run detection and admin visibility.
 
-8. `PortalSession`
+7. `PortalSession`
    - Provider-scoped encrypted cookie-state cache for reusable upstream sessions.
    - Used primarily to avoid repeating Cyber Campus approval when a valid session can be reused.
 
-9. `PortalApprovalSession`
+8. `PortalApprovalSession`
    - Provider-scoped approval workflow state tied to one blocked job.
    - Stores encrypted cookie state, available methods, selected method, request/display code, expiry, and terminal status.
 
-10. `AuditLog`
+9. `AuditLog`
     - Immutable operational log for auth, admin, job, worker, mail, parser, and impersonation actions.
 
 ### Snapshot, learning, and communication data
 
-11. `CourseSnapshot`
+10. `CourseSnapshot`
     - Provider-scoped course roster and progress data.
 
-12. `CourseNotice`
+11. `CourseNotice`
     - Provider-scoped course notice snapshots, unread state, and body content.
 
-13. `NotificationEvent`
+12. `NotificationEvent`
     - Provider-scoped notification feed items, unread/archive state, and dashboard history.
 
-14. `PortalMessage`
+13. `PortalMessage`
     - Provider-scoped inbox/message snapshots with read and archive state.
 
-15. `LearningTask`
+14. `LearningTask`
     - Provider-scoped task inventory across `VOD`, `MATERIAL`, `QUIZ`, `ASSIGNMENT`, and `ETC`.
     - Tracks availability windows, due times, progress counters, and execution eligibility.
 
-16. `LearningRun`
+15. `LearningRun`
     - Immutable execution log for AUTOLEARN runs, including result metadata.
 
-17. `TaskDeadlineAlert`
+16. `TaskDeadlineAlert`
     - Dedupe table for deadline notifications by user, provider, task identity, threshold, and due time.
 
-18. `MailSubscription` and `MailDelivery`
+17. `MailSubscription` and `MailDelivery`
     - User-configured action-required mail preferences and immutable delivery history. Daily digest mail is disabled.
 
-19. `SiteNotice`
+18. `SiteNotice`
     - Admin-managed notices shown on login and dashboard surfaces.
     - `BROADCAST` notices include a persisted `displayTarget` (`LOGIN`, `TOPBAR`, `BOTH`).
     - `MAINTENANCE` notices are persisted and normalized as login-and-dashboard fixed notices.
@@ -93,10 +93,11 @@
 3. Pending or running jobs are canceled during withdrawal.
 4. Policy-consent history and audit data remain under retention policy rules.
 
-## Data Protection and Retention
+## Data Protection and Cleanup
 
 - Portal passwords are encrypted at rest using `APP_MASTER_KEY`.
 - Pending approval users have no stored portal password.
 - `PortalSession` and `PortalApprovalSession` store encrypted cookie-state payloads, not plaintext cookies.
 - Session cookies are signed JWTs with bounded TTL plus a separate idle-session token.
-- Retention cleanup removes old terminal job rows, mail logs, and aged withdrawn-user consent history according to the scheduled workflow.
+- The current scheduled DB cleanup workflow removes legacy bogus course notices. Its manual `user_repair` mode can also clear notification events for a selected user.
+- The worker still contains a broader retention cleanup script for audit logs, terminal jobs, mail delivery rows, and withdrawn-user consent history, but that script is not the current scheduled workflow entrypoint.

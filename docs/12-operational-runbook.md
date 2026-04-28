@@ -26,7 +26,7 @@
 4. Complete approval with:
    - `POST /api/cyber-campus/approval/{approvalId}/start`
    - `POST /api/cyber-campus/approval/{approvalId}/confirm`
-5. After approval completion, confirm the blocked job returns to `PENDING` and worker dispatch is requested.
+5. After approval completion, confirm the approval session reaches `COMPLETED` and the blocked job either moves into same-session AUTOLEARN execution or closes as a no-op when no runnable target tasks remain.
 6. Monitor `LearningRun` results and dashboard task updates.
 
 ## New Environment Bootstrap

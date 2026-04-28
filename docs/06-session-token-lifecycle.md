@@ -49,7 +49,8 @@
 2. Tied one-to-one to a `BLOCKED` AUTOLEARN job.
 3. Stores encrypted cookie state, available methods, selected method, request/display code, expiry, and terminal state.
 4. Starts as `PENDING`, moves to `ACTIVE` after a method is started, and ends as `COMPLETED`, `EXPIRED`, or `CANCELED`.
-5. Successful confirmation unblocks the job back to `PENDING` and dispatches the worker.
+5. Successful confirmation is completed by the approval worker, which stores the refreshed `PortalSession` and can claim the blocked AUTOLEARN job directly in the same live Playwright session when runnable.
+6. If the approval worker finds no runnable target tasks, it closes the blocked AUTOLEARN job as a no-op instead of returning it to `PENDING`.
 
 ## CU12 Credential Lifecycle
 

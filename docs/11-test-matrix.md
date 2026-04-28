@@ -29,7 +29,7 @@ Implementation-detail tests are still valid when they guard an externally observ
 1. Queue claim is atomic under concurrent workers.
 2. Duplicate idempotency keys do not create duplicate effective jobs.
 3. Manual redispatch respects the stale duplicate windows.
-4. `BLOCKED` AUTOLEARN jobs are used only for approval-required Cyber Campus flows and return to `PENDING` after approval completion.
+4. `BLOCKED` AUTOLEARN jobs are used only for approval-required Cyber Campus flows; after approval, the worker either claims the job directly for same-session continuation or closes it as a no-op when no runnable target tasks remain.
 5. Worker heartbeat updates at the expected interval.
 6. Reconcile detects mismatches between DB `RUNNING` jobs and live workflow runs.
 7. AUTOLEARN continuation stops when the chain cap is reached.
@@ -48,7 +48,7 @@ Implementation-detail tests are still valid when they guard an externally observ
 1. CU12 parser maps current task/link contracts to `VOD`, `MATERIAL`, `QUIZ`, `ASSIGNMENT`, or `ETC`.
 2. CU12 AUTOLEARN completes pending material items through the page flow, not hidden side effects.
 3. Quiz retry logic stops when attempts are exhausted or the contract is unsupported.
-4. Cyber Campus AUTOLEARN returns `approvalRequired=true` when secondary auth is needed, then resumes after approval confirmation.
+4. Cyber Campus AUTOLEARN exposes approval state when secondary auth is needed, then resumes after approval confirmation without losing the approved browser session.
 
 ## Validation Gate
 

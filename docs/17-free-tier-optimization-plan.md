@@ -11,14 +11,14 @@ Keep CU12 Automation within free-tier limits for GitHub Actions, Vercel, and Neo
 3. `worker-consume` supports job-type filtering; routine digest dispatch is disabled.
 4. CodeQL changed to weekly schedule only (manual runs remain available).
 5. Dashboard initial load now uses aggregated bootstrap API and adaptive polling.
-6. Daily retention cleanup removes old operational data.
+6. Daily DB cleanup removes legacy bogus course notices; focused manual repair can clear notification events for one user.
 7. Daily Actions usage forecast provides early warning.
 
 ## Free-Tier Guardrails
 
 1. GitHub Actions monthly included minutes target: keep projected usage below 80%.
 2. Vercel request volume target: reduce periodic dashboard requests via bootstrap + adaptive polling.
-3. Neon storage/query target: control unbounded growth with retention cleanup.
+3. Neon storage/query target: control known legacy cleanup drift and avoid unnecessary scheduled worker runs.
 
 ## Monitoring Signals
 
@@ -30,11 +30,12 @@ Keep CU12 Automation within free-tier limits for GitHub Actions, Vercel, and Neo
    - Dispatch created count
    - Consume run count
 3. DB cleanup summary:
-   - Deleted rows by table per run
+   - Deleted legacy bogus notices
+   - Deleted notification events in manual `user_repair` mode
 
 ## Immediate Mitigation If Usage Spikes
 
 1. Temporarily increase sync interval (for example, 2h -> 3h/4h).
 2. Disable non-critical scheduled workflows.
 3. Reduce dashboard polling aggressiveness.
-4. Trigger retention cleanup manually.
+4. Trigger DB cleanup manually with the narrow mode needed for the incident.

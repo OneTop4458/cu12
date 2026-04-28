@@ -21,7 +21,7 @@
    - Stores users, portal-account linkage, policy history, queue state, snapshots, portal sessions, approval sessions, mail subscriptions, and audit logs.
 
 5. **Workflow layer (`.github/workflows`)**
-   - Runs CI, deploy, DB bootstrap, scheduled dispatch, reconcile, and retention cleanup.
+   - Runs CI, deploy, DB bootstrap, scheduled dispatch, reconcile, and legacy cleanup.
    - Acts as the execution envelope for the worker runtime.
 
 ## Authentication and Onboarding Flow
@@ -89,7 +89,8 @@
    - a `BLOCKED` AUTOLEARN job
    - a `PortalApprovalSession` with the available approval methods and encrypted cookie state
 3. The user starts and confirms the selected approval method through the approval APIs.
-4. On completion, the web app stores a fresh `PortalSession`, unblocks the queued job, and dispatches the worker.
+4. The approval worker confirms the code, re-checks the exact target lecture context, stores a fresh `PortalSession`, and marks the approval completed.
+5. If the blocked AUTOLEARN job is still runnable, the same worker run can claim it immediately and continue playback in the live Playwright session. If no runnable target tasks remain, the blocked job is closed as a no-op.
 
 ## Why This Model
 
