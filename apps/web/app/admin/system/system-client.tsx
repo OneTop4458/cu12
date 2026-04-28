@@ -473,18 +473,9 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
   return (
     <main className="dashboard-main page-shell">
       <AppTopbar
-        mode="admin"
         title={view === "policies" ? "약관/고지 관리" : "시스템 상태"}
-        navLinks={[
-          { href: "/admin", label: "운영 관리센터" },
-          { href: "/admin/site-notices", label: "공지/점검 설정" },
-          { href: "/admin/system/policies", label: "약관/고지" },
-          { href: "/admin/operations", label: "운영 메뉴" },
-        ]}
         email={initialUser.email}
         role={initialUser.role}
-        refreshing={loading || refreshing}
-        onRefresh={() => void refreshAll(true)}
         onDashboard={() => router.push("/dashboard")}
         onGoAdmin={() => router.push("/admin")}
         onLogout={() => {

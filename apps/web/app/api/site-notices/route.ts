@@ -2,11 +2,13 @@ import { NextRequest } from "next/server";
 import { jsonOk, jsonError } from "@/lib/http";
 
 import { listPublicSiteNotices } from "@/server/site-notice";
+import { SITE_NOTICE_SURFACES } from "@/lib/site-notice-display";
 import { SiteNoticeType } from "@prisma/client";
 import { z } from "zod";
 
 const QuerySchema = z.object({
   type: z.nativeEnum(SiteNoticeType).optional(),
+  surface: z.enum(SITE_NOTICE_SURFACES).optional(),
 });
 
 function toPublicNotice(
@@ -29,11 +31,14 @@ function toPublicNotice(
 
 export async function GET(request: NextRequest) {
   const params = new URL(request.url).searchParams;
-  const parsed = QuerySchema.safeParse({ type: params.get("type") ?? undefined });
+  const parsed = QuerySchema.safeParse({
+    type: params.get("type") ?? undefined,
+    surface: params.get("surface") ?? undefined,
+  });
   if (!parsed.success) {
     return jsonError("Invalid notice type", 400, "VALIDATION_ERROR");
   }
 
-  const notices = await listPublicSiteNotices(parsed.data.type);
+  const notices = await listPublicSiteNotices(parsed.data.type, { surface: parsed.data.surface });
   return jsonOk({ siteNotices: notices.map(toPublicNotice) });
 }

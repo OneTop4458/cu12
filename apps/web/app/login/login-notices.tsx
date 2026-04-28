@@ -4,9 +4,9 @@ import { listPublicSiteNotices } from "@/server/site-notice";
 import { LoginNoticeAccordion } from "./login-notice-accordion";
 
 const COPY = {
-  noticeTitle: "공지",
-  noticesLink: "전체 공지",
-  maintenanceLink: "점검 안내",
+  noticeTitle: "\uACF5\uC9C0",
+  noticesLink: "\uC804\uCCB4 \uACF5\uC9C0",
+  maintenanceLink: "\uC810\uAC80 \uC548\uB0B4",
 } as const;
 
 export async function LoginNotices() {

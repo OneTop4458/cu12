@@ -48,18 +48,19 @@ test("sync mail only sends deadline alerts and digest scheduling is disabled", (
 test("dashboard activity API is accessed from notification center only", () => {
   const activityRoute = readRepoFile("apps/web/app/api/dashboard/activity/route.ts");
   const dashboard = readRepoFile("apps/web/app/dashboard/dashboard-client.tsx");
-  const mobileNav = readRepoFile("apps/web/components/layout/app-mobile-nav.tsx");
+  const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
   const activityCenter = readRepoFile("apps/web/components/notifications/activity-center.tsx");
   const openapi = readRepoFile("docs/04-api/openapi.yaml");
+  const mobileNavPath = path.join(repoRoot, "apps", "web", "components", "layout", "app-mobile-nav.tsx");
 
   assert.match(activityRoute, /export async function GET/);
   assert.match(activityRoute, /export async function PATCH/);
   assert.match(activityRoute, /getActivity/);
   assert.match(activityCenter, /\/api\/dashboard\/activity\?limit=80/);
+  assert.match(topbar, /<ActivityCenter \/>/);
   assert.doesNotMatch(dashboard, /id="activity"/);
   assert.doesNotMatch(dashboard, /id="messages"/);
-  assert.doesNotMatch(mobileNav, /dashboard#activity/);
-  assert.doesNotMatch(mobileNav, /dashboard#messages/);
+  assert.equal(fs.existsSync(mobileNavPath), false);
   assert.match(openapi, /\/api\/dashboard\/activity:/);
   assert.match(openapi, /DashboardActivityItem:/);
 });
@@ -67,6 +68,7 @@ test("dashboard activity API is accessed from notification center only", () => {
 test("dashboard and admin pages use common topbar without legacy button override", () => {
   const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
   const notificationCenter = readRepoFile("apps/web/components/notifications/notification-center.tsx");
+  const siteNoticeCenter = readRepoFile("apps/web/components/layout/site-notice-center.tsx");
   const css = readRepoFile("apps/web/app/globals.css");
   const pageFiles = [
     "apps/web/app/dashboard/dashboard-client.tsx",
@@ -80,10 +82,25 @@ test("dashboard and admin pages use common topbar without legacy button override
   for (const file of pageFiles) {
     assert.match(file, /<AppTopbar/);
     assert.doesNotMatch(file, /<header className="topbar"/);
+    assert.doesNotMatch(file, /navLinks=/);
+    assert.doesNotMatch(file, /refreshing=/);
+    assert.doesNotMatch(file, /onRefresh=/);
+    assert.doesNotMatch(file, /includeAdmin=/);
+    assert.doesNotMatch(file, /mode="(?:dashboard|admin)"/);
   }
+  assert.match(topbar, /<SessionActivityGuard variant="chip" \/>/);
+  assert.match(topbar, /<SiteNoticeCenter \/>/);
+  assert.doesNotMatch(topbar, /AppMobileNav|AppTopbarLink|MoreHorizontal|RefreshCw|DropdownMenu|dashboard-site-notice-host|topbar-status/);
+  assert.doesNotMatch(topbar, /includeAdmin|navLinks|refreshing|onRefresh/);
+  assert.match(siteNoticeCenter, /\/api\/site-notices\?surface=TOPBAR/);
+  assert.match(siteNoticeCenter, /cu12:topbar-dismissed-notice-ids:v1/);
   assert.match(notificationCenter, /mode\?: "popover" \| "sheet"/);
   assert.match(css, /button:not\(\[data-slot="button"\]\)/);
+  assert.match(css, /\.session-chip \{/);
+  assert.match(css, /\.site-notice-trigger/);
+  assert.match(css, /\.site-notice-popover/);
   assert.doesNotMatch(css, /\.btn,\s*button\s*\{/);
+  assert.doesNotMatch(css, /dashboard-page|mobile-nav-trigger|app-mobile-nav|topbar-menu-trigger|icon-btn|topbar-status/);
 });
 
 test("mobile topbar, notification sheet, and link buttons keep readable responsive sizing", () => {
@@ -93,7 +110,10 @@ test("mobile topbar, notification sheet, and link buttons keep readable responsi
   const layout = readRepoFile("apps/web/app/layout.tsx");
   const login = readRepoFile("apps/web/app/login/page.tsx");
   const dashboardPage = readRepoFile("apps/web/app/dashboard/page.tsx");
+  const dashboardLoading = readRepoFile("apps/web/app/dashboard/loading.tsx");
   const dashboard = readRepoFile("apps/web/app/dashboard/dashboard-client.tsx");
+  const siteNoticesRoute = readRepoFile("apps/web/app/api/site-notices/route.ts");
+  const openapi = readRepoFile("docs/04-api/openapi.yaml");
 
   assert.match(css, /\.btn,\n\.ghost-btn,\n\.btn-quiet,\n\.btn-success,\n\.btn-danger,\nbutton:not\(\[data-slot="button"\]\) \{/);
   assert.match(themeProvider, /classList\.remove\("dark"\)/);
@@ -106,20 +126,26 @@ test("mobile topbar, notification sheet, and link buttons keep readable responsi
   assert.doesNotMatch(css, /brand-wordmark/);
   assert.doesNotMatch(layout, /SessionActivityGuard/);
   assert.match(topbar, /SessionActivityGuard/);
-  assert.match(topbar, /dashboard-site-notice-host/);
-  assert.match(topbar, /const isDashboard = mode === "dashboard"/);
-  assert.match(topbar, /\{!isDashboard \? <AppMobileNav/);
-  assert.match(topbar, /\{!isDashboard && onRefresh \?/);
-  assert.match(topbar, /\{!isDashboard && navLinks\.length > 0 \?/);
-  assert.match(dashboardPage, /dashboard-page/);
-  assert.match(dashboard, /siteNoticeHost/);
+  assert.doesNotMatch(topbar, /dashboard-site-notice-host|const isDashboard|AppMobileNav|onRefresh|navLinks/);
+  assert.doesNotMatch(dashboardPage, /dashboard-page/);
+  assert.doesNotMatch(dashboardLoading, /dashboard-page/);
+  assert.doesNotMatch(dashboard, /siteNoticeHost|siteNoticePortal|createPortal|dashboard-site-notice-host/);
   assert.match(dashboard, /grid-kpi provider-kpi/);
   assert.doesNotMatch(login, /CU12 AUTO/);
   assert.doesNotMatch(login, /auth-public-nav/);
   assert.doesNotMatch(login, /brand-wordmark/);
   assert.match(login, /titleLineOne/);
   assert.match(login, /<br \/>/);
+  assert.match(css, /\.auth-stage \{[\s\S]+?align-items: start;/);
+  assert.match(css, /\.auth-brand \{[\s\S]+?height: min\(680px, calc\(100dvh - 180px\)\);[\s\S]+?min-height: 520px;/);
+  assert.match(css, /\.auth-card \{[\s\S]+?align-self: start;/);
+  assert.match(css, /\.login-notice-body \{[\s\S]+?max-height: min\(220px, 34dvh\);[\s\S]+?overflow: auto;/);
   assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.topbar-actions \{[\s\S]+?flex-wrap: wrap;[\s\S]+?overflow: visible;/);
   assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.notification-sheet \{[\s\S]+?width: calc\(100vw - 16px\);[\s\S]+?height: calc\(100dvh - 16px\);/);
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.site-notice-sheet \{[\s\S]+?width: calc\(100vw - 16px\);[\s\S]+?height: calc\(100dvh - 16px\);/);
   assert.match(css, /\.notification-list-item \{[\s\S]+?height: auto;[\s\S]+?min-height: 72px;/);
+  assert.match(siteNoticesRoute, /surface:\s*z\.enum\(SITE_NOTICE_SURFACES\)\.optional\(\)/);
+  assert.match(siteNoticesRoute, /listPublicSiteNotices\(parsed\.data\.type,\s*\{\s*surface:\s*parsed\.data\.surface\s*\}\)/);
+  assert.match(openapi, /name: surface/);
+  assert.match(openapi, /enum: \[LOGIN, TOPBAR\]/);
 });

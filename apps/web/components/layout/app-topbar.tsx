@@ -1,42 +1,20 @@
 "use client";
 
-import type { Route } from "next";
 import Image from "next/image";
-import Link from "next/link";
-import { MoreHorizontal, RefreshCw } from "lucide-react";
 import { ActivityCenter } from "../notifications/activity-center";
-import { Button } from "../ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 import { SessionActivityGuard } from "../../app/_components/session-activity-guard";
-import { AppMobileNav } from "./app-mobile-nav";
+import { SiteNoticeCenter } from "./site-notice-center";
 import { UserMenu } from "./user-menu";
 
 type RoleType = "ADMIN" | "USER";
 
-export type AppTopbarLink = {
-  href: string;
-  label: string;
-};
-
 type AppTopbarProps = {
   id?: string;
-  mode: "dashboard" | "admin";
   title: string;
   kicker?: string;
-  includeAdmin?: boolean;
-  navLinks?: AppTopbarLink[];
   email: string;
   role: RoleType;
   impersonating?: boolean;
-  refreshing?: boolean;
-  onRefresh?: () => void;
   onDashboard?: () => void;
   onGoAdmin?: () => void;
   onOpenSettings?: () => void;
@@ -45,23 +23,16 @@ type AppTopbarProps = {
 
 export function AppTopbar({
   id,
-  mode,
   title,
   kicker = "Catholic University Automation",
-  includeAdmin = false,
-  navLinks = [],
   email,
   role,
   impersonating = false,
-  refreshing = false,
-  onRefresh,
   onDashboard,
   onGoAdmin,
   onOpenSettings,
   onLogout,
 }: AppTopbarProps) {
-  const isDashboard = mode === "dashboard";
-
   return (
     <header className="topbar" id={id}>
       <div className="topbar-main">
@@ -79,45 +50,8 @@ export function AppTopbar({
           </div>
         </div>
         <div className="topbar-actions">
-          {!isDashboard ? <AppMobileNav mode={mode} includeAdmin={includeAdmin} /> : null}
-          {!isDashboard && onRefresh ? (
-            <Button
-              className="icon-btn"
-              type="button"
-              onClick={onRefresh}
-              disabled={refreshing}
-              title="새로고침"
-              aria-label="새로고침"
-              variant="outline"
-              size="icon"
-            >
-              <RefreshCw size={16} />
-            </Button>
-          ) : null}
-          {!isDashboard && navLinks.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  className="topbar-menu-trigger"
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label="화면 이동"
-                >
-                  <MoreHorizontal size={17} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="topbar-menu-content" align="end" sideOffset={10} collisionPadding={8}>
-                <DropdownMenuLabel className="topbar-menu-label">화면 이동</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {navLinks.map((link) => (
-                  <DropdownMenuItem asChild className="topbar-menu-item" key={link.href}>
-                    <Link href={link.href as Route}>{link.label}</Link>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+          <SessionActivityGuard variant="chip" />
+          <SiteNoticeCenter />
           <ActivityCenter />
           <UserMenu
             email={email}
@@ -129,10 +63,6 @@ export function AppTopbar({
             onLogout={onLogout}
           />
         </div>
-      </div>
-      <div className="topbar-status">
-        <SessionActivityGuard />
-        <div id="dashboard-site-notice-host" className="session-notice-host" />
       </div>
     </header>
   );

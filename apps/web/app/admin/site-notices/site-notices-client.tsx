@@ -371,18 +371,10 @@ export function SiteNoticesAdminClient({ initialUser }: AdminSiteNoticeClientPro
   return (
     <>
       <AppTopbar
-        mode="admin"
         title="공지/점검 관리"
         kicker="운영 공지 및 점검 안내 설정"
-        navLinks={[
-          { href: "/admin", label: "운영 관리센터" },
-          { href: "/admin/operations", label: "운영 메뉴" },
-          { href: "/admin/system", label: "시스템 상태" },
-        ]}
         email={initialUser.email}
         role={initialUser.role}
-        refreshing={loading}
-        onRefresh={() => void loadNotices()}
         onDashboard={() => router.push("/dashboard" as Route)}
         onGoAdmin={() => router.push("/admin" as Route)}
         onLogout={() => {

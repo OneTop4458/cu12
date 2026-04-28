@@ -604,18 +604,10 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
   return (
     <main className="dashboard-main page-shell">
       <AppTopbar
-        mode="admin"
         title="운영 도구"
         kicker="시스템 운영"
-        navLinks={[
-          { href: "/admin", label: "운영 관리센터" },
-          { href: "/admin/system", label: "시스템 상태" },
-          { href: "/admin/site-notices", label: "공지/점검 설정" },
-        ]}
         email={initialUser.email}
         role={initialUser.role}
-        refreshing={loadingJobs || loadingWorkers || loadingSummary || reconcileBusy}
-        onRefresh={() => void refreshAll()}
         onDashboard={() => router.push("/dashboard")}
         onGoAdmin={() => router.push("/admin")}
         onLogout={() => {

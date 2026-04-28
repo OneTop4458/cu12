@@ -652,19 +652,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   return (
     <main className="dashboard-main page-shell">
       <AppTopbar
-        mode="admin"
         title="운영 관리센터"
-        navLinks={[
-          { href: "/admin/site-notices", label: "공지/점검 설정" },
-          { href: "/admin/operations", label: "운영 메뉴" },
-          { href: "/admin/system", label: "시스템 상태" },
-          { href: "/admin/system/policies", label: "약관/고지" },
-        ]}
         email={context.effective.email}
         role={initialUser.role}
         impersonating={context.impersonating}
-        refreshing={loading || !!blockingMessage}
-        onRefresh={() => void refreshAll(logPage, false)}
         onDashboard={() => goDashboard()}
         onLogout={logout}
       />
