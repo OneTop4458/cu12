@@ -17,7 +17,7 @@
    - Runs the worker in `--once` mode with internal API callbacks and heartbeat reporting.
 
 4. `sync-schedule.yml`
-   - Schedule: `0 */2 * * *` UTC.
+   - Schedule: `0 */12 * * *` UTC.
    - Enqueues provider-aware sync work and requests centralized dispatch only when pending work exists.
 
 5. Daily digest mail

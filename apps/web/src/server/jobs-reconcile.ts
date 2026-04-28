@@ -82,7 +82,7 @@ const EXPECTED_SCHEDULES: Array<{
   {
     key: "sync",
     workflowPath: ".github/workflows/sync-schedule.yml",
-    expectedCrons: ["0 */2 * * *"],
+    expectedCrons: ["0 */12 * * *"],
   },
   {
     key: "autolearn",
