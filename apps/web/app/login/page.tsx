@@ -10,12 +10,10 @@ import { LoginNotices } from "./login-notices";
 
 const COPY = {
   brandMark: "시스템 문의: byungjun4458@catholic.ac.kr",
-  title: "가톨릭대학교 수강 지원 솔루션",
-  subtitle: "가톨릭대학교 포털 기반 수강 정보와 학습 일정을 한곳에서 확인합니다.",
+  titleLineOne: "가톨릭대학교",
+  titleLineTwo: "수강 지원 솔루션",
   loginTitle: "로그인",
   loginIntro: "가톨릭대학교 포털(트리니티) 계정으로 로그인하세요.",
-  navNotice: "공지",
-  navFaq: "FAQ",
 } as const;
 
 export default async function LoginPage({
@@ -37,7 +35,7 @@ export default async function LoginPage({
   return (
     <main className="auth-main">
       <header className="auth-public-topbar" aria-label="CU12">
-        <Link href={"/login" as Route} className="auth-public-logo">
+        <Link href={"/login" as Route} className="auth-public-logo" aria-label="Catholic University login">
           <Image
             src="/brand/catholic/logo-wordmark-mobile.png"
             alt="Catholic University logo"
@@ -45,12 +43,7 @@ export default async function LoginPage({
             height={34}
             priority
           />
-          <span>CU12 AUTO</span>
         </Link>
-        <nav className="auth-public-nav" aria-label="공개 메뉴">
-          <Link href={"/notices" as Route}>{COPY.navNotice}</Link>
-          <Link href={"/faq" as Route}>{COPY.navFaq}</Link>
-        </nav>
       </header>
       <section className="auth-stage">
         <section className="auth-brand" aria-label="서비스 소개">
@@ -63,16 +56,12 @@ export default async function LoginPage({
             className="auth-brand-image"
           />
           <div className="auth-brand-copy">
-            <Image
-              src="/brand/catholic/logo-wordmark.png"
-              alt="Catholic University logo"
-              width={300}
-              height={72}
-              className="brand-wordmark"
-            />
             <p className="brand-kicker">Catholic University Automation</p>
-            <h1>{COPY.title}</h1>
-            <p>{COPY.subtitle}</p>
+            <h1>
+              {COPY.titleLineOne}
+              <br />
+              {COPY.titleLineTwo}
+            </h1>
             <p className="brand-mark">{COPY.brandMark}</p>
           </div>
         </section>

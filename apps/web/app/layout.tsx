@@ -2,7 +2,6 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { AppThemeProvider } from "../components/theme/theme-provider";
 import { ConsoleSecurityWarning } from "./_components/console-security-warning";
-import { SessionActivityGuard } from "./_components/session-activity-guard";
 import { SiteFooter } from "./_components/site-footer";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { Toaster } from "sonner";
@@ -25,12 +24,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AppThemeProvider>
           <TooltipProvider>
-            <div className="session-banner-shell">
-              <div className="session-banner-stack">
-                <SessionActivityGuard />
-                <div id="dashboard-site-notice-host" className="session-notice-host" />
-              </div>
-            </div>
             <ConsoleSecurityWarning />
             <div className="app-root">{children}</div>
             <SiteFooter />

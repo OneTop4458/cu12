@@ -90,7 +90,10 @@ test("mobile topbar, notification sheet, and link buttons keep readable responsi
   const css = readRepoFile("apps/web/app/globals.css").replace(/\r\n/g, "\n");
   const themeProvider = readRepoFile("apps/web/components/theme/theme-provider.tsx");
   const topbar = readRepoFile("apps/web/components/layout/app-topbar.tsx");
+  const layout = readRepoFile("apps/web/app/layout.tsx");
   const login = readRepoFile("apps/web/app/login/page.tsx");
+  const dashboardPage = readRepoFile("apps/web/app/dashboard/page.tsx");
+  const dashboard = readRepoFile("apps/web/app/dashboard/dashboard-client.tsx");
 
   assert.match(css, /\.btn,\n\.ghost-btn,\n\.btn-quiet,\n\.btn-success,\n\.btn-danger,\nbutton:not\(\[data-slot="button"\]\) \{/);
   assert.match(themeProvider, /classList\.remove\("dark"\)/);
@@ -99,6 +102,23 @@ test("mobile topbar, notification sheet, and link buttons keep readable responsi
   assert.doesNotMatch(topbar, /ThemeToggle/);
   assert.doesNotMatch(login, /ThemeToggle/);
   assert.doesNotMatch(css, /theme-toggle/);
+  assert.doesNotMatch(css, /auth-public-nav/);
+  assert.doesNotMatch(css, /brand-wordmark/);
+  assert.doesNotMatch(layout, /SessionActivityGuard/);
+  assert.match(topbar, /SessionActivityGuard/);
+  assert.match(topbar, /dashboard-site-notice-host/);
+  assert.match(topbar, /const isDashboard = mode === "dashboard"/);
+  assert.match(topbar, /\{!isDashboard \? <AppMobileNav/);
+  assert.match(topbar, /\{!isDashboard && onRefresh \?/);
+  assert.match(topbar, /\{!isDashboard && navLinks\.length > 0 \?/);
+  assert.match(dashboardPage, /dashboard-page/);
+  assert.match(dashboard, /siteNoticeHost/);
+  assert.match(dashboard, /grid-kpi provider-kpi/);
+  assert.doesNotMatch(login, /CU12 AUTO/);
+  assert.doesNotMatch(login, /auth-public-nav/);
+  assert.doesNotMatch(login, /brand-wordmark/);
+  assert.match(login, /titleLineOne/);
+  assert.match(login, /<br \/>/);
   assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.topbar-actions \{[\s\S]+?flex-wrap: wrap;[\s\S]+?overflow: visible;/);
   assert.match(css, /@media \(max-width: 640px\) \{[\s\S]+?\.notification-sheet \{[\s\S]+?width: calc\(100vw - 16px\);[\s\S]+?height: calc\(100dvh - 16px\);/);
   assert.match(css, /\.notification-list-item \{[\s\S]+?height: auto;[\s\S]+?min-height: 72px;/);
