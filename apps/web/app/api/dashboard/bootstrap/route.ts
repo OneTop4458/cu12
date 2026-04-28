@@ -17,6 +17,7 @@ import {
 } from "@/server/dashboard-fallback";
 import { getSyncQueueSummaryForUser, getSyncQueueSummaryForUserByProvider } from "@/server/queue";
 import { listSiteNotices } from "@/server/site-notice";
+import { getDashboardManualGuideState } from "@/server/user-guide";
 
 function parseLimit(value: string | null, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
       null,
     ));
 
-    const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues] = await Promise.all([
+    const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues, dashboardManualGuide] = await Promise.all([
       timing.measure("summary", () => getDashboardSummaries(userId)),
       timing.measure("sync-queue", () => loadOptionalDashboardSegment(
         "dashboard/bootstrap",
@@ -128,6 +129,7 @@ export async function GET(request: NextRequest) {
           CYBER_CAMPUS: IDLE_SYNC_QUEUE_SUMMARY,
         },
       )),
+      timing.measure("user-guide", () => getDashboardManualGuideState(userId)),
     ]);
     const summary = combineDashboardSummaries(providerSummaries);
 
@@ -163,6 +165,9 @@ export async function GET(request: NextRequest) {
           }
           : null,
         cyberCampus,
+        userGuide: {
+          dashboardManual: dashboardManualGuide,
+        },
         preference,
       },
       {

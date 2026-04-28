@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -221,6 +222,16 @@ interface MailPreference {
   updatedAt: string | null;
 }
 
+interface DashboardManualGuideState {
+  version: "dashboard-manual-v1";
+  dismissedAt: string | null;
+  shouldAutoOpen: boolean;
+}
+
+interface UserGuidePayload {
+  dashboardManual: DashboardManualGuideState;
+}
+
 interface Account {
   provider: "CU12" | "CYBER_CAMPUS";
   cu12Id: string;
@@ -384,6 +395,12 @@ const POLL_TRACKING_ERROR_MAX_MS = 30000;
 const SYNC_PENDING_STALE_MS = 5 * 60 * 1000;
 const SYNC_RUNNING_STALE_MS = 10 * 60 * 1000;
 const COURSE_DEADLINE_URGENT_DAYS = 7;
+const DASHBOARD_MANUAL_VERSION = "dashboard-manual-v1";
+const DEFAULT_DASHBOARD_MANUAL_GUIDE: DashboardManualGuideState = {
+  version: DASHBOARD_MANUAL_VERSION,
+  dismissedAt: null,
+  shouldAutoOpen: false,
+};
 
 function getProviderLabel(provider: PortalProvider): string {
   return provider === "CYBER_CAMPUS" ? "사이버캠퍼스" : "공유대";
@@ -432,6 +449,7 @@ interface DashboardBootstrap {
   maintenanceNotice: SiteNotice | null;
   account: Account | null;
   cyberCampus: CyberCampusState;
+  userGuide?: UserGuidePayload;
   preference: MailPreference;
 }
 
@@ -868,6 +886,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [mailSaving, setMailSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMailSetupRequired, setIsMailSetupRequired] = useState(false);
+  const [dashboardManualGuide, setDashboardManualGuide] = useState<DashboardManualGuideState>(DEFAULT_DASHBOARD_MANUAL_GUIDE);
+  const [dashboardManualOpen, setDashboardManualOpen] = useState(false);
+  const [dashboardManualSaving, setDashboardManualSaving] = useState(false);
 
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
   const [trackingDetail, setTrackingDetail] = useState<JobDetail | null>(null);
@@ -883,6 +904,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [approvalCode, setApprovalCode] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const autoLearnProviderHydratedRef = useRef(false);
+  const dashboardManualAutoOpenedVersionRef = useRef<string | null>(null);
   const approvalAutoOpenKeyRef = useRef<string | null>(null);
   const approvalAutoConfirmKeyRef = useRef<string | null>(null);
   const runActionRef = useRef<((action: "SYNC" | "AUTOLEARN", silent?: boolean, providers?: PortalProvider[]) => Promise<void>) | null>(null);
@@ -1306,6 +1328,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       setMailDraft(payload.preference);
       const requiresMailSetup = payload.preference.updatedAt === null;
       setIsMailSetupRequired(requiresMailSetup);
+      setDashboardManualGuide(payload.userGuide?.dashboardManual ?? DEFAULT_DASHBOARD_MANUAL_GUIDE);
       if (requiresMailSetup) {
         setSettingsOpen(true);
       }
@@ -1321,6 +1344,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   useEffect(() => {
     void refreshAll(false);
   }, [refreshAll]);
+
+  useEffect(() => {
+    if (!dashboardManualGuide.shouldAutoOpen) return;
+    if (settingsOpen || isMailSetupRequired) return;
+    if (dashboardManualAutoOpenedVersionRef.current === dashboardManualGuide.version) return;
+
+    dashboardManualAutoOpenedVersionRef.current = dashboardManualGuide.version;
+    setDashboardManualOpen(true);
+  }, [dashboardManualGuide, isMailSetupRequired, settingsOpen]);
 
   useEffect(() => {
     if (!message) return;
@@ -1890,6 +1922,32 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
+  async function dismissDashboardManual() {
+    if (dashboardManualSaving) return;
+
+    const dismissedAt = new Date().toISOString();
+    setDashboardManualOpen(false);
+    setDashboardManualGuide((previous) => ({
+      ...previous,
+      dismissedAt,
+      shouldAutoOpen: false,
+    }));
+    setDashboardManualSaving(true);
+
+    try {
+      const payload = await fetchJson<{ userGuide: UserGuidePayload }>("/api/user-guide/dashboard-manual", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seenVersion: DASHBOARD_MANUAL_VERSION }),
+      });
+      setDashboardManualGuide(payload.userGuide.dashboardManual);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDashboardManualSaving(false);
+    }
+  }
+
   runActionRef.current = runAction;
   confirmCyberCampusApprovalRef.current = confirmCyberCampusApproval;
 
@@ -1909,6 +1967,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         impersonating={context?.impersonating ?? false}
         onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenManual={() => setDashboardManualOpen(true)}
         onLogout={logout}
       />
       {error ? <p className="error-text">{error}</p> : null}
@@ -2501,6 +2560,79 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               <button type="button" className="ghost-btn" onClick={() => void cancelCyberCampusApprovalRequest()} disabled={approvalSubmitting}>
                 인증 요청 취소
               </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {dashboardManualOpen ? (
+        <div className="modal-overlay" role="presentation">
+          <section
+            className="modal-card wide manual-guide-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dashboard-manual-title"
+          >
+            <button
+              className="manual-guide-close ghost-btn"
+              type="button"
+              onClick={() => void dismissDashboardManual()}
+              disabled={dashboardManualSaving}
+              aria-label="사용 매뉴얼 닫기"
+            >
+              닫기
+            </button>
+            <div className="manual-guide-layout">
+              <div className="manual-guide-media">
+                <Image
+                  src="/manual/dashboard-guide-v1.png"
+                  alt="대시보드, 설정, 사이버캠퍼스 2차 인증 흐름을 보여주는 사용 매뉴얼 이미지"
+                  width={960}
+                  height={540}
+                  priority
+                />
+              </div>
+              <div className="manual-guide-copy">
+                <p className="brand-kicker">CU12 사용 매뉴얼</p>
+                <h2 id="dashboard-manual-title">자동 수강은 백그라운드에서 진행됩니다</h2>
+                <div className="manual-guide-points" aria-label="핵심 안내">
+                  <article>
+                    <span>1</span>
+                    <div>
+                      <h3>페이지에 계속 머물 필요가 없습니다</h3>
+                      <p>자동 수강은 서버 작업으로 진행됩니다. 요청 후 다른 페이지로 이동하거나 브라우저를 닫아도 작업 상태와 결과를 확인할 수 있습니다.</p>
+                    </div>
+                  </article>
+                  <article>
+                    <span>2</span>
+                    <div>
+                      <h3>설정에서 옵션을 바꿀 수 있습니다</h3>
+                      <p>회원 설정에서 메일 알림, 공유대 정기 자동 수강, 퀴즈 자동 풀이 사용 여부를 조정할 수 있습니다.</p>
+                    </div>
+                  </article>
+                  <article>
+                    <span>3</span>
+                    <div>
+                      <h3>사캠은 수동 요청과 2차 인증이 필요합니다</h3>
+                      <p>사이버캠퍼스 자동 수강은 2차 인증 제약 때문에 필요할 때 직접 요청하고, 인증 창이 뜨면 승인까지 완료해야 시작됩니다.</p>
+                    </div>
+                  </article>
+                </div>
+                <p className="muted text-small">이 안내는 한 번 닫으면 자동으로 다시 뜨지 않습니다. 상단의 사용 매뉴얼 버튼으로 언제든 다시 볼 수 있습니다.</p>
+                <div className="button-row">
+                  <button type="button" onClick={() => void dismissDashboardManual()} disabled={dashboardManualSaving}>
+                    확인했습니다
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => void dismissDashboardManual()}
+                    disabled={dashboardManualSaving}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
         </div>

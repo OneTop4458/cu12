@@ -858,6 +858,35 @@ paths:
         "401":
           description: Unauthorized
 
+  /api/user-guide/dashboard-manual:
+    patch:
+      tags: [Dashboard]
+      summary: Mark the signed-in user's dashboard manual as seen
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seenVersion]
+              properties:
+                seenVersion:
+                  type: string
+                  enum: [dashboard-manual-v1]
+      responses:
+        "200":
+          description: Updated guide state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserGuideResponse"
+        "400":
+          description: Invalid version
+        "401":
+          description: Unauthorized
+
   /api/dashboard/status:
     get:
       tags: [Dashboard]
@@ -3731,9 +3760,34 @@ components:
         CYBER_CAMPUS:
           $ref: "#/components/schemas/DashboardSyncQueue"
 
+    DashboardManualGuideState:
+      type: object
+      required: [version, dismissedAt, shouldAutoOpen]
+      properties:
+        version:
+          type: string
+          enum: [dashboard-manual-v1]
+        dismissedAt:
+          type: string
+          format: date-time
+          nullable: true
+        shouldAutoOpen:
+          type: boolean
+
+    UserGuideResponse:
+      type: object
+      required: [userGuide]
+      properties:
+        userGuide:
+          type: object
+          required: [dashboardManual]
+          properties:
+            dashboardManual:
+              $ref: "#/components/schemas/DashboardManualGuideState"
+
     DashboardBootstrapResponse:
       type: object
-      required: [context, summary, providerSummaries, syncQueue, providerSyncQueues, siteNotices, maintenanceNotice, account, cyberCampus, preference]
+      required: [context, summary, providerSummaries, syncQueue, providerSyncQueues, siteNotices, maintenanceNotice, account, cyberCampus, userGuide, preference]
       properties:
         context:
           $ref: "#/components/schemas/SessionContext"
@@ -3786,6 +3840,12 @@ components:
               nullable: true
         cyberCampus:
           $ref: "#/components/schemas/CyberCampusState"
+        userGuide:
+          type: object
+          required: [dashboardManual]
+          properties:
+            dashboardManual:
+              $ref: "#/components/schemas/DashboardManualGuideState"
         preference:
           $ref: "#/components/schemas/MailPreference"
 
