@@ -203,6 +203,17 @@ test("db retention cleanup runs broad retention before legacy repair", () => {
     ".github/workflows/db-retention-cleanup.yml",
   );
   assert.match(retentionCleanup, /WITHDRAWN_RECORD_RETENTION_MONTHS\s*=\s*6/);
+  assertContainsInOrder(
+    retentionCleanup,
+    [
+      "const originalDayOfMonth = value.getDate();",
+      "value.setDate(1);",
+      "value.setMonth(value.getMonth() - months);",
+      "lastDayOfTargetMonth",
+      "Math.min(originalDayOfMonth, lastDayOfTargetMonth)",
+    ],
+    "apps/worker/src/retention-cleanup.ts month cutoff clamp",
+  );
   assert.match(retentionCleanup, /prisma\.user\.deleteMany\(\{/);
   assert.match(retentionCleanup, /withdrawnAt:\s*\{\s*not:\s*null,\s*lt:\s*withdrawnRecordCutoff/s);
   assert.match(retentionCleanup, /withdrawnUsers:\s*withdrawnUsersDeleted/);

@@ -196,7 +196,7 @@ Use named arguments directly. Do not use the legacy double-dash forwarding form.
 
 ## Policy Documents
 
-The live privacy policy and terms of service are stored as versioned `PolicyDocument` rows and published from the admin system page. The current source template for the 2026-04-29 legal update is tracked at `legal/policy-templates-2026-04-29.md`; confirm production infrastructure regions before publishing the next active versions.
+The live privacy policy and terms of service are stored as versioned `PolicyDocument` rows and published from the admin system page. Keep source text outside the public repository or in the admin draft flow; confirm production infrastructure regions before publishing the next active versions.
 
 ## Scheduled Workflows
 

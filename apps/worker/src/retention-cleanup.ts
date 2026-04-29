@@ -12,7 +12,15 @@ function daysAgo(days: number): Date {
 
 function monthsAgo(months: number): Date {
   const value = new Date();
+  const originalDayOfMonth = value.getDate();
+  value.setDate(1);
   value.setMonth(value.getMonth() - months);
+  const lastDayOfTargetMonth = new Date(
+    value.getFullYear(),
+    value.getMonth() + 1,
+    0,
+  ).getDate();
+  value.setDate(Math.min(originalDayOfMonth, lastDayOfTargetMonth));
   return value;
 }
 
