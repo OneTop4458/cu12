@@ -91,13 +91,14 @@
    - `TaskDeadlineAlert`
    - snapshot and task tables
 3. Pending or running jobs are canceled during withdrawal.
-4. Policy-consent history and audit data remain under retention policy rules.
+4. Minimal dispute-response records remain only under retention policy rules.
+5. The scheduled retention workflow hard-deletes inactive withdrawn users after 6 months. Prisma cascade and set-null relations remove or detach remaining user-linked rows.
 
 ## Data Protection and Cleanup
 
-- Portal passwords are encrypted at rest using `APP_MASTER_KEY`.
+- Portal passwords are encrypted at rest with a server-side key managed outside the database.
 - Pending approval users have no stored portal password.
 - `PortalSession` and `PortalApprovalSession` store encrypted cookie-state payloads, not plaintext cookies.
 - Session cookies are signed JWTs with bounded TTL plus a separate idle-session token.
-- The current scheduled DB cleanup workflow removes legacy bogus course notices. Its manual `user_repair` mode can also clear notification events for a selected user.
-- The worker still contains a broader retention cleanup script for audit logs, terminal jobs, mail delivery rows, and withdrawn-user consent history, but that script is not the current scheduled workflow entrypoint.
+- The scheduled DB cleanup workflow runs the worker retention cleanup for 30-day audit logs, 14-day terminal jobs, 30-day mail delivery rows, and withdrawn accounts older than 6 months.
+- The same workflow still removes legacy bogus course notices. Its manual `user_repair` mode can also clear notification events for a selected user.
