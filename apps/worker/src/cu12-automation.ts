@@ -12,6 +12,7 @@ import {
 } from "@cu12/core";
 import { type Browser, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { getEnv } from "./env";
+import { gotoWithRetry } from "./navigation-retry";
 import {
   generateQuizAnswer,
   isQuizAutoSolveConfigured,
@@ -464,7 +465,7 @@ export const CU12_LOGIN_NAVIGATION_TIMEOUT_MS = 120_000;
 async function ensureLogin(page: Page, creds: Cu12Credentials) {
   const env = getEnv();
   const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
-  await page.goto(`${env.CU12_BASE_URL}/el/member/login_form.acl`, {
+  await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/member/login_form.acl`, {
     waitUntil: "domcontentloaded",
     timeout: CU12_LOGIN_NAVIGATION_TIMEOUT_MS,
   });
@@ -1072,7 +1073,7 @@ async function fetchNoticeBodiesFromDetailPages(
 
     for (const url of urls) {
       try {
-        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await gotoWithRetry(page, url, { waitUntil: "domcontentloaded" });
       } catch {
         continue;
       }
@@ -1139,7 +1140,7 @@ export async function collectCu12Snapshot(
       throw new Error("JOB_CANCELLED");
     }
 
-    await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
     const myCourseHtml = await page.content();
     const courses = parseMyCourseHtml(myCourseHtml, userId, "ACTIVE");
 
@@ -1176,7 +1177,7 @@ export async function collectCu12Snapshot(
         },
       });
 
-      await page.goto(`${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
+      await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/class/notice_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
       });
       const noticeList = parseNoticeListHtml(await page.content(), userId, course.lectureSeq);
@@ -1232,7 +1233,7 @@ export async function collectCu12Snapshot(
         },
       });
 
-      await page.goto(`${env.CU12_BASE_URL}/el/class/todo_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
+      await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/class/todo_list_form.acl?LECTURE_SEQ=${course.lectureSeq}`, {
         waitUntil: "domcontentloaded",
       });
       tasks.push(...parseTodoTasks(await page.content(), userId, course.lectureSeq));
@@ -1267,7 +1268,7 @@ export async function collectCu12Snapshot(
       ...buildTiming(completedCourses, courses.length),
     });
 
-    await page.goto(`${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
     const notificationHtml = await fetchNotificationHtml(page);
     const notifications = parseNotificationListHtml(notificationHtml, userId);
 
@@ -1333,7 +1334,7 @@ async function watchVodTask(
   const waitSeconds = Math.ceil(remainingSeconds * env.AUTOLEARN_TIME_FACTOR);
   const targetUrl = `${env.CU12_BASE_URL}/el/class/contents_vod_view_form.acl?LECTURE_SEQ=${lectureSeq}&COURSE_CONTENTS_SEQ=${task.courseContentsSeq}&WEEK_NO=${task.weekNo}&LESSNS_NO=${task.lessonNo}`;
 
-  await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, targetUrl, { waitUntil: "domcontentloaded" });
   if (useHumanization) {
     await humanPause(page, env.AUTOLEARN_NAV_SETTLE_MIN_MS, env.AUTOLEARN_NAV_SETTLE_MAX_MS, shouldCancel);
   } else {
@@ -1365,7 +1366,7 @@ async function fetchLectureTasks(
   userId: string,
   lectureSeq: number,
 ): Promise<LearningTask[]> {
-  await page.goto(`${envBaseUrl}/el/class/todo_list_form.acl?LECTURE_SEQ=${lectureSeq}`, {
+  await gotoWithRetry(page, `${envBaseUrl}/el/class/todo_list_form.acl?LECTURE_SEQ=${lectureSeq}`, {
     waitUntil: "domcontentloaded",
   });
   return parseTodoTasks(await page.content(), userId, lectureSeq);
@@ -1397,7 +1398,7 @@ async function completeMaterialTask(
     + `?LECTURE_SEQ=${row.lectureSeq}&COURSE_CONTENTS_SEQ=${row.task.courseContentsSeq}`
     + `&WEEK_NO=${row.task.weekNo}&LESSNS_NO=${row.task.lessonNo}`;
 
-  await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, targetUrl, { waitUntil: "domcontentloaded" });
   if (env.AUTOLEARN_HUMANIZATION_ENABLED) {
     await humanPause(page, env.AUTOLEARN_NAV_SETTLE_MIN_MS, env.AUTOLEARN_NAV_SETTLE_MAX_MS, shouldCancel);
   } else {
@@ -1434,7 +1435,7 @@ async function openQuizQuestionForm(
     + `?LECTURE_SEQ=${lectureSeq}&COURSE_CONTENTS_SEQ=${task.courseContentsSeq}`
     + `&WEEK_NO=${task.weekNo}&LESSNS_NO=${task.lessonNo}&BRD_ID=C02`;
 
-  await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, targetUrl, { waitUntil: "domcontentloaded" });
   if (env.AUTOLEARN_HUMANIZATION_ENABLED) {
     await humanPause(page, env.AUTOLEARN_NAV_SETTLE_MIN_MS, env.AUTOLEARN_NAV_SETTLE_MAX_MS, shouldCancel);
   } else {
@@ -1868,7 +1869,7 @@ async function getCourses(
   envBaseUrl: string,
   userId: string,
 ): Promise<Array<{ lectureSeq: number; title: string }>> {
-  await page.goto(`${envBaseUrl}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, `${envBaseUrl}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
   const rawCourses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
   const now = Date.now();
   const courses = rawCourses.filter((course) => {

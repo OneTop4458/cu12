@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JobType } from "@prisma/client";
-import { shouldQueueAutoLearnContinuation, shouldRetryFailedJob } from "../src/server/queue";
+import {
+  getFailedJobRetryDelayMinutes,
+  shouldQueueAutoLearnContinuation,
+  shouldRetryFailedJob,
+  summarizePendingJobRows,
+} from "../src/server/queue";
 
 test("shouldRetryFailedJob keeps transient autolearn failures retryable", () => {
   assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, "AUTOLEARN_STALLED"), true);
@@ -32,4 +37,34 @@ test("shouldQueueAutoLearnContinuation disables continuation for cyber campus jo
     }),
     true,
   );
+});
+
+test("getFailedJobRetryDelayMinutes keeps the existing retry schedule", () => {
+  assert.equal(getFailedJobRetryDelayMinutes(1), 1);
+  assert.equal(getFailedJobRetryDelayMinutes(2), 5);
+  assert.equal(getFailedJobRetryDelayMinutes(3), 15);
+  assert.equal(getFailedJobRetryDelayMinutes(4), 60);
+});
+
+test("summarizePendingJobRows separates eligible and future pending jobs", () => {
+  const now = new Date("2026-04-29T00:10:00.000Z");
+  const summary = summarizePendingJobRows([
+    {
+      runAfter: new Date("2026-04-29T00:09:00.000Z"),
+      createdAt: new Date("2026-04-29T00:08:00.000Z"),
+    },
+    {
+      runAfter: new Date("2026-04-29T00:15:00.000Z"),
+      createdAt: new Date("2026-04-29T00:08:00.000Z"),
+    },
+    {
+      runAfter: new Date("2026-04-29T00:20:00.000Z"),
+      createdAt: new Date("2026-04-29T00:08:00.000Z"),
+    },
+  ], now);
+
+  assert.equal(summary.pending, true);
+  assert.equal(summary.eligiblePending, true);
+  assert.equal(summary.futurePending, true);
+  assert.equal(summary.nextRunAfter?.toISOString(), "2026-04-29T00:15:00.000Z");
 });

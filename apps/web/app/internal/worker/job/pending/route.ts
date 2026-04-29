@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody } from "@/lib/http";
 import { isWorkerAuthorized } from "@/lib/worker-auth";
-import { hasPendingJobs } from "@/server/queue";
+import { getPendingJobsSummary } from "@/server/queue";
 
 const BodySchema = z.object({
   types: z.array(z.nativeEnum(JobType)).min(1),
@@ -17,8 +17,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await parseBody(request, BodySchema);
-    const pending = await hasPendingJobs(body.types, body.userId);
-    return jsonOk({ pending });
+    const summary = await getPendingJobsSummary(body.types, body.userId);
+    return jsonOk(summary);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400);

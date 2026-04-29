@@ -38,6 +38,20 @@ export interface EnqueueJobResult {
   deduplicated: boolean;
 }
 
+export interface PendingJobsSummary {
+  pending: boolean;
+  eligiblePending: boolean;
+  futurePending: boolean;
+  nextRunAfter: Date | null;
+}
+
+export interface RetryJobSummary {
+  id: string;
+  userId: string;
+  type: JobType;
+  runAfter: Date;
+}
+
 export type SyncQueueState = "IDLE" | "RUNNING" | "RUNNING_STALE" | "PENDING" | "PENDING_STALE";
 
 export interface SyncQueueSummary {
@@ -119,6 +133,39 @@ export function shouldRetryFailedJob(type: JobType, attempts: number, errorMessa
   }
 
   return true;
+}
+
+export function getFailedJobRetryDelayMinutes(attempts: number): number {
+  return [1, 5, 15, 60][Math.max(0, attempts - 1)] ?? 60;
+}
+
+export function summarizePendingJobRows(
+  rows: Array<{ runAfter: Date; createdAt: Date }>,
+  now = new Date(),
+): PendingJobsSummary {
+  let eligiblePending = false;
+  let futurePending = false;
+  let nextRunAfter: Date | null = null;
+
+  for (const row of rows) {
+    const runAfter = row.runAfter ?? row.createdAt;
+    if (runAfter.getTime() <= now.getTime()) {
+      eligiblePending = true;
+      continue;
+    }
+
+    futurePending = true;
+    if (!nextRunAfter || runAfter.getTime() < nextRunAfter.getTime()) {
+      nextRunAfter = runAfter;
+    }
+  }
+
+  return {
+    pending: rows.length > 0,
+    eligiblePending,
+    futurePending,
+    nextRunAfter,
+  };
 }
 
 async function loadHeartbeatByWorkerId(workerIds: string[]): Promise<Map<string, Date>> {
@@ -371,17 +418,33 @@ export async function claimNextJob(workerId: string, types: JobType[], userId?: 
   return null;
 }
 
-export async function hasPendingJobs(types: JobType[], userId?: string): Promise<boolean> {
-  if (types.length === 0) return false;
+export async function getPendingJobsSummary(types: JobType[], userId?: string, now = new Date()): Promise<PendingJobsSummary> {
+  if (types.length === 0) {
+    return {
+      pending: false,
+      eligiblePending: false,
+      futurePending: false,
+      nextRunAfter: null,
+    };
+  }
   const uniqueTypes = Array.from(new Set(types));
-  const count = await prisma.jobQueue.count({
+  const rows = await prisma.jobQueue.findMany({
     where: {
       ...(userId ? { userId } : {}),
       type: { in: uniqueTypes },
       status: JobStatus.PENDING,
     },
+    orderBy: [{ runAfter: "asc" }, { createdAt: "asc" }],
+    select: {
+      runAfter: true,
+      createdAt: true,
+    },
   });
-  return count > 0;
+  return summarizePendingJobRows(rows, now);
+}
+
+export async function hasPendingJobs(types: JobType[], userId?: string): Promise<boolean> {
+  return (await getPendingJobsSummary(types, userId)).pending;
 }
 
 export async function getSyncQueueSummaryForUser(userId: string, now = new Date()): Promise<SyncQueueSummary> {
@@ -816,6 +879,7 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
     updatedAt: Date;
   };
   retryQueued: boolean;
+  retryJob: RetryJobSummary | null;
 }> {
   const current = await prisma.jobQueue.findUnique({
     where: { id: jobId },
@@ -836,7 +900,7 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
     || current.status === JobStatus.FAILED
   ) {
     const job = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-    return { job, retryQueued: false };
+    return { job, retryQueued: false, retryJob: null };
   }
 
   const failed = await prisma.jobQueue.updateMany({
@@ -853,15 +917,16 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
   });
   if (failed.count === 0) {
     const job = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-    return { job, retryQueued: false };
+    return { job, retryQueued: false, retryJob: null };
   }
 
   const updated = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
   let retryQueued = false;
+  let retryJob: RetryJobSummary | null = null;
 
   if (shouldRetryFailedJob(updated.type, updated.attempts, errorMessage)) {
-    const delayMinutes = [1, 5, 15, 60][Math.max(0, updated.attempts - 1)] ?? 60;
-    await prisma.jobQueue.create({
+    const delayMinutes = getFailedJobRetryDelayMinutes(updated.attempts);
+    const createdRetry = await prisma.jobQueue.create({
       data: {
         userId: updated.userId,
         type: updated.type,
@@ -871,11 +936,18 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
         idempotencyKey: updated.idempotencyKey,
         attempts: updated.attempts,
       },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        runAfter: true,
+      },
     });
     retryQueued = true;
+    retryJob = createdRetry;
   }
 
-  return { job: updated, retryQueued };
+  return { job: updated, retryQueued, retryJob };
 }
 
 export async function cancelJob(jobId: string): Promise<{

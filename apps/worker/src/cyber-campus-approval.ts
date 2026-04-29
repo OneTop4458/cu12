@@ -10,6 +10,7 @@ import type { ClaimedJob } from "./internal-api";
 import { prisma } from "./prisma";
 import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state";
 import { getEnv } from "./env";
+import { gotoWithRetry } from "./navigation-retry";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import {
   failBlockedAutoLearnJob,
@@ -244,13 +245,13 @@ async function ensureSession(
   creds: { cu12Id: string; cu12Password: string },
 ) {
   await applyCookieState(page, cookieState);
-  await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
   const html = await page.content();
   if (isCyberCampusAuthenticatedResponse(html, page.url())) {
     return;
   }
 
-  await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/member/login_form.acl`, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/member/login_form.acl`, { waitUntil: "domcontentloaded" });
   if (isCyberCampusAuthenticatedResponse(await page.content(), page.url())) {
     return;
   }
@@ -360,7 +361,7 @@ async function enterTaskContext(page: Page, task: LearningTask): Promise<Approva
 
   const baseUrl = getEnv().CYBER_CAMPUS_BASE_URL;
   const secondaryAuthBlocked = await withSecondaryAuthDialogTracking(page, async () => {
-    await page.goto(
+    await gotoWithRetry(page,
       `${baseUrl}/ilos/mp/todo_list_connect.acl?SEQ=${task.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(externalLectureId)}`,
       { waitUntil: "domcontentloaded" },
     );
