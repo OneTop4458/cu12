@@ -36,7 +36,8 @@
    - Fails when GitHub run visibility is unavailable or when DB `RUNNING` jobs diverge from active Actions runs.
 
 8. `db-retention-cleanup.yml`
-   - Scheduled default cleanup removes legacy bogus course notices.
+   - Scheduled cleanup runs the worker retention task for audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months.
+   - The workflow also removes legacy bogus course notices.
    - Manual `user_repair` mode can target a selected user and clear their notification events during focused repair.
 
 9. `db-bootstrap.yml`

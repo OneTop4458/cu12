@@ -41,6 +41,8 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
+      - name: Cleanup retention windows
+        run: pnpm --filter @cu12/worker run cleanup:retention
       - name: Cleanup legacy notices and notifications
         run: |
           node <<'NODE'

@@ -194,6 +194,10 @@ corepack pnpm run ai:clean
 
 Use named arguments directly. Do not use the legacy double-dash forwarding form.
 
+## Policy Documents
+
+The live privacy policy and terms of service are stored as versioned `PolicyDocument` rows and published from the admin system page. Keep source text outside the public repository or in the admin draft flow; confirm production infrastructure regions before publishing the next active versions.
+
 ## Scheduled Workflows
 
 | Workflow | Schedule | Current behavior |
@@ -201,7 +205,7 @@ Use named arguments directly. Do not use the legacy double-dash forwarding form.
 | `sync-schedule.yml` | `0 */2 * * *` UTC | Enqueue provider-aware sync work every 2 hours, then request centralized worker dispatch |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
 | `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs and fail on divergence |
-| `db-retention-cleanup.yml` | `10 1 * * *` UTC | Clean legacy bogus course notices; manual `user_repair` can also clear a selected user's notification events |
+| `db-retention-cleanup.yml` | `10 1 * * *` UTC | Run retention cleanup for audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months; legacy notice repair still runs, and manual `user_repair` can clear a selected user's notification events |
 
 ## Environment and Configuration
 
