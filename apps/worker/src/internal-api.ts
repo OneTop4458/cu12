@@ -42,6 +42,19 @@ interface FailJobResponse {
   updated: boolean;
   status: JobStatus;
   retryQueued: boolean;
+  retryJob: {
+    id: string;
+    userId: string;
+    type: JobType;
+    runAfter: string | null;
+  } | null;
+}
+
+export interface PendingJobsResponse {
+  pending: boolean;
+  eligiblePending: boolean;
+  futurePending: boolean;
+  nextRunAfter: string | null;
 }
 
 function sleep(ms: number) {
@@ -135,8 +148,12 @@ export async function progressJob(jobId: string, workerId: string, result: unkno
 }
 
 export async function hasPendingJobs(types: JobType[], userId?: string): Promise<boolean> {
-  const response = await post<{ pending: boolean }>("/internal/worker/job/pending", { types, userId });
+  const response = await getPendingJobs(types, userId);
   return response.pending;
+}
+
+export async function getPendingJobs(types: JobType[], userId?: string): Promise<PendingJobsResponse> {
+  return post<PendingJobsResponse>("/internal/worker/job/pending", { types, userId });
 }
 
 export async function requestWorkerDispatch(

@@ -32,6 +32,7 @@ import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state
 import { resolveRestoredCyberCampusSessionCookieState } from "./cyber-campus-session-options";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
 import { getEnv } from "./env";
+import { gotoWithRetry } from "./navigation-retry";
 import { upsertPortalSessionCookieState } from "./sync-store";
 
 export interface CyberCampusCredentials {
@@ -199,7 +200,7 @@ export function classifyCyberCampusDialogMessage(message: string): CyberCampusDi
 }
 
 async function loginCyberCampus(page: Page, creds: CyberCampusCredentials): Promise<void> {
-  await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/member/login_form.acl`, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/member/login_form.acl`, { waitUntil: "domcontentloaded" });
   if (isCyberCampusAuthenticatedResponse(await page.content(), page.url())) {
     return;
   }
@@ -242,7 +243,7 @@ async function ensureCyberCampusSession(
   },
 ): Promise<void> {
   await applyCookieStateToContext(page, options?.cookieState);
-  await page.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
   const html = await page.content();
   if (isCyberCampusAuthenticatedResponse(html, page.url())) {
     return;
@@ -536,7 +537,7 @@ async function enterCyberCampusTaskContextLegacy(
 ): Promise<CyberCampusTaskEntryContext> {
   const { result: initialPlayerPage, signals } = await withCyberCampusDialogTracking(page, async () =>
     resolveCyberCampusPlayerPageAfterAction(page, async () => {
-      await page.goto(
+      await gotoWithRetry(page,
         `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/mp/todo_list_connect.acl?SEQ=${input.courseContentsSeq}&gubun=lecture_weeks&KJKEY=${encodeURIComponent(input.externalLectureId)}`,
         { waitUntil: "domcontentloaded" },
       );
@@ -601,7 +602,7 @@ async function enterCyberCampusTaskContextOnlineList(
   input: Pick<LearningTask, "courseContentsSeq" | "weekNo"> & { externalLectureId: string },
 ): Promise<CyberCampusTaskEntryContext> {
   await openCyberCampusCourseSubmain(page, input.externalLectureId);
-  await page.goto(
+  await gotoWithRetry(page,
     `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/st/course/online_list_form.acl?WEEK_NO=${input.weekNo}`,
     { waitUntil: "domcontentloaded" },
   );
@@ -851,7 +852,7 @@ async function openCyberCampusCourseSubmain(page: Page, externalLectureId: strin
     throw new Error(response.message || "CYBER_CAMPUS_SUBMAIN_OPEN_FAILED");
   }
 
-  await page.goto(
+  await gotoWithRetry(page,
     new URL(response.returnURL, getEnv().CYBER_CAMPUS_BASE_URL).toString(),
     { waitUntil: "domcontentloaded" },
   );
@@ -913,7 +914,7 @@ async function enrichCyberCampusTasks(
   const detailPage = await contextPage.context().newPage();
 
   try {
-    await detailPage.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(detailPage, `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/main/main_form.acl`, { waitUntil: "domcontentloaded" });
 
     for (const course of courses) {
       if (await shouldCancel()) throw new Error("JOB_CANCELLED");
@@ -927,7 +928,7 @@ async function enrichCyberCampusTasks(
 
         if (options?.collectCourseMetadata) {
           try {
-            await detailPage.goto(
+            await gotoWithRetry(detailPage,
               `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/st/course/plan_form.acl`,
               { waitUntil: "domcontentloaded" },
             );
@@ -937,7 +938,7 @@ async function enrichCyberCampusTasks(
           }
 
           try {
-            await detailPage.goto(
+            await gotoWithRetry(detailPage,
               `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/st/course/notice_list_form.acl`,
               { waitUntil: "domcontentloaded" },
             );
@@ -956,7 +957,7 @@ async function enrichCyberCampusTasks(
         if (selectedTypes.has("VOD")) {
           for (const weekNo of submain.onlineWeekNumbers) {
             if (await shouldCancel()) throw new Error("JOB_CANCELLED");
-            await detailPage.goto(
+            await gotoWithRetry(detailPage,
               `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/st/course/online_list_form.acl?WEEK_NO=${weekNo}`,
               { waitUntil: "domcontentloaded" },
             );
@@ -969,18 +970,18 @@ async function enrichCyberCampusTasks(
         if (selectedTypes.has("QUIZ")) {
           for (const quizRef of submain.quizRefs) {
             if (await shouldCancel()) throw new Error("JOB_CANCELLED");
-          await detailPage.goto(
+            await gotoWithRetry(detailPage,
               new URL(quizRef.href, getEnv().CYBER_CAMPUS_BASE_URL).toString(),
-            { waitUntil: "domcontentloaded" },
-          );
-          await waitForCyberCampusExamDetail(detailPage);
-          const detailTask = parseCyberCampusExamDetailHtml(
-            await detailPage.content(),
-            userId,
-            externalLectureId,
+              { waitUntil: "domcontentloaded" },
+            );
+            await waitForCyberCampusExamDetail(detailPage);
+            const detailTask = parseCyberCampusExamDetailHtml(
+              await detailPage.content(),
+              userId,
+              externalLectureId,
               quizRef.examSetupSeq,
-          );
-          if (detailTask) {
+            );
+            if (detailTask) {
               detailTasks.push({
                 ...detailTask,
                 weekNo: detailTask.weekNo > 0 ? detailTask.weekNo : quizRef.weekNo,
@@ -1071,7 +1072,7 @@ async function enrichCyberCampusCourseNotices(
 
     if (!detailByNoticeSeq.has(noticeSeq)) {
       try {
-        await page.goto(
+        await gotoWithRetry(page,
           `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/st/course/notice_view_form.acl?ARTL_NUM=${encodeURIComponent(noticeSeq)}`,
           { waitUntil: "domcontentloaded" },
         );
@@ -1230,7 +1231,7 @@ export function selectCyberCampusChunkTasks(
 async function collectMessages(contextPage: Page, userId: string): Promise<PortalMessage[]> {
   const messagePage = await contextPage.context().newPage();
   try {
-    await messagePage.goto(`${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/message/received_list_pop_form.acl`, {
+    await gotoWithRetry(messagePage, `${getEnv().CYBER_CAMPUS_BASE_URL}/ilos/message/received_list_pop_form.acl`, {
       waitUntil: "domcontentloaded",
     });
     await messagePage.waitForTimeout(1000);

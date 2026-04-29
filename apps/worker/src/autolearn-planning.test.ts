@@ -27,7 +27,7 @@ test("CU12 autolearn login navigation allows 120 seconds for slow portal respons
   const source = readFileSync(new URL("./cu12-automation.ts", import.meta.url), "utf8");
   assert.match(
     source,
-    /login_form\.acl`,\s*\{\s*waitUntil:\s*"domcontentloaded",\s*timeout:\s*CU12_LOGIN_NAVIGATION_TIMEOUT_MS,/s,
+    /gotoWithRetry\(page,\s*`\$\{env\.CU12_BASE_URL\}\/el\/member\/login_form\.acl`,\s*\{\s*waitUntil:\s*"domcontentloaded",\s*timeout:\s*CU12_LOGIN_NAVIGATION_TIMEOUT_MS,/s,
   );
 });
 

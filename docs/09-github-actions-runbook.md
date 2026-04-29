@@ -15,6 +15,7 @@
    - Supports `trigger`, `jobTypes`, and optional `userId` inputs.
    - Resolves required job types and installs Playwright only when the requested job set needs browser automation.
    - Runs the worker in `--once` mode with internal API callbacks and heartbeat reporting.
+   - Uses the GitHub-hosted runner job maximum of 360 minutes so long Cyber Campus runs and same-run retries are not cut off by the repository workflow timeout.
 
 4. `sync-schedule.yml`
    - Schedule: `0 */12 * * *` UTC.
@@ -119,6 +120,9 @@
 ### Worker runtime defaults baked into workflow env
 
 - `PLAYWRIGHT_ACCEPT_LANGUAGE`
+- `PLAYWRIGHT_NAVIGATION_TIMEOUT_MS`
+- `PLAYWRIGHT_NAVIGATION_RETRIES`
+- `PLAYWRIGHT_NAVIGATION_RETRY_BASE_MS`
 - `AUTOLEARN_HUMANIZATION_ENABLED`
 - `AUTOLEARN_DELAY_MIN_MS`
 - `AUTOLEARN_DELAY_MAX_MS`
@@ -134,6 +138,7 @@
 - `AUTOLEARN_STALL_TIMEOUT_SECONDS`
 - `AUTOLEARN_CHUNK_TARGET_SECONDS`
 - `WORKER_ONCE_IDLE_GRACE_MS`
+- `WORKER_RETRY_WAIT_MAX_MS`
 
 ## Operator Sequence
 

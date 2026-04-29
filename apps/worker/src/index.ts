@@ -6,7 +6,7 @@ import {
   claimJob,
   failJob,
   finishJob,
-  hasPendingJobs,
+  getPendingJobs,
   progressJob,
   requestWorkerDispatch,
   sendHeartbeat,
@@ -25,6 +25,7 @@ import { collectCyberCampusSnapshot, runCyberCampusAutoLearning } from "./cyber-
 import { resolveReusableCyberCampusSessionOptions } from "./cyber-campus-session-options";
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
+import { decideRetryWait } from "./retry-wait";
 import {
   buildAutoLearnResultMail,
   buildAutoLearnTerminalMail,
@@ -420,14 +421,41 @@ async function dispatchPendingHandoff(handoffTrigger: "autolearn" | "sync" | nul
     const pendingTypes = handoffTrigger === "autolearn"
       ? [JobType.AUTOLEARN]
       : [JobType.SYNC, JobType.NOTICE_SCAN];
-    const pending = await hasPendingJobs(pendingTypes);
-    if (pending) {
+    const pending = await getPendingJobs(pendingTypes);
+    if (pending.eligiblePending) {
       const dispatch = await requestWorkerDispatch(handoffTrigger);
       console.log(`[WORKER] handoff trigger=${handoffTrigger} state=${dispatch.state}`);
+    } else if (pending.futurePending) {
+      console.log(`[WORKER] handoff trigger=${handoffTrigger} state=SKIPPED_FUTURE_PENDING nextRunAfter=${pending.nextRunAfter ?? "-"}`);
     }
   } catch (error) {
     console.warn(`[WORKER] handoff dispatch failed: ${errMessage(error)}`);
   }
+}
+
+async function waitForQueuedRetryIfSoon(input: {
+  retryQueued: boolean;
+  retryJob: {
+    id: string;
+    type: JobType;
+    userId: string;
+    runAfter: string | null;
+  } | null;
+  maxWaitMs: number;
+}): Promise<boolean> {
+  const decision = decideRetryWait(input);
+  if (!decision.shouldWait) {
+    if (decision.reason === "outside_wait_cap") {
+      console.log(`[WORKER] retry queued outside wait cap retryJob=${input.retryJob?.id ?? "-"} runAfter=${input.retryJob?.runAfter ?? "-"} waitMs=${decision.waitMs}`);
+    }
+    return false;
+  }
+
+  console.log(`[WORKER] retry queued retryJob=${input.retryJob?.id ?? "-"} runAfter=${input.retryJob?.runAfter ?? "-"} waitMs=${decision.waitMs}`);
+  if (decision.waitMs > 0) {
+    await sleep(decision.waitMs);
+  }
+  return true;
 }
 
 async function reportJobProgress(jobId: string, workerId: string, progress: AutoLearnProgress) {
@@ -1809,6 +1837,14 @@ async function main() {
             });
           }
           if (once) {
+            if (await waitForQueuedRetryIfSoon({
+              retryQueued: failed.retryQueued,
+              retryJob: failed.retryJob,
+              maxWaitMs: env.WORKER_RETRY_WAIT_MAX_MS,
+            })) {
+              onceNoJobDeadline = Date.now() + onceGraceMs;
+              continue;
+            }
             if (job.type === JobType.AUTOLEARN) {
               shouldCheckHandoff = true;
               break;

@@ -28,6 +28,10 @@
 - `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`
 - `AUTOLEARN_STALL_TIMEOUT_SECONDS`
 - `WORKER_ONCE_IDLE_GRACE_MS`
+- `WORKER_RETRY_WAIT_MAX_MS`
+- `PLAYWRIGHT_NAVIGATION_TIMEOUT_MS`
+- `PLAYWRIGHT_NAVIGATION_RETRIES`
+- `PLAYWRIGHT_NAVIGATION_RETRY_BASE_MS`
 - `PLAYWRIGHT_ACCEPT_LANGUAGE`
 - `PLAYWRIGHT_LOCALE`
 - `PLAYWRIGHT_TIMEZONE`
@@ -46,6 +50,7 @@
 - If the portal contract changes, the worker fails fast with clear error codes.
 - If quiz auto-solve is disabled or OpenAI credentials are missing, quiz tasks are excluded and the run continues with the remaining supported tasks.
 - Queue retry policy handles transient failures; terminal portal/contract errors surface as queue failure reasons.
+- Playwright `page.goto` navigation failures are retried only for bounded transient timeout/network errors. Click-driven `waitForURL` flows are not retried here because repeated submissions can duplicate portal actions.
 - Dashboard approval UX should treat `requestedAction=BOOTSTRAP|START|CONFIRM` as asynchronous worker-owned steps and keep polling until the session returns to a user-input state or completes.
 
 ## Output

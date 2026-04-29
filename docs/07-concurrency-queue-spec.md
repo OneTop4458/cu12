@@ -36,12 +36,14 @@
 3. Claim uses an atomic `updateMany where id + status=PENDING`.
 4. If another worker wins the race, scanning continues.
 5. If AUTOLEARN is claimed but violates per-user execution rules, it is requeued with a short delay.
-6. In `--once` mode, the worker can request follow-up dispatch when matching pending work remains.
+6. In `--once` mode, the worker requests follow-up dispatch only when matching pending work is currently eligible. Future-only pending work logs the next `runAfter` instead of dispatching another worker.
 
 ## Retry Policy
 
 - Up to 4 attempts.
 - Backoff schedule: 1 minute -> 5 minutes -> 15 minutes -> 60 minutes.
+- Failed-job responses include the queued retry job and `runAfter` when a retry is created.
+- A `--once` worker waits in the same run when the retry is due within `WORKER_RETRY_WAIT_MAX_MS`; the heartbeat loop continues while waiting.
 - Failure reason remains attached to the queue row for operator review.
 
 ## Capacity Guidance

@@ -239,11 +239,13 @@ The live privacy policy and terms of service are stored as versioned `PolicyDocu
 | Variable | Purpose |
 | --- | --- |
 | `WORKER_ONCE_IDLE_GRACE_MS` | Shorten the tail after a one-shot worker run when the queue is empty |
+| `WORKER_RETRY_WAIT_MAX_MS` | Let a one-shot worker wait for a queued retry when its `runAfter` is near |
 | `AUTOLEARN_CHUNK_TARGET_SECONDS` | Limit one AUTOLEARN chunk before continuation |
 | `AUTOLEARN_MAX_TASKS` | Cap tasks processed in a single worker run |
 | `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS` | Control heartbeat updates during long runs |
 | `AUTOLEARN_STALL_TIMEOUT_SECONDS` | Declare a stalled auto-learning run after prolonged silence |
 | `AUTOLEARN_TIME_FACTOR` | Adjust watch-time pacing factor; Cyber Campus VOD playback never runs below real-time even if this value is lower than `1` |
+| `PLAYWRIGHT_NAVIGATION_TIMEOUT_MS`, `PLAYWRIGHT_NAVIGATION_RETRIES`, `PLAYWRIGHT_NAVIGATION_RETRY_BASE_MS` | Tune bounded retries for transient `page.goto` failures |
 | `PLAYWRIGHT_ACCEPT_LANGUAGE`, `PLAYWRIGHT_LOCALE`, `PLAYWRIGHT_TIMEZONE` | Keep browser locale behavior consistent |
 | `PLAYWRIGHT_VIEWPORT_WIDTH`, `PLAYWRIGHT_VIEWPORT_HEIGHT` | Set deterministic viewport defaults |
 | `AUTOLEARN_HUMANIZATION_ENABLED`, `AUTOLEARN_DELAY_*`, `AUTOLEARN_NAV_SETTLE_*`, `AUTOLEARN_TYPING_DELAY_*` | Keep interactions conservative and stable |
