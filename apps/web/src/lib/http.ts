@@ -115,8 +115,32 @@ export function hasValidCsrfOrigin(request: NextRequest): boolean {
   return process.env.NODE_ENV !== "production";
 }
 
+const INVALID_JSON_BODY_MESSAGE = "Invalid JSON payload";
+
+function invalidJsonBodyError(): z.ZodError {
+  return new z.ZodError([
+    {
+      code: z.ZodIssueCode.custom,
+      message: INVALID_JSON_BODY_MESSAGE,
+      path: [],
+    },
+  ]);
+}
+
+function isJsonSyntaxError(error: unknown): boolean {
+  return error instanceof SyntaxError || (error instanceof Error && error.name === "SyntaxError");
+}
+
 export async function parseBody<T>(request: NextRequest, schema: z.ZodSchema<T>): Promise<T> {
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (error) {
+    if (isJsonSyntaxError(error)) {
+      throw invalidJsonBodyError();
+    }
+    throw error;
+  }
   return schema.parse(body);
 }
 

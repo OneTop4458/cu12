@@ -24,7 +24,16 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!context) return jsonError("Forbidden", 403);
 
   const { jobId } = await params;
-  const payload = await parseBody(request, RetryRequestSchema);
+  let payload: { force?: boolean };
+  try {
+    payload = await parseBody(request, RetryRequestSchema);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
+    }
+    return jsonError("Failed to retry job", 500);
+  }
+
   const existing = await prisma.jobQueue.findUnique({
     where: { id: jobId },
     select: {
@@ -48,7 +57,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   try {
-    const job = await retryJob(jobId, { allowCompleted: payload.force });
+    const allowCompleted = payload.force ?? false;
+    const job = await retryJob(jobId, { allowCompleted });
     await writeAuditLog({
       category: "JOB",
       severity: "INFO",
@@ -57,7 +67,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       message: "Admin retried job",
       meta: {
         jobId,
-        allowCompleted: payload.force,
+        allowCompleted,
         status: job.status,
       },
     });

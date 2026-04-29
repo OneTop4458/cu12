@@ -29,6 +29,28 @@ function assertDoesNotContain(content, snippet, label) {
   assert.equal(content.includes(snippet), false, `${label} must not contain snippet: ${snippet}`);
 }
 
+function extractMultilineRunBlocks(content) {
+  const lines = content.split("\n");
+  const blocks = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)run:\s*\|\s*$/);
+    if (!match) continue;
+
+    const runIndent = match[1].length;
+    const blockLines = [];
+    for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex += 1) {
+      const line = lines[nextIndex];
+      const firstNonWhitespace = line.search(/\S/);
+      if (firstNonWhitespace !== -1 && firstNonWhitespace <= runIndent) break;
+      blockLines.push(line);
+    }
+    blocks.push(blockLines.join("\n"));
+  }
+
+  return blocks;
+}
+
 function normalizePathPattern(pattern) {
   return pattern
     .trim()
@@ -126,13 +148,28 @@ test("autolearn dispatch keeps the stale pending drain check", () => {
       "SHOULD_DISPATCH=false",
       'if [ "$CREATED_COUNT" != "0" ] || [ "$PENDING_COUNT" != "0" ]; then',
       "SHOULD_DISPATCH=true",
-      'elif [ -z "${{ inputs.userId }}" ]; then',
+      'elif [ -z "$INPUT_USER_ID" ]; then',
       "SHOULD_DISPATCH=true",
       'if [ "$SHOULD_DISPATCH" = "true" ]; then',
       'TARGET_URL="${WEB_INTERNAL_BASE_URL%/}/internal/worker/dispatch"',
     ],
     ".github/workflows/autolearn-dispatch.yml",
   );
+});
+
+test("secret-bearing workflow scripts do not interpolate user inputs directly", () => {
+  const workflows = [
+    ".github/workflows/autolearn-dispatch.yml",
+    ".github/workflows/worker-consume.yml",
+  ];
+
+  for (const workflowPath of workflows) {
+    const runBlocks = extractMultilineRunBlocks(readRepoFile(workflowPath));
+    assert.ok(runBlocks.length > 0, `${workflowPath} should contain shell run blocks`);
+    for (const block of runBlocks) {
+      assertDoesNotContain(block, "${{ inputs.", workflowPath);
+    }
+  }
 });
 
 test("root test scripts include web, worker, ops, and all-test gates", () => {
