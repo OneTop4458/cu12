@@ -37,7 +37,7 @@ function createCyberCampusChunkEnv(input: Partial<CyberCampusChunkEnvForTest> = 
     AUTOLEARN_CHUNK_TARGET_SECONDS: 3600,
     AUTOLEARN_TIME_FACTOR: 1,
     CYBER_CAMPUS_AUTOLEARN_MAX_TASKS: 200,
-    CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS: 21600,
+    CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS: 21000,
     ...input,
   };
 }
@@ -150,7 +150,7 @@ test("planCyberCampusAutoLearnTasks reports future-only lectures as no available
   assert.equal(plan.noOpReason, "NO_AVAILABLE_VOD_TASKS");
 });
 
-test("selectCyberCampusChunkTasks plans Cyber Campus lessons up to the 6 hour request limit", () => {
+test("selectCyberCampusChunkTasks plans Cyber Campus lessons up to the safe request limit", () => {
   const lectureSeq = 373653502;
   const plan = planCyberCampusAutoLearnTasks(
     Array.from({ length: 7 }, (_, index) =>
@@ -183,7 +183,38 @@ test("selectCyberCampusChunkTasks plans Cyber Campus lessons up to the 6 hour re
   assert.equal(chunk.truncated, true);
 });
 
-test("selectCyberCampusChunkTasks allows the first long lesson even when it exceeds the request limit", () => {
+test("selectCyberCampusChunkTasks subtracts elapsed workflow time from the safe request limit", () => {
+  const lectureSeq = 373653502;
+  const nowMs = Date.parse("2026-04-10T11:15:00+09:00");
+  const plan = planCyberCampusAutoLearnTasks(
+    Array.from({ length: 7 }, (_, index) =>
+      createTask({
+        lectureSeq,
+        courseContentsSeq: 21 + index,
+        activityType: "VOD",
+        taskTitle: `lesson ${21 + index}`,
+        lessonNo: index + 1,
+        requiredSeconds: 3430,
+      })),
+    {
+      mode: "SINGLE_ALL",
+      lectureSeq,
+      nowMs,
+    },
+  );
+
+  const chunk = selectCyberCampusChunkTasks(plan.planned, createCyberCampusChunkEnv({
+    WORKER_WORKFLOW_STARTED_AT_MS: nowMs - 15 * 60 * 1000,
+  }), nowMs);
+
+  assert.equal(chunk.planned.length, 5);
+  assert.equal(chunk.estimatedTotalSeconds, 17150);
+  assert.equal(chunk.remainingTaskCount, 2);
+  assert.equal(chunk.remainingPlanned[0]?.courseContentsSeq, 26);
+  assert.equal(chunk.truncated, true);
+});
+
+test("selectCyberCampusChunkTasks does not start a lesson that exceeds the request limit", () => {
   const plan = planCyberCampusAutoLearnTasks(
     [
       createTask({
@@ -203,11 +234,12 @@ test("selectCyberCampusChunkTasks allows the first long lesson even when it exce
 
   const chunk = selectCyberCampusChunkTasks(plan.planned, createCyberCampusChunkEnv());
 
-  assert.equal(chunk.planned.length, 1);
-  assert.equal(chunk.planned[0]?.courseContentsSeq, 21);
-  assert.equal(chunk.estimatedTotalSeconds, 25200);
-  assert.equal(chunk.remainingTaskCount, 0);
-  assert.equal(chunk.truncated, false);
+  assert.equal(chunk.planned.length, 0);
+  assert.equal(chunk.estimatedTotalSeconds, 0);
+  assert.equal(chunk.remainingTaskCount, 1);
+  assert.equal(chunk.remainingPlanned[0]?.courseContentsSeq, 21);
+  assert.equal(chunk.truncated, true);
+  assert.equal(chunk.blockedByConfiguredLimit, true);
 });
 
 test("extractCyberCampusLaunchParamsFromHtml reads the real viewGo argument order", () => {

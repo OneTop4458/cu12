@@ -263,6 +263,7 @@ function formatAutoLearnNoOpReason(reason: string | null | undefined): string | 
   if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 남은 차시가 없습니다.";
   if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 미완료 학습 항목이 없습니다.";
   if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능 기간에 있는 자동 처리 학습 항목이 없습니다.";
+  if (reason === "TASK_EXCEEDS_REQUEST_LIMIT") return "차시가 1회 실행 시간 한도보다 길어 자동 수강을 시작하지 않았습니다.";
   return reason;
 }
 
@@ -1138,7 +1139,10 @@ async function processAutolearn(
       plannedTaskCount: autoResult.plannedTaskCount,
       noOpReason: autoResult.noOpReason,
       planned: autoResult.planned,
+      remainingPlanned: autoResult.remainingPlanned,
       truncated: autoResult.truncated,
+      limitReached: autoResult.limitReached,
+      remainingTaskCount: autoResult.remainingTaskCount,
       estimatedTotalSeconds: autoResult.estimatedTotalSeconds,
       lectureSeqs: autoResult.lectureSeqs,
       chainSegment: options?.chainSegment ?? 1,

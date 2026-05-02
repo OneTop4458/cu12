@@ -10,6 +10,7 @@ import {
 test("parseAutoLearnNoOpReason accepts Cyber Campus VOD-specific reasons", () => {
   assert.equal(parseAutoLearnNoOpReason("NO_PENDING_VOD_TASKS"), "NO_PENDING_VOD_TASKS");
   assert.equal(parseAutoLearnNoOpReason("NO_AVAILABLE_VOD_TASKS"), "NO_AVAILABLE_VOD_TASKS");
+  assert.equal(parseAutoLearnNoOpReason("TASK_EXCEEDS_REQUEST_LIMIT"), "TASK_EXCEEDS_REQUEST_LIMIT");
 });
 
 test("describeAutoNoOpForDashboard explains quiz-only Cyber Campus lectures", () => {
@@ -56,6 +57,10 @@ test("describeAutoNoOpForDashboard explains future-only Cyber Campus lectures", 
 
 test("formatAutoNoOpReason keeps generic CU12 messaging", () => {
   assert.equal(formatAutoNoOpReason("NO_PENDING_SUPPORTED_TASKS"), "자동 처리 가능한 강의/자료/퀴즈가 없습니다.");
+});
+
+test("formatAutoNoOpReason explains over-budget Cyber Campus lessons without retry guidance", () => {
+  assert.match(formatAutoNoOpReason("TASK_EXCEEDS_REQUEST_LIMIT"), /1회 실행 시간 한도/);
 });
 
 test("formatAutoLimitReachedMessage explains that a new request is required", () => {

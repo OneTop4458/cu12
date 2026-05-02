@@ -52,6 +52,8 @@ export interface CyberCampusSnapshotResult extends SyncSnapshotResult {
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
   + "Chrome/124.0.0.0 Safari/537.36";
+const CYBER_CAMPUS_GITHUB_ACTIONS_TIMEOUT_SECONDS = 360 * 60;
+const CYBER_CAMPUS_AUTOLEARN_TAIL_RESERVE_SECONDS = 10 * 60;
 
 type CancelCheck = () => Promise<boolean>;
 type PlaybackTick = (state: { elapsedSeconds: number; remainingSeconds: number }) => Promise<void> | void;
@@ -1142,6 +1144,7 @@ type AutoLearnChunkEnv = Pick<
   | "AUTOLEARN_TIME_FACTOR"
   | "CYBER_CAMPUS_AUTOLEARN_MAX_TASKS"
   | "CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS"
+  | "WORKER_WORKFLOW_STARTED_AT_MS"
 >;
 
 interface CyberCampusChunkSelection {
@@ -1150,6 +1153,7 @@ interface CyberCampusChunkSelection {
   truncated: boolean;
   remainingTaskCount: number;
   remainingPlanned: AutoLearnPlannedTask[];
+  blockedByConfiguredLimit: boolean;
 }
 
 export function planCyberCampusAutoLearnTasks(
@@ -1194,19 +1198,25 @@ export function planCyberCampusAutoLearnTasks(
 export function selectCyberCampusChunkTasks(
   plannedAll: AutoLearnPlannedTask[],
   env: AutoLearnChunkEnv = getEnv(),
+  nowMs = Date.now(),
 ): CyberCampusChunkSelection {
   const maxTasks = Math.max(1, env.CYBER_CAMPUS_AUTOLEARN_MAX_TASKS);
-  const targetSeconds = Math.max(300, env.CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS);
+  const configuredTargetSeconds = Math.max(300, env.CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS);
+  const targetSeconds = resolveCyberCampusChunkTargetSeconds(env, nowMs);
   const planned: AutoLearnPlannedTask[] = [];
   let estimatedTotalSeconds = 0;
+  let firstTaskSeconds: number | null = null;
 
   for (const task of plannedAll) {
     if (planned.length >= maxTasks) break;
 
     const taskSeconds = getCyberCampusPlaybackWaitSeconds(task.remainingSeconds, env.AUTOLEARN_TIME_FACTOR);
+    if (firstTaskSeconds === null) {
+      firstTaskSeconds = taskSeconds;
+    }
     const wouldExceedTarget = estimatedTotalSeconds + taskSeconds > targetSeconds;
 
-    if (planned.length > 0 && wouldExceedTarget) {
+    if (wouldExceedTarget) {
       break;
     }
 
@@ -1214,14 +1224,13 @@ export function selectCyberCampusChunkTasks(
     estimatedTotalSeconds += taskSeconds;
   }
 
-  if (planned.length === 0 && plannedAll.length > 0) {
-    const first = plannedAll[0];
-    planned.push(first);
-    estimatedTotalSeconds = getCyberCampusPlaybackWaitSeconds(first.remainingSeconds, env.AUTOLEARN_TIME_FACTOR);
-  }
-
   const remainingPlanned = plannedAll.slice(planned.length);
   const truncated = remainingPlanned.length > 0;
+  const blockedByConfiguredLimit =
+    planned.length === 0
+    && plannedAll.length > 0
+    && firstTaskSeconds !== null
+    && firstTaskSeconds > configuredTargetSeconds;
 
   return {
     planned,
@@ -1229,7 +1238,27 @@ export function selectCyberCampusChunkTasks(
     truncated,
     remainingTaskCount: remainingPlanned.length,
     remainingPlanned,
+    blockedByConfiguredLimit,
   };
+}
+
+function resolveCyberCampusChunkTargetSeconds(env: AutoLearnChunkEnv, nowMs: number): number {
+  const configuredTargetSeconds = Math.max(300, env.CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS);
+  const workflowStartedAtMs = env.WORKER_WORKFLOW_STARTED_AT_MS;
+  if (
+    typeof workflowStartedAtMs !== "number"
+    || !Number.isFinite(workflowStartedAtMs)
+    || workflowStartedAtMs <= 0
+  ) {
+    return configuredTargetSeconds;
+  }
+
+  const elapsedWorkflowSeconds = Math.max(0, Math.ceil((nowMs - workflowStartedAtMs) / 1000));
+  const remainingWorkflowBudgetSeconds =
+    CYBER_CAMPUS_GITHUB_ACTIONS_TIMEOUT_SECONDS
+    - elapsedWorkflowSeconds
+    - CYBER_CAMPUS_AUTOLEARN_TAIL_RESERVE_SECONDS;
+  return Math.min(configuredTargetSeconds, Math.max(0, remainingWorkflowBudgetSeconds));
 }
 
 async function collectMessages(contextPage: Page, userId: string): Promise<PortalMessage[]> {
@@ -1437,10 +1466,14 @@ export async function runCyberCampusAutoLearning(
     const env = getEnv();
     const chunk = selectCyberCampusChunkTasks(plan.planned, env);
     const planned = chunk.planned;
-    const truncated = chunk.truncated;
+    const truncated = chunk.blockedByConfiguredLimit ? false : chunk.truncated;
     const remainingTaskCount = chunk.remainingTaskCount;
     const remainingPlanned = chunk.remainingPlanned;
     const limitReached = truncated && remainingTaskCount > 0;
+    const noOpReason: AutoLearnNoOpReason | null = chunk.blockedByConfiguredLimit
+      ? "TASK_EXCEEDS_REQUEST_LIMIT"
+      : plan.noOpReason;
+    const resultPlannedTaskCount = chunk.blockedByConfiguredLimit ? 0 : plan.planned.length;
     const heartbeatIntervalSeconds = Math.max(10, env.AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS);
     const estimatedTotalSeconds = chunk.estimatedTotalSeconds;
 
@@ -1452,7 +1485,7 @@ export async function runCyberCampusAutoLearning(
         completedTasks: 0,
         elapsedSeconds: 0,
         estimatedRemainingSeconds: estimatedTotalSeconds,
-        noOpReason: plan.noOpReason,
+        noOpReason,
         plannedTaskCount: planned.length,
         planned,
         truncated,
@@ -1467,12 +1500,12 @@ export async function runCyberCampusAutoLearning(
         lectureSeqs: [],
         processedTaskCount: 0,
         elapsedSeconds: 0,
-        plannedTaskCount: plan.planned.length,
+        plannedTaskCount: resultPlannedTaskCount,
         truncated,
         limitReached,
         remainingTaskCount,
         estimatedTotalSeconds,
-        noOpReason: plan.noOpReason,
+        noOpReason,
         planned,
         remainingPlanned,
       };
@@ -1589,7 +1622,7 @@ export async function runCyberCampusAutoLearning(
               courseTitle: plannedTask.courseTitle,
               taskTitle: plannedTask.taskTitle,
             },
-            noOpReason: plan.noOpReason,
+            noOpReason,
             plannedTaskCount: planned.length,
             planned,
             truncated,
@@ -1626,7 +1659,7 @@ export async function runCyberCampusAutoLearning(
         completedTasks: processedTaskCount,
         elapsedSeconds: elapsedSecondsTotal,
         estimatedRemainingSeconds: 0,
-        noOpReason: plan.noOpReason,
+        noOpReason,
         plannedTaskCount: planned.length,
         planned,
         truncated,
@@ -1648,6 +1681,7 @@ export async function runCyberCampusAutoLearning(
         estimatedTotalSeconds,
         planned,
         remainingPlanned,
+        noOpReason,
       };
   } finally {
     if (context) {

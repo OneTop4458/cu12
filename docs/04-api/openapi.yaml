@@ -4373,6 +4373,7 @@ components:
           NO_PENDING_SUPPORTED_TASKS,
           NO_AVAILABLE_SUPPORTED_TASKS,
           NO_TASKS_AFTER_FILTER,
+          TASK_EXCEEDS_REQUEST_LIMIT,
         ]
 
     AutoLearnPlannedTask:
@@ -4552,6 +4553,10 @@ components:
           type: boolean
         continuationQueued:
           type: boolean
+        limitReached:
+          type: boolean
+        remainingTaskCount:
+          type: integer
         chainLimitReached:
           type: boolean
         chainSegment:
@@ -4567,6 +4572,10 @@ components:
             - $ref: "#/components/schemas/AutoLearnNoOpReason"
           nullable: true
         planned:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutoLearnPlannedTask"
+        remainingPlanned:
           type: array
           items:
             $ref: "#/components/schemas/AutoLearnPlannedTask"

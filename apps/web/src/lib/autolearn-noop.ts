@@ -6,7 +6,8 @@ export type AutoLearnNoOpReason =
   | "NO_AVAILABLE_VOD_TASKS"
   | "NO_PENDING_SUPPORTED_TASKS"
   | "NO_AVAILABLE_SUPPORTED_TASKS"
-  | "NO_TASKS_AFTER_FILTER";
+  | "NO_TASKS_AFTER_FILTER"
+  | "TASK_EXCEEDS_REQUEST_LIMIT";
 
 export interface ActivityTypeCountsLike {
   VOD: number;
@@ -42,6 +43,7 @@ const AUTOLEARN_NOOP_REASONS = new Set<AutoLearnNoOpReason>([
   "NO_PENDING_SUPPORTED_TASKS",
   "NO_AVAILABLE_SUPPORTED_TASKS",
   "NO_TASKS_AFTER_FILTER",
+  "TASK_EXCEEDS_REQUEST_LIMIT",
 ]);
 
 export function parseAutoLearnNoOpReason(value: unknown): AutoLearnNoOpReason | null {
@@ -60,6 +62,7 @@ export function formatAutoNoOpReason(reason: AutoLearnNoOpReason | null | undefi
   if (reason === "NO_AVAILABLE_VOD_TASKS") return "남아 있는 영상 차시가 아직 학습 가능 기간이 아니거나 이미 마감되었습니다.";
   if (reason === "NO_PENDING_SUPPORTED_TASKS") return "자동 처리 가능한 강의/자료/퀴즈가 없습니다.";
   if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "학습 가능 기간에 있는 강의/자료/퀴즈가 없습니다.";
+  if (reason === "TASK_EXCEEDS_REQUEST_LIMIT") return "차시가 1회 실행 시간 한도보다 길어 자동 수강을 시작하지 않았습니다.";
   return "자동 수강 대상이 없습니다.";
 }
 

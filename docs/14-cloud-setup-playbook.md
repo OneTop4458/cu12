@@ -44,6 +44,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
    - `AUTOLEARN_CHAIN_MAX_SECONDS`
    - `CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS`
    - `CYBER_CAMPUS_AUTOLEARN_MAX_TASKS`
+   - `WORKER_WORKFLOW_STARTED_AT_MS` (set by `worker-consume.yml`)
    - `SMTP_*`
    - `OPENAI_API_KEY` for worker quiz automation
 4. Run `DB Bootstrap`.

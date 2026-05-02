@@ -65,7 +65,8 @@ export type AutoLearnNoOpReason =
   | "NO_AVAILABLE_VOD_TASKS"
   | "NO_PENDING_SUPPORTED_TASKS"
   | "NO_AVAILABLE_SUPPORTED_TASKS"
-  | "NO_TASKS_AFTER_FILTER";
+  | "NO_TASKS_AFTER_FILTER"
+  | "TASK_EXCEEDS_REQUEST_LIMIT";
 
 export interface AutoLearnPlannedTask {
   lectureSeq: number;
