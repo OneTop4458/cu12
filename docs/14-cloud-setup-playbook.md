@@ -42,6 +42,9 @@ Run CU12 Automation as a fully cloud-hosted system with:
    - `CYBER_CAMPUS_BASE_URL`
    - `WORKER_DISPATCH_MAX_PARALLEL`
    - `AUTOLEARN_CHAIN_MAX_SECONDS`
+   - `CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS`
+   - `CYBER_CAMPUS_AUTOLEARN_MAX_TASKS`
+   - `WORKER_WORKFLOW_STARTED_AT_MS` (set by `worker-consume.yml`)
    - `SMTP_*`
    - `OPENAI_API_KEY` for worker quiz automation
 4. Run `DB Bootstrap`.
@@ -55,7 +58,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
 
 1. Keep centralized dispatch capped with `WORKER_DISPATCH_MAX_PARALLEL`.
 2. Keep scheduled sync at the current 2-hour cadence unless actual latency requires change.
-3. Keep AUTOLEARN chunking enabled so long-running sessions hand off instead of monopolizing one run.
+3. Keep AUTOLEARN chunking enabled. CU12 runs hand off through continuation jobs; Cyber Campus runs cap each request at the configured runtime budget.
 4. Watch reconcile output before raising concurrency.
 
 ## Rollback Basics

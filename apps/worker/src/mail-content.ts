@@ -293,6 +293,7 @@ export function formatAutoLearnNoOpReason(reason: string | null | undefined): st
   if (reason === "NO_PENDING_SUPPORTED_TASKS") return "미완료 자동 수강 지원 차시가 없습니다.";
   if (reason === "NO_AVAILABLE_SUPPORTED_TASKS") return "현재 학습 가능한 자동 수강 지원 차시가 없습니다.";
   if (reason === "NO_TASKS_AFTER_FILTER") return "필터 적용 후 남은 차시가 없습니다.";
+  if (reason === "TASK_EXCEEDS_REQUEST_LIMIT") return "차시가 1회 실행 시간 한도보다 길어 자동 수강을 시작하지 않았습니다.";
   return reason;
 }
 
@@ -705,11 +706,11 @@ export function buildAutoLearnResultMail(input: {
     notes.push(`연속 실행 세그먼트: ${input.chainSegment}`);
   }
   if (input.limitReached) {
-    notes.push("1회 요청 최대 수강 한도에 도달해 이번 자동 수강 요청은 여기까지 완료했습니다.");
+    notes.push("1회 실행 시간 한도에 도달해 이번 자동 수강 요청은 여기까지 완료했습니다.");
     notes.push("남은 강의가 있어 자동 수강을 다시 요청해야 합니다.");
   }
   if (input.truncated) {
-    notes.push("이번 실행은 청크 제한으로 분할 처리되었습니다.");
+    notes.push("이번 실행은 1회 실행 시간 한도로 분할 처리되었습니다.");
   }
   if (input.continuationQueued) {
     notes.push("다음 자동 수강 청크가 자동으로 예약되었습니다.");

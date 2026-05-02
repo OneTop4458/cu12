@@ -16,7 +16,7 @@
 4. For VOD tasks, keep the player context alive for the required duration and exit through the normal page flow.
 5. For material tasks, open `contents_material_view_form.acl` and verify the follow-up snapshot no longer reports the item as pending.
 6. For quiz tasks, open the quiz runner, parse each question from the live DOM, generate an answer with OpenAI, and submit through the page's own JS/DOM flow.
-7. If the run exceeds the chunk budget, enqueue a continuation AUTOLEARN job.
+7. If a CU12 run exceeds the chunk budget, enqueue a continuation AUTOLEARN job. Cyber Campus runs stop at the per-request budget and require a new request for remaining lessons. The Cyber Campus budget defaults to 21,000 seconds, and the worker subtracts elapsed workflow time from the 360-minute GitHub Actions cap so approval waits, setup, result persistence, and email keep operational room.
 8. Refresh snapshots and record the `LearningRun` result.
 
 ## Runtime Controls
@@ -24,11 +24,14 @@
 - `AUTOLEARN_TIME_FACTOR`
 - `AUTOLEARN_CHUNK_TARGET_SECONDS`
 - `AUTOLEARN_MAX_TASKS`
+- `CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS`
+- `CYBER_CAMPUS_AUTOLEARN_MAX_TASKS`
 - `AUTOLEARN_CHAIN_MAX_SECONDS`
 - `AUTOLEARN_PROGRESS_HEARTBEAT_SECONDS`
 - `AUTOLEARN_STALL_TIMEOUT_SECONDS`
 - `WORKER_ONCE_IDLE_GRACE_MS`
 - `WORKER_RETRY_WAIT_MAX_MS`
+- `WORKER_WORKFLOW_STARTED_AT_MS`
 - `PLAYWRIGHT_NAVIGATION_TIMEOUT_MS`
 - `PLAYWRIGHT_NAVIGATION_RETRIES`
 - `PLAYWRIGHT_NAVIGATION_RETRY_BASE_MS`
