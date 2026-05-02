@@ -1137,7 +1137,11 @@ interface CyberCampusAutoLearnPlan {
 
 type AutoLearnChunkEnv = Pick<
   ReturnType<typeof getEnv>,
-  "AUTOLEARN_MAX_TASKS" | "AUTOLEARN_CHUNK_TARGET_SECONDS" | "AUTOLEARN_TIME_FACTOR"
+  | "AUTOLEARN_MAX_TASKS"
+  | "AUTOLEARN_CHUNK_TARGET_SECONDS"
+  | "AUTOLEARN_TIME_FACTOR"
+  | "CYBER_CAMPUS_AUTOLEARN_MAX_TASKS"
+  | "CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS"
 >;
 
 interface CyberCampusChunkSelection {
@@ -1191,8 +1195,8 @@ export function selectCyberCampusChunkTasks(
   plannedAll: AutoLearnPlannedTask[],
   env: AutoLearnChunkEnv = getEnv(),
 ): CyberCampusChunkSelection {
-  const maxTasks = Math.max(1, env.AUTOLEARN_MAX_TASKS);
-  const targetSeconds = Math.max(300, env.AUTOLEARN_CHUNK_TARGET_SECONDS);
+  const maxTasks = Math.max(1, env.CYBER_CAMPUS_AUTOLEARN_MAX_TASKS);
+  const targetSeconds = Math.max(300, env.CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS);
   const planned: AutoLearnPlannedTask[] = [];
   let estimatedTotalSeconds = 0;
 

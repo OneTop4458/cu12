@@ -37,6 +37,8 @@ const EnvSchema = z.object({
   AUTOLEARN_STALL_TIMEOUT_SECONDS: z.coerce.number().int().min(120).max(7200).default(1200),
   AUTOLEARN_CHUNK_TARGET_SECONDS: z.coerce.number().int().min(300).max(21600).default(5400),
   AUTOLEARN_MAX_TASKS: z.coerce.number().int().min(1).max(200).default(50),
+  CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS: z.coerce.number().int().min(300).max(21600).default(21600),
+  CYBER_CAMPUS_AUTOLEARN_MAX_TASKS: z.coerce.number().int().min(1).max(200).default(200),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.4"),
   OPENAI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),

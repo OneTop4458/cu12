@@ -2219,8 +2219,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 ) : autoTruncated ? (
                   <p className="muted" style={{ color: "var(--warn)" }}>
                     {autoContinuationQueued
-                      ? "일부 차시는 최대 처리 회차 제한으로 다음 실행에서 이어집니다."
-                      : "일부 차시는 최대 처리 회차 제한으로 이번 요청에서 제외되었습니다."}
+                      ? "일부 차시는 1회 실행 시간 한도로 다음 실행에서 이어집니다."
+                      : "일부 차시는 6시간 실행 한도로 이번 요청에서 제외되었습니다."}
                   </p>
                 ) : null}
                 <div className="table-wrap mobile-card-table">

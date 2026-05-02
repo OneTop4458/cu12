@@ -169,7 +169,7 @@ test("autolearn result mail explains when a request stops at the cyber campus li
     ],
   });
 
-  assert.match(mail.html, /1회 요청 최대 수강 한도/);
+  assert.match(mail.html, /1회 실행 시간 한도/);
   assert.match(mail.html, /다시 요청/);
   assert.match(mail.html, /남은 차시/);
 });
