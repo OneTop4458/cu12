@@ -1,7 +1,8 @@
-import { JobStatus } from "@prisma/client";
+import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { parseGitHubRunIdFromWorkerId } from "@/server/github-actions-dispatch";
+import { getFailedJobRetryDelayMinutes, shouldRetryFailedJob } from "@/server/queue";
 
 interface GitHubWorkflowRun {
   id: number;
@@ -74,6 +75,54 @@ export interface JobReconcileResult {
   error?: string;
 }
 
+export const ORPHANED_WORKER_ERROR = "WORKER_RUN_ORPHANED";
+
+export type OrphanedRunningJobRepairAction = "REQUEUE" | "MARK_FAILED";
+
+export interface OrphanedRunningJobRepairDecision {
+  action: OrphanedRunningJobRepairAction;
+  retryQueued: boolean;
+  retryDelayMinutes: number | null;
+}
+
+export interface JobReconcileRepairRetryJob {
+  id: string;
+  userId: string;
+  type: string;
+  runAfter: string;
+}
+
+export interface JobReconcileRepairItem {
+  id: string;
+  userId: string | null;
+  type: string | null;
+  previousStatus: string | null;
+  action: OrphanedRunningJobRepairAction | "SKIP";
+  updated: boolean;
+  retryQueued: boolean;
+  retryJob: JobReconcileRepairRetryJob | null;
+  message: string;
+}
+
+export interface JobReconcileRepairSummary {
+  inspectedOrphanedRunningJobsCount: number;
+  repairedJobsCount: number;
+  requeuedJobsCount: number;
+  failedJobsCount: number;
+  retryQueuedCount: number;
+  skippedJobsCount: number;
+}
+
+export interface JobReconcileRepairResult {
+  checkedAt: string;
+  canReconcileWithGitHub: boolean;
+  before: JobReconcileResult;
+  summary: JobReconcileRepairSummary;
+  repairedJobs: JobReconcileRepairItem[];
+  skippedJobs: JobReconcileRepairItem[];
+  error?: string;
+}
+
 const EXPECTED_SCHEDULES: Array<{
   key: ScheduleCheckKey;
   workflowPath: string;
@@ -90,6 +139,40 @@ const EXPECTED_SCHEDULES: Array<{
     expectedCrons: ["20 0 * * *"],
   },
 ];
+
+function isRequeueRepairType(type: JobType): boolean {
+  return type === JobType.SYNC || type === JobType.NOTICE_SCAN;
+}
+
+export function decideOrphanedRunningJobRepair(input: {
+  type: JobType;
+  attempts: number;
+}): OrphanedRunningJobRepairDecision {
+  if (isRequeueRepairType(input.type)) {
+    return {
+      action: "REQUEUE",
+      retryQueued: false,
+      retryDelayMinutes: null,
+    };
+  }
+
+  const retryQueued = input.type === JobType.AUTOLEARN
+    && shouldRetryFailedJob(input.type, input.attempts, ORPHANED_WORKER_ERROR);
+
+  return {
+    action: "MARK_FAILED",
+    retryQueued,
+    retryDelayMinutes: retryQueued ? getFailedJobRetryDelayMinutes(input.attempts) : null,
+  };
+}
+
+export function isSameObservedRunningJob(input: {
+  current: { status: JobStatus; workerId: string | null };
+  observed: { workerId: string | null };
+}): boolean {
+  return input.current.status === JobStatus.RUNNING
+    && input.current.workerId === input.observed.workerId;
+}
 
 function isActiveWorkflowRun(status: string): boolean {
   return status !== "completed";
@@ -368,4 +451,207 @@ export async function getJobReconcileResult(): Promise<JobReconcileResult> {
       error: error instanceof Error ? error.message : "GITHUB_RUN_LIST_FAILED",
     };
   }
+}
+
+async function repairOrphanedRunningJob(
+  observed: JobReconcileDbItem,
+  now: Date,
+): Promise<JobReconcileRepairItem> {
+  const current = await prisma.jobQueue.findUnique({
+    where: { id: observed.id },
+    select: {
+      id: true,
+      userId: true,
+      type: true,
+      status: true,
+      workerId: true,
+      payload: true,
+      attempts: true,
+      idempotencyKey: true,
+    },
+  });
+
+  if (!current) {
+    return {
+      id: observed.id,
+      userId: null,
+      type: null,
+      previousStatus: null,
+      action: "SKIP",
+      updated: false,
+      retryQueued: false,
+      retryJob: null,
+      message: "Job disappeared before repair.",
+    };
+  }
+
+  if (!isSameObservedRunningJob({ current, observed })) {
+    return {
+      id: current.id,
+      userId: current.userId,
+      type: current.type,
+      previousStatus: current.status,
+      action: "SKIP",
+      updated: false,
+      retryQueued: false,
+      retryJob: null,
+      message: "Job changed before repair could update it.",
+    };
+  }
+
+  const decision = decideOrphanedRunningJobRepair({
+    type: current.type,
+    attempts: current.attempts,
+  });
+
+  if (decision.action === "REQUEUE") {
+    const repaired = await prisma.jobQueue.updateMany({
+      where: {
+        id: current.id,
+        status: JobStatus.RUNNING,
+        workerId: observed.workerId,
+      },
+      data: {
+        status: JobStatus.PENDING,
+        startedAt: null,
+        workerId: null,
+        finishedAt: null,
+        runAfter: now,
+        lastError: ORPHANED_WORKER_ERROR,
+        result: Prisma.JsonNull,
+      },
+    });
+
+    return {
+      id: current.id,
+      userId: current.userId,
+      type: current.type,
+      previousStatus: JobStatus.RUNNING,
+      action: "REQUEUE",
+      updated: repaired.count > 0,
+      retryQueued: false,
+      retryJob: null,
+      message: repaired.count > 0
+        ? "Orphaned RUNNING job was returned to PENDING."
+        : "Job changed before repair could update it.",
+    };
+  }
+
+  const repaired = await prisma.$transaction(async (tx) => {
+    const failed = await tx.jobQueue.updateMany({
+      where: {
+        id: current.id,
+        status: JobStatus.RUNNING,
+        workerId: observed.workerId,
+      },
+      data: {
+        status: JobStatus.FAILED,
+        finishedAt: now,
+        lastError: ORPHANED_WORKER_ERROR,
+      },
+    });
+
+    if (failed.count === 0) {
+      return {
+        updated: false,
+        retryJob: null as JobReconcileRepairRetryJob | null,
+      };
+    }
+
+    if (!decision.retryQueued || decision.retryDelayMinutes === null) {
+      return {
+        updated: true,
+        retryJob: null as JobReconcileRepairRetryJob | null,
+      };
+    }
+
+    const runAfter = new Date(now.getTime() + decision.retryDelayMinutes * 60_000);
+    const retryJob = await tx.jobQueue.create({
+      data: {
+        userId: current.userId,
+        type: current.type,
+        payload: current.payload as unknown as Prisma.InputJsonValue,
+        status: JobStatus.PENDING,
+        runAfter,
+        idempotencyKey: current.idempotencyKey,
+        attempts: current.attempts,
+      },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        runAfter: true,
+      },
+    });
+
+    return {
+      updated: true,
+      retryJob: {
+        id: retryJob.id,
+        userId: retryJob.userId,
+        type: retryJob.type,
+        runAfter: retryJob.runAfter.toISOString(),
+      },
+    };
+  });
+
+  return {
+    id: current.id,
+    userId: current.userId,
+    type: current.type,
+    previousStatus: JobStatus.RUNNING,
+    action: "MARK_FAILED",
+    updated: repaired.updated,
+    retryQueued: repaired.retryJob !== null,
+    retryJob: repaired.retryJob,
+    message: repaired.updated
+      ? "Orphaned RUNNING job was marked FAILED."
+      : "Job changed before repair could update it.",
+  };
+}
+
+function summarizeRepairItems(
+  inspectedOrphanedRunningJobsCount: number,
+  items: JobReconcileRepairItem[],
+): JobReconcileRepairSummary {
+  return {
+    inspectedOrphanedRunningJobsCount,
+    repairedJobsCount: items.filter((item) => item.updated).length,
+    requeuedJobsCount: items.filter((item) => item.updated && item.action === "REQUEUE").length,
+    failedJobsCount: items.filter((item) => item.updated && item.action === "MARK_FAILED").length,
+    retryQueuedCount: items.filter((item) => item.retryQueued).length,
+    skippedJobsCount: items.filter((item) => !item.updated).length,
+  };
+}
+
+export async function repairOrphanedRunningJobs(): Promise<JobReconcileRepairResult> {
+  const before = await getJobReconcileResult();
+  const checkedAt = new Date().toISOString();
+
+  if (!before.canReconcileWithGitHub) {
+    return {
+      checkedAt,
+      canReconcileWithGitHub: false,
+      before,
+      summary: summarizeRepairItems(before.orphanedRunningJobs.length, []),
+      repairedJobs: [],
+      skippedJobs: [],
+      error: before.error ?? "GITHUB_RECONCILE_UNAVAILABLE",
+    };
+  }
+
+  const now = new Date();
+  const items: JobReconcileRepairItem[] = [];
+  for (const orphanedJob of before.orphanedRunningJobs) {
+    items.push(await repairOrphanedRunningJob(orphanedJob, now));
+  }
+
+  return {
+    checkedAt,
+    canReconcileWithGitHub: true,
+    before,
+    summary: summarizeRepairItems(before.orphanedRunningJobs.length, items),
+    repairedJobs: items.filter((item) => item.updated),
+    skippedJobs: items.filter((item) => !item.updated),
+  };
 }

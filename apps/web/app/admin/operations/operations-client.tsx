@@ -9,6 +9,7 @@ import { AppTopbar } from "../../../components/layout/app-topbar";
 
 type RoleType = "ADMIN" | "USER";
 type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+type JobRepairStatus = JobStatus | "BLOCKED";
 type JobType = "SYNC" | "AUTOLEARN" | "NOTICE_SCAN" | "MAIL_DIGEST";
 type CleanupStatus = "SUCCEEDED" | "FAILED" | "CANCELED";
 type CleanupScope = "safe" | "full";
@@ -142,6 +143,42 @@ interface JobReconcilePayload {
   error?: string;
 }
 
+interface ReconcileRepairRetryJob {
+  id: string;
+  userId: string;
+  type: JobType;
+  runAfter: string;
+}
+
+interface ReconcileRepairItem {
+  id: string;
+  userId: string | null;
+  type: JobType | null;
+  previousStatus: JobRepairStatus | null;
+  action: "REQUEUE" | "MARK_FAILED" | "SKIP";
+  updated: boolean;
+  retryQueued: boolean;
+  retryJob: ReconcileRepairRetryJob | null;
+  message: string;
+}
+
+interface JobReconcileRepairPayload {
+  checkedAt: string;
+  canReconcileWithGitHub: boolean;
+  before: JobReconcilePayload;
+  summary: {
+    inspectedOrphanedRunningJobsCount: number;
+    repairedJobsCount: number;
+    requeuedJobsCount: number;
+    failedJobsCount: number;
+    retryQueuedCount: number;
+    skippedJobsCount: number;
+  };
+  repairedJobs: ReconcileRepairItem[];
+  skippedJobs: ReconcileRepairItem[];
+  error?: string;
+}
+
 const JOB_STATUS_OPTIONS: Array<JobStatus | ""> = ["", "PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"];
 const JOB_TYPE_OPTIONS: Array<JobType | ""> = ["", "SYNC", "AUTOLEARN", "NOTICE_SCAN", "MAIL_DIGEST"];
 const CLEANUP_SCOPE_OPTIONS: CleanupScope[] = ["safe", "full"];
@@ -231,7 +268,9 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
   const [resetBusy, setResetBusy] = useState(false);
   const [workerPurgeBusy, setWorkerPurgeBusy] = useState(false);
   const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileRepairBusy, setReconcileRepairBusy] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<JobReconcilePayload | null>(null);
+  const [reconcileRepairResult, setReconcileRepairResult] = useState<JobReconcileRepairPayload | null>(null);
 
   const [jobPage, setJobPage] = useState(1);
   const [jobType, setJobType] = useState<"" | JobType>("");
@@ -464,6 +503,38 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
   const runReconcile = useCallback(() => {
     void loadReconcile();
   }, [loadReconcile]);
+
+  const runReconcileRepair = useCallback(() => {
+    if (reconcileRepairBusy || reconcileBusy) return;
+    if (!window.confirm("DB에만 남은 RUNNING 작업을 정리할까요? 실제 GitHub 실행이 없는 작업만 repair 대상입니다.")) return;
+
+    setReconcileRepairBusy(true);
+    setError(null);
+    void (async () => {
+      try {
+        const payload = await fetchJson<JobReconcileRepairPayload>("/api/admin/jobs/reconcile", { method: "POST" });
+        setReconcileRepairResult(payload);
+        setMessage(
+          `orphan 정리 완료: ${payload.summary.repairedJobsCount}건 처리, ${payload.summary.retryQueuedCount}건 재시도 예약`,
+        );
+        await loadJobs(jobPage, true);
+        await loadJobCounts();
+        await loadReconcile();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "orphan RUNNING 작업 정리에 실패했습니다.");
+      } finally {
+        setReconcileRepairBusy(false);
+      }
+    })();
+  }, [
+    fetchJson,
+    jobPage,
+    loadJobCounts,
+    loadJobs,
+    loadReconcile,
+    reconcileBusy,
+    reconcileRepairBusy,
+  ]);
 
   const runCleanup = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -857,13 +928,38 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
       <section className="card">
         <div className="table-toolbar">
           <h2>RUNNING vs GitHub Action 불일치 점검</h2>
-          <button className="btn-success" type="button" onClick={() => void runReconcile()} disabled={reconcileBusy}>
-            {reconcileBusy ? "점검 중..." : "불일치 점검"}
-          </button>
+          <div className="action-row">
+            <button className="btn-success" type="button" onClick={() => void runReconcile()} disabled={reconcileBusy || reconcileRepairBusy}>
+              {reconcileBusy ? "점검 중..." : "불일치 점검"}
+            </button>
+            <button
+              className="btn-danger"
+              type="button"
+              onClick={() => void runReconcileRepair()}
+              disabled={
+                reconcileRepairBusy
+                || reconcileBusy
+                || !reconcileResult?.canReconcileWithGitHub
+                || (reconcileResult?.summary.orphanedRunningJobsCount ?? 0) === 0
+              }
+            >
+              {reconcileRepairBusy ? "정리 중..." : "orphan 정리"}
+            </button>
+          </div>
         </div>
         {reconcileResult ? (
           <div className="top-gap">
             <p className="muted">점검 시각: {formatDateTime(reconcileResult.checkedAt)}</p>
+            {reconcileResult.summary.orphanedRunningJobsCount > 0 ? (
+              <p className="muted text-small">
+                RUNNING_STALE/orphan 작업은 UI 진행 중 표시와 scheduled dispatch를 막을 수 있습니다. 실제 GitHub 실행이 없으면 orphan 정리 후 다시 요청하세요.
+              </p>
+            ) : null}
+            {reconcileRepairResult ? (
+              <p className="muted text-small">
+                마지막 정리: {formatDateTime(reconcileRepairResult.checkedAt)} / 처리 {reconcileRepairResult.summary.repairedJobsCount}건 / 재시도 {reconcileRepairResult.summary.retryQueuedCount}건
+              </p>
+            ) : null}
             {(reconcileResult.scheduleChecks?.length ?? 0) > 0 ? (
               <div className="top-gap">
                 <h3 className="muted">Workflow schedule checks</h3>

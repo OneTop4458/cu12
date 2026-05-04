@@ -77,6 +77,14 @@ jobs:
 
             if (orphanedRunningJobsCount > 0 || ghostRunsCount > 0) {
               console.error("[reconcile] mismatch detected between DB RUNNING jobs and active GitHub runs.");
+              if (orphanedRunningJobsCount > 0) {
+                console.error("[reconcile] orphaned RUNNING jobs can block UI state and scheduled dispatch.");
+                console.error("[reconcile] next step: review Admin Operations > Jobs > Reconcile, then run the orphan repair action.");
+                console.error("[reconcile] automation option: POST the internal reconcile endpoint with x-worker-token; do not print the token in logs.");
+              }
+              if (ghostRunsCount > 0) {
+                console.error("[reconcile] ghost GitHub runs are active without matching DB RUNNING jobs; inspect the worker run before dispatching more work.");
+              }
               process.exit(1);
             }
 
