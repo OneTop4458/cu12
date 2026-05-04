@@ -13,11 +13,15 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
       WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
     steps:
+      - name: Wait for production deploy
+        if: github.event_name == 'push'
+        run: sleep 180
+
       - name: Repair orphaned RUNNING jobs
         run: |
           node <<'NODE'
@@ -56,7 +60,7 @@ jobs:
             const summary = payload.summary || {};
             console.log(`[reconcile-repair] checkedAt=${payload.checkedAt || new Date().toISOString()}`);
             console.log(`[reconcile-repair] canReconcileWithGitHub=${Boolean(payload.canReconcileWithGitHub)}`);
-            console.log(`[reconcile-repair] inspected=${Number(summary.inspectedOrphanedRunningJobsCount ?? 0)}, repaired=${Number(summary.repairedJobsCount ?? 0)}, requeued=${Number(summary.requeuedJobsCount ?? 0)}, failed=${Number(summary.failedJobsCount ?? 0)}, retryQueued=${Number(summary.retryQueuedCount ?? 0)}, skipped=${Number(summary.skippedJobsCount ?? 0)}`);
+            console.log(`[reconcile-repair] inspected=${Number(summary.inspectedOrphanedRunningJobsCount ?? 0)}, repaired=${Number(summary.repairedJobsCount ?? 0)}, requeued=${Number(summary.requeuedJobsCount ?? 0)}, failed=${Number(summary.failedJobsCount ?? 0)}, retryQueued=${Number(summary.retryQueuedCount ?? 0)}, cyberAutolearnRetryCanceled=${Number(summary.canceledCyberCampusAutoLearnRetryCount ?? 0)}, skipped=${Number(summary.skippedJobsCount ?? 0)}`);
 
             if (!payload.canReconcileWithGitHub) {
               console.error(`[reconcile-repair] reconciliation unavailable: ${payload.error || "unknown"}`);
