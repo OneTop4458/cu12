@@ -659,11 +659,11 @@ function formatCyberCampusSessionStatus(session: CyberCampusPortalSession): stri
   return "세션 없음";
 }
 
-function isCourseDeadlineUrgent(course: Course): boolean {
+function isCourseDeadlineUrgent(course: Course, nowMs: number): boolean {
   const deadlineMs = parseDateMs(course.nextPendingTask?.dueAt);
   if (deadlineMs === null) return false;
 
-  const remainingDays = Math.ceil((deadlineMs - Date.now()) / (1000 * 60 * 60 * 24));
+  const remainingDays = Math.ceil((deadlineMs - nowMs) / (1000 * 60 * 60 * 24));
   return remainingDays >= 0 && remainingDays <= COURSE_DEADLINE_URGENT_DAYS;
 }
 
@@ -830,7 +830,7 @@ function formatNextDeadline(task: Course["nextPendingTask"]): string {
 export function DashboardClient({ initialUser }: DashboardClientProps) {
   const router = useRouter();
   const bootstrapRef = useRef(false);
-  const lastInteractionAtRef = useRef(Date.now());
+  const lastInteractionAtRef = useRef(0);
   const allDeadlinesRequestRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
@@ -903,6 +903,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalCode, setApprovalCode] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [dashboardNow, setDashboardNow] = useState<number | null>(null);
   const autoLearnProviderHydratedRef = useRef(false);
   const dashboardManualAutoOpenedVersionRef = useRef<string | null>(null);
   const approvalAutoOpenKeyRef = useRef<string | null>(null);
@@ -923,8 +924,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     [jobs],
   );
   const syncQueueAnalysis = useMemo(
-    () => analyzeSyncQueueState(jobs, Date.now(), syncQueueSummary ?? undefined),
-    [jobs, syncQueueSummary],
+    () => analyzeSyncQueueState(jobs, dashboardNow ?? 0, syncQueueSummary ?? undefined),
+    [dashboardNow, jobs, syncQueueSummary],
   );
   const isCyberCampusProvider = autoLearnProvider === "CYBER_CAMPUS";
   const draftIsCyberCampusProvider = isCyberCampusProvider;
@@ -1072,9 +1073,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     ?? (trackingAutoLearn ? trackingDetail?.updatedAt : activeAutoJob?.updatedAt)
     ?? null;
   const autoProgressUpdatedAtMs = parseDateMs(autoProgressUpdatedAtRaw);
-  const autoProgressLagSeconds = autoProgressUpdatedAtMs === null
+  const autoProgressLagSeconds = autoProgressUpdatedAtMs === null || dashboardNow === null
     ? null
-    : Math.max(0, Math.floor((Date.now() - autoProgressUpdatedAtMs) / 1000));
+    : Math.max(0, Math.floor((dashboardNow - autoProgressUpdatedAtMs) / 1000));
   const autoProgressHeartbeatStale = autoProgressStatus === "RUNNING"
     && autoProgressLagSeconds !== null
     && autoProgressLagSeconds > 180;
@@ -1100,9 +1101,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     : null;
   const trackingCanCancel = trackingDetail?.status === "RUNNING" || trackingDetail?.status === "PENDING" || trackingDetail?.status === "BLOCKED";
   const approvalExpiresAtMs = parseDateMs(activeCyberCampusApproval?.expiresAt ?? null);
-  const approvalExpiresInSeconds = approvalExpiresAtMs === null
+  const approvalExpiresInSeconds = approvalExpiresAtMs === null || dashboardNow === null
     ? null
-    : Math.max(0, Math.floor((approvalExpiresAtMs - Date.now()) / 1000));
+    : Math.max(0, Math.floor((approvalExpiresAtMs - dashboardNow) / 1000));
   const approvalPendingMessage = useMemo(
     () => getCyberCampusApprovalPendingMessage(activeCyberCampusApproval),
     [activeCyberCampusApproval],
@@ -1364,12 +1365,28 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [message]);
 
   useEffect(() => {
+    const updateDashboardNow = () => {
+      setDashboardNow(Date.now());
+    };
+
+    updateDashboardNow();
+    const intervalId = window.setInterval(updateDashboardNow, 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    runActionRef.current = runAction;
+    confirmCyberCampusApprovalRef.current = confirmCyberCampusApproval;
+  });
+
+  useEffect(() => {
     const touch = () => {
       lastInteractionAtRef.current = Date.now();
     };
 
     const interactionEvents: Array<keyof DocumentEventMap> = ["mousemove", "mousedown", "keydown", "touchstart"];
     interactionEvents.forEach((eventName) => document.addEventListener(eventName, touch, { passive: true }));
+    touch();
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const scheduleNext = () => {
@@ -1948,9 +1965,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }
 
-  runActionRef.current = runAction;
-  confirmCyberCampusApprovalRef.current = confirmCyberCampusApproval;
-
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login" as Route);
@@ -2354,7 +2368,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               : toRatio(course.completedTaskCount, Math.max(1, course.totalTaskCount));
             const taskProgressRatio = Math.max(progressPercentRatio, learnedProgressRatio);
             const isCompleted = isCourseCompleted(course);
-            const isDueSoon = isCourseDeadlineUrgent(course);
+            const isDueSoon = isCourseDeadlineUrgent(course, dashboardNow ?? 0);
 
             return (
               <article key={courseKey} className={`course-card ${isExpanded ? "is-expanded" : ""}`}>
