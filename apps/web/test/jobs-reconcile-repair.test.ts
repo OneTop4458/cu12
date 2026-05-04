@@ -19,14 +19,25 @@ test("orphan sync-family running jobs are returned to pending", () => {
   );
 });
 
-test("orphan autolearn running jobs fail closed and reuse the retry budget", () => {
+test("orphan CU12 autolearn running jobs fail closed and reuse the retry budget", () => {
   assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, ORPHANED_WORKER_ERROR), true);
   assert.deepEqual(
-    decideOrphanedRunningJobRepair({ type: JobType.AUTOLEARN, attempts: 1 }),
+    decideOrphanedRunningJobRepair({ type: JobType.AUTOLEARN, attempts: 1, provider: "CU12" }),
     { action: "MARK_FAILED", retryQueued: true, retryDelayMinutes: 1 },
   );
   assert.deepEqual(
-    decideOrphanedRunningJobRepair({ type: JobType.AUTOLEARN, attempts: 4 }),
+    decideOrphanedRunningJobRepair({ type: JobType.AUTOLEARN, attempts: 4, provider: "CU12" }),
+    { action: "MARK_FAILED", retryQueued: false, retryDelayMinutes: null },
+  );
+});
+
+test("orphan cyber campus autolearn running jobs fail without automatic retry", () => {
+  assert.equal(
+    shouldRetryFailedJob(JobType.AUTOLEARN, 1, ORPHANED_WORKER_ERROR, { provider: "CYBER_CAMPUS" }),
+    false,
+  );
+  assert.deepEqual(
+    decideOrphanedRunningJobRepair({ type: JobType.AUTOLEARN, attempts: 1, provider: "CYBER_CAMPUS" }),
     { action: "MARK_FAILED", retryQueued: false, retryDelayMinutes: null },
   );
 });

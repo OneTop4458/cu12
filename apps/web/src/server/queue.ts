@@ -123,8 +123,23 @@ export function shouldQueueAutoLearnContinuation(input: {
   return input.truncated && !input.chainLimitReached;
 }
 
-export function shouldRetryFailedJob(type: JobType, attempts: number, errorMessage: string): boolean {
+export function getQueuePayloadProvider(payload: Prisma.JsonValue | null): PortalProvider | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const provider = (payload as Record<string, unknown>).provider;
+  return provider === "CYBER_CAMPUS" ? "CYBER_CAMPUS" : provider === "CU12" ? "CU12" : null;
+}
+
+export function shouldRetryFailedJob(
+  type: JobType,
+  attempts: number,
+  errorMessage: string,
+  options: { provider?: PortalProvider | null } = {},
+): boolean {
   if (attempts >= 4) {
+    return false;
+  }
+
+  if (type === JobType.AUTOLEARN && options.provider === "CYBER_CAMPUS") {
     return false;
   }
 
@@ -133,6 +148,22 @@ export function shouldRetryFailedJob(type: JobType, attempts: number, errorMessa
   }
 
   return true;
+}
+
+export type StaleRunningJobReclaimAction = "REQUEUE" | "MARK_FAILED";
+
+export function decideStaleRunningJobReclaim(input: {
+  type: JobType;
+  payload: Prisma.JsonValue | null;
+}): StaleRunningJobReclaimAction {
+  if (
+    input.type === JobType.AUTOLEARN
+    && getQueuePayloadProvider(input.payload) === "CYBER_CAMPUS"
+  ) {
+    return "MARK_FAILED";
+  }
+
+  return "REQUEUE";
 }
 
 export function getFailedJobRetryDelayMinutes(attempts: number): number {
@@ -241,21 +272,56 @@ async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
   }
 
   const workerIds = Array.from(new Set(staleWorkers.map((item) => item.workerId)));
-  const result = await prisma.jobQueue.updateMany({
-    where: {
-      status: JobStatus.RUNNING,
-      workerId: { in: workerIds },
-    },
-    data: {
-      status: JobStatus.PENDING,
-      startedAt: null,
-      workerId: null,
-      runAfter: new Date(Date.now() + STALE_JOB_REQUEUE_DELAY_MS),
-      lastError: "WORKER_STALE_TIMEOUT",
-    },
-  });
+  let reclaimed = 0;
 
-  return result.count;
+  while (true) {
+    const staleJobs = await prisma.jobQueue.findMany({
+      where: {
+        status: JobStatus.RUNNING,
+        workerId: { in: workerIds },
+      },
+      select: {
+        id: true,
+        type: true,
+        payload: true,
+        workerId: true,
+      },
+      orderBy: { createdAt: "asc" },
+      take: CLAIM_SCAN_LIMIT,
+    });
+
+    if (staleJobs.length === 0) {
+      return reclaimed;
+    }
+
+    for (const job of staleJobs) {
+      const action = decideStaleRunningJobReclaim({
+        type: job.type,
+        payload: job.payload,
+      });
+      const result = await prisma.jobQueue.updateMany({
+        where: {
+          id: job.id,
+          status: JobStatus.RUNNING,
+          workerId: job.workerId,
+        },
+        data: action === "MARK_FAILED"
+          ? {
+            status: JobStatus.FAILED,
+            finishedAt: now,
+            lastError: "WORKER_STALE_TIMEOUT",
+          }
+          : {
+            status: JobStatus.PENDING,
+            startedAt: null,
+            workerId: null,
+            runAfter: new Date(now.getTime() + STALE_JOB_REQUEUE_DELAY_MS),
+            lastError: "WORKER_STALE_TIMEOUT",
+          },
+      });
+      reclaimed += result.count;
+    }
+  }
 }
 
 export async function enqueueJob(input: EnqueueJobInput): Promise<EnqueueJobResult> {
@@ -569,12 +635,6 @@ export async function getSyncQueueSummaryForUser(userId: string, now = new Date(
   };
 }
 
-function getSyncJobProvider(payload: Prisma.JsonValue | null): PortalProvider | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const provider = (payload as Record<string, unknown>).provider;
-  return provider === "CYBER_CAMPUS" ? "CYBER_CAMPUS" : provider === "CU12" ? "CU12" : null;
-}
-
 export async function getSyncQueueSummaryForUserByProvider(
   userId: string,
   provider: PortalProvider,
@@ -599,7 +659,7 @@ export async function getSyncQueueSummaryForUserByProvider(
   });
 
   const filteredRows = rows
-    .filter((row) => getSyncJobProvider(row.payload) === provider);
+    .filter((row) => getQueuePayloadProvider(row.payload) === provider);
 
   const runningWorkerIds = Array.from(
     new Set(
@@ -924,7 +984,11 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
   let retryQueued = false;
   let retryJob: RetryJobSummary | null = null;
 
-  if (shouldRetryFailedJob(updated.type, updated.attempts, errorMessage)) {
+  if (
+    shouldRetryFailedJob(updated.type, updated.attempts, errorMessage, {
+      provider: getQueuePayloadProvider(updated.payload),
+    })
+  ) {
     const delayMinutes = getFailedJobRetryDelayMinutes(updated.attempts);
     const createdRetry = await prisma.jobQueue.create({
       data: {

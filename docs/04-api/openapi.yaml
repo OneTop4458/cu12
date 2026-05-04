@@ -4838,6 +4838,7 @@ components:
         - requeuedJobsCount
         - failedJobsCount
         - retryQueuedCount
+        - canceledCyberCampusAutoLearnRetryCount
         - skippedJobsCount
       properties:
         inspectedOrphanedRunningJobsCount:
@@ -4853,6 +4854,9 @@ components:
           type: integer
           minimum: 0
         retryQueuedCount:
+          type: integer
+          minimum: 0
+        canceledCyberCampusAutoLearnRetryCount:
           type: integer
           minimum: 0
         skippedJobsCount:

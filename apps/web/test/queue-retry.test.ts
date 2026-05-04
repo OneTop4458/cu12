@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JobType } from "@prisma/client";
 import {
+  decideStaleRunningJobReclaim,
   getFailedJobRetryDelayMinutes,
   shouldQueueAutoLearnContinuation,
   shouldRetryFailedJob,
@@ -10,6 +11,17 @@ import {
 
 test("shouldRetryFailedJob keeps transient autolearn failures retryable", () => {
   assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, "AUTOLEARN_STALLED"), true);
+  assert.equal(
+    shouldRetryFailedJob(JobType.AUTOLEARN, 1, "AUTOLEARN_STALLED", { provider: "CU12" }),
+    true,
+  );
+});
+
+test("shouldRetryFailedJob blocks cyber campus autolearn retries", () => {
+  assert.equal(
+    shouldRetryFailedJob(JobType.AUTOLEARN, 1, "AUTOLEARN_STALLED", { provider: "CYBER_CAMPUS" }),
+    false,
+  );
 });
 
 test("shouldRetryFailedJob blocks blind retries for cyber campus secondary auth failures", () => {
@@ -18,6 +30,30 @@ test("shouldRetryFailedJob blocks blind retries for cyber campus secondary auth 
 
 test("shouldRetryFailedJob blocks retries after the retry budget is exhausted", () => {
   assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 4, "AUTOLEARN_STALLED"), false);
+});
+
+test("decideStaleRunningJobReclaim fails stale cyber campus autolearn instead of requeueing", () => {
+  assert.equal(
+    decideStaleRunningJobReclaim({
+      type: JobType.AUTOLEARN,
+      payload: { provider: "CYBER_CAMPUS" },
+    }),
+    "MARK_FAILED",
+  );
+  assert.equal(
+    decideStaleRunningJobReclaim({
+      type: JobType.AUTOLEARN,
+      payload: { provider: "CU12" },
+    }),
+    "REQUEUE",
+  );
+  assert.equal(
+    decideStaleRunningJobReclaim({
+      type: JobType.SYNC,
+      payload: { provider: "CYBER_CAMPUS" },
+    }),
+    "REQUEUE",
+  );
 });
 
 test("shouldQueueAutoLearnContinuation disables continuation for cyber campus jobs", () => {

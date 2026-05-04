@@ -1,8 +1,9 @@
+import type { PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { parseGitHubRunIdFromWorkerId } from "@/server/github-actions-dispatch";
-import { getFailedJobRetryDelayMinutes, shouldRetryFailedJob } from "@/server/queue";
+import { getFailedJobRetryDelayMinutes, getQueuePayloadProvider, shouldRetryFailedJob } from "@/server/queue";
 
 interface GitHubWorkflowRun {
   id: number;
@@ -110,6 +111,7 @@ export interface JobReconcileRepairSummary {
   requeuedJobsCount: number;
   failedJobsCount: number;
   retryQueuedCount: number;
+  canceledCyberCampusAutoLearnRetryCount: number;
   skippedJobsCount: number;
 }
 
@@ -147,6 +149,7 @@ function isRequeueRepairType(type: JobType): boolean {
 export function decideOrphanedRunningJobRepair(input: {
   type: JobType;
   attempts: number;
+  provider?: PortalProvider | null;
 }): OrphanedRunningJobRepairDecision {
   if (isRequeueRepairType(input.type)) {
     return {
@@ -157,7 +160,9 @@ export function decideOrphanedRunningJobRepair(input: {
   }
 
   const retryQueued = input.type === JobType.AUTOLEARN
-    && shouldRetryFailedJob(input.type, input.attempts, ORPHANED_WORKER_ERROR);
+    && shouldRetryFailedJob(input.type, input.attempts, ORPHANED_WORKER_ERROR, {
+      provider: input.provider,
+    });
 
   return {
     action: "MARK_FAILED",
@@ -502,6 +507,7 @@ async function repairOrphanedRunningJob(
   const decision = decideOrphanedRunningJobRepair({
     type: current.type,
     attempts: current.attempts,
+    provider: getQueuePayloadProvider(current.payload),
   });
 
   if (decision.action === "REQUEUE") {
@@ -613,6 +619,7 @@ async function repairOrphanedRunningJob(
 function summarizeRepairItems(
   inspectedOrphanedRunningJobsCount: number,
   items: JobReconcileRepairItem[],
+  canceledCyberCampusAutoLearnRetryCount: number,
 ): JobReconcileRepairSummary {
   return {
     inspectedOrphanedRunningJobsCount,
@@ -620,8 +627,32 @@ function summarizeRepairItems(
     requeuedJobsCount: items.filter((item) => item.updated && item.action === "REQUEUE").length,
     failedJobsCount: items.filter((item) => item.updated && item.action === "MARK_FAILED").length,
     retryQueuedCount: items.filter((item) => item.retryQueued).length,
+    canceledCyberCampusAutoLearnRetryCount,
     skippedJobsCount: items.filter((item) => !item.updated).length,
   };
+}
+
+async function cancelCyberCampusAutoLearnRetryJobs(now: Date): Promise<number> {
+  const updated = await prisma.jobQueue.updateMany({
+    where: {
+      status: JobStatus.PENDING,
+      type: JobType.AUTOLEARN,
+      attempts: { gt: 0 },
+      payload: {
+        path: ["provider"],
+        equals: "CYBER_CAMPUS",
+      },
+    },
+    data: {
+      status: JobStatus.CANCELED,
+      startedAt: null,
+      workerId: null,
+      finishedAt: now,
+      lastError: "CYBER_CAMPUS_AUTOLEARN_RETRY_NOT_SUPPORTED",
+    },
+  });
+
+  return updated.count;
 }
 
 export async function repairOrphanedRunningJobs(): Promise<JobReconcileRepairResult> {
@@ -633,7 +664,7 @@ export async function repairOrphanedRunningJobs(): Promise<JobReconcileRepairRes
       checkedAt,
       canReconcileWithGitHub: false,
       before,
-      summary: summarizeRepairItems(before.orphanedRunningJobs.length, []),
+      summary: summarizeRepairItems(before.orphanedRunningJobs.length, [], 0),
       repairedJobs: [],
       skippedJobs: [],
       error: before.error ?? "GITHUB_RECONCILE_UNAVAILABLE",
@@ -645,12 +676,17 @@ export async function repairOrphanedRunningJobs(): Promise<JobReconcileRepairRes
   for (const orphanedJob of before.orphanedRunningJobs) {
     items.push(await repairOrphanedRunningJob(orphanedJob, now));
   }
+  const canceledCyberCampusAutoLearnRetryCount = await cancelCyberCampusAutoLearnRetryJobs(now);
 
   return {
     checkedAt,
     canReconcileWithGitHub: true,
     before,
-    summary: summarizeRepairItems(before.orphanedRunningJobs.length, items),
+    summary: summarizeRepairItems(
+      before.orphanedRunningJobs.length,
+      items,
+      canceledCyberCampusAutoLearnRetryCount,
+    ),
     repairedJobs: items.filter((item) => item.updated),
     skippedJobs: items.filter((item) => !item.updated),
   };

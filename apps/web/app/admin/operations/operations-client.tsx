@@ -172,6 +172,7 @@ interface JobReconcileRepairPayload {
     requeuedJobsCount: number;
     failedJobsCount: number;
     retryQueuedCount: number;
+    canceledCyberCampusAutoLearnRetryCount: number;
     skippedJobsCount: number;
   };
   repairedJobs: ReconcileRepairItem[];
@@ -515,7 +516,7 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
         const payload = await fetchJson<JobReconcileRepairPayload>("/api/admin/jobs/reconcile", { method: "POST" });
         setReconcileRepairResult(payload);
         setMessage(
-          `orphan 정리 완료: ${payload.summary.repairedJobsCount}건 처리, ${payload.summary.retryQueuedCount}건 재시도 예약`,
+          `orphan 정리 완료: ${payload.summary.repairedJobsCount}건 처리, ${payload.summary.retryQueuedCount}건 재시도 예약, 사캠 자동수강 retry ${payload.summary.canceledCyberCampusAutoLearnRetryCount}건 취소`,
         );
         await loadJobs(jobPage, true);
         await loadJobCounts();
@@ -958,6 +959,7 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
             {reconcileRepairResult ? (
               <p className="muted text-small">
                 마지막 정리: {formatDateTime(reconcileRepairResult.checkedAt)} / 처리 {reconcileRepairResult.summary.repairedJobsCount}건 / 재시도 {reconcileRepairResult.summary.retryQueuedCount}건
+                {" "} / 사캠 자동수강 retry 취소 {reconcileRepairResult.summary.canceledCyberCampusAutoLearnRetryCount}건
               </p>
             ) : null}
             {(reconcileResult.scheduleChecks?.length ?? 0) > 0 ? (
