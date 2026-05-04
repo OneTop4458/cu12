@@ -116,28 +116,7 @@ jobs:
           async function main() {
             const baseUrl = process.env.WEB_INTERNAL_BASE_URL;
             const workerToken = process.env.WORKER_SHARED_TOKEN;
-            const reconcileUrl = `${baseUrl.replace(/\/$/, "")}/internal/admin/jobs/reconcile`;
             const dispatchUrl = `${baseUrl.replace(/\/$/, "")}/internal/worker/dispatch`;
-
-            const reconcileResponse = await fetch(reconcileUrl, {
-              method: "GET",
-              headers: {
-                "x-worker-token": workerToken,
-              },
-            });
-            const reconcilePayload = await reconcileResponse.json();
-            if (!reconcileResponse.ok) {
-              console.error(`[reconcile-repair] dispatch precheck failed: ${reconcileResponse.status} ${reconcileResponse.statusText}`);
-              process.exit(1);
-            }
-
-            const summary = reconcilePayload.summary || {};
-            const pending = Number(summary.pendingJobsCount ?? 0);
-            const running = Number(summary.runningJobsCount ?? 0);
-            if (pending <= 0 || running > 0) {
-              console.log(`[reconcile-repair] worker dispatch skipped pending=${pending}, running=${running}`);
-              return;
-            }
 
             const dispatchResponse = await fetch(dispatchUrl, {
               method: "POST",
