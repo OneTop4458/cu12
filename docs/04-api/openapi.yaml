@@ -1703,6 +1703,25 @@ paths:
                 $ref: "#/components/schemas/AdminJobReconcileResponse"
         "500":
           description: Reconciliation failed
+    post:
+      tags: [Admin]
+      summary: Repair orphaned RUNNING jobs after reconciling with GitHub Actions
+      description: >
+        Marks AUTOLEARN orphan jobs as failed and queues a retry when the retry budget allows.
+        Returns SYNC and NOTICE_SCAN orphan jobs to PENDING so dispatch can pick them up again.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Orphan repair result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminJobReconcileRepairResponse"
+        "403":
+          description: Forbidden
+        "500":
+          description: Reconciliation repair failed
 
   /internal/worker/heartbeat:
     post:
@@ -1959,6 +1978,23 @@ paths:
           description: Forbidden
         "500":
           description: Reconciliation failed
+    post:
+      tags: [Admin]
+      summary: Repair orphaned RUNNING jobs after reconciling with GitHub Actions (internal)
+      description: Internal endpoint for workflow-driven orphan repair without browser session cookies.
+      security:
+        - workerToken: []
+      responses:
+        "200":
+          description: Orphan repair result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminJobReconcileRepairResponse"
+        "403":
+          description: Forbidden
+        "500":
+          description: Reconciliation repair failed
 
   /api/admin/workers:
     get:
@@ -4768,6 +4804,105 @@ components:
         error:
           type: string
           nullable: true
+
+    AdminJobReconcileRepairResponse:
+      type: object
+      required: [checkedAt, canReconcileWithGitHub, before, summary, repairedJobs, skippedJobs]
+      properties:
+        checkedAt:
+          type: string
+          format: date-time
+        canReconcileWithGitHub:
+          type: boolean
+        before:
+          $ref: "#/components/schemas/AdminJobReconcileResponse"
+        summary:
+          $ref: "#/components/schemas/AdminJobReconcileRepairSummary"
+        repairedJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobReconcileRepairItem"
+        skippedJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminJobReconcileRepairItem"
+        error:
+          type: string
+          nullable: true
+
+    AdminJobReconcileRepairSummary:
+      type: object
+      required:
+        - inspectedOrphanedRunningJobsCount
+        - repairedJobsCount
+        - requeuedJobsCount
+        - failedJobsCount
+        - retryQueuedCount
+        - skippedJobsCount
+      properties:
+        inspectedOrphanedRunningJobsCount:
+          type: integer
+          minimum: 0
+        repairedJobsCount:
+          type: integer
+          minimum: 0
+        requeuedJobsCount:
+          type: integer
+          minimum: 0
+        failedJobsCount:
+          type: integer
+          minimum: 0
+        retryQueuedCount:
+          type: integer
+          minimum: 0
+        skippedJobsCount:
+          type: integer
+          minimum: 0
+
+    AdminJobReconcileRepairItem:
+      type: object
+      required: [id, userId, type, previousStatus, action, updated, retryQueued, retryJob, message]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+          nullable: true
+        previousStatus:
+          type: string
+          enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+          nullable: true
+        action:
+          type: string
+          enum: [REQUEUE, MARK_FAILED, SKIP]
+        updated:
+          type: boolean
+        retryQueued:
+          type: boolean
+        retryJob:
+          $ref: "#/components/schemas/AdminJobReconcileRepairRetryJob"
+          nullable: true
+        message:
+          type: string
+
+    AdminJobReconcileRepairRetryJob:
+      type: object
+      required: [id, userId, type, runAfter]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        type:
+          type: string
+          enum: [SYNC, AUTOLEARN, NOTICE_SCAN, MAIL_DIGEST]
+        runAfter:
+          type: string
+          format: date-time
 
     AdminJobReconcileSummary:
       type: object

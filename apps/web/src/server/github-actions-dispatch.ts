@@ -40,12 +40,19 @@ interface GitHubWorkflowRunsResponse {
   workflow_runs?: GitHubWorkflowRun[];
 }
 
+interface PendingCandidateUsersResult {
+  users: string[];
+  preferredBlockedByRunning: boolean;
+}
+
 const JOB_TYPE_PRIORITY: JobType[] = [
   JobType.SYNC,
   JobType.NOTICE_SCAN,
   JobType.AUTOLEARN,
   JobType.MAIL_DIGEST,
 ];
+
+const SYNC_DISPATCH_TYPES: readonly JobType[] = [JobType.SYNC, JobType.NOTICE_SCAN];
 
 function rankJobTypes(inputTypes: JobType[]): JobType[] {
   const unique = Array.from(new Set(inputTypes));
@@ -64,6 +71,27 @@ function rankJobTypes(inputTypes: JobType[]): JobType[] {
   }
 
   return ordered;
+}
+
+function hasAnyJobType(inputTypes: JobType[], targetTypes: readonly JobType[]): boolean {
+  return inputTypes.some((type) => targetTypes.includes(type));
+}
+
+export function getRunningBlockerTypesForDispatch(inputTypes: JobType[]): JobType[] {
+  const types = rankJobTypes(inputTypes);
+  const blockers: JobType[] = [];
+
+  if (hasAnyJobType(types, SYNC_DISPATCH_TYPES)) {
+    blockers.push(...SYNC_DISPATCH_TYPES);
+  }
+  if (types.includes(JobType.AUTOLEARN)) {
+    blockers.push(JobType.AUTOLEARN);
+  }
+  if (types.includes(JobType.MAIL_DIGEST)) {
+    blockers.push(JobType.MAIL_DIGEST);
+  }
+
+  return rankJobTypes(blockers);
 }
 
 function parseJobTypes(jobTypes?: string): JobType[] {
@@ -151,24 +179,31 @@ async function listPendingCandidateUsers(input: {
   types: JobType[];
   preferredUserId?: string;
   limit: number;
-}): Promise<string[]> {
-  if (input.limit <= 0 || input.types.length === 0) return [];
+}): Promise<PendingCandidateUsersResult> {
+  if (input.limit <= 0 || input.types.length === 0) {
+    return { users: [], preferredBlockedByRunning: false };
+  }
   const now = new Date();
+  const runningBlockerTypes = getRunningBlockerTypesForDispatch(input.types);
 
   const runningRows = await prisma.jobQueue.findMany({
     where: {
       status: JobStatus.RUNNING,
+      type: { in: runningBlockerTypes },
     },
     select: {
       userId: true,
+      type: true,
     },
   });
-  const runningUsers = new Set(runningRows.map((row) => row.userId));
 
-  const result: string[] = [];
-  const seen = new Set<string>();
+  const preferredBlockedByRunning = Boolean(
+    input.preferredUserId
+    && runningRows.some((row) => row.userId === input.preferredUserId),
+  );
 
-  if (input.preferredUserId && !runningUsers.has(input.preferredUserId)) {
+  let preferredHasEligiblePending = false;
+  if (input.preferredUserId) {
     const preferredPending = await prisma.jobQueue.findFirst({
       where: {
         userId: input.preferredUserId,
@@ -178,14 +213,7 @@ async function listPendingCandidateUsers(input: {
       },
       select: { id: true },
     });
-    if (preferredPending) {
-      result.push(input.preferredUserId);
-      seen.add(input.preferredUserId);
-    }
-  }
-
-  if (result.length >= input.limit) {
-    return result.slice(0, input.limit);
+    preferredHasEligiblePending = Boolean(preferredPending);
   }
 
   const pendingRows = await prisma.jobQueue.findMany({
@@ -201,7 +229,51 @@ async function listPendingCandidateUsers(input: {
     take: Math.max(200, input.limit * 50),
   });
 
-  for (const row of pendingRows) {
+  return {
+    users: selectPendingCandidateUsersFromRows({
+      types: input.types,
+      preferredUserId: input.preferredUserId,
+      preferredHasEligiblePending,
+      runningRows,
+      pendingRows,
+      limit: input.limit,
+    }),
+    preferredBlockedByRunning,
+  };
+}
+
+export function selectPendingCandidateUsersFromRows(input: {
+  types: JobType[];
+  preferredUserId?: string;
+  preferredHasEligiblePending?: boolean;
+  runningRows: Array<{ userId: string; type: JobType }>;
+  pendingRows: Array<{ userId: string }>;
+  limit: number;
+}): string[] {
+  if (input.limit <= 0 || input.types.length === 0) return [];
+  const runningBlockerTypes = new Set(getRunningBlockerTypesForDispatch(input.types));
+  const runningUsers = new Set(
+    input.runningRows
+      .filter((row) => runningBlockerTypes.has(row.type))
+      .map((row) => row.userId),
+  );
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  if (
+    input.preferredUserId
+    && input.preferredHasEligiblePending
+    && !runningUsers.has(input.preferredUserId)
+  ) {
+    result.push(input.preferredUserId);
+    seen.add(input.preferredUserId);
+  }
+
+  if (result.length >= input.limit) {
+    return result.slice(0, input.limit);
+  }
+
+  for (const row of input.pendingRows) {
     if (runningUsers.has(row.userId)) continue;
     if (seen.has(row.userId)) continue;
     seen.add(row.userId);
@@ -360,18 +432,20 @@ export async function dispatchWorkerRun(
 
   const parsedTypes = parseJobTypes(jobTypes);
   const targetTypes = parsedTypes.length > 0 ? parsedTypes : resolveTypesFromTrigger(type);
-  const candidateUsers = await listPendingCandidateUsers({
+  const candidateResult = await listPendingCandidateUsers({
     types: targetTypes,
     preferredUserId: userId,
     limit: userId ? 1 : availableSlots,
   });
+  const candidateUsers = candidateResult.users;
 
   if (candidateUsers.length === 0) {
-    if (userId) {
-      const fallbackDispatch = await dispatchWorkerRunRequest(type, userId, targetTypes.join(","));
+    if (userId && candidateResult.preferredBlockedByRunning) {
       return {
-        ...fallbackDispatch,
-        dispatchCount: fallbackDispatch.dispatched ? 1 : 0,
+        state: "SKIPPED_DUPLICATE",
+        dispatched: false,
+        errorCode: "WORKER_DISPATCH_USER_RUNNING",
+        dispatchCount: 0,
         activeRunCount,
         capacity,
       };
