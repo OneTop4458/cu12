@@ -1,0 +1,111 @@
+name: Reconcile Orphan Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/reconcile-orphan-repair.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
+      WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
+    steps:
+      - name: Repair orphaned RUNNING jobs
+        run: |
+          node <<'NODE'
+          async function readJson(response) {
+            const text = await response.text();
+            try {
+              return JSON.parse(text);
+            } catch {
+              throw new Error(`Invalid JSON response: ${response.status} ${response.statusText}`);
+            }
+          }
+
+          async function main() {
+            const baseUrl = process.env.WEB_INTERNAL_BASE_URL;
+            const workerToken = process.env.WORKER_SHARED_TOKEN;
+
+            if (!baseUrl || !workerToken) {
+              console.error("[reconcile-repair] missing required environment variables.");
+              process.exit(1);
+            }
+
+            const targetUrl = `${baseUrl.replace(/\/$/, "")}/internal/admin/jobs/reconcile`;
+            const response = await fetch(targetUrl, {
+              method: "POST",
+              headers: {
+                "x-worker-token": workerToken,
+              },
+            });
+
+            const payload = await readJson(response);
+            if (!response.ok) {
+              console.error(`[reconcile-repair] request failed: ${response.status} ${response.statusText}`);
+              process.exit(1);
+            }
+
+            const summary = payload.summary || {};
+            console.log(`[reconcile-repair] checkedAt=${payload.checkedAt || new Date().toISOString()}`);
+            console.log(`[reconcile-repair] canReconcileWithGitHub=${Boolean(payload.canReconcileWithGitHub)}`);
+            console.log(`[reconcile-repair] inspected=${Number(summary.inspectedOrphanedRunningJobsCount ?? 0)}, repaired=${Number(summary.repairedJobsCount ?? 0)}, requeued=${Number(summary.requeuedJobsCount ?? 0)}, failed=${Number(summary.failedJobsCount ?? 0)}, retryQueued=${Number(summary.retryQueuedCount ?? 0)}, skipped=${Number(summary.skippedJobsCount ?? 0)}`);
+
+            if (!payload.canReconcileWithGitHub) {
+              console.error(`[reconcile-repair] reconciliation unavailable: ${payload.error || "unknown"}`);
+              process.exit(1);
+            }
+
+            const skipped = Number(summary.skippedJobsCount ?? 0);
+            if (skipped > 0) {
+              console.warn("[reconcile-repair] some jobs changed before repair and were skipped; rerun reconcile health check.");
+            }
+          }
+
+          main().catch((error) => {
+            console.error(`[reconcile-repair] unexpected failure: ${error?.message ?? String(error)}`);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Verify reconcile status
+        run: |
+          node <<'NODE'
+          async function main() {
+            const baseUrl = process.env.WEB_INTERNAL_BASE_URL;
+            const workerToken = process.env.WORKER_SHARED_TOKEN;
+            const targetUrl = `${baseUrl.replace(/\/$/, "")}/internal/admin/jobs/reconcile`;
+            const response = await fetch(targetUrl, {
+              method: "GET",
+              headers: {
+                "x-worker-token": workerToken,
+              },
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+              console.error(`[reconcile-repair] verify failed: ${response.status} ${response.statusText}`);
+              process.exit(1);
+            }
+
+            const summary = payload.summary || {};
+            const orphaned = Number(summary.orphanedRunningJobsCount ?? 0);
+            const ghostRuns = Number(summary.ghostRunsCount ?? 0);
+            console.log(`[reconcile-repair] verify runningJobs=${Number(summary.runningJobsCount ?? 0)}, orphanedRunning=${orphaned}, ghostRuns=${ghostRuns}`);
+
+            if (!payload.canReconcileWithGitHub || orphaned > 0 || ghostRuns > 0) {
+              process.exit(1);
+            }
+          }
+
+          main().catch((error) => {
+            console.error(`[reconcile-repair] verify unexpected failure: ${error?.message ?? String(error)}`);
+            process.exit(1);
+          });
+          NODE
