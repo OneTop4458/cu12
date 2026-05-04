@@ -109,3 +109,59 @@ jobs:
             process.exit(1);
           });
           NODE
+
+      - name: Kick pending sync workers
+        run: |
+          node <<'NODE'
+          async function main() {
+            const baseUrl = process.env.WEB_INTERNAL_BASE_URL;
+            const workerToken = process.env.WORKER_SHARED_TOKEN;
+            const reconcileUrl = `${baseUrl.replace(/\/$/, "")}/internal/admin/jobs/reconcile`;
+            const dispatchUrl = `${baseUrl.replace(/\/$/, "")}/internal/worker/dispatch`;
+
+            const reconcileResponse = await fetch(reconcileUrl, {
+              method: "GET",
+              headers: {
+                "x-worker-token": workerToken,
+              },
+            });
+            const reconcilePayload = await reconcileResponse.json();
+            if (!reconcileResponse.ok) {
+              console.error(`[reconcile-repair] dispatch precheck failed: ${reconcileResponse.status} ${reconcileResponse.statusText}`);
+              process.exit(1);
+            }
+
+            const summary = reconcilePayload.summary || {};
+            const pending = Number(summary.pendingJobsCount ?? 0);
+            const running = Number(summary.runningJobsCount ?? 0);
+            if (pending <= 0 || running > 0) {
+              console.log(`[reconcile-repair] worker dispatch skipped pending=${pending}, running=${running}`);
+              return;
+            }
+
+            const dispatchResponse = await fetch(dispatchUrl, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-worker-token": workerToken,
+              },
+              body: JSON.stringify({ trigger: "sync" }),
+            });
+            const dispatchPayload = await dispatchResponse.json();
+            const state = String(dispatchPayload.state ?? "");
+            const dispatchCount = Number(dispatchPayload.dispatchCount ?? 0);
+            const activeRunCount = Number(dispatchPayload.activeRunCount ?? 0);
+            const capacity = Number(dispatchPayload.capacity ?? 0);
+            const errorCode = dispatchPayload.errorCode ? String(dispatchPayload.errorCode) : "";
+            console.log(`[reconcile-repair] workerDispatch state=${state}, dispatchCount=${dispatchCount}, activeRunCount=${activeRunCount}, capacity=${capacity}, errorCode=${errorCode || "none"}`);
+
+            if (!dispatchResponse.ok || state === "FAILED") {
+              process.exit(1);
+            }
+          }
+
+          main().catch((error) => {
+            console.error(`[reconcile-repair] worker dispatch unexpected failure: ${error?.message ?? String(error)}`);
+            process.exit(1);
+          });
+          NODE
