@@ -82,7 +82,7 @@ function getIdleTimeoutMs(): number {
 export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuardProps) {
   const pathname = usePathname();
   const shouldTrack = isProtectedPath(pathname);
-  const lastActivityAtRef = useRef<number>(Date.now());
+  const lastActivityAtRef = useRef<number>(0);
   const lastRefreshAtRef = useRef<number>(0);
   const lastActivityHandledAtRef = useRef<number>(0);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
