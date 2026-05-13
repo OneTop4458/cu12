@@ -34,7 +34,8 @@
 7. `reconcile-health-check.yml`
    - Schedule: `0 */4 * * *` UTC.
    - Calls `/internal/admin/jobs/reconcile`.
-   - Fails when GitHub run visibility is unavailable or when DB `RUNNING` jobs diverge from active Actions runs.
+   - Automatically POSTs the internal reconcile endpoint when DB `RUNNING` jobs are orphaned, verifies the mismatch is gone, then kicks pending sync workers.
+   - Fails when GitHub run visibility is unavailable, repair cannot clear orphaned `RUNNING` jobs, or active ghost runs have no matching DB job.
 
 8. `db-retention-cleanup.yml`
    - Scheduled cleanup runs the worker retention task for audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months.
@@ -179,5 +180,5 @@
 1. Check queue rows through `/api/jobs` or the admin job view.
 2. Confirm `dispatchState` is not `NOT_CONFIGURED`.
 3. Review failed workflow logs with `gh run view <run_id> --log-failed`.
-4. Run or inspect `Reconcile Health Check` for orphaned jobs and ghost runs.
+4. Run or inspect `Reconcile Health Check` for orphaned jobs and ghost runs; it should self-repair orphaned DB `RUNNING` rows, kick pending sync workers, and fail only if verification still reports a mismatch.
 5. If Cyber Campus jobs remain `BLOCKED`, inspect the related approval session instead of retrying blindly.
