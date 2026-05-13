@@ -158,8 +158,21 @@ test("autolearn dispatch keeps the stale pending drain check", () => {
 });
 
 test("reconcile health check self-repairs orphaned running jobs", () => {
+  const workflow = readRepoFile(".github/workflows/reconcile-health-check.yml");
+
   assertContainsInOrder(
-    readRepoFile(".github/workflows/reconcile-health-check.yml"),
+    workflow,
+    [
+      "async function dispatchPendingSyncWorkers",
+      'body: JSON.stringify({ trigger: "sync" })',
+      "workerDispatch state=",
+      "worker dispatch failed after orphan repair.",
+    ],
+    ".github/workflows/reconcile-health-check.yml dispatch helper",
+  );
+
+  assertContainsInOrder(
+    workflow,
     [
       'const payload = await requestReconcile(targetUrl, workerToken, "GET", "status check");',
       "orphaned RUNNING jobs detected; attempting internal repair.",
@@ -167,6 +180,7 @@ test("reconcile health check self-repairs orphaned running jobs", () => {
       'const verifyPayload = await requestReconcile(targetUrl, workerToken, "GET", "repair verify");',
       "repair did not clear reconcile mismatch.",
       "orphan repair verified",
+      "await dispatchPendingSyncWorkers(baseUrl, workerToken);",
     ],
     ".github/workflows/reconcile-health-check.yml",
   );
