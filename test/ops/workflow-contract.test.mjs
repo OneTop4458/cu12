@@ -157,6 +157,35 @@ test("autolearn dispatch keeps the stale pending drain check", () => {
   );
 });
 
+test("reconcile health check self-repairs orphaned running jobs", () => {
+  const workflow = readRepoFile(".github/workflows/reconcile-health-check.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "async function dispatchPendingSyncWorkers",
+      'body: JSON.stringify({ trigger: "sync" })',
+      "workerDispatch state=",
+      "worker dispatch failed after orphan repair.",
+    ],
+    ".github/workflows/reconcile-health-check.yml dispatch helper",
+  );
+
+  assertContainsInOrder(
+    workflow,
+    [
+      'const payload = await requestReconcile(targetUrl, workerToken, "GET", "status check");',
+      "orphaned RUNNING jobs detected; attempting internal repair.",
+      'const repairPayload = await requestReconcile(targetUrl, workerToken, "POST", "orphan repair");',
+      'const verifyPayload = await requestReconcile(targetUrl, workerToken, "GET", "repair verify");',
+      "repair did not clear reconcile mismatch.",
+      "orphan repair verified",
+      "await dispatchPendingSyncWorkers(baseUrl, workerToken);",
+    ],
+    ".github/workflows/reconcile-health-check.yml",
+  );
+});
+
 test("secret-bearing workflow scripts do not interpolate user inputs directly", () => {
   const workflows = [
     ".github/workflows/autolearn-dispatch.yml",
