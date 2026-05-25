@@ -17,13 +17,13 @@
     "@cu12/core": "file:../../packages/core",
     "@prisma/client": "^6.19.3",
     "cheerio": "^1.0.0",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^8.0.8",
     "playwright": "^1.60.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
-    "tsx": "^4.22.1",
+    "tsx": "^4.22.3",
     "typescript": "^5.6.3"
   }
 }
