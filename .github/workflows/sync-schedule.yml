@@ -24,7 +24,7 @@ jobs:
       WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
       MIN_INTERVAL_MINUTES: ${{ inputs.minIntervalMinutes }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
