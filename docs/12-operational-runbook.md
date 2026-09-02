@@ -19,12 +19,14 @@
 
 ## Active Job Dedupe Rollout
 
-1. Merge the change through a pull request. Do not run the backfill directly against production from a local shell.
-2. Run `Deploy Vercel`. Its DB phase adds nullable unique `JobQueue.activeDedupeKey` with `prisma db push`, then runs `scripts/db-backfill-active-job-dedupe.mjs`.
-3. The backfill keeps one `RUNNING` row when possible, otherwise the oldest `PENDING` row, and marks other active duplicates `CANCELED`. It logs aggregate counts only.
-4. After the new web deployment, the workflow runs the same idempotent backfill again to absorb null-key rows created during the deployment handoff.
-5. Confirm both backfill summaries report `remainingUnkeyedActiveRows: 0` and `remainingDuplicateGroups: 0`. Do not print job payloads, dedupe keys, or user identifiers while investigating.
-6. Verify new manual and scheduled duplicate requests return one active job ID. Terminal history remains stored, and the same logical key may create a new job after completion.
+1. Failure baseline: [Deploy Vercel run 33591065134](https://github.com/OneTop4458/cu12/actions/runs/33591065134) stopped because `prisma db push` saw the new unique index before the post-push backfill and refused its data-loss warning.
+2. Merge the rollout fix through a pull request. Do not run the prepare/finalize script directly against production from a local shell, and never use `--accept-data-loss`.
+3. Re-run `Deploy Vercel`. Its prepare step is a no-op when `JobQueue` does not exist; otherwise it adds the nullable column, locks the table, keeps one `RUNNING` row when possible (otherwise the oldest `PENDING` row), cancels other active duplicates, and backfills all active keys.
+4. After both verification counts reach zero, prepare creates `JobQueue_activeDedupeKey_key` only when missing. An existing index with a different definition fails without being dropped or recreated.
+5. `prisma db push` now sees the expected nullable column and unique index. The post-sync finalize step verifies/backfills fresh databases after schema creation.
+6. After the new web deployment, the workflow runs finalize again to absorb null-key rows created during the deployment handoff.
+7. Confirm prepare and both finalize summaries report `remainingUnkeyedActiveRows: 0`, `remainingDuplicateGroups: 0`, and `indexReady: true`. Do not print job payloads, dedupe keys, or user identifiers while investigating.
+8. Verify new manual and scheduled duplicate requests return one active job ID. Terminal history remains stored, and the same logical key may create a new job after completion.
 
 ## Course Roster Reconciliation Rollout
 
