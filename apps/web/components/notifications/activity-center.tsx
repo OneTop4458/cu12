@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { NotificationCenter, type DashboardNotification } from "./notification-center";
 
 type ActivityPayload = {
   activities: DashboardNotification[];
+};
+
+type ActivityCenterProps = {
+  initialUnreadCount?: number;
 };
 
 function toDisplayTime(value: string | null | undefined) {
@@ -22,9 +26,14 @@ function sanitizeMessage(message: string): string {
     .trim();
 }
 
-async function readActivity(url: string): Promise<DashboardNotification[]> {
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function readActivity(url: string, signal?: AbortSignal): Promise<DashboardNotification[]> {
   const response = await fetch(url, {
     headers: { accept: "application/json" },
+    signal,
   });
 
   if (response.status === 401) {
@@ -40,56 +49,83 @@ async function readActivity(url: string): Promise<DashboardNotification[]> {
   return Array.isArray(payload.activities) ? payload.activities : [];
 }
 
-export function ActivityCenter() {
+export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [historyNotifications, setHistoryNotifications] = useState<DashboardNotification[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [activeItem, setActiveItem] = useState<DashboardNotification | null>(null);
+  const [latestLoaded, setLatestLoaded] = useState(false);
+  const latestRequestRef = useRef(0);
+  const historyRequestRef = useRef(0);
+  const latestAbortRef = useRef<AbortController | null>(null);
+  const historyAbortRef = useRef<AbortController | null>(null);
 
   const loadLatest = useCallback(async (showLoading = true) => {
+    latestAbortRef.current?.abort();
+    const controller = new AbortController();
+    latestAbortRef.current = controller;
+    const requestId = latestRequestRef.current + 1;
+    latestRequestRef.current = requestId;
     if (showLoading) setLoading(true);
     try {
-      const activities = await readActivity("/api/dashboard/activity?limit=80");
+      const activities = await readActivity("/api/dashboard/activity?limit=80", controller.signal);
+      if (controller.signal.aborted || requestId !== latestRequestRef.current) return;
       setNotifications(activities);
+      setLatestLoaded(true);
     } catch (err) {
-      if ((err as Error).message !== "Unauthorized") {
+      if (!isAbortError(err) && requestId === latestRequestRef.current && (err as Error).message !== "Unauthorized") {
         setNotifications([]);
       }
     } finally {
-      if (showLoading) setLoading(false);
+      if (!controller.signal.aborted && requestId === latestRequestRef.current) {
+        setLoading(false);
+        latestAbortRef.current = null;
+      }
     }
   }, []);
 
   const loadHistory = useCallback(async () => {
+    historyAbortRef.current?.abort();
+    const controller = new AbortController();
+    historyAbortRef.current = controller;
+    const requestId = historyRequestRef.current + 1;
+    historyRequestRef.current = requestId;
     setHistoryLoading(true);
     try {
-      const activities = await readActivity("/api/dashboard/activity?limit=100");
+      const activities = await readActivity("/api/dashboard/activity?limit=100", controller.signal);
+      if (controller.signal.aborted || requestId !== historyRequestRef.current) return;
       setHistoryNotifications(activities);
     } catch (err) {
-      if ((err as Error).message !== "Unauthorized") {
+      if (!isAbortError(err) && requestId === historyRequestRef.current && (err as Error).message !== "Unauthorized") {
         setHistoryNotifications([]);
       }
     } finally {
-      setHistoryLoading(false);
+      if (!controller.signal.aborted && requestId === historyRequestRef.current) {
+        setHistoryLoading(false);
+        historyAbortRef.current = null;
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadLatest(true);
-  }, [loadLatest]);
+    return () => {
+      latestAbortRef.current?.abort();
+      historyAbortRef.current?.abort();
+    };
+  }, []);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
     if (nextOpen) {
-      void loadLatest(false);
+      void loadLatest(!latestLoaded);
       if (showHistory) void loadHistory();
     }
-  }, [loadHistory, loadLatest, showHistory]);
+  }, [latestLoaded, loadHistory, loadLatest, showHistory]);
 
   const toggleHistory = useCallback(() => {
     setShowHistory((previous) => {
@@ -156,6 +192,7 @@ export function ActivityCenter() {
         open={open}
         loading={loading}
         historyLoading={historyLoading}
+        unreadCount={latestLoaded ? undefined : Math.max(0, initialUnreadCount)}
         onOpenChange={handleOpenChange}
         onRefresh={() => void (showHistory ? loadHistory() : loadLatest(true))}
         onToggleHistory={toggleHistory}

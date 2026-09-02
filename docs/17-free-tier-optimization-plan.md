@@ -10,7 +10,7 @@ Keep CU12 Automation within free-tier limits for GitHub Actions, Vercel, and Neo
 2. Scheduled workflows now skip consume stage when dispatch created zero jobs.
 3. `worker-consume` supports job-type filtering; routine digest dispatch is disabled.
 4. CodeQL changed to weekly schedule only (manual runs remain available).
-5. Dashboard initial load now uses aggregated bootstrap API and adaptive polling.
+5. Dashboard bootstrap and independent course, deadline, and job requests start together; activity details wait until the notification center opens, and session refresh waits for actual user activity.
 6. Daily DB cleanup applies retention windows for logs, terminal jobs, mail deliveries, and withdrawn accounts, while still removing legacy bogus course notices; focused manual repair can clear notification events for one user.
 7. Daily Actions usage forecast provides early warning.
 
