@@ -115,7 +115,10 @@ test("attention count matches getActivity needsAttention semantics", async (t) =
 });
 
 test("attention endpoint is authenticated, no-store, partial-safe, and count-only", () => {
-  const countRoute = readRepoFile("apps/web/app/api/dashboard/activity/attention-count/route.ts");
+  const countRoute = [
+    readRepoFile("apps/web/app/api/dashboard/activity/attention-count/route.ts"),
+    readRepoFile("apps/web/app/api/dashboard/activity/attention-count/handler.ts"),
+  ].join("\n");
   const activityRoute = readRepoFile("apps/web/app/api/dashboard/activity/route.ts");
   const dashboardServer = readRepoFile("apps/web/src/server/dashboard.ts");
   const activityCenter = readRepoFile("apps/web/components/notifications/activity-center.tsx");
@@ -125,10 +128,11 @@ test("attention endpoint is authenticated, no-store, partial-safe, and count-onl
   const activityStart = dashboardServer.indexOf("export async function getActivity(", countStart);
   const countImplementation = dashboardServer.slice(countStart, activityStart);
 
-  assert.match(countRoute, /requireAuthContext\(request\)[\s\S]+?jsonError\("Unauthorized", 401\)/);
+  assert.match(countRoute, /authenticate: requireAuthContext/);
+  assert.match(countRoute, /dependencies\.authenticate\(request\)[\s\S]+?jsonError\("Unauthorized", 401\)/);
   assert.match(countRoute, /PORTAL_PROVIDERS\.map/);
   assert.match(countRoute, /loadOptionalDashboardSegment\([\s\S]+?getActivityAttentionCount[\s\S]+?0,/);
-  assert.match(countRoute, /"cache-control": "no-store"/);
+  assert.match(countRoute, /headers\.set\("cache-control", "no-store"\)/);
   assert.doesNotMatch(countRoute, /getActivity\(/);
   assert.match(activityRoute, /getActivityAttentionCount/);
   assert.match(activityRoute, /attentionCounts\.reduce/);
