@@ -30,6 +30,13 @@ interface HttpTextResponse {
 
 type CancelCheck = () => Promise<boolean>;
 
+export function extractCu12CsrfRequestHeaders(html: string): Record<string, string> {
+  const token = html.match(/\b(?:const|let|var)\s+xToken\s*=\s*["']([A-Za-z0-9._~-]+)["']/)?.[1];
+  const headerName = html.match(/\b(?:const|let|var)\s+xHeader\s*=\s*["']([A-Za-z0-9-]+)["']/)?.[1];
+  if (!token || !headerName) return {};
+  return { [headerName]: token };
+}
+
 class Cu12SessionClient {
   private readonly baseUrl: string;
   private readonly cookieJar = new Map<string, string>();
@@ -638,13 +645,22 @@ export async function collectCu12SnapshotViaHttp(
     throw new Error("JOB_CANCELLED");
   }
 
-  const myCourseResponse = await client.getText("/el/member/mycourse_list_form.acl");
+  const myCourseFormResponse = await client.getText("/el/member/mycourse_list_form.acl");
+  client.assertAuthenticated(myCourseFormResponse);
+  const myCourseResponse = await client.postForm(
+    "/el/member/mycourse_list.acl",
+    new URLSearchParams({ LECTURE_ST: "", encoding: "utf-8" }),
+    {
+      "x-requested-with": "XMLHttpRequest",
+      ...extractCu12CsrfRequestHeaders(myCourseFormResponse.text),
+    },
+  );
   client.assertAuthenticated(myCourseResponse);
   const courses = parseMyCourseHtml(myCourseResponse.text, userId, "ACTIVE");
   const rosterAssessment = assessCourseRoster({
     html: myCourseResponse.text,
     currentUrl: myCourseResponse.url,
-    expectedPath: "/el/member/mycourse_list_form.acl",
+    expectedPath: "/el/member/mycourse_list.acl",
     sourceIdentifiers: extractCu12CourseRosterIdentifiers(myCourseResponse.text),
     parsedIdentifiers: courses.map((course) => String(course.lectureSeq)),
   });

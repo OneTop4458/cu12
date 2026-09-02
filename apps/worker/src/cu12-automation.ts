@@ -465,6 +465,27 @@ function installDialogHandler(page: Page) {
 
 export const CU12_LOGIN_NAVIGATION_TIMEOUT_MS = 120_000;
 
+async function gotoCu12CourseRoster(page: Page, url: string): Promise<void> {
+  const rosterResponse = page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === "/el/member/mycourse_list.acl"
+        && response.request().method() === "POST";
+    } catch {
+      return false;
+    }
+  }, { timeout: 30_000 });
+
+  await gotoWithRetry(page, url, { waitUntil: "domcontentloaded" });
+  const response = await rosterResponse;
+  if (!response.ok()) {
+    throw new Error(`CU12_COURSE_ROSTER_FRAGMENT_FAILED:${response.status()}`);
+  }
+  await page.waitForFunction(() => {
+    const listZone = document.querySelector("#list_zone");
+    return Boolean(listZone && listZone.childElementCount > 0);
+  }, undefined, { timeout: 30_000 });
+}
+
 async function ensureLogin(page: Page, creds: Cu12Credentials) {
   const env = getEnv();
   const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
@@ -1143,7 +1164,7 @@ export async function collectCu12Snapshot(
       throw new Error("JOB_CANCELLED");
     }
 
-    await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
+    await gotoCu12CourseRoster(page, `${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`);
     const myCourseHtml = await page.content();
     const courses = parseMyCourseHtml(myCourseHtml, userId, "ACTIVE");
     const rosterAssessment = assessCourseRoster({
@@ -1882,7 +1903,7 @@ async function getCourses(
   envBaseUrl: string,
   userId: string,
 ): Promise<Array<{ lectureSeq: number; title: string }>> {
-  await gotoWithRetry(page, `${envBaseUrl}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
+  await gotoCu12CourseRoster(page, `${envBaseUrl}/el/member/mycourse_list_form.acl`);
   const rawCourses = parseMyCourseHtml(await page.content(), userId, "ACTIVE");
   const now = Date.now();
   const courses = rawCourses.filter((course) => {
