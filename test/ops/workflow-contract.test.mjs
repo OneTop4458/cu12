@@ -180,8 +180,9 @@ test("db sync workflows keep the guarded prisma push sequence", () => {
     "pnpm run prisma:generate",
     "node scripts/db-ensure-auth-policy-constraints.mjs",
     "node scripts/db-drop-invite-token.mjs",
+    "node scripts/db-backfill-active-job-dedupe.mjs --mode=prepare",
     "pnpm exec prisma db push --schema prisma/schema.prisma",
-    "node scripts/db-backfill-active-job-dedupe.mjs",
+    "node scripts/db-backfill-active-job-dedupe.mjs --mode=finalize",
     "node scripts/db-backfill-auth-policy-columns.mjs",
   ];
 
@@ -192,7 +193,9 @@ test("db sync workflows keep the guarded prisma push sequence", () => {
   ];
 
   for (const workflowPath of workflows) {
-    assertContainsInOrder(readRepoFile(workflowPath), requiredSequence, workflowPath);
+    const workflow = readRepoFile(workflowPath);
+    assertContainsInOrder(workflow, requiredSequence, workflowPath);
+    assertDoesNotContain(workflow, "--accept-data-loss", workflowPath);
   }
 });
 
@@ -210,6 +213,7 @@ test("job dedupe rollout cleans active duplicates after schema sync and finalize
     backfill,
     [
       'LOCK TABLE "JobQueue" IN ACCESS EXCLUSIVE MODE',
+      'ADD COLUMN IF NOT EXISTS "activeDedupeKey" TEXT',
       'PARTITION BY "userId", "type", "idempotencyKey"',
       `CASE WHEN "status"::text = 'RUNNING' THEN 0 ELSE 1 END`,
       `"status" = 'CANCELED'`,
@@ -217,17 +221,24 @@ test("job dedupe rollout cleans active duplicates after schema sync and finalize
       `"activeDedupeKey" = concat(`,
       "remainingUnkeyedActiveRows",
       "remainingDuplicateGroups",
+      "CREATE UNIQUE INDEX IF NOT EXISTS",
       "console.log(JSON.stringify(summary))",
     ],
     "active job dedupe backfill",
   );
+  assert.match(backfill, /ACTIVE_DEDUPE_INDEX_NAME = "JobQueue_activeDedupeKey_key"/);
+  assert.match(backfill, /row\.method === "btree"/);
+  assert.match(backfill, /row\.columns\[0\] === "activeDedupeKey"/);
+  assert.doesNotMatch(backfill, /--accept-data-loss|DROP\s+(?:INDEX|CONSTRAINT)/i);
   assert.doesNotMatch(backfill, /console\.(?:log|warn|error)\([^\n]*(?:userId|idempotencyKey|payload|activeDedupeKey)/);
-  assert.equal(deploy.match(/node scripts\/db-backfill-active-job-dedupe\.mjs/g)?.length, 2);
+  assert.equal(deploy.match(/node scripts\/db-backfill-active-job-dedupe\.mjs/g)?.length, 3);
+  assert.doesNotMatch(deploy, /--accept-data-loss/);
   assertContainsInOrder(
     deploy,
     [
+      "Prepare active job dedupe rollout",
       "pnpm exec prisma db push --schema prisma/schema.prisma",
-      "Backfill active job dedupe keys before deploy",
+      "Finalize active job dedupe rollout after schema sync",
       "Deploy production bundle",
       "Finalize active job dedupe keys after deploy",
     ],

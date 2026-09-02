@@ -6,8 +6,9 @@
    - Runs text quality, OpenAPI sync, Prisma generate, lint, typecheck, tests, and `build:web`.
 
 2. `deploy-vercel.yml`
-   - Runs the same validation gate as CI, then performs DB safety checks, `prisma db push`, active-job dedupe/auth-policy backfills, and production Vercel deploy.
+   - Runs the same validation gate as CI, then prepares active-job dedupe state before `prisma db push`, finalizes backfills after schema sync, and performs the production Vercel deploy.
    - Re-runs the idempotent active-job dedupe backfill after deploy to absorb null-key rows created during the old/new application handoff window.
+   - Never add `--accept-data-loss`; the prepare step creates the exact Prisma-compatible unique index before schema sync on populated databases.
    - This workflow must remain the only production deployment path. Direct Vercel Git production deploys can bypass DB sync and ship schema-mismatched code.
    - Triggers on `main` pushes affecting deploy-relevant paths and on manual dispatch.
 
