@@ -874,6 +874,7 @@ async function processSync(
       + ` tasks=${snapshot.tasks.length}`
       + ` notifications=${snapshot.notifications.length}`
       + ` messages=${messageCount}`
+      + ` endedCourses=${persisted.endedCourseCount}`
       + ` elapsed=${Math.max(1, Math.floor((Date.now() - startedAtMs) / 1000))}s`,
     );
 
@@ -890,6 +891,7 @@ async function processSync(
         taskCount: snapshot.tasks.length,
         notificationCount: snapshot.notifications.length,
         messageCount,
+        endedCourseCount: persisted.endedCourseCount,
       },
     });
 
@@ -902,6 +904,7 @@ async function processSync(
       newNoticeCount: persisted.newNoticeCount,
       newNotificationCount: persisted.newNotificationCount,
       newMessageCount: persisted.newMessageCount,
+      endedCourseCount: persisted.endedCourseCount,
       pendingTaskCount: persisted.pendingTaskCount,
       deadlineTaskCount: persisted.deadlineTasks.length,
     };
@@ -1112,7 +1115,7 @@ async function processAutolearn(
         },
       )
       : await collectCu12Snapshot(browser, userId, cu12Creds, shouldCancel);
-    await persistSnapshot(userId, targetProvider, snapshot);
+    const persisted = await persistSnapshot(userId, targetProvider, snapshot);
 
     await writeAuditLog({
       category: "WORKER",
@@ -1128,6 +1131,7 @@ async function processAutolearn(
           noOpReason: autoResult.noOpReason,
           plannedTaskCount: autoResult.plannedTaskCount,
           lectureSeqs: autoResult.lectureSeqs,
+          endedCourseCount: persisted.endedCourseCount,
         },
       });
 

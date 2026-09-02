@@ -504,12 +504,15 @@ async function countCourseNotices(input: {
   userId: string;
   provider: PortalProvider;
   lectureSeq?: number;
+  lectureSeqs?: number[];
   isRead?: boolean;
   bodyText?: string;
 }): Promise<number> {
+  if (input.lectureSeqs && input.lectureSeqs.length === 0) return 0;
   const baseWhere = {
     userId: input.userId,
     ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+    ...(input.lectureSeqs && input.lectureSeqs.length > 0 ? { lectureSeq: { in: input.lectureSeqs } } : {}),
     ...(typeof input.isRead === "boolean" ? { isRead: input.isRead } : {}),
     ...(typeof input.bodyText === "string" ? { bodyText: input.bodyText } : {}),
   };
@@ -533,6 +536,9 @@ async function countCourseNotices(input: {
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
     }
+    if (input.lectureSeqs && input.lectureSeqs.length > 0) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" IN (${Prisma.join(input.lectureSeqs)})`);
+    }
     if (typeof input.isRead === "boolean") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "isRead" = ${input.isRead}`);
     }
@@ -551,14 +557,19 @@ async function countCourseNotices(input: {
 async function loadCourseNoticeCountsByLecture(input: {
   userId: string;
   provider: PortalProvider;
+  lectureSeqs?: number[];
   isRead?: boolean;
 }): Promise<CourseNoticeCountGroup[]> {
+  if (input.lectureSeqs && input.lectureSeqs.length === 0) return [];
+  const lectureSeq = input.lectureSeqs && input.lectureSeqs.length > 0
+    ? { in: input.lectureSeqs }
+    : undefined;
   try {
     return await withProviderCompatibility(
       input.userId,
       input.provider,
-      () => groupCourseNoticesByLecture({ userId: input.userId, provider: input.provider, isRead: input.isRead }),
-      () => groupCourseNoticesByLecture({ userId: input.userId, isRead: input.isRead }),
+      () => groupCourseNoticesByLecture({ userId: input.userId, provider: input.provider, lectureSeq, isRead: input.isRead }),
+      () => groupCourseNoticesByLecture({ userId: input.userId, lectureSeq, isRead: input.isRead }),
       [] as CourseNoticeCountGroup[],
     );
   } catch (error) {
@@ -566,6 +577,9 @@ async function loadCourseNoticeCountsByLecture(input: {
     let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.isRead === "boolean") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "isRead" = ${input.isRead}`);
+    }
+    if (input.lectureSeqs && input.lectureSeqs.length > 0) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" IN (${Prisma.join(input.lectureSeqs)})`);
     }
     const rows = await prisma.$queryRaw<Array<{ lectureSeq: number; count: number | bigint | string }>>(Prisma.sql`
       SELECT
@@ -586,8 +600,10 @@ async function loadCourseNoticeSamples(input: {
   userId: string;
   provider: PortalProvider;
   lectureSeq?: number;
+  lectureSeqs?: number[];
   limit: number;
 }): Promise<CourseNoticeSampleRow[]> {
+  if (input.lectureSeqs && input.lectureSeqs.length === 0) return [];
   try {
     return await withProviderCompatibility(
       input.userId,
@@ -597,6 +613,7 @@ async function loadCourseNoticeSamples(input: {
           userId: input.userId,
           provider: input.provider,
           ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+          ...(input.lectureSeqs && input.lectureSeqs.length > 0 ? { lectureSeq: { in: input.lectureSeqs } } : {}),
         },
         take: input.limit,
         orderBy: { updatedAt: "desc" },
@@ -613,6 +630,7 @@ async function loadCourseNoticeSamples(input: {
         where: {
           userId: input.userId,
           ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+          ...(input.lectureSeqs && input.lectureSeqs.length > 0 ? { lectureSeq: { in: input.lectureSeqs } } : {}),
         },
         take: input.limit,
         orderBy: { updatedAt: "desc" },
@@ -632,6 +650,9 @@ async function loadCourseNoticeSamples(input: {
     let whereSql = Prisma.sql`WHERE "userId" = ${input.userId} AND "provider"::text = ${input.provider}`;
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
+    }
+    if (input.lectureSeqs && input.lectureSeqs.length > 0) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" IN (${Prisma.join(input.lectureSeqs)})`);
     }
     return prisma.$queryRaw<Array<CourseNoticeSampleRow>>(Prisma.sql`
       SELECT
@@ -653,14 +674,17 @@ async function fetchLearningTasksRaw(input: {
   userId: string;
   provider: PortalProvider;
   lectureSeq?: number;
+  lectureSeqs?: number[];
   dueAtGte?: Date;
   dueAtLte?: Date;
   limit?: number;
   orderBy?: "dueAtAsc" | "lectureWeekLessonAsc";
 }): Promise<Array<LearningTaskRow & { activityType: LearningTaskActivityType; state: LearningTaskState }>> {
+  if (input.lectureSeqs && input.lectureSeqs.length === 0) return [];
   const sharedWhere = {
     userId: input.userId,
     ...(typeof input.lectureSeq === "number" ? { lectureSeq: input.lectureSeq } : {}),
+    ...(input.lectureSeqs && input.lectureSeqs.length > 0 ? { lectureSeq: { in: input.lectureSeqs } } : {}),
     ...(input.dueAtGte || input.dueAtLte
       ? {
         dueAt: {
@@ -716,6 +740,9 @@ async function fetchLearningTasksRaw(input: {
     if (typeof input.lectureSeq === "number") {
       whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" = ${input.lectureSeq}`);
     }
+    if (input.lectureSeqs && input.lectureSeqs.length > 0) {
+      whereSql = appendSql(whereSql, Prisma.sql`AND "lectureSeq" IN (${Prisma.join(input.lectureSeqs)})`);
+    }
     if (input.dueAtGte) {
       whereSql = appendSql(whereSql, Prisma.sql`AND "dueAt" >= ${input.dueAtGte}`);
     }
@@ -765,6 +792,7 @@ function mapNoticeCountsByLecture(
 function groupCourseNoticesByLecture(where: {
   userId: string;
   provider?: PortalProvider;
+  lectureSeq?: { in: number[] };
   isRead?: boolean;
 }): Promise<CourseNoticeCountGroup[]> {
   return prisma.courseNotice.groupBy({
@@ -819,6 +847,15 @@ function filterOutStaleCyberCampusLectureSeqs<T extends { lectureSeq: number }>(
   return rows.filter((row) => !staleLectureSeqs.has(row.lectureSeq));
 }
 
+function filterActiveCourseSnapshots(rows: CourseSnapshotRow[]): CourseSnapshotRow[] {
+  return rows.filter((row) => row.status === CourseStatus.ACTIVE);
+}
+
+function filterToLectureSeqs<T extends { lectureSeq: number }>(rows: T[], lectureSeqs: number[]): T[] {
+  const allowed = new Set(lectureSeqs);
+  return rows.filter((row) => allowed.has(row.lectureSeq));
+}
+
 export function combineDashboardSummaries(
   byProvider: Record<PortalProvider, DashboardSummary>,
 ): DashboardSummary {
@@ -869,27 +906,33 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
   const staleLectureSeqs = provider === "CYBER_CAMPUS"
     ? await getStaleCyberCampusLectureSeqs(userId)
     : new Set<number>();
-  const upcomingWindowTasks = filterOutStaleCyberCampusLectureSeqs(
+  const activeCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
+    await loadCourseSnapshots({
+      userId,
+      provider,
+      status: CourseStatus.ACTIVE,
+    }),
+    staleLectureSeqs,
+  ));
+  const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
+  const upcomingWindowTasks = filterToLectureSeqs(filterOutStaleCyberCampusLectureSeqs(
     await fetchLearningTasksRaw({
       userId,
       provider,
+      lectureSeqs: activeLectureSeqs,
       dueAtGte: now,
       dueAtLte: soon,
       orderBy: "dueAtAsc",
     }),
     staleLectureSeqs,
-  );
+  ), activeLectureSeqs);
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
-  const [activeCourses, unreadNoticeCount, syncJobs, user] = await Promise.all([
-    loadCourseSnapshots({
-      userId,
-      provider,
-      status: CourseStatus.ACTIVE,
-    }),
+  const [unreadNoticeCount, syncJobs, user] = await Promise.all([
     countCourseNotices({
       userId,
       provider,
+      lectureSeqs: activeLectureSeqs,
       isRead: false,
     }),
     prisma.jobQueue.findMany({
@@ -908,10 +951,9 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
       select: { isTestUser: true },
     }),
   ]);
-  const filteredActiveCourses = filterOutStaleCyberCampusLectureSeqs(activeCourses, staleLectureSeqs);
-  const activeCourseCount = filteredActiveCourses.length;
+  const activeCourseCount = activeCourses.length;
   const avgProgress = activeCourseCount > 0
-    ? filteredActiveCourses.reduce((sum, course) => sum + course.progressPercent, 0) / activeCourseCount
+    ? activeCourses.reduce((sum, course) => sum + course.progressPercent, 0) / activeCourseCount
     : 0;
 
   const providerSyncJobs = syncJobs.filter((job) => getJobPayloadProvider(job.payload) === provider);
@@ -943,29 +985,38 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
     ? await getStaleCyberCampusLectureSeqs(userId)
     : new Set<number>();
 
-  const [courses, tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
-    loadCourseSnapshots({
-      userId,
-      provider,
-      orderBy: "statusRemainDaysTitle",
-    }),
+  const courses = await loadCourseSnapshots({
+    userId,
+    provider,
+    status: CourseStatus.ACTIVE,
+    orderBy: "statusRemainDaysTitle",
+  });
+  const filteredCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs));
+  const activeLectureSeqs = filteredCourses.map((course) => course.lectureSeq);
+
+  const [tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
     fetchLearningTasksRaw({
       userId,
       provider,
+      lectureSeqs: activeLectureSeqs,
       orderBy: "lectureWeekLessonAsc",
     }),
     loadCourseNoticeCountsByLecture({
       userId,
       provider,
+      lectureSeqs: activeLectureSeqs,
     }),
     loadCourseNoticeCountsByLecture({
       userId,
       provider,
+      lectureSeqs: activeLectureSeqs,
       isRead: false,
     }),
   ]);
-  const filteredCourses = filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs);
-  const filteredTasks = filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs);
+  const filteredTasks = filterToLectureSeqs(
+    filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs),
+    activeLectureSeqs,
+  );
 
   const grouped = new Map<number, typeof tasks>();
   for (const task of filteredTasks) {
@@ -1159,16 +1210,26 @@ export async function getUpcomingDeadlines(userId: string, limit = 30, provider:
   const staleLectureSeqs = provider === "CYBER_CAMPUS"
     ? await getStaleCyberCampusLectureSeqs(userId)
     : new Set<number>();
-  const tasksRaw = filterOutStaleCyberCampusLectureSeqs(
+  const activeCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
+    await loadCourseSnapshots({
+      userId,
+      provider,
+      status: CourseStatus.ACTIVE,
+    }),
+    staleLectureSeqs,
+  ));
+  const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
+  const tasksRaw = filterToLectureSeqs(filterOutStaleCyberCampusLectureSeqs(
     await fetchLearningTasksRaw({
       userId,
       provider,
+      lectureSeqs: activeLectureSeqs,
       dueAtGte: now,
       limit: Math.min(Math.max(limit, 1), 100),
       orderBy: "dueAtAsc",
     }),
     staleLectureSeqs,
-  );
+  ), activeLectureSeqs);
   const tasks = tasksRaw
     .map((task) => ({
       ...task,
@@ -1186,15 +1247,7 @@ export async function getUpcomingDeadlines(userId: string, limit = 30, provider:
       return a.lessonNo - b.lessonNo;
     });
 
-  const seqs = Array.from(new Set(tasks.map((task) => task.lectureSeq)));
-  const courses = seqs.length > 0
-    ? await loadCourseSnapshots({
-      userId,
-      provider,
-      lectureSeqs: seqs,
-    })
-    : [];
-  const titleBySeq = new Map(courses.map((course) => [course.lectureSeq, course.title]));
+  const titleBySeq = new Map(activeCourses.map((course) => [course.lectureSeq, course.title]));
 
   return tasks.map((task) => ({
     lectureSeq: task.lectureSeq,
@@ -1226,34 +1279,38 @@ export async function getDashboardDiagnostics(
     ? await getStaleCyberCampusLectureSeqs(userId)
     : new Set<number>();
 
-  const [courses, tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
-    loadCourseSnapshots({
-      userId,
-      provider,
-      lectureSeq: options?.lectureSeq,
-      orderBy: "lectureSeqAsc",
-    }),
+  const courses = await loadCourseSnapshots({
+    userId,
+    provider,
+    lectureSeq: options?.lectureSeq,
+    status: CourseStatus.ACTIVE,
+    orderBy: "lectureSeqAsc",
+  });
+  const filteredCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs));
+  const activeLectureSeqs = filteredCourses.map((course) => course.lectureSeq);
+
+  const [tasks, totalNoticeCount, emptyNoticeCount, noticeSamples, recentJobs] = await Promise.all([
     fetchLearningTasksRaw({
       userId,
       provider,
-      lectureSeq: options?.lectureSeq,
+      lectureSeqs: activeLectureSeqs,
       orderBy: "lectureWeekLessonAsc",
     }),
     countCourseNotices({
       userId,
       provider,
-      lectureSeq: options?.lectureSeq,
+      lectureSeqs: activeLectureSeqs,
     }),
     countCourseNotices({
       userId,
       provider,
-      lectureSeq: options?.lectureSeq,
+      lectureSeqs: activeLectureSeqs,
       bodyText: "",
     }),
     loadCourseNoticeSamples({
       userId,
       provider,
-      lectureSeq: options?.lectureSeq,
+      lectureSeqs: activeLectureSeqs,
       limit: sampleLimit,
     }),
     prisma.jobQueue.findMany({
@@ -1274,8 +1331,10 @@ export async function getDashboardDiagnostics(
       },
     }),
   ]);
-  const filteredCourses = filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs);
-  const filteredTasks = filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs);
+  const filteredTasks = filterToLectureSeqs(
+    filterOutStaleCyberCampusLectureSeqs(tasks, staleLectureSeqs),
+    activeLectureSeqs,
+  );
 
   const titleByLectureSeq = new Map(filteredCourses.map((course) => [course.lectureSeq, course.title]));
   const groupedTasks = new Map<number, typeof tasks>();
@@ -1464,6 +1523,14 @@ function dedupeNoticeRows(rows: CourseNoticeRow[]): CourseNoticeRow[] {
 }
 
 export async function getNotices(userId: string, lectureSeq: number, provider: PortalProvider = "CU12") {
+  const activeCourse = await loadCourseSnapshots({
+    userId,
+    provider,
+    lectureSeq,
+    status: CourseStatus.ACTIVE,
+  });
+  if (filterActiveCourseSnapshots(activeCourse).length === 0) return [];
+
   const rows = await withProviderCompatibility(
     userId,
     provider,
@@ -1488,19 +1555,31 @@ export async function getActivity(
   const take = Math.min(Math.max(limit, 1), 100);
   const now = new Date();
   const urgentUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const staleLectureSeqs = provider === "CYBER_CAMPUS"
+    ? await getStaleCyberCampusLectureSeqs(userId)
+    : new Set<number>();
+  const activeCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
+    await loadCourseSnapshots({
+      userId,
+      provider,
+      status: CourseStatus.ACTIVE,
+    }),
+    staleLectureSeqs,
+  ));
+  const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
 
   const [notices, notifications, messages, urgentTasks] = await Promise.all([
     withProviderCompatibility(
       userId,
       provider,
       () => prisma.courseNotice.findMany({
-        where: { userId, provider, isRead: false },
+        where: { userId, provider, lectureSeq: { in: activeLectureSeqs }, isRead: false },
         orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
         take: Math.min(take, 30),
         select: { id: true, provider: true, title: true, bodyText: true, postedAt: true, createdAt: true, isRead: true },
       }),
       () => prisma.courseNotice.findMany({
-        where: { userId, isRead: false },
+        where: { userId, lectureSeq: { in: activeLectureSeqs }, isRead: false },
         orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
         take: Math.min(take, 30),
         select: { id: true, provider: true, title: true, bodyText: true, postedAt: true, createdAt: true, isRead: true },
@@ -1587,13 +1666,13 @@ export async function getActivity(
       userId,
       provider,
       () => prisma.learningTask.findMany({
-        where: { userId, provider, state: "PENDING", dueAt: { gte: now, lte: urgentUntil } },
+        where: { userId, provider, lectureSeq: { in: activeLectureSeqs }, state: "PENDING", dueAt: { gte: now, lte: urgentUntil } },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
         take: 20,
         select: { id: true, provider: true, lectureSeq: true, weekNo: true, lessonNo: true, dueAt: true, createdAt: true },
       }),
       () => prisma.learningTask.findMany({
-        where: { userId, state: "PENDING", dueAt: { gte: now, lte: urgentUntil } },
+        where: { userId, lectureSeq: { in: activeLectureSeqs }, state: "PENDING", dueAt: { gte: now, lte: urgentUntil } },
         orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
         take: 20,
         select: { id: true, provider: true, lectureSeq: true, weekNo: true, lessonNo: true, dueAt: true, createdAt: true },
@@ -1602,23 +1681,7 @@ export async function getActivity(
     ),
   ]);
 
-  const lectureSeqs = Array.from(new Set(urgentTasks.map((task) => task.lectureSeq)));
-  const titleRows = lectureSeqs.length > 0
-    ? await withProviderCompatibility(
-      userId,
-      provider,
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, provider, lectureSeq: { in: lectureSeqs } },
-        select: { lectureSeq: true, title: true },
-      }),
-      () => prisma.courseSnapshot.findMany({
-        where: { userId, lectureSeq: { in: lectureSeqs } },
-        select: { lectureSeq: true, title: true },
-      }),
-      [],
-    )
-    : [];
-  const titleBySeq = new Map(titleRows.map((row) => [row.lectureSeq, row.title]));
+  const titleBySeq = new Map(activeCourses.map((course) => [course.lectureSeq, course.title]));
 
   const activities: DashboardActivityItem[] = [
     ...notices.map((notice) => ({

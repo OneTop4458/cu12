@@ -12,6 +12,7 @@ import {
 } from "@cu12/core";
 import { type Browser, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { getEnv } from "./env";
+import { assessCourseRoster, extractCu12CourseRosterIdentifiers } from "./course-roster";
 import { gotoWithRetry } from "./navigation-retry";
 import {
   generateQuizAnswer,
@@ -27,6 +28,7 @@ export interface Cu12Credentials {
 }
 
 export interface SyncSnapshotResult {
+  courseRosterAuthoritative: boolean;
   courses: CourseState[];
   notices: CourseNotice[];
   notifications: NotificationEvent[];
@@ -1144,6 +1146,16 @@ export async function collectCu12Snapshot(
     await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
     const myCourseHtml = await page.content();
     const courses = parseMyCourseHtml(myCourseHtml, userId, "ACTIVE");
+    const rosterAssessment = assessCourseRoster({
+      html: myCourseHtml,
+      currentUrl: page.url(),
+      expectedPath: "/el/member/mycourse_list_form.acl",
+      sourceIdentifiers: extractCu12CourseRosterIdentifiers(myCourseHtml),
+      parsedIdentifiers: courses.map((course) => String(course.lectureSeq)),
+    });
+    if (!rosterAssessment.authoritative) {
+      throw new Error(`COURSE_ROSTER_UNVERIFIED:${rosterAssessment.reason}`);
+    }
 
     const notices: CourseNotice[] = [];
     const tasks: LearningTask[] = [];
@@ -1283,7 +1295,7 @@ export async function collectCu12Snapshot(
       ...buildTiming(courses.length, courses.length),
     });
 
-    return { courses, notices, notifications, tasks };
+    return { courseRosterAuthoritative: true, courses, notices, notifications, tasks };
   } finally {
     await context.close();
   }

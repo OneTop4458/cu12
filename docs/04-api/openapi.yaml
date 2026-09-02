@@ -812,7 +812,7 @@ paths:
   /api/dashboard/summary:
     get:
       tags: [Dashboard]
-      summary: Dashboard summary counters
+      summary: Dashboard summary counters for active courses
       security:
         - cookieAuth: []
       responses:
@@ -913,12 +913,12 @@ paths:
   /api/dashboard/courses:
     get:
       tags: [Dashboard]
-      summary: Course snapshot list
+      summary: Active course snapshot list
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Course list payload
+          description: Active course list payload; ended course snapshots are retained but excluded
           content:
             application/json:
               schema:
@@ -933,7 +933,7 @@ paths:
   /api/dashboard/courses/{lectureSeq}/detail:
     get:
       tags: [Dashboard]
-      summary: Detailed week/task breakdown for one course
+      summary: Detailed week/task breakdown for one active course
       security:
         - cookieAuth: []
       parameters:
@@ -958,7 +958,7 @@ paths:
         "401":
           description: Unauthorized
         "404":
-          description: Course not found
+          description: Active course not found
 
   /api/dashboard/diagnostics:
     get:
@@ -999,7 +999,7 @@ paths:
   /api/dashboard/deadlines:
     get:
       tags: [Dashboard]
-      summary: Upcoming pending task deadlines
+      summary: Upcoming pending task deadlines for active courses
       security:
         - cookieAuth: []
       parameters:
@@ -1026,7 +1026,7 @@ paths:
   /api/dashboard/courses/{lectureSeq}/notices:
     get:
       tags: [Dashboard]
-      summary: Notices for one course
+      summary: Notices for one active course
       security:
         - cookieAuth: []
       parameters:
@@ -1068,7 +1068,7 @@ paths:
   /api/dashboard/activity:
     get:
       tags: [Dashboard]
-      summary: Unified dashboard activity feed for effective user
+      summary: Unified dashboard activity feed scoped to current active-course notices and deadlines
       security:
         - cookieAuth: []
       parameters:
