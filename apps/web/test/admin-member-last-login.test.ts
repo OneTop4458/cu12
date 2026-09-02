@@ -37,7 +37,7 @@ test("admin member last login display is fixed to KST and handles missing values
 });
 
 test("OpenAPI documents nullable admin member lastLoginAt without lastLoginIp", () => {
-  const openapi = readRepoFile("docs/04-api/openapi.yaml");
+  const openapi = readRepoFile("docs/04-api/openapi.yaml").replace(/\r\n/g, "\n");
   const adminMemberSchema = openapi.slice(
     openapi.indexOf("    AdminMember:\n"),
     openapi.indexOf("    AdminMemberListResponse:\n"),

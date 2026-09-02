@@ -38,7 +38,8 @@
    - Fails when GitHub run visibility is unavailable, repair cannot clear orphaned `RUNNING` jobs, or active ghost runs have no matching DB job.
 
 8. `db-retention-cleanup.yml`
-   - Scheduled cleanup runs the worker retention task for audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months.
+   - Scheduled cleanup removes expired or invalid portal sessions, terminal portal-approval history older than 30 days, audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months.
+   - Its JSON summary reports only aggregate deletion counts and failed step names; it must never print user identifiers, cookies, approval codes, or other authentication metadata.
    - The workflow also removes legacy bogus course notices.
    - Manual `user_repair` mode can target a selected user and clear their notification events during focused repair.
 

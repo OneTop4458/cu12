@@ -6,6 +6,10 @@ import type {
   PortalMessage,
   PortalProvider,
 } from "@cu12/core";
+import {
+  ACTIVE_PORTAL_APPROVAL_STATUSES,
+  buildPortalApprovalTerminalScrub,
+} from "@cu12/core";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secret";
@@ -680,33 +684,56 @@ export async function updatePortalApprovalSessionStateForWorker(input: {
   completedAt?: Date | null;
   canceledAt?: Date | null;
 }) {
+  const terminalScrub = buildPortalApprovalTerminalScrub(input.status);
+  const data: Prisma.PortalApprovalSessionUpdateManyMutationInput = {
+    ...(input.cookieState ? { encryptedCookieState: encodePortalSessionCookieState(input.cookieState) } : {}),
+    ...(input.status !== undefined ? { status: input.status } : {}),
+    ...(input.runtimeState !== undefined ? { runtimeState: input.runtimeState } : {}),
+    ...(input.methods !== undefined ? { methods: input.methods as unknown as Prisma.InputJsonValue } : {}),
+    ...(input.requestedAction !== undefined ? { requestedAction: input.requestedAction } : {}),
+    ...(input.pendingCode !== undefined ? { encryptedPendingCode: encodePortalApprovalPendingCode(input.pendingCode) } : {}),
+    ...(input.selectedWay !== undefined ? { selectedWay: input.selectedWay } : {}),
+    ...(input.selectedParam !== undefined ? { selectedParam: input.selectedParam } : {}),
+    ...(input.selectedTarget !== undefined ? { selectedTarget: input.selectedTarget } : {}),
+    ...(input.authSeq !== undefined ? { authSeq: input.authSeq } : {}),
+    ...(input.requestCode !== undefined ? { requestCode: input.requestCode } : {}),
+    ...(input.displayCode !== undefined ? { displayCode: input.displayCode } : {}),
+    ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
+    ...(input.workerLeaseId !== undefined ? { workerLeaseId: input.workerLeaseId } : {}),
+    ...(input.workerHeartbeatAt !== undefined ? { workerHeartbeatAt: input.workerHeartbeatAt } : {}),
+    ...(input.restartRequired !== undefined ? { restartRequired: input.restartRequired } : {}),
+    ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+    ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+    ...(input.canceledAt !== undefined ? { canceledAt: input.canceledAt } : {}),
+    updatedAt: new Date(),
+  };
+
+  if (terminalScrub) {
+    Object.assign(data, {
+      encryptedCookieState: encodePortalSessionCookieState(terminalScrub.cookieState),
+      methods: Prisma.DbNull,
+      requestedAction: terminalScrub.requestedAction,
+      encryptedPendingCode: terminalScrub.pendingCode,
+      selectedWay: terminalScrub.selectedWay,
+      selectedParam: terminalScrub.selectedParam,
+      selectedTarget: terminalScrub.selectedTarget,
+      authSeq: terminalScrub.authSeq,
+      requestCode: terminalScrub.requestCode,
+      displayCode: terminalScrub.displayCode,
+      errorMessage: terminalScrub.errorMessage,
+      workerLeaseId: terminalScrub.workerLeaseId,
+      workerHeartbeatAt: terminalScrub.workerHeartbeatAt,
+      restartRequired: terminalScrub.restartRequired,
+    });
+  }
+
   return prisma.portalApprovalSession.updateMany({
     where: {
       id: input.approvalId,
       ...(input.userId ? { userId: input.userId } : {}),
+      status: { in: [...ACTIVE_PORTAL_APPROVAL_STATUSES] },
     },
-    data: {
-      ...(input.cookieState ? { encryptedCookieState: encodePortalSessionCookieState(input.cookieState) } : {}),
-      ...(input.status !== undefined ? { status: input.status } : {}),
-      ...(input.runtimeState !== undefined ? { runtimeState: input.runtimeState } : {}),
-      ...(input.methods !== undefined ? { methods: input.methods as unknown as Prisma.InputJsonValue } : {}),
-      ...(input.requestedAction !== undefined ? { requestedAction: input.requestedAction } : {}),
-      ...(input.pendingCode !== undefined ? { encryptedPendingCode: encodePortalApprovalPendingCode(input.pendingCode) } : {}),
-      ...(input.selectedWay !== undefined ? { selectedWay: input.selectedWay } : {}),
-      ...(input.selectedParam !== undefined ? { selectedParam: input.selectedParam } : {}),
-      ...(input.selectedTarget !== undefined ? { selectedTarget: input.selectedTarget } : {}),
-      ...(input.authSeq !== undefined ? { authSeq: input.authSeq } : {}),
-      ...(input.requestCode !== undefined ? { requestCode: input.requestCode } : {}),
-      ...(input.displayCode !== undefined ? { displayCode: input.displayCode } : {}),
-      ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
-      ...(input.workerLeaseId !== undefined ? { workerLeaseId: input.workerLeaseId } : {}),
-      ...(input.workerHeartbeatAt !== undefined ? { workerHeartbeatAt: input.workerHeartbeatAt } : {}),
-      ...(input.restartRequired !== undefined ? { restartRequired: input.restartRequired } : {}),
-      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
-      ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
-      ...(input.canceledAt !== undefined ? { canceledAt: input.canceledAt } : {}),
-      updatedAt: new Date(),
-    },
+    data,
   });
 }
 

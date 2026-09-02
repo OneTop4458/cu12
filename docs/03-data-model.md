@@ -35,10 +35,12 @@
 7. `PortalSession`
    - Provider-scoped encrypted cookie-state cache for reusable upstream sessions.
    - Used primarily to avoid repeating Cyber Campus approval when a valid session can be reused.
+   - Expired or invalid rows are removed by the scheduled retention cleanup.
 
 8. `PortalApprovalSession`
    - Provider-scoped approval workflow state tied to one blocked job.
-   - Stores encrypted cookie state, available methods, selected method, request/display code, expiry, and terminal status.
+   - Stores encrypted cookie state and secondary-auth metadata only while the workflow is pending or active.
+   - On `COMPLETED`, `EXPIRED`, or `CANCELED`, cookie state, methods, codes, selections, and worker lease metadata are scrubbed immediately. Non-sensitive terminal history is retained for 30 days.
 
 9. `AuditLog`
     - Immutable operational log for auth, admin, job, worker, mail, parser, and impersonation actions.
@@ -98,7 +100,7 @@
 
 - Portal passwords are encrypted at rest with a server-side key managed outside the database.
 - Pending approval users have no stored portal password.
-- `PortalSession` and `PortalApprovalSession` store encrypted cookie-state payloads, not plaintext cookies.
+- Active `PortalSession` and non-terminal `PortalApprovalSession` rows store encrypted cookie-state payloads, not plaintext cookies. A successful approval keeps the latest reusable cookie state only in `PortalSession`.
 - Session cookies are signed JWTs with bounded TTL plus a separate idle-session token.
-- The scheduled DB cleanup workflow runs the worker retention cleanup for 30-day audit logs, 14-day terminal jobs, 30-day mail delivery rows, and withdrawn accounts older than 6 months.
+- The scheduled DB cleanup workflow runs the worker retention cleanup for expired or invalid portal sessions, 30-day terminal portal-approval history, 30-day audit logs, 14-day terminal jobs, 30-day mail delivery rows, and withdrawn accounts older than 6 months.
 - The same workflow still removes legacy bogus course notices. Its manual `user_repair` mode can also clear notification events for a selected user.

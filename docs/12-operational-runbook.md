@@ -7,6 +7,7 @@
 3. Check for spikes in `FAILED` or `BLOCKED` jobs.
 4. Review accounts marked `NEEDS_REAUTH`.
 5. Spot-check recent `MailDelivery` rows if mail features are enabled.
+6. Confirm the latest DB retention cleanup reports aggregate portal-session and portal-approval deletion counts without authentication payloads or identifiers.
 
 ## Manual Sync Procedure
 

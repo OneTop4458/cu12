@@ -290,6 +290,7 @@ test("db retention cleanup runs broad retention before legacy repair", () => {
   const workflow = readRepoFile(".github/workflows/db-retention-cleanup.yml");
   const workerPackage = readRepoJson("apps/worker/package.json");
   const retentionCleanup = readRepoFile("apps/worker/src/retention-cleanup.ts");
+  const retentionPolicy = readRepoFile("apps/worker/src/retention-policy.ts");
 
   assert.equal(workerPackage.scripts["cleanup:retention"], "tsx src/retention-cleanup.ts");
   assertContainsInOrder(
@@ -301,9 +302,9 @@ test("db retention cleanup runs broad retention before legacy repair", () => {
     ],
     ".github/workflows/db-retention-cleanup.yml",
   );
-  assert.match(retentionCleanup, /WITHDRAWN_RECORD_RETENTION_MONTHS\s*=\s*6/);
+  assert.match(retentionPolicy, /WITHDRAWN_RECORD_RETENTION_MONTHS\s*=\s*6/);
   assertContainsInOrder(
-    retentionCleanup,
+    retentionPolicy,
     [
       "const originalDayOfMonth = value.getDate();",
       "value.setDate(1);",
@@ -311,11 +312,16 @@ test("db retention cleanup runs broad retention before legacy repair", () => {
       "lastDayOfTargetMonth",
       "Math.min(originalDayOfMonth, lastDayOfTargetMonth)",
     ],
-    "apps/worker/src/retention-cleanup.ts month cutoff clamp",
+    "apps/worker/src/retention-policy.ts month cutoff clamp",
   );
-  assert.match(retentionCleanup, /prisma\.user\.deleteMany\(\{/);
-  assert.match(retentionCleanup, /withdrawnAt:\s*\{\s*not:\s*null,\s*lt:\s*withdrawnRecordCutoff/s);
+  assert.match(retentionCleanup, /client\.user\.deleteMany\(\{/);
+  assert.match(retentionCleanup, /withdrawnAt:\s*\{\s*not:\s*null,\s*lt:\s*cutoffs\.withdrawnRecord/s);
   assert.match(retentionCleanup, /withdrawnUsers:\s*withdrawnUsersDeleted/);
+  assert.match(retentionCleanup, /portalSession\.deleteMany\(\{/);
+  assert.match(retentionCleanup, /portalApprovalSession\.deleteMany\(\{/);
+  assert.match(retentionCleanup, /portalSessions:\s*portalSessionsDeleted/);
+  assert.match(retentionCleanup, /portalApprovalSessions:\s*portalApprovalSessionsDeleted/);
+  assert.doesNotMatch(retentionCleanup, /error\.message|String\(error\)/);
 });
 
 test("ci, deploy verify, and ai ship run all tests before build or deploy", () => {

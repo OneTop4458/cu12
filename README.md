@@ -205,7 +205,7 @@ The live privacy policy and terms of service are stored as versioned `PolicyDocu
 | `sync-schedule.yml` | `0 */2 * * *` UTC | Enqueue provider-aware sync work every 2 hours, then request centralized worker dispatch |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
 | `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs and fail on divergence |
-| `db-retention-cleanup.yml` | `10 1 * * *` UTC | Run retention cleanup for audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months; legacy notice repair still runs, and manual `user_repair` can clear a selected user's notification events |
+| `db-retention-cleanup.yml` | `10 1 * * *` UTC | Remove expired/invalid portal sessions, terminal portal-approval history older than 30 days, audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months; legacy notice repair still runs, and manual `user_repair` can clear a selected user's notification events |
 
 ## Environment and Configuration
 
