@@ -14,7 +14,9 @@ jobs:
     if: >
       github.event.action != 'closed' &&
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'app/dependabot'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -27,7 +29,6 @@ jobs:
           set -euo pipefail
 
           number="${{ github.event.pull_request.number }}"
-          author_login="${{ github.event.pull_request.user.login }}"
           state="$(gh pr view "$number" -R "$GH_REPO" --json state,isDraft --jq '.state + ":" + (.isDraft|tostring)')"
           if [ "$state" != "OPEN:false" ]; then
             echo "PR #$number is not mergeable state ($state). Skip."
@@ -35,13 +36,9 @@ jobs:
           fi
 
           labels=""
-          is_dependabot=false
-          if [ "$author_login" = "dependabot[bot]" ] || [ "$author_login" = "app/dependabot" ]; then
-            is_dependabot=true
-          fi
           for attempt in 1 2 3 4 5 6; do
             labels="$(gh pr view "$number" -R "$GH_REPO" --json labels --jq '.labels[].name')"
-            if [ "$is_dependabot" = true ] || grep -Fxq "automerge" <<< "$labels"; then
+            if grep -Fxq "automerge" <<< "$labels"; then
               break
             fi
             if [ "$attempt" -lt 6 ]; then
@@ -50,12 +47,7 @@ jobs:
             fi
           done
 
-          if [ "$is_dependabot" = true ] && grep -Fxq "major-update" <<< "$labels"; then
-            echo "PR #$number is a semver-major Dependabot update. Skip auto-merge."
-            exit 0
-          fi
-
-          if [ "$is_dependabot" != true ] && ! grep -Fxq "automerge" <<< "$labels"; then
+          if ! grep -Fxq "automerge" <<< "$labels"; then
             echo "PR #$number has no automerge label. Skip."
             exit 0
           fi

@@ -14,11 +14,57 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Validate Dependabot PR source
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const expectedRepo = `${owner}/${repo}`;
+            const allowedAuthors = new Set(["dependabot[bot]", "app/dependabot"]);
+            const { data: pull } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            if (!allowedAuthors.has(pull.user?.login)) {
+              core.setFailed(`Unexpected PR author: ${pull.user?.login ?? "missing"}`);
+              return;
+            }
+            if (pull.head.repo?.full_name !== expectedRepo) {
+              core.setFailed(`Unexpected head repository: ${pull.head.repo?.full_name ?? "missing"}`);
+              return;
+            }
+            if (!pull.head.ref.startsWith("dependabot/")) {
+              core.setFailed(`Unexpected head branch: ${pull.head.ref}`);
+              return;
+            }
+            if (pull.base.repo.full_name !== expectedRepo) {
+              core.setFailed(`Unexpected base repository: ${pull.base.repo.full_name}`);
+            }
+
       - name: Fetch Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
+          skip-commit-verification: true
+
+      - name: Disable auto-merge for semver-major updates
+        if: ${{ steps.metadata.outputs.update-type == 'version-update:semver-major' }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          number="${{ github.event.pull_request.number }}"
+          has_auto_merge="$(gh pr view "$number" -R "$GH_REPO" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+          if [ "$has_auto_merge" = "true" ]; then
+            gh pr merge "$number" -R "$GH_REPO" --disable-auto
+          fi
 
       - name: Label and hold semver-major updates
         if: ${{ steps.metadata.outputs.update-type == 'version-update:semver-major' }}
@@ -57,13 +103,15 @@ jobs:
             });
 
       - name: Approve patch/minor updates
-        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
-        run: gh pr review ${{ github.event.pull_request.number }} --approve --body "Auto-approved patch/minor dependency update."
+        if: ${{ steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor' }}
+        run: gh pr review ${{ github.event.pull_request.number }} -R "$GH_REPO" --approve --body "Auto-approved patch/minor dependency update."
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for patch/minor updates
-        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
-        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch
+        if: ${{ steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor' }}
+        run: gh pr merge ${{ github.event.pull_request.number }} -R "$GH_REPO" --auto --squash --delete-branch
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
