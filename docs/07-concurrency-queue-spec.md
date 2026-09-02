@@ -11,7 +11,7 @@
 
 ## Dispatch and Claim Model
 
-1. Web APIs enqueue jobs with idempotency keys.
+1. Web APIs and scheduled dispatchers derive the same `activeDedupeKey` from user, type, and idempotency key, then insert first.
 2. Manual user actions run a stale-window redispatch check before calling GitHub Actions.
 3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` when they create pending work. Global AUTOLEARN dispatches also run a drain check so stale pending jobs can be reattached to workers.
 4. Centralized dispatch fans out user-scoped worker runs and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`.
@@ -23,6 +23,9 @@
 - `SYNC` and `NOTICE_SCAN` can run even when AUTOLEARN exists for the same user.
 - `AUTOLEARN` is serialized per user.
 - `BLOCKED` AUTOLEARN is reserved for Cyber Campus approval-required flows and is not claimable until approval completion returns it to `PENDING`.
+- A nullable unique `activeDedupeKey` permits only one keyed `PENDING` or `RUNNING` row for a logical job. `BLOCKED` and terminal rows keep this field null.
+- Unique conflicts return the existing active job. `idempotencyKey` remains on every historical row.
+- `SUCCEEDED`, `FAILED`, and `CANCELED` transitions release the active key. A later request with the same idempotency key can create a fresh row.
 - AUTOLEARN continuation jobs keep mode/target metadata and increment chain-segment metadata.
 - Continuation chains are capped by cumulative elapsed time using `AUTOLEARN_CHAIN_MAX_SECONDS`.
 - Manual duplicates can force redispatch when:
@@ -43,6 +46,7 @@
 - Up to 4 attempts.
 - Backoff schedule: 1 minute -> 5 minutes -> 15 minutes -> 60 minutes.
 - Failed-job responses include the queued retry job and `runAfter` when a retry is created.
+- Failure-to-retry and success-to-continuation transitions release the source key and reserve the next active key in one transaction.
 - A `--once` worker waits in the same run when the retry is due within `WORKER_RETRY_WAIT_MAX_MS`; the heartbeat loop continues while waiting.
 - Failure reason remains attached to the queue row for operator review.
 

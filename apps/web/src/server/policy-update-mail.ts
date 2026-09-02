@@ -1,6 +1,7 @@
-import { JobStatus, JobType, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun, type WorkerDispatchResult } from "@/server/github-actions-dispatch";
+import { enqueueJob } from "@/server/queue";
 import type { PolicyChangePayload } from "@/server/policy";
 
 export interface PolicyUpdateMailQueueSummary {
@@ -78,19 +79,18 @@ export async function queuePolicyUpdateMailJobs(
     }
 
     const idempotencyKey = buildPolicyUpdateIdempotencyKey(user.id, changes);
-    const existing = await prisma.jobQueue.findFirst({
-      where: {
+    const { deduplicated } = await enqueueJob({
+      userId: user.id,
+      type: "MAIL_DIGEST",
+      payload: {
         userId: user.id,
-        type: JobType.MAIL_DIGEST,
-        idempotencyKey,
-        status: {
-          in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.SUCCEEDED],
-        },
-      },
-      select: { id: true },
+        mailKind: "POLICY_UPDATE",
+        policyChanges: changes,
+      } as unknown as Prisma.InputJsonObject,
+      idempotencyKey,
+      runAfter: new Date(),
     });
-
-    if (existing) {
+    if (deduplicated) {
       skippedUsers.push({
         userId: user.id,
         reason: "MAIL_JOB_ALREADY_EXISTS",
@@ -98,20 +98,6 @@ export async function queuePolicyUpdateMailJobs(
       continue;
     }
 
-    await prisma.jobQueue.create({
-      data: {
-        userId: user.id,
-        type: JobType.MAIL_DIGEST,
-        status: JobStatus.PENDING,
-        payload: {
-          userId: user.id,
-          mailKind: "POLICY_UPDATE",
-          policyChanges: changes,
-        } as unknown as Prisma.InputJsonValue,
-        idempotencyKey,
-        runAfter: new Date(),
-      },
-    });
     queued += 1;
   }
 

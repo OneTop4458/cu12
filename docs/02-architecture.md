@@ -58,10 +58,10 @@
 
 ## Queue, Dispatch, and Internal APIs
 
-1. Web APIs enqueue `JobQueue` rows with idempotency keys.
+1. Web APIs enqueue `JobQueue` rows through insert-first active-key dedupe; scheduled dispatch uses the same shared rule.
 2. Manual user-triggered requests apply a redispatch policy:
    - new jobs dispatch immediately
-   - fresh duplicates return `SKIPPED_DUPLICATE`
+   - fresh duplicates return the existing active job with `SKIPPED_DUPLICATE`
    - stale pending/running duplicates can trigger forced redispatch
 3. Centralized worker fan-out is exposed through `POST /internal/worker/dispatch` and capped by `WORKER_DISPATCH_MAX_PARALLEL`.
 4. Worker lifecycle callbacks use internal routes:

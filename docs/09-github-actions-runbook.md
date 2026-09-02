@@ -6,7 +6,8 @@
    - Runs text quality, OpenAPI sync, Prisma generate, lint, typecheck, tests, and `build:web`.
 
 2. `deploy-vercel.yml`
-   - Runs the same validation gate as CI, then performs DB safety checks, `prisma db push`, auth-policy backfills, and production Vercel deploy.
+   - Runs the same validation gate as CI, then performs DB safety checks, `prisma db push`, active-job dedupe/auth-policy backfills, and production Vercel deploy.
+   - Re-runs the idempotent active-job dedupe backfill after deploy to absorb null-key rows created during the old/new application handoff window.
    - This workflow must remain the only production deployment path. Direct Vercel Git production deploys can bypass DB sync and ship schema-mismatched code.
    - Triggers on `main` pushes affecting deploy-relevant paths and on manual dispatch.
 
@@ -52,10 +53,10 @@
 5. Rotating `AUTH_JWT_SECRET` intentionally invalidates current rate-limit buckets together with JWT signatures; follow the normal forced re-login procedure after rotation.
 
 9. `db-bootstrap.yml`
-   - Applies Prisma schema and auth-policy post-sync backfills for a new environment.
+   - Applies Prisma schema and active-job-dedupe/auth-policy post-sync backfills for a new environment.
 
 10. `manual-db-push.yml`
-    - Applies Prisma schema and auth-policy post-sync backfills without a web deploy.
+    - Applies Prisma schema and active-job-dedupe/auth-policy post-sync backfills without a web deploy.
 
 11. `auth-reset-bootstrap.yml`
     - Resets auth bootstrap state and pre-approves the initial admin CU12 ID.

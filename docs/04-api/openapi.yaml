@@ -1592,7 +1592,7 @@ paths:
         "404":
           description: Job not found
         "409":
-          description: Job cannot be retried (including sync jobs for test users)
+          description: Job cannot be retried (including test-user sync or an equivalent active job)
           content:
             application/json:
               schema:

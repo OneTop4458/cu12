@@ -202,6 +202,7 @@ model JobQueue {
   payload        Json
   result         Json?
   idempotencyKey String?
+  activeDedupeKey String?   @unique
   attempts       Int       @default(0)
   runAfter       DateTime  @default(now())
   workerId       String?

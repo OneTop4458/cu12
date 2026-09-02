@@ -79,6 +79,8 @@ jobs:
         run: node scripts/db-drop-invite-token.mjs
       - name: Push Prisma schema (non-destructive by default)
         run: pnpm exec prisma db push --schema prisma/schema.prisma
+      - name: Backfill active job dedupe keys before deploy
+        run: node scripts/db-backfill-active-job-dedupe.mjs
       - name: Backfill auth/policy columns after schema sync
         run: node scripts/db-backfill-auth-policy-columns.mjs
 
@@ -125,3 +127,7 @@ jobs:
         run: pnpm dlx vercel@latest build --prod --token=$VERCEL_TOKEN
       - name: Deploy production bundle
         run: pnpm dlx vercel@latest deploy --prebuilt --prod --token=$VERCEL_TOKEN
+      - name: Finalize active job dedupe keys after deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/db-backfill-active-job-dedupe.mjs

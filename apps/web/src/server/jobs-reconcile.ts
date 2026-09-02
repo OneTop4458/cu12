@@ -1,4 +1,4 @@
-import type { PortalProvider } from "@cu12/core";
+import { buildActiveJobDedupeKey, type PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { getEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
@@ -519,6 +519,12 @@ async function repairOrphanedRunningJob(
       },
       data: {
         status: JobStatus.PENDING,
+        activeDedupeKey: buildActiveJobDedupeKey({
+          userId: current.userId,
+          type: current.type,
+          status: JobStatus.PENDING,
+          idempotencyKey: current.idempotencyKey,
+        }),
         startedAt: null,
         workerId: null,
         finishedAt: null,
@@ -552,6 +558,7 @@ async function repairOrphanedRunningJob(
       },
       data: {
         status: JobStatus.FAILED,
+        activeDedupeKey: null,
         finishedAt: now,
         lastError: ORPHANED_WORKER_ERROR,
       },
@@ -572,23 +579,39 @@ async function repairOrphanedRunningJob(
     }
 
     const runAfter = new Date(now.getTime() + decision.retryDelayMinutes * 60_000);
-    const retryJob = await tx.jobQueue.create({
-      data: {
-        userId: current.userId,
-        type: current.type,
-        payload: current.payload as unknown as Prisma.InputJsonValue,
-        status: JobStatus.PENDING,
-        runAfter,
-        idempotencyKey: current.idempotencyKey,
-        attempts: current.attempts,
-      },
-      select: {
-        id: true,
-        userId: true,
-        type: true,
-        runAfter: true,
-      },
+    const activeDedupeKey = buildActiveJobDedupeKey({
+      userId: current.userId,
+      type: current.type,
+      status: JobStatus.PENDING,
+      idempotencyKey: current.idempotencyKey,
     });
+    const create = {
+      userId: current.userId,
+      type: current.type,
+      payload: current.payload as unknown as Prisma.InputJsonValue,
+      status: JobStatus.PENDING,
+      runAfter,
+      idempotencyKey: current.idempotencyKey,
+      activeDedupeKey,
+      attempts: current.attempts,
+    };
+    const select = {
+      id: true,
+      userId: true,
+      type: true,
+      runAfter: true,
+    } as const;
+    const retryJob = activeDedupeKey
+      ? await tx.jobQueue.upsert({
+        where: { activeDedupeKey },
+        update: {},
+        create,
+        select,
+      })
+      : await tx.jobQueue.create({
+        data: create,
+        select,
+      });
 
     return {
       updated: true,
@@ -645,6 +668,7 @@ async function cancelCyberCampusAutoLearnRetryJobs(now: Date): Promise<number> {
     },
     data: {
       status: JobStatus.CANCELED,
+      activeDedupeKey: null,
       startedAt: null,
       workerId: null,
       finishedAt: now,

@@ -1,4 +1,9 @@
-import type { PortalProvider } from "@cu12/core";
+import {
+  buildActiveJobDedupeKey,
+  insertActiveJobOrGetExisting,
+  isActiveJobDedupeConflict,
+  type PortalProvider,
+} from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
@@ -12,7 +17,7 @@ import { MANUAL_PENDING_REDISPATCH_MS, MANUAL_RUNNING_REDISPATCH_MS } from "@/se
 export interface EnqueueJobInput {
   userId: string;
   type: JobType;
-  payload: QueuePayload;
+  payload: QueuePayload | Prisma.InputJsonObject;
   idempotencyKey?: string;
   runAfter?: Date;
 }
@@ -26,6 +31,7 @@ export interface EnqueueJobResult {
     payload: Prisma.JsonValue;
     result: Prisma.JsonValue | null;
     idempotencyKey: string | null;
+    activeDedupeKey: string | null;
     attempts: number;
     runAfter: Date;
     workerId: string | null;
@@ -282,9 +288,11 @@ async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
       },
       select: {
         id: true,
+        userId: true,
         type: true,
         payload: true,
         workerId: true,
+        idempotencyKey: true,
       },
       orderBy: { createdAt: "asc" },
       take: CLAIM_SCAN_LIMIT,
@@ -308,11 +316,18 @@ async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
         data: action === "MARK_FAILED"
           ? {
             status: JobStatus.FAILED,
+            activeDedupeKey: null,
             finishedAt: now,
             lastError: "WORKER_STALE_TIMEOUT",
           }
           : {
             status: JobStatus.PENDING,
+            activeDedupeKey: buildActiveJobDedupeKey({
+              userId: job.userId,
+              type: job.type,
+              status: JobStatus.PENDING,
+              idempotencyKey: job.idempotencyKey,
+            }),
             startedAt: null,
             workerId: null,
             runAfter: new Date(now.getTime() + STALE_JOB_REQUEUE_DELAY_MS),
@@ -325,32 +340,33 @@ async function reclaimStaleRunningJobs(now = new Date()): Promise<number> {
 }
 
 export async function enqueueJob(input: EnqueueJobInput): Promise<EnqueueJobResult> {
-  if (input.idempotencyKey) {
-    const existing = await prisma.jobQueue.findFirst({
-      where: {
+  const activeDedupeKey = buildActiveJobDedupeKey({
+    userId: input.userId,
+    type: input.type,
+    status: JobStatus.PENDING,
+    idempotencyKey: input.idempotencyKey,
+  });
+  return insertActiveJobOrGetExisting({
+    activeDedupeKey,
+    insert: () => prisma.jobQueue.create({
+      data: {
         userId: input.userId,
+        type: input.type,
+        payload: input.payload as unknown as Prisma.InputJsonValue,
+        status: JobStatus.PENDING,
+        runAfter: input.runAfter ?? new Date(),
         idempotencyKey: input.idempotencyKey,
+        activeDedupeKey,
+      },
+    }),
+    findActive: (key) => prisma.jobQueue.findFirst({
+      where: {
+        activeDedupeKey: key,
         status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
       },
-    });
-
-    if (existing) {
-      return { job: existing, deduplicated: true };
-    }
-  }
-
-  const created = await prisma.jobQueue.create({
-    data: {
-      userId: input.userId,
-      type: input.type,
-      payload: input.payload as unknown as Prisma.InputJsonValue,
-      status: JobStatus.PENDING,
-      runAfter: input.runAfter ?? new Date(),
-      idempotencyKey: input.idempotencyKey,
-    },
+    }),
+    isActiveDedupeConflict: isActiveJobDedupeConflict,
   });
-
-  return { job: created, deduplicated: false };
 }
 
 export async function ensureSyncAllowedForUser(userId: string): Promise<{
@@ -384,6 +400,7 @@ export async function cancelBlockedSyncJobsForTestUsers(userId?: string): Promis
     },
     data: {
       status: JobStatus.CANCELED,
+      activeDedupeKey: null,
       startedAt: null,
       workerId: null,
       finishedAt: new Date(),
@@ -403,12 +420,14 @@ export async function listJobsForUser(userId: string, limit = 20, type?: JobType
     },
     orderBy: { createdAt: "desc" },
     take: limit,
+    omit: { activeDedupeKey: true },
   });
 }
 
 export async function getJobForUser(jobId: string, userId: string) {
   return prisma.jobQueue.findFirst({
     where: { id: jobId, userId },
+    omit: { activeDedupeKey: true },
   });
 }
 
@@ -442,6 +461,12 @@ export async function claimNextJob(workerId: string, types: JobType[], userId?: 
         },
         data: {
           status: JobStatus.RUNNING,
+          activeDedupeKey: buildActiveJobDedupeKey({
+            userId: candidate.userId,
+            type: candidate.type,
+            status: JobStatus.RUNNING,
+            idempotencyKey: candidate.idempotencyKey,
+          }),
           startedAt: new Date(),
           attempts: { increment: 1 },
           workerId,
@@ -477,7 +502,10 @@ export async function claimNextJob(workerId: string, types: JobType[], userId?: 
         }
       }
 
-      return prisma.jobQueue.findUnique({ where: { id: candidate.id } });
+      return prisma.jobQueue.findUnique({
+        where: { id: candidate.id },
+        omit: { activeDedupeKey: true },
+      });
     }
   }
 
@@ -856,6 +884,7 @@ export async function markJobSucceeded(jobId: string, workerId: string, result?:
       },
       data: {
         status: JobStatus.SUCCEEDED,
+        activeDedupeKey: null,
         finishedAt: new Date(),
         result: resultForStore,
       },
@@ -866,14 +895,23 @@ export async function markJobSucceeded(jobId: string, workerId: string, result?:
     }
 
     if (continuationPayload && continuationKey) {
-      await tx.jobQueue.create({
-        data: {
+      const activeDedupeKey = buildActiveJobDedupeKey({
+        userId: current.userId,
+        type: JobType.AUTOLEARN,
+        status: JobStatus.PENDING,
+        idempotencyKey: continuationKey,
+      });
+      await tx.jobQueue.upsert({
+        where: { activeDedupeKey: activeDedupeKey! },
+        update: {},
+        create: {
           userId: current.userId,
           type: JobType.AUTOLEARN,
           status: JobStatus.PENDING,
           payload: continuationPayload,
           runAfter: new Date(),
           idempotencyKey: continuationKey,
+          activeDedupeKey,
         },
       });
     }
@@ -963,55 +1001,82 @@ export async function markJobFailed(jobId: string, workerId: string, errorMessag
     return { job, retryQueued: false, retryJob: null };
   }
 
-  const failed = await prisma.jobQueue.updateMany({
-    where: {
-      id: jobId,
-      status: JobStatus.RUNNING,
-      workerId,
-    },
-    data: {
-      status: JobStatus.FAILED,
-      finishedAt: new Date(),
-      lastError: errorMessage,
-    },
-  });
-  if (failed.count === 0) {
-    const job = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-    return { job, retryQueued: false, retryJob: null };
-  }
-
-  const updated = await prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
-  let retryQueued = false;
-  let retryJob: RetryJobSummary | null = null;
-
-  if (
-    shouldRetryFailedJob(updated.type, updated.attempts, errorMessage, {
-      provider: getQueuePayloadProvider(updated.payload),
-    })
-  ) {
-    const delayMinutes = getFailedJobRetryDelayMinutes(updated.attempts);
-    const createdRetry = await prisma.jobQueue.create({
-      data: {
-        userId: updated.userId,
-        type: updated.type,
-        payload: updated.payload as unknown as Prisma.InputJsonValue,
-        status: JobStatus.PENDING,
-        runAfter: new Date(Date.now() + delayMinutes * 60_000),
-        idempotencyKey: updated.idempotencyKey,
-        attempts: updated.attempts,
+  return prisma.$transaction(async (tx) => {
+    const failed = await tx.jobQueue.updateMany({
+      where: {
+        id: jobId,
+        status: JobStatus.RUNNING,
+        workerId,
       },
-      select: {
-        id: true,
-        userId: true,
-        type: true,
-        runAfter: true,
+      data: {
+        status: JobStatus.FAILED,
+        activeDedupeKey: null,
+        finishedAt: new Date(),
+        lastError: errorMessage,
       },
     });
-    retryQueued = true;
-    retryJob = createdRetry;
-  }
+    if (failed.count === 0) {
+      const job = await tx.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+      return { job, retryQueued: false, retryJob: null };
+    }
 
-  return { job: updated, retryQueued, retryJob };
+    const updated = await tx.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
+    if (!shouldRetryFailedJob(updated.type, updated.attempts, errorMessage, {
+      provider: getQueuePayloadProvider(updated.payload),
+    })) {
+      return { job: updated, retryQueued: false, retryJob: null };
+    }
+
+    const delayMinutes = getFailedJobRetryDelayMinutes(updated.attempts);
+    const runAfter = new Date(Date.now() + delayMinutes * 60_000);
+    const activeDedupeKey = buildActiveJobDedupeKey({
+      userId: updated.userId,
+      type: updated.type,
+      status: JobStatus.PENDING,
+      idempotencyKey: updated.idempotencyKey,
+    });
+    const retryJob = activeDedupeKey
+      ? await tx.jobQueue.upsert({
+        where: { activeDedupeKey },
+        update: {},
+        create: {
+          userId: updated.userId,
+          type: updated.type,
+          payload: updated.payload as unknown as Prisma.InputJsonValue,
+          status: JobStatus.PENDING,
+          runAfter,
+          idempotencyKey: updated.idempotencyKey,
+          activeDedupeKey,
+          attempts: updated.attempts,
+        },
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          runAfter: true,
+        },
+      })
+      : await tx.jobQueue.create({
+        data: {
+          userId: updated.userId,
+          type: updated.type,
+          payload: updated.payload as unknown as Prisma.InputJsonValue,
+          status: JobStatus.PENDING,
+          runAfter,
+          idempotencyKey: updated.idempotencyKey,
+          activeDedupeKey,
+          attempts: updated.attempts,
+        },
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          runAfter: true,
+        },
+      });
+
+    return { job: updated, retryQueued: true, retryJob };
+  });
 }
 
 export async function cancelJob(jobId: string): Promise<{
@@ -1032,6 +1097,7 @@ export async function cancelJob(jobId: string): Promise<{
     },
     data: {
       status: JobStatus.CANCELED,
+      activeDedupeKey: null,
       startedAt: null,
       workerId: null,
       finishedAt: new Date(),
@@ -1078,6 +1144,8 @@ export async function retryJob(jobId: string, options: { allowCompleted?: boolea
       status: true,
       userId: true,
       id: true,
+      type: true,
+      idempotencyKey: true,
     },
   });
 
@@ -1097,18 +1165,31 @@ export async function retryJob(jobId: string, options: { allowCompleted?: boolea
     return prisma.jobQueue.findUniqueOrThrow({ where: { id: jobId } });
   }
 
-  return prisma.jobQueue.update({
-    where: { id: jobId },
-    data: {
-      status: JobStatus.PENDING,
-      startedAt: null,
-      workerId: null,
-      finishedAt: null,
-      runAfter: new Date(),
-      lastError: null,
-      result: Prisma.JsonNull,
-    },
-  });
+  try {
+    return await prisma.jobQueue.update({
+      where: { id: jobId },
+      data: {
+        status: JobStatus.PENDING,
+        activeDedupeKey: buildActiveJobDedupeKey({
+          userId: existing.userId,
+          type: existing.type,
+          status: JobStatus.PENDING,
+          idempotencyKey: existing.idempotencyKey,
+        }),
+        startedAt: null,
+        workerId: null,
+        finishedAt: null,
+        runAfter: new Date(),
+        lastError: null,
+        result: Prisma.JsonNull,
+      },
+    });
+  } catch (error) {
+    if (isActiveJobDedupeConflict(error)) {
+      throw new Error("Active duplicate job already exists");
+    }
+    throw error;
+  }
 }
 
 export async function getJobStatus(jobId: string) {
