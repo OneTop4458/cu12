@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseMyCourseHtml } from "@cu12/core";
 import {
   assessCourseRoster,
   extractCu12CourseRosterIdentifiers,
@@ -20,6 +21,35 @@ test("course roster accepts a complete CU12 roster", () => {
     expectedPath: "/el/member/mycourse_list_form.acl",
     sourceIdentifiers: extractCu12CourseRosterIdentifiers(html),
     parsedIdentifiers: ["101", "202"],
+  }), {
+    authoritative: true,
+    reason: "AUTHORITATIVE_ENTRIES",
+  });
+});
+
+test("course roster accepts the async CU12 fragment and ignores ended course links", () => {
+  const html = `
+    <div id="list_zone" class="course_list_wrap">
+      <div class="course_list_v2">
+        <a class="link_946" href="javascript:enterClass(946)">Current Course</a>
+        <a class="link_946" href="javascript:enterClass(946);">Current Course Room</a>
+      </div>
+      <div class="course_list_v2">
+        <a href="/el/course/course_info_form.acl?COURSE_SEQ=422&LECTURE_SEQ=834">Ended Course</a>
+      </div>
+    </div>
+  `;
+
+  const sourceIdentifiers = extractCu12CourseRosterIdentifiers(html);
+  const parsedIdentifiers = parseMyCourseHtml(html, "test-user").map((course) => String(course.lectureSeq));
+  assert.deepEqual(sourceIdentifiers, ["946", "946"]);
+  assert.deepEqual(parsedIdentifiers, ["946"]);
+  assert.deepEqual(assessCourseRoster({
+    html,
+    currentUrl: "https://example.test/el/member/mycourse_list.acl",
+    expectedPath: "/el/member/mycourse_list.acl",
+    sourceIdentifiers,
+    parsedIdentifiers,
   }), {
     authoritative: true,
     reason: "AUTHORITATIVE_ENTRIES",
