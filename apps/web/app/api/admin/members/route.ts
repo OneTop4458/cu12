@@ -53,6 +53,7 @@ async function listAdminMembers(limit: number, q?: string) {
         approvalDecidedAt: true,
         approvalDecidedByUserId: true,
         approvalRejectedReason: true,
+        lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
         cu12Account: {
@@ -106,6 +107,7 @@ async function listAdminMembers(limit: number, q?: string) {
         approvalDecidedAt: true,
         approvalDecidedByUserId: true,
         approvalRejectedReason: true,
+        lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
         cu12Account: {
