@@ -19,6 +19,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
 
 - GitHub repository and Actions enabled
 - Vercel project linked to the repository with Root Directory set to `apps/web`
+- `apps/web/vercel.json` retained as the Vercel project configuration so the free single-region setting is applied
 - Neon database URL
 - Required GitHub secrets and Vercel env vars configured
 
@@ -47,12 +48,13 @@ Run CU12 Automation as a fully cloud-hosted system with:
    - `WORKER_WORKFLOW_STARTED_AT_MS` (set by `worker-consume.yml`)
    - `SMTP_*`
    - `OPENAI_API_KEY` for worker quiz automation
-4. Run `DB Bootstrap`.
-5. Run `Auth Reset Bootstrap`.
-6. Deploy the web app with `Deploy Vercel`.
-7. Verify `/api/health`.
-8. Log in as admin, publish the required policy documents, and approve pending users.
-9. Trigger `worker-consume.yml` once to confirm the worker can claim and finish queued work.
+4. Keep `apps/web/vercel.json` set to the single `sin1` region. This stays within the free Hobby plan's included limits and does not enable on-demand billing; do not configure paid multi-region deployment, function failover, or a Fluid Compute override.
+5. Run `DB Bootstrap`.
+6. Run `Auth Reset Bootstrap`.
+7. Deploy the web app with `Deploy Vercel`.
+8. Verify `/api/health`, then inspect `X-Vercel-Id` or the Function invocation's `VERCEL_REGION` metadata for `sin1`.
+9. Log in as admin, publish the required policy documents, and approve pending users.
+10. Trigger `worker-consume.yml` once to confirm the worker can claim and finish queued work.
 
 ## Concurrency Guidance (~5 users)
 

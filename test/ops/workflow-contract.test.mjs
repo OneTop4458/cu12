@@ -159,6 +159,20 @@ test("Dependabot major updates disable existing auto-merge before being held", (
   );
 });
 
+test("web Vercel project uses the Hobby-safe Singapore region contract", () => {
+  const configPath = path.join(repoRoot, "apps", "web", "vercel.json");
+  const repositoryRootConfigPath = path.join(repoRoot, "vercel.json");
+  const config = readRepoJson("apps/web/vercel.json");
+
+  assert.equal(fs.existsSync(configPath), true, "apps/web/vercel.json should live in the configured Vercel Root Directory");
+  assert.equal(fs.existsSync(repositoryRootConfigPath), false, "the Vercel config must not be placed above apps/web");
+  assert.deepEqual(Object.keys(config).sort(), ["$schema", "regions"]);
+  assert.equal(config.$schema, "https://openapi.vercel.sh/vercel.json");
+  assert.deepEqual(config.regions, ["sin1"], "Hobby deployments must use one Singapore region");
+  assert.equal("functionFailoverRegions" in config, false, "Enterprise failover must stay disabled");
+  assert.equal("fluid" in config, false, "this contract must not opt into Fluid Compute");
+});
+
 test("db sync workflows keep the guarded prisma push sequence", () => {
   const requiredSequence = [
     "DATABASE_URL: ${{ secrets.DATABASE_URL }}",

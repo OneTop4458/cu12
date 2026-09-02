@@ -118,6 +118,15 @@
   - `SMTP_PASS`
   - `SMTP_FROM`
 
+### Vercel function region
+
+- The Vercel project Root Directory is `apps/web`, so its checked-in project configuration is `apps/web/vercel.json`.
+- The configuration selects only `sin1` (Singapore). Vercel supports one selected region on the free Hobby plan, so this does not enable a paid add-on or on-demand billing; Hobby usage remains subject to its included limits. Do not add a second region, `functionFailoverRegions`, or a Fluid Compute override.
+- After `Deploy Vercel` completes, request `/api/health` and inspect `X-Vercel-Id`; the function-execution region should be `sin1`. The nearest edge PoP may be a different region.
+- The same runtime region is available to a Vercel Function as `VERCEL_REGION`. Inspect the invocation metadata or a narrowly scoped diagnostic log; never dump all environment variables.
+- To roll back, revert the region configuration through a pull request, let `Deploy Vercel` publish the previous configuration, and verify `X-Vercel-Id` again. Do not change the production project manually.
+- References: [Vercel `regions` configuration](https://vercel.com/docs/project-configuration/vercel-json#regions), [Vercel Hobby limits](https://vercel.com/docs/plans/hobby), and [Vercel request headers](https://vercel.com/docs/headers/request-headers#x-vercel-id).
+
 ### Worker runtime defaults baked into workflow env
 
 - `PLAYWRIGHT_ACCEPT_LANGUAGE`
