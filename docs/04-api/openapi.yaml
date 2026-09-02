@@ -3957,9 +3957,13 @@ components:
           $ref: "#/components/schemas/DashboardProviderSyncQueueMap"
         siteNotices:
           type: array
+          deprecated: true
+          description: Compatibility field. Always empty; use GET /api/site-notices?surface=TOPBAR.
           items:
             $ref: "#/components/schemas/SiteNotice"
         maintenanceNotice:
+          deprecated: true
+          description: Compatibility field. Always null; use GET /api/site-notices?surface=TOPBAR.
           allOf:
             - $ref: "#/components/schemas/SiteNotice"
           nullable: true
@@ -4023,9 +4027,13 @@ components:
           $ref: "#/components/schemas/DashboardProviderSyncQueueMap"
         siteNotices:
           type: array
+          deprecated: true
+          description: Compatibility field. Always empty; use GET /api/site-notices?surface=TOPBAR.
           items:
             $ref: "#/components/schemas/SiteNotice"
         maintenanceNotice:
+          deprecated: true
+          description: Compatibility field. Always null; use GET /api/site-notices?surface=TOPBAR.
           allOf:
             - $ref: "#/components/schemas/SiteNotice"
           nullable: true

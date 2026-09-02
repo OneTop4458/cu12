@@ -1,4 +1,3 @@
-import { SiteNoticeType } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import {
@@ -16,7 +15,6 @@ import {
   loadOptionalDashboardSegment,
 } from "@/server/dashboard-fallback";
 import { getSyncQueueSummaryForUser, getSyncQueueSummaryForUserByProvider } from "@/server/queue";
-import { listSiteNotices } from "@/server/site-notice";
 import { getDashboardManualGuideState } from "@/server/user-guide";
 
 function parseLimit(value: string | null, fallback: number, max: number): number {
@@ -89,26 +87,19 @@ export async function GET(request: NextRequest) {
     void parseLimit(url.searchParams.get("messagesLimit"), 20, 100);
     void parseLimit(url.searchParams.get("jobsLimit"), 20, 100);
     const userId = context.effective.userId;
-    const account = await timing.measure("account", () => loadOptionalDashboardSegment(
-      "dashboard/bootstrap",
-      "account",
-      () => getDashboardAccount(userId),
-      null,
-    ));
-
-    const [providerSummaries, syncQueue, siteNotices, preference, cyberCampus, providerSyncQueues, dashboardManualGuide] = await Promise.all([
+    const [account, providerSummaries, syncQueue, preference, cyberCampus, providerSyncQueues, dashboardManualGuide] = await Promise.all([
+      timing.measure("account", () => loadOptionalDashboardSegment(
+        "dashboard/bootstrap",
+        "account",
+        () => getDashboardAccount(userId),
+        null,
+      )),
       timing.measure("summary", () => getDashboardSummaries(userId)),
       timing.measure("sync-queue", () => loadOptionalDashboardSegment(
         "dashboard/bootstrap",
         "sync-queue",
         () => getSyncQueueSummaryForUser(userId),
         IDLE_SYNC_QUEUE_SUMMARY,
-      )),
-      timing.measure("site-notices", () => loadOptionalDashboardSegment(
-        "dashboard/bootstrap",
-        "site-notices",
-        () => listSiteNotices(undefined, false, "TOPBAR"),
-        [],
       )),
       timing.measure("mail-pref", () => resolveMailPreference(userId)),
       timing.measure("cyber-campus", () => loadOptionalDashboardSegment(
@@ -136,7 +127,6 @@ export async function GET(request: NextRequest) {
     if (!preference) {
       return jsonError("User not found", 404);
     }
-    const maintenanceNotice = siteNotices.find((notice) => notice.type === SiteNoticeType.MAINTENANCE) ?? null;
 
     return applyServerTimingHeader(jsonOk(
       {
@@ -149,8 +139,8 @@ export async function GET(request: NextRequest) {
         providerSummaries,
         syncQueue,
         providerSyncQueues,
-        siteNotices,
-        maintenanceNotice,
+        siteNotices: [],
+        maintenanceNotice: null,
         account: account
           ? {
             provider: account.provider,
