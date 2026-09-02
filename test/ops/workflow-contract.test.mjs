@@ -103,6 +103,62 @@ test("deploy workflow trigger paths stay aligned with post-merge deploy dispatch
   assert.deepEqual(extractDispatchDeployPaths(autoMergeWorkflow), expectedPaths);
 });
 
+test("general auto-merge excludes Dependabot PRs", () => {
+  const workflow = readRepoFile(".github/workflows/codex-auto-merge-on-approval.yml");
+
+  assert.match(workflow, /github\.event\.pull_request\.user\.login != 'dependabot\[bot\]'/);
+  assert.match(workflow, /github\.event\.pull_request\.user\.login != 'app\/dependabot'/);
+  assertDoesNotContain(workflow, "is_dependabot", ".github/workflows/codex-auto-merge-on-approval.yml");
+});
+
+test("Dependabot auto-merge verifies PR source and handles rebased updates safely", () => {
+  const workflow = readRepoFile(".github/workflows/dependabot-auto-review.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "Validate Dependabot PR source",
+      'new Set(["dependabot[bot]", "app/dependabot"])',
+      "github.rest.pulls.get",
+      "pull.head.repo?.full_name !== expectedRepo",
+      '!pull.head.ref.startsWith("dependabot/")',
+      "Fetch Dependabot metadata",
+      "skip-commit-verification: true",
+    ],
+    ".github/workflows/dependabot-auto-review.yml source validation",
+  );
+
+  const prAutomationWorkflows = [
+    ".github/workflows/dependabot-auto-review.yml",
+    ".github/workflows/codex-auto-merge-on-approval.yml",
+  ];
+  for (const workflowPath of prAutomationWorkflows) {
+    const ghPrLines = readRepoFile(workflowPath)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.includes("gh pr "));
+    assert.ok(ghPrLines.length > 0, `${workflowPath} should call gh pr`);
+    for (const line of ghPrLines) {
+      assert.match(line, /-R "\$GH_REPO"/, `gh pr call must select the repository explicitly: ${line}`);
+    }
+  }
+});
+
+test("Dependabot major updates disable existing auto-merge before being held", () => {
+  const workflow = readRepoFile(".github/workflows/dependabot-auto-review.yml");
+
+  assertContainsInOrder(
+    workflow,
+    [
+      "Disable auto-merge for semver-major updates",
+      "--json autoMergeRequest",
+      '--disable-auto',
+      "Label and hold semver-major updates",
+    ],
+    ".github/workflows/dependabot-auto-review.yml major update handling",
+  );
+});
+
 test("db sync workflows keep the guarded prisma push sequence", () => {
   const requiredSequence = [
     "DATABASE_URL: ${{ secrets.DATABASE_URL }}",
