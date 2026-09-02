@@ -735,7 +735,6 @@ async function completeApproval(input: {
     userId: input.userId,
     status: "COMPLETED",
     runtimeState: "COMPLETED",
-    cookieState,
     requestedAction: null,
     pendingCode: null,
     errorMessage: null,

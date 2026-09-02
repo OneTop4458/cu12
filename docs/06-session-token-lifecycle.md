@@ -42,15 +42,18 @@
 2. Used to reuse validated upstream sessions, especially for Cyber Campus.
 3. Tracks `ACTIVE`, `EXPIRED`, and `INVALID`.
 4. Marked invalid when reuse checks fail or expiry has passed.
+5. Expired and invalid rows are deleted by the scheduled retention cleanup; active rows whose expiry is still in the future are preserved.
 
 ## Portal Approval Session (`PortalApprovalSession`)
 
 1. Created when Cyber Campus AUTOLEARN requires secondary authentication.
 2. Tied one-to-one to a `BLOCKED` AUTOLEARN job.
-3. Stores encrypted cookie state, available methods, selected method, request/display code, expiry, and terminal state.
+3. Stores encrypted cookie state, available methods, selected method, and request/display codes only while approval is pending or active.
 4. Starts as `PENDING`, moves to `ACTIVE` after a method is started, and ends as `COMPLETED`, `EXPIRED`, or `CANCELED`.
 5. Successful confirmation is completed by the approval worker, which stores the refreshed `PortalSession` and can claim the blocked AUTOLEARN job directly in the same live Playwright session when runnable.
 6. If the approval worker finds no runnable target tasks, it closes the blocked AUTOLEARN job as a no-op instead of returning it to `PENDING`.
+7. Every terminal transition immediately replaces the approval cookie payload with an encrypted empty state and clears methods, pending codes, selections, auth sequence, request/display codes, error details, and worker lease metadata.
+8. The refreshed reusable cookie state from a successful approval remains only in `PortalSession`; non-sensitive terminal approval history is deleted after 30 days.
 
 ## CU12 Credential Lifecycle
 
