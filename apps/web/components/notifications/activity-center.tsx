@@ -6,10 +6,11 @@ import { NotificationCenter, type DashboardNotification } from "./notification-c
 
 type ActivityPayload = {
   activities: DashboardNotification[];
+  attentionCount: number;
 };
 
-type ActivityCenterProps = {
-  initialUnreadCount?: number;
+type AttentionCountPayload = {
+  attentionCount: number;
 };
 
 function toDisplayTime(value: string | null | undefined) {
@@ -30,9 +31,10 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-async function readActivity(url: string, signal?: AbortSignal): Promise<DashboardNotification[]> {
+async function readActivityJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, {
     headers: { accept: "application/json" },
+    cache: "no-store",
     signal,
   });
 
@@ -45,11 +47,23 @@ async function readActivity(url: string, signal?: AbortSignal): Promise<Dashboar
     throw new Error("활동을 불러오지 못했습니다.");
   }
 
-  const payload = (await response.json()) as ActivityPayload;
-  return Array.isArray(payload.activities) ? payload.activities : [];
+  return response.json() as Promise<T>;
 }
 
-export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) {
+async function readActivity(url: string, signal?: AbortSignal): Promise<ActivityPayload> {
+  const payload = await readActivityJson<ActivityPayload>(url, signal);
+  return {
+    activities: Array.isArray(payload.activities) ? payload.activities : [],
+    attentionCount: Number.isFinite(payload.attentionCount) ? Math.max(0, payload.attentionCount) : 0,
+  };
+}
+
+async function readAttentionCount(signal?: AbortSignal): Promise<number> {
+  const payload = await readActivityJson<AttentionCountPayload>("/api/dashboard/activity/attention-count", signal);
+  return Number.isFinite(payload.attentionCount) ? Math.max(0, payload.attentionCount) : 0;
+}
+
+export function ActivityCenter() {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
@@ -60,10 +74,32 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
   const [clearing, setClearing] = useState(false);
   const [activeItem, setActiveItem] = useState<DashboardNotification | null>(null);
   const [latestLoaded, setLatestLoaded] = useState(false);
+  const [attentionCount, setAttentionCount] = useState(0);
   const latestRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
+  const countRequestRef = useRef(0);
   const latestAbortRef = useRef<AbortController | null>(null);
   const historyAbortRef = useRef<AbortController | null>(null);
+  const countAbortRef = useRef<AbortController | null>(null);
+
+  const loadAttentionCount = useCallback(async () => {
+    countAbortRef.current?.abort();
+    const controller = new AbortController();
+    countAbortRef.current = controller;
+    const requestId = countRequestRef.current + 1;
+    countRequestRef.current = requestId;
+    try {
+      const nextCount = await readAttentionCount(controller.signal);
+      if (controller.signal.aborted || requestId !== countRequestRef.current) return;
+      setAttentionCount(nextCount);
+    } catch (err) {
+      if (!isAbortError(err) && (err as Error).message === "Unauthorized") return;
+    } finally {
+      if (!controller.signal.aborted && requestId === countRequestRef.current) {
+        countAbortRef.current = null;
+      }
+    }
+  }, []);
 
   const loadLatest = useCallback(async (showLoading = true) => {
     latestAbortRef.current?.abort();
@@ -73,9 +109,10 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
     latestRequestRef.current = requestId;
     if (showLoading) setLoading(true);
     try {
-      const activities = await readActivity("/api/dashboard/activity?limit=80", controller.signal);
+      const payload = await readActivity("/api/dashboard/activity?limit=80", controller.signal);
       if (controller.signal.aborted || requestId !== latestRequestRef.current) return;
-      setNotifications(activities);
+      setNotifications(payload.activities);
+      setAttentionCount(payload.attentionCount);
       setLatestLoaded(true);
     } catch (err) {
       if (!isAbortError(err) && requestId === latestRequestRef.current && (err as Error).message !== "Unauthorized") {
@@ -97,9 +134,10 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
     historyRequestRef.current = requestId;
     setHistoryLoading(true);
     try {
-      const activities = await readActivity("/api/dashboard/activity?limit=100", controller.signal);
+      const payload = await readActivity("/api/dashboard/activity?limit=100", controller.signal);
       if (controller.signal.aborted || requestId !== historyRequestRef.current) return;
-      setHistoryNotifications(activities);
+      setHistoryNotifications(payload.activities);
+      setAttentionCount(payload.attentionCount);
     } catch (err) {
       if (!isAbortError(err) && requestId === historyRequestRef.current && (err as Error).message !== "Unauthorized") {
         setHistoryNotifications([]);
@@ -113,11 +151,13 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
   }, []);
 
   useEffect(() => {
+    void loadAttentionCount();
     return () => {
       latestAbortRef.current?.abort();
       historyAbortRef.current?.abort();
+      countAbortRef.current?.abort();
     };
-  }, []);
+  }, [loadAttentionCount]);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -150,11 +190,12 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
       setNotifications((previous) =>
         previous.map((row) => (row.id === item.id ? { ...row, isUnread: false, needsAttention: false } : row)),
       );
+      await loadAttentionCount();
       if (showHistory) void loadHistory();
     } catch {
       // A read marker failure should not block viewing the activity detail.
     }
-  }, [loadHistory, showHistory]);
+  }, [loadAttentionCount, loadHistory, showHistory]);
 
   const clearVisible = useCallback(async (ids: string[]) => {
     if (ids.length === 0 || clearing) return;
@@ -176,11 +217,12 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
       setNotifications((previous) =>
         previous.map((item) => (targetIds.has(item.id) ? { ...item, isUnread: false, needsAttention: false } : item)),
       );
+      await loadAttentionCount();
       if (showHistory) void loadHistory();
     } finally {
       setClearing(false);
     }
-  }, [clearing, loadHistory, notifications, showHistory]);
+  }, [clearing, loadAttentionCount, loadHistory, notifications, showHistory]);
 
   return (
     <>
@@ -192,7 +234,7 @@ export function ActivityCenter({ initialUnreadCount = 0 }: ActivityCenterProps) 
         open={open}
         loading={loading}
         historyLoading={historyLoading}
-        unreadCount={latestLoaded ? undefined : Math.max(0, initialUnreadCount)}
+        unreadCount={attentionCount}
         onOpenChange={handleOpenChange}
         onRefresh={() => void (showHistory ? loadHistory() : loadLatest(true))}
         onToggleHistory={toggleHistory}

@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAuthContext } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { getActivity } from "@/server/dashboard";
+import { getActivity, getActivityAttentionCount } from "@/server/dashboard";
 import { loadOptionalDashboardSegment } from "@/server/dashboard-fallback";
 
 const ActivityKindSchema = z.enum(["NOTICE", "NOTIFICATION", "MESSAGE", "SYSTEM"]);
@@ -39,15 +39,26 @@ export async function GET(request: NextRequest) {
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
     const providers = provider ? [provider] : PORTAL_PROVIDERS;
 
-    const payloads = await Promise.all(
-      providers.map((itemProvider) =>
-        loadOptionalDashboardSegment(
-          "dashboard/activity",
-          "activity",
-          () => getActivity(context.effective.userId, itemProvider, limit),
-          [],
-        )),
-    );
+    const [payloads, attentionCounts] = await Promise.all([
+      Promise.all(
+        providers.map((itemProvider) =>
+          loadOptionalDashboardSegment(
+            "dashboard/activity",
+            "activity",
+            () => getActivity(context.effective.userId, itemProvider, limit),
+            [],
+          )),
+      ),
+      Promise.all(
+        providers.map((itemProvider) =>
+          loadOptionalDashboardSegment(
+            "dashboard/activity",
+            "attention-count",
+            () => getActivityAttentionCount(context.effective.userId, itemProvider),
+            0,
+          )),
+      ),
+    ]);
     const activities = payloads
       .flat()
       .sort((a, b) => {
@@ -66,7 +77,11 @@ export async function GET(request: NextRequest) {
 
     return jsonOk({
       activities,
-      attentionCount: activities.filter((item) => item.needsAttention).length,
+      attentionCount: attentionCounts.reduce((sum, count) => sum + count, 0),
+    }, {
+      headers: {
+        "cache-control": "no-store",
+      },
     });
   } catch (error) {
     console.error("[dashboard/activity] failed", error);

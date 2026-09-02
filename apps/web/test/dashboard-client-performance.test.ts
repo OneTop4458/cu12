@@ -48,15 +48,15 @@ test("activity data is lazy-loaded on first open and keeps reopen and refresh be
   assert.match(activityCenter, /const \[loading, setLoading\] = useState\(false\)/);
   assert.doesNotMatch(activityCenter, /void loadLatest\(true\);\s*\}, \[loadLatest\]\);/);
   assert.match(activityCenter, /if \(nextOpen\) \{\s*void loadLatest\(!latestLoaded\);/);
-  assert.match(activityCenter, /unreadCount=\{latestLoaded \? undefined : Math\.max\(0, initialUnreadCount\)\}/);
+  assert.match(activityCenter, /unreadCount=\{attentionCount\}/);
   assert.match(activityCenter, /onRefresh=\{\(\) => void \(showHistory \? loadHistory\(\) : loadLatest\(true\)\)\}/);
   assert.match(activityCenter, /readActivity\("\/api\/dashboard\/activity\?limit=80", controller\.signal\)/);
   assert.match(activityCenter, /requestId !== latestRequestRef\.current/);
   assert.match(activityCenter, /latestAbortRef\.current\?\.abort\(\)/);
   assert.match(activityCenter, /historyAbortRef\.current\?\.abort\(\)/);
-  assert.match(notificationCenter, /unreadCountOverride \?\? loadedUnreadCount/);
-  assert.match(topbar, /<ActivityCenter initialUnreadCount=\{activityUnreadCount\} \/>/);
-  assert.match(dashboard, /activityUnreadCount=\{summary\?\.unreadNoticeCount \?\? 0\}/);
+  assert.match(notificationCenter, /unreadCount: number/);
+  assert.match(topbar, /<ActivityCenter \/>/);
+  assert.doesNotMatch(dashboard, /activityUnreadCount/);
 });
 
 test("session refresh waits for user activity while idle and revocation protections remain", () => {

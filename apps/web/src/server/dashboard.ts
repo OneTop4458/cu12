@@ -241,7 +241,27 @@ function toDateOrNull(value: unknown): Date | null {
   return null;
 }
 
-function isAttentionNotification(input: {
+const ATTENTION_NOTIFICATION_TERMS = [
+  "deadline",
+  "due",
+  "failed",
+  "failure",
+  "error",
+  "approval",
+  "auth",
+  "urgent",
+  "마감",
+  "기한",
+  "실패",
+  "오류",
+  "에러",
+  "승인",
+  "인증",
+  "긴급",
+  "자동수강",
+] as const;
+
+export function isAttentionNotification(input: {
   category: string | null;
   message: string;
   isUnread: boolean;
@@ -249,7 +269,24 @@ function isAttentionNotification(input: {
 }): boolean {
   if (!input.isUnread || input.isCanceled) return false;
   const text = `${input.category ?? ""} ${input.message}`.toLowerCase();
-  return /deadline|due|failed|failure|error|approval|auth|urgent|마감|기한|실패|오류|에러|승인|인증|긴급|자동수강/.test(text);
+  return ATTENTION_NOTIFICATION_TERMS.some((term) => text.includes(term));
+}
+
+function buildAttentionNotificationWhere(
+  userId: string,
+  provider?: PortalProvider,
+): Prisma.NotificationEventWhereInput {
+  return {
+    userId,
+    ...(provider ? { provider } : {}),
+    isArchived: false,
+    isUnread: true,
+    isCanceled: false,
+    OR: ATTENTION_NOTIFICATION_TERMS.flatMap((term) => [
+      { category: { contains: term, mode: "insensitive" as const } },
+      { message: { contains: term, mode: "insensitive" as const } },
+    ]),
+  };
 }
 
 function normalizeActivityDate(value: Date | null, fallback: Date): Date {
@@ -1580,6 +1617,79 @@ export async function getNotices(userId: string, lectureSeq: number, provider: P
   return dedupeNoticeRows(rows);
 }
 
+async function getActiveActivityCourses(userId: string, provider: PortalProvider): Promise<CourseSnapshotRow[]> {
+  const staleLectureSeqs = provider === "CYBER_CAMPUS"
+    ? await getStaleCyberCampusLectureSeqs(userId)
+    : new Set<number>();
+  return filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
+    await loadCourseSnapshots({
+      userId,
+      provider,
+      status: CourseStatus.ACTIVE,
+    }),
+    staleLectureSeqs,
+  ));
+}
+
+export async function getActivityAttentionCount(
+  userId: string,
+  provider: PortalProvider = "CU12",
+  now = new Date(),
+): Promise<number> {
+  const urgentUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const activeCourses = await getActiveActivityCourses(userId, provider);
+  const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
+
+  const [notificationCount, messageCount, urgentTaskCount] = await Promise.all([
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.notificationEvent.count({
+        where: buildAttentionNotificationWhere(userId, provider),
+      }),
+      () => prisma.notificationEvent.count({
+        where: buildAttentionNotificationWhere(userId),
+      }),
+      0,
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.portalMessage.count({
+        where: { userId, provider, isArchived: false, isRead: false },
+      }),
+      () => prisma.portalMessage.count({
+        where: { userId, isArchived: false, isRead: false },
+      }),
+      0,
+    ),
+    withProviderCompatibility(
+      userId,
+      provider,
+      () => prisma.learningTask.count({
+        where: {
+          userId,
+          provider,
+          lectureSeq: { in: activeLectureSeqs },
+          state: "PENDING",
+          dueAt: { gte: now, lte: urgentUntil },
+        },
+      }),
+      () => prisma.learningTask.count({
+        where: {
+          userId,
+          lectureSeq: { in: activeLectureSeqs },
+          state: "PENDING",
+          dueAt: { gte: now, lte: urgentUntil },
+        },
+      }),
+      0,
+    ),
+  ]);
+
+  return notificationCount + messageCount + urgentTaskCount;
+}
+
 export async function getActivity(
   userId: string,
   provider: PortalProvider = "CU12",
@@ -1588,17 +1698,7 @@ export async function getActivity(
   const take = Math.min(Math.max(limit, 1), 100);
   const now = new Date();
   const urgentUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const staleLectureSeqs = provider === "CYBER_CAMPUS"
-    ? await getStaleCyberCampusLectureSeqs(userId)
-    : new Set<number>();
-  const activeCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
-    await loadCourseSnapshots({
-      userId,
-      provider,
-      status: CourseStatus.ACTIVE,
-    }),
-    staleLectureSeqs,
-  ));
+  const activeCourses = await getActiveActivityCourses(userId, provider);
   const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
 
   const [notices, notifications, messages, urgentTasks] = await Promise.all([
