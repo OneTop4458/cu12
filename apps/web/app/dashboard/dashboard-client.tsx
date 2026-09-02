@@ -38,6 +38,15 @@ interface DashboardClientProps {
 
 interface DashboardLoadOptions {
   reportError?: boolean;
+  signal?: AbortSignal;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function isCurrentRequest(requestId: number, currentRequestId: number, signal?: AbortSignal): boolean {
+  return requestId === currentRequestId && signal?.aborted !== true;
 }
 
 interface SessionContext {
@@ -832,6 +841,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const bootstrapRef = useRef(false);
   const lastInteractionAtRef = useRef(0);
   const allDeadlinesRequestRef = useRef(0);
+  const bootstrapRequestRef = useRef(0);
+  const coursesRequestRef = useRef(0);
+  const deadlinesRequestRef = useRef(0);
+  const jobsRequestRef = useRef(0);
+  const bootstrapSyncingRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [blockingMessage, setBlockingMessage] = useState<string | null>("데이터를 불러오는 중입니다...");
@@ -918,6 +932,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
   const [courseDetailLoadingIds, setCourseDetailLoadingIds] = useState<Set<string>>(() => new Set());
   const [expandedCourseIds, setExpandedCourseIds] = useState<Set<string>>(() => new Set());
+  const expandedCourseIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    bootstrapSyncingRef.current = bootstrapSyncing;
+  }, [bootstrapSyncing]);
 
   const sortedJobs = useMemo(
     () => [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -1159,22 +1178,41 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }, [router]);
 
   const loadCourses = useCallback(async (options?: DashboardLoadOptions) => {
+    const requestId = coursesRequestRef.current + 1;
+    coursesRequestRef.current = requestId;
+    if (options?.signal?.aborted) return;
     setCoursesLoading(true);
     try {
-      const payloads = await Promise.all(
+      const results = await Promise.allSettled(
         PORTAL_PROVIDERS.map((provider) =>
-          fetchJson<{ courses: Course[] }>(`/api/dashboard/courses?provider=${provider}`)),
+          fetchJson<{ courses: Course[] }>(`/api/dashboard/courses?provider=${provider}`, {
+            signal: options?.signal,
+          })),
       );
-      const nextCourses = payloads.flatMap((payload) => payload.courses);
+      if (!isCurrentRequest(requestId, coursesRequestRef.current, options?.signal)) return;
+
+      const successfulCount = results.filter((result) => result.status === "fulfilled").length;
+      if (successfulCount === 0) {
+        const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failure && !isAbortError(failure.reason) && (options?.reportError ?? true)) {
+          reportDashboardError(failure.reason);
+        }
+        return;
+      }
+
       setCourses((prev) =>
-        nextCourses.map((course) => {
+        results.flatMap((result, index) =>
+          result.status === "fulfilled"
+            ? result.value.courses
+            : prev.filter((course) => course.provider === PORTAL_PROVIDERS[index]),
+        ).map((course) => {
           const courseKey = getCourseKey(course.provider, course.lectureSeq);
           const existing = prev.find((entry) => entry.provider === course.provider && entry.lectureSeq === course.lectureSeq);
           if (!existing) {
             return course;
           }
 
-          if (!expandedCourseIds.has(courseKey) || existing.weekSummaries.length === 0) {
+          if (!expandedCourseIdsRef.current.has(courseKey) || existing.weekSummaries.length === 0) {
             return course;
           }
 
@@ -1186,46 +1224,78 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           };
         }),
       );
-      setLectureSeq((prev) => prev ?? nextCourses.find((course) => course.provider === autoLearnProvider)?.lectureSeq ?? null);
     } catch (err) {
-      if (options?.reportError ?? true) {
+      if (!isAbortError(err) && isCurrentRequest(requestId, coursesRequestRef.current, options?.signal) && (options?.reportError ?? true)) {
         reportDashboardError(err);
       }
     } finally {
-      setCoursesLoading(false);
+      if (isCurrentRequest(requestId, coursesRequestRef.current, options?.signal)) {
+        setCoursesLoading(false);
+      }
     }
-  }, [autoLearnProvider, expandedCourseIds, fetchJson, reportDashboardError]);
+  }, [fetchJson, reportDashboardError]);
 
   const loadDeadlines = useCallback(async (limit = 30, options?: DashboardLoadOptions) => {
+    const requestId = deadlinesRequestRef.current + 1;
+    deadlinesRequestRef.current = requestId;
+    const allDeadlinesRequestId = allDeadlinesRequestRef.current + 1;
+    allDeadlinesRequestRef.current = allDeadlinesRequestId;
+    if (options?.signal?.aborted) return;
     setDeadlinesLoading(true);
-    allDeadlinesRequestRef.current += 1;
     try {
-      const payloads = await Promise.all(
+      const results = await Promise.allSettled(
         PORTAL_PROVIDERS.map((provider) =>
-          fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=${limit}`)),
+          fetchJson<{ deadlines: Deadline[] }>(`/api/dashboard/deadlines?provider=${provider}&limit=${limit}`, {
+            signal: options?.signal,
+          })),
       );
-      setDeadlines(payloads.flatMap((payload) => payload.deadlines));
-      setAllDeadlinesState(createDeadlineLoadState(allDeadlinesRequestRef.current));
+      if (!isCurrentRequest(requestId, deadlinesRequestRef.current, options?.signal)) return;
+
+      const successfulCount = results.filter((result) => result.status === "fulfilled").length;
+      if (successfulCount === 0) {
+        const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failure && !isAbortError(failure.reason) && (options?.reportError ?? true)) {
+          reportDashboardError(failure.reason);
+        }
+        return;
+      }
+
+      setDeadlines((prev) => results.flatMap((result, index) =>
+        result.status === "fulfilled"
+          ? result.value.deadlines
+          : prev.filter((deadline) => deadline.provider === PORTAL_PROVIDERS[index]),
+      ));
+      setAllDeadlinesState(createDeadlineLoadState(allDeadlinesRequestId));
     } catch (err) {
-      if (options?.reportError ?? true) {
+      if (!isAbortError(err) && isCurrentRequest(requestId, deadlinesRequestRef.current, options?.signal) && (options?.reportError ?? true)) {
         reportDashboardError(err);
       }
     } finally {
-      setDeadlinesLoading(false);
+      if (isCurrentRequest(requestId, deadlinesRequestRef.current, options?.signal)) {
+        setDeadlinesLoading(false);
+      }
     }
   }, [fetchJson, reportDashboardError]);
 
   const loadJobs = useCallback(async (options?: DashboardLoadOptions) => {
+    const requestId = jobsRequestRef.current + 1;
+    jobsRequestRef.current = requestId;
+    if (options?.signal?.aborted) return;
     setJobsLoading(true);
     try {
-      const payload = await fetchJson<{ jobs: Job[] }>("/api/jobs?limit=20");
+      const payload = await fetchJson<{ jobs: Job[] }>("/api/jobs?limit=20", {
+        signal: options?.signal,
+      });
+      if (!isCurrentRequest(requestId, jobsRequestRef.current, options?.signal)) return;
       setJobs(payload.jobs);
     } catch (err) {
-      if (options?.reportError ?? true) {
+      if (!isAbortError(err) && isCurrentRequest(requestId, jobsRequestRef.current, options?.signal) && (options?.reportError ?? true)) {
         reportDashboardError(err);
       }
     } finally {
-      setJobsLoading(false);
+      if (isCurrentRequest(requestId, jobsRequestRef.current, options?.signal)) {
+        setJobsLoading(false);
+      }
     }
   }, [fetchJson, reportDashboardError]);
 
@@ -1261,11 +1331,11 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }, [fetchJson]);
 
-  const refreshCollections = useCallback(async () => {
+  const refreshCollections = useCallback(async (options?: DashboardLoadOptions) => {
     await Promise.allSettled([
-      loadCourses({ reportError: false }),
-      loadDeadlines(30, { reportError: false }),
-      loadJobs({ reportError: false }),
+      loadCourses({ reportError: false, signal: options?.signal }),
+      loadDeadlines(30, { reportError: false, signal: options?.signal }),
+      loadJobs({ reportError: false, signal: options?.signal }),
     ]);
   }, [loadCourses, loadDeadlines, loadJobs]);
 
@@ -1294,17 +1364,27 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     }
   }, [fetchJson, reportDashboardError]);
 
-  const refreshAll = useCallback(async (silent = false) => {
+  const refreshAll = useCallback(async (silent = false, options?: DashboardLoadOptions) => {
+    const requestId = bootstrapRequestRef.current + 1;
+    bootstrapRequestRef.current = requestId;
+    if (options?.signal?.aborted) return;
     if (!silent) {
       setLoading(true);
-      if (!bootstrapSyncing) {
+      if (!bootstrapSyncingRef.current) {
         setBlockingMessage("데이터를 불러오는 중입니다...");
       }
     }
     setError(null);
 
+    const bootstrapPromise = fetchJson<DashboardBootstrap>("/api/dashboard/bootstrap?jobsLimit=20", {
+      signal: options?.signal,
+    });
+    const collectionsPromise = refreshCollections({ signal: options?.signal });
+    void collectionsPromise;
+
     try {
-      const payload = await fetchJson<DashboardBootstrap>("/api/dashboard/bootstrap?jobsLimit=20");
+      const payload = await bootstrapPromise;
+      if (!isCurrentRequest(requestId, bootstrapRequestRef.current, options?.signal)) return;
       setContext(payload.context);
       setSummary(payload.summary);
       setProviderSummaries(payload.providerSummaries);
@@ -1333,17 +1413,26 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (requiresMailSetup) {
         setSettingsOpen(true);
       }
-      void refreshCollections();
     } catch (err) {
-      if ((err as Error).message !== "Unauthorized") setError((err as Error).message);
+      if (
+        !isAbortError(err)
+        && isCurrentRequest(requestId, bootstrapRequestRef.current, options?.signal)
+        && (err as Error).message !== "Unauthorized"
+      ) {
+        setError((err as Error).message);
+      }
     } finally {
-      setLoading(false);
-      if (!bootstrapSyncing) setBlockingMessage(null);
+      if (isCurrentRequest(requestId, bootstrapRequestRef.current, options?.signal)) {
+        setLoading(false);
+        if (!bootstrapSyncingRef.current) setBlockingMessage(null);
+      }
     }
-  }, [fetchJson, bootstrapSyncing, refreshCollections]);
+  }, [fetchJson, refreshCollections]);
 
   useEffect(() => {
-    void refreshAll(false);
+    const controller = new AbortController();
+    void refreshAll(false, { signal: controller.signal });
+    return () => controller.abort();
   }, [refreshAll]);
 
   useEffect(() => {
@@ -1895,6 +1984,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       } else {
         next.add(courseKey);
       }
+      expandedCourseIdsRef.current = next;
       return next;
     });
     if (!isExpanded && targetCourse && targetCourse.weekSummaries.length === 0) {
@@ -1979,6 +2069,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         email={context?.effective.email ?? initialUser.email}
         role={initialUser.role}
         impersonating={context?.impersonating ?? false}
+        activityUnreadCount={summary?.unreadNoticeCount ?? 0}
         onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenManual={() => setDashboardManualOpen(true)}

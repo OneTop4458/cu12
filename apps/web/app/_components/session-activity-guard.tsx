@@ -87,6 +87,7 @@ export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuar
   const lastActivityHandledAtRef = useRef<number>(0);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
   const loggingOutRef = useRef<boolean>(false);
+  const refreshAbortRef = useRef<AbortController | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => Math.ceil(getIdleTimeoutMs() / 1000));
   const [warningMode, setWarningMode] = useState<boolean>(false);
   const shouldRender = shouldTrack;
@@ -132,12 +133,17 @@ export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuar
     if (loggingOutRef.current) return;
     if (now - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
     lastRefreshAtRef.current = now;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
 
     try {
       const response = await fetch("/api/auth/session/refresh", {
         method: "POST",
         credentials: "same-origin",
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
       if (response.status === 401) {
         void markSessionExpired("session-expired");
         return;
@@ -145,6 +151,10 @@ export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuar
       if (!response.ok) return;
     } catch {
       // Ignore transient network failures.
+    } finally {
+      if (refreshAbortRef.current === controller) {
+        refreshAbortRef.current = null;
+      }
     }
   }, [markSessionExpired]);
 
@@ -182,10 +192,13 @@ export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuar
       return;
     }
 
-    const bootstrappedAt = Math.max(readStoredActivityAt(), Date.now());
-    setActiveStateNow(bootstrappedAt);
-    lastActivityHandledAtRef.current = bootstrappedAt;
-    void tryRefresh(Date.now());
+    const bootstrappedAt = readStoredActivityAt();
+    const initialRemainingMs = Math.max(0, getIdleTimeoutMs() - (Date.now() - bootstrappedAt));
+    const warningThresholdMs = Math.min(WARNING_THRESHOLD_MS, Math.max(5000, getIdleTimeoutMs() * 0.2));
+    lastActivityAtRef.current = bootstrappedAt;
+    setRemainingSeconds(Math.ceil(initialRemainingMs / 1000));
+    setWarningMode(initialRemainingMs <= warningThresholdMs);
+    lastActivityHandledAtRef.current = 0;
 
     const onMouseMove = (event: MouseEvent) => {
       const { clientX, clientY } = event;
@@ -257,6 +270,7 @@ export function SessionActivityGuard({ variant = "banner" }: SessionActivityGuar
       window.removeEventListener("scroll", onPointerAction);
       window.removeEventListener("storage", onStorage);
       window.clearInterval(intervalId);
+      refreshAbortRef.current?.abort();
     };
   }, [markSessionExpired, navigateToLogin, registerActivity, setActiveStateNow, shouldTrack, tryRefresh]);
 

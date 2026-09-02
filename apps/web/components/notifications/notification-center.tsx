@@ -37,6 +37,7 @@ type NotificationCenterProps = {
   mode?: "popover" | "sheet";
   historyLoading?: boolean;
   loading?: boolean;
+  unreadCount?: number;
   onOpenChange?: (open: boolean) => void;
   onRefresh?: () => void;
   onToggleHistory: () => void;
@@ -54,6 +55,7 @@ export function NotificationCenter({
   mode = "popover",
   historyLoading = false,
   loading = false,
+  unreadCount: unreadCountOverride,
   onOpenChange,
   onRefresh,
   onToggleHistory,
@@ -62,7 +64,8 @@ export function NotificationCenter({
   onClearVisible,
   clearing = false,
 }: NotificationCenterProps) {
-  const unreadCount = notifications.filter((item) => item.needsAttention ?? item.isUnread).length;
+  const loadedUnreadCount = notifications.filter((item) => item.needsAttention ?? item.isUnread).length;
+  const unreadCount = unreadCountOverride ?? loadedUnreadCount;
   const source = showHistory ? historyNotifications : notifications;
   const latest = [...source]
     .sort((a, b) => {

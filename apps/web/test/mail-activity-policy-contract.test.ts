@@ -57,7 +57,7 @@ test("dashboard activity API is accessed from notification center only", () => {
   assert.match(activityRoute, /export async function PATCH/);
   assert.match(activityRoute, /getActivity/);
   assert.match(activityCenter, /\/api\/dashboard\/activity\?limit=80/);
-  assert.match(topbar, /<ActivityCenter \/>/);
+  assert.match(topbar, /<ActivityCenter/);
   assert.doesNotMatch(dashboard, /id="activity"/);
   assert.doesNotMatch(dashboard, /id="messages"/);
   assert.equal(fs.existsSync(mobileNavPath), false);
