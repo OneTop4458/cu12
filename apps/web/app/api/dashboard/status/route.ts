@@ -1,8 +1,6 @@
-import { SiteNoticeType } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
-import { getDashboardAccount } from "@/server/cu12-account";
 import { getCyberCampusApprovalState } from "@/server/cyber-campus-autolearn";
 import { combineDashboardSummaries, getDashboardSummaries } from "@/server/dashboard";
 import {
@@ -11,7 +9,6 @@ import {
   loadOptionalDashboardSegment,
 } from "@/server/dashboard-fallback";
 import { getSyncQueueSummaryForUser, getSyncQueueSummaryForUserByProvider, listJobsForUser } from "@/server/queue";
-import { listSiteNotices } from "@/server/site-notice";
 
 function parseLimit(value: string | null, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -28,26 +25,14 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const jobsLimit = parseLimit(url.searchParams.get("jobsLimit"), 10, 50);
     const userId = context.effective.userId;
-    await timing.measure("account", () => loadOptionalDashboardSegment(
-      "dashboard/status",
-      "account",
-      () => getDashboardAccount(userId),
-      null,
-    ));
 
-    const [providerSummaries, syncQueue, siteNotices, jobs, cyberCampus, providerSyncQueues] = await Promise.all([
+    const [providerSummaries, syncQueue, jobs, cyberCampus, providerSyncQueues] = await Promise.all([
       timing.measure("summary", () => getDashboardSummaries(userId)),
       timing.measure("sync-queue", () => loadOptionalDashboardSegment(
         "dashboard/status",
         "sync-queue",
         () => getSyncQueueSummaryForUser(userId),
         IDLE_SYNC_QUEUE_SUMMARY,
-      )),
-      timing.measure("site-notices", () => loadOptionalDashboardSegment(
-        "dashboard/status",
-        "site-notices",
-        () => listSiteNotices(undefined, false, "TOPBAR"),
-        [],
       )),
       timing.measure("jobs", () => loadOptionalDashboardSegment(
         "dashboard/status",
@@ -76,15 +61,13 @@ export async function GET(request: NextRequest) {
     ]);
     const summary = combineDashboardSummaries(providerSummaries);
 
-    const maintenanceNotice = siteNotices.find((notice) => notice.type === SiteNoticeType.MAINTENANCE) ?? null;
-
     return applyServerTimingHeader(jsonOk({
       summary,
       providerSummaries,
       syncQueue,
       providerSyncQueues,
-      siteNotices,
-      maintenanceNotice,
+      siteNotices: [],
+      maintenanceNotice: null,
       jobs,
       cyberCampus,
     }, {

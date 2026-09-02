@@ -810,12 +810,7 @@ function normalizeCyberCampusCourseTitle(value: string | null | undefined): stri
     .toLowerCase();
 }
 
-async function getStaleCyberCampusLectureSeqs(userId: string): Promise<Set<number>> {
-  const rows = await loadCourseSnapshots({
-    userId,
-    provider: "CYBER_CAMPUS",
-  });
-
+function getStaleCyberCampusLectureSeqsFromRows(rows: CourseSnapshotRow[]): Set<number> {
   const rowsByTitle = new Map<string, typeof rows>();
   for (const row of rows) {
     const key = normalizeCyberCampusCourseTitle(row.title);
@@ -839,6 +834,14 @@ async function getStaleCyberCampusLectureSeqs(userId: string): Promise<Set<numbe
   return staleLectureSeqs;
 }
 
+async function getStaleCyberCampusLectureSeqs(userId: string): Promise<Set<number>> {
+  const rows = await loadCourseSnapshots({
+    userId,
+    provider: "CYBER_CAMPUS",
+  });
+  return getStaleCyberCampusLectureSeqsFromRows(rows);
+}
+
 function filterOutStaleCyberCampusLectureSeqs<T extends { lectureSeq: number }>(
   rows: T[],
   staleLectureSeqs: Set<number>,
@@ -849,6 +852,30 @@ function filterOutStaleCyberCampusLectureSeqs<T extends { lectureSeq: number }>(
 
 function filterActiveCourseSnapshots(rows: CourseSnapshotRow[]): CourseSnapshotRow[] {
   return rows.filter((row) => row.status === CourseStatus.ACTIVE);
+}
+
+async function loadActiveCourseScope(input: {
+  userId: string;
+  provider: PortalProvider;
+  orderBy?: "lectureSeqAsc" | "statusRemainDaysTitle";
+}): Promise<{
+  activeCourses: CourseSnapshotRow[];
+  staleLectureSeqs: Set<number>;
+}> {
+  const rows = await loadCourseSnapshots({
+    userId: input.userId,
+    provider: input.provider,
+    ...(input.provider === "CYBER_CAMPUS" ? {} : { status: CourseStatus.ACTIVE }),
+    ...(input.orderBy ? { orderBy: input.orderBy } : {}),
+  });
+  const staleLectureSeqs = input.provider === "CYBER_CAMPUS"
+    ? getStaleCyberCampusLectureSeqsFromRows(rows)
+    : new Set<number>();
+
+  return {
+    activeCourses: filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(rows, staleLectureSeqs)),
+    staleLectureSeqs,
+  };
 }
 
 function filterToLectureSeqs<T extends { lectureSeq: number }>(rows: T[], lectureSeqs: number[]): T[] {
@@ -889,9 +916,10 @@ export function combineDashboardSummaries(
 }
 
 export async function getDashboardSummaries(userId: string): Promise<Record<PortalProvider, DashboardSummary>> {
+  const sharedReads = createDashboardSummarySharedReads(userId);
   const entries = await Promise.all(PORTAL_PROVIDERS.map(async (provider) => {
     try {
-      return [provider, await getDashboardSummary(userId, provider)] as const;
+      return [provider, await getDashboardSummaryWithSharedReads(userId, provider, sharedReads)] as const;
     } catch (error) {
       console.error(`[dashboard] summary load failed for ${provider}`, error);
       return [provider, createEmptyDashboardSummary()] as const;
@@ -900,20 +928,50 @@ export async function getDashboardSummaries(userId: string): Promise<Record<Port
   return Object.fromEntries(entries) as Record<PortalProvider, DashboardSummary>;
 }
 
-export async function getDashboardSummary(userId: string, provider: PortalProvider = "CU12"): Promise<DashboardSummary> {
+function loadDashboardSummarySyncJobs(userId: string) {
+  return prisma.jobQueue.findMany({
+    where: {
+      userId,
+      type: "SYNC",
+      status: {
+        in: ["PENDING", "RUNNING", "SUCCEEDED"],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { status: true, createdAt: true, finishedAt: true, payload: true },
+  });
+}
+
+function loadDashboardSummaryUser(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: { isTestUser: true },
+  });
+}
+
+function createDashboardSummarySharedReads(userId: string) {
+  let syncJobs: ReturnType<typeof loadDashboardSummarySyncJobs> | undefined;
+  let user: ReturnType<typeof loadDashboardSummaryUser> | undefined;
+  return {
+    getSyncJobs: () => {
+      syncJobs ??= loadDashboardSummarySyncJobs(userId);
+      return syncJobs;
+    },
+    getUser: () => {
+      user ??= loadDashboardSummaryUser(userId);
+      return user;
+    },
+  };
+}
+
+async function getDashboardSummaryWithSharedReads(
+  userId: string,
+  provider: PortalProvider,
+  sharedReads: ReturnType<typeof createDashboardSummarySharedReads>,
+): Promise<DashboardSummary> {
   const now = new Date();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
-  const staleLectureSeqs = provider === "CYBER_CAMPUS"
-    ? await getStaleCyberCampusLectureSeqs(userId)
-    : new Set<number>();
-  const activeCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
-    await loadCourseSnapshots({
-      userId,
-      provider,
-      status: CourseStatus.ACTIVE,
-    }),
-    staleLectureSeqs,
-  ));
+  const { activeCourses, staleLectureSeqs } = await loadActiveCourseScope({ userId, provider });
   const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
   const upcomingWindowTasks = filterToLectureSeqs(filterOutStaleCyberCampusLectureSeqs(
     await fetchLearningTasksRaw({
@@ -935,21 +993,8 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
       lectureSeqs: activeLectureSeqs,
       isRead: false,
     }),
-    prisma.jobQueue.findMany({
-      where: {
-        userId,
-        type: "SYNC",
-        status: {
-          in: ["PENDING", "RUNNING", "SUCCEEDED"],
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { status: true, createdAt: true, finishedAt: true, payload: true },
-    }),
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { isTestUser: true },
-    }),
+    sharedReads.getSyncJobs(),
+    sharedReads.getUser(),
   ]);
   const activeCourseCount = activeCourses.length;
   const avgProgress = activeCourseCount > 0
@@ -978,20 +1023,18 @@ export async function getDashboardSummary(userId: string, provider: PortalProvid
   };
 }
 
+export async function getDashboardSummary(userId: string, provider: PortalProvider = "CU12"): Promise<DashboardSummary> {
+  return getDashboardSummaryWithSharedReads(userId, provider, createDashboardSummarySharedReads(userId));
+}
+
 export async function getCourses(userId: string, provider: PortalProvider = "CU12") {
   const now = new Date();
   const nowMs = now.getTime();
-  const staleLectureSeqs = provider === "CYBER_CAMPUS"
-    ? await getStaleCyberCampusLectureSeqs(userId)
-    : new Set<number>();
-
-  const courses = await loadCourseSnapshots({
+  const { activeCourses: filteredCourses, staleLectureSeqs } = await loadActiveCourseScope({
     userId,
     provider,
-    status: CourseStatus.ACTIVE,
     orderBy: "statusRemainDaysTitle",
   });
-  const filteredCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(courses, staleLectureSeqs));
   const activeLectureSeqs = filteredCourses.map((course) => course.lectureSeq);
 
   const [tasks, noticeCounts, unreadNoticeCounts] = await Promise.all([
@@ -1207,17 +1250,7 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
 
 export async function getUpcomingDeadlines(userId: string, limit = 30, provider: PortalProvider) {
   const now = new Date();
-  const staleLectureSeqs = provider === "CYBER_CAMPUS"
-    ? await getStaleCyberCampusLectureSeqs(userId)
-    : new Set<number>();
-  const activeCourses = filterActiveCourseSnapshots(filterOutStaleCyberCampusLectureSeqs(
-    await loadCourseSnapshots({
-      userId,
-      provider,
-      status: CourseStatus.ACTIVE,
-    }),
-    staleLectureSeqs,
-  ));
+  const { activeCourses, staleLectureSeqs } = await loadActiveCourseScope({ userId, provider });
   const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
   const tasksRaw = filterToLectureSeqs(filterOutStaleCyberCampusLectureSeqs(
     await fetchLearningTasksRaw({
