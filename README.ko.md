@@ -205,7 +205,7 @@ Named arguments는 그대로 전달합니다. 예전의 double-dash forwarding �
 | `sync-schedule.yml` | `0 */2 * * *` UTC | 2시간마다 provider-aware sync work를 enqueue하고 centralized worker dispatch를 요청합니다. |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | eligible pending work가 있는 사용자에게만 daily AUTOLEARN을 queue합니다. |
 | `reconcile-health-check.yml` | `0 */4 * * *` UTC | 활성 GitHub runs와 DB `RUNNING` jobs를 비교하고 divergence가 있으면 실패합니다. |
-| `db-retention-cleanup.yml` | `10 1 * * *` UTC | legacy bogus course notices를 정리합니다. 수동 `user_repair`는 선택된 사용자의 notification events도 정리할 수 있습니다. |
+| `db-retention-cleanup.yml` | `10 1 * * *` UTC | 만료된 로그인 제한 버킷과 포털 세션, 30일이 지난 포털 승인 이력·감사 로그·메일 기록, 14일이 지난 종료 작업, 6개월이 지난 탈퇴 계정을 정리합니다. 수동 `user_repair`는 선택된 사용자의 알림도 정리할 수 있습니다. |
 
 ## 환경과 설정
 

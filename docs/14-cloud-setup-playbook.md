@@ -39,6 +39,8 @@ Run CU12 Automation as a fully cloud-hosted system with:
    - `WORKER_SHARED_TOKEN`
    - `CU12_BASE_URL`
    - GitHub dispatch vars (`GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_WORKFLOW_ID`, `GITHUB_WORKFLOW_REF`, `GITHUB_TOKEN`)
+
+   `AUTH_JWT_SECRET` also derives domain-separated HMACs for login-throttle buckets; no separate rate-limit secret is required.
 3. Add optional overrides only when needed:
    - `CYBER_CAMPUS_BASE_URL`
    - `WORKER_DISPATCH_MAX_PARALLEL`

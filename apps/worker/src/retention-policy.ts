@@ -1,3 +1,5 @@
+import { AUTH_RATE_LIMIT_WINDOW_MS } from "@cu12/core";
+
 export const AUDIT_RETENTION_DAYS = 30;
 export const JOB_RETENTION_DAYS = 14;
 export const MAIL_RETENTION_DAYS = 30;
@@ -49,5 +51,17 @@ export function buildExpiredPortalApprovalWhere(now: Date) {
       in: ["COMPLETED", "EXPIRED", "CANCELED"] as Array<"COMPLETED" | "EXPIRED" | "CANCELED">,
     },
     updatedAt: { lt: daysAgo(now, PORTAL_APPROVAL_RETENTION_DAYS) },
+  };
+}
+
+export function buildExpiredAuthRateLimitWhere(now: Date) {
+  return {
+    OR: [
+      { blockedUntil: { lte: now } },
+      {
+        blockedUntil: null,
+        windowStart: { lt: new Date(now.getTime() - AUTH_RATE_LIMIT_WINDOW_MS) },
+      },
+    ],
   };
 }

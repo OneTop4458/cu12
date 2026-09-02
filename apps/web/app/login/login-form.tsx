@@ -181,6 +181,9 @@ export function toLoginErrorMessage(payload: ApiErrorResponse): string {
   if (payload.errorCode === "RATE_LIMITED") {
     return COPY.rateLimited;
   }
+  if (payload.errorCode === "AUTH_RATE_LIMIT_UNAVAILABLE") {
+    return COPY.loginUnavailable;
+  }
   if (
     payload.errorCode === "CU12_UNAVAILABLE"
     || payload.errorCode === "CYBER_CAMPUS_UNAVAILABLE"

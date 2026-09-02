@@ -2,6 +2,7 @@ import { JobStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import {
   AUDIT_RETENTION_DAYS,
+  buildExpiredAuthRateLimitWhere,
   buildExpiredPortalApprovalWhere,
   buildExpiredPortalSessionWhere,
   buildRetentionCutoffs,
@@ -36,6 +37,7 @@ async function runCleanupStep(
 type RetentionPrismaClient = Pick<
   typeof prisma,
   | "auditLog"
+  | "authRateLimit"
   | "jobQueue"
   | "mailDelivery"
   | "portalSession"
@@ -73,6 +75,11 @@ export async function runRetentionCleanup(
       where: {
         createdAt: { lt: cutoffs.mail },
       },
+    }), failures);
+
+  const authRateLimitsDeleted = await runCleanupStep("delete-expired-auth-rate-limits", () =>
+    client.authRateLimit.deleteMany({
+      where: buildExpiredAuthRateLimitWhere(now),
     }), failures);
 
   const portalSessionsDeleted = await runCleanupStep("delete-expired-portal-sessions", () =>
@@ -119,6 +126,7 @@ export async function runRetentionCleanup(
       auditLogs: auditDeleted,
       jobQueue: jobsDeleted,
       mailDeliveries: mailDeleted,
+      authRateLimits: authRateLimitsDeleted,
       portalSessions: portalSessionsDeleted,
       portalApprovalSessions: portalApprovalSessionsDeleted,
       withdrawnConsents: withdrawnConsentsDeleted,
