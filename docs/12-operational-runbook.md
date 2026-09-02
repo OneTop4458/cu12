@@ -17,6 +17,14 @@
 4. If `dispatchState` is `SKIPPED_DUPLICATE`, monitor the existing in-flight work before retrying.
 5. Track job progression through `/api/jobs` or the admin job view.
 
+## Course Roster Reconciliation Rollout
+
+1. Deploy the roster reconciliation change through the normal pull request and `Deploy Vercel` workflow path.
+2. Manually dispatch `Scheduled Sync Dispatch` once with `minIntervalMinutes=0`. This queues a full provider-aware sync for every connected non-test user instead of waiting for the next scheduled interval.
+3. Monitor the resulting sync jobs and confirm successful worker audit metadata reports `endedCourseCount`. The count is aggregate-only and must not be expanded with user or course names in public workflow logs.
+4. Confirm current dashboard course, deadline, notice, and activity views no longer include ended courses. Historical course rows and related records remain stored.
+5. Accounts in `NEEDS_REAUTH` cannot produce a verified roster. Have those users reauthenticate and complete a full sync later; do not infer course state from IDs, titles, dates, or manual database updates.
+
 ## Manual Auto-learning Procedure
 
 1. Trigger `POST /api/jobs/autolearn-request`.

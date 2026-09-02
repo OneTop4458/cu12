@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { prisma } from "../src/lib/prisma";
-import { getCourses, getDashboardSummary } from "../src/server/dashboard";
+import { getCourses, getDashboardSummary, getNotices, getUpcomingDeadlines } from "../src/server/dashboard";
 
 function swapMethod(
   t: TestContext,
@@ -169,4 +169,131 @@ test("getCourses falls back to raw course, task, and notice reads when ORM queri
   assert.equal(courses[0]?.currentWeekNo, 4);
   assert.equal(courses[0]?.nextPendingTask?.activityType, "QUIZ");
   assert.equal(rawCalls, 4);
+});
+
+test("current dashboard reads exclude ENDED courses and their tasks", async (t) => {
+  const now = new Date();
+  const dueAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const syncedAt = new Date("2026-09-02T00:00:00.000Z");
+  const courseRows = [
+    {
+      id: "active-course",
+      userId: "user-current",
+      lectureSeq: 101,
+      externalLectureId: null,
+      title: "Current Course",
+      instructor: null,
+      progressPercent: 10,
+      remainDays: null,
+      recentLearnedAt: null,
+      periodStart: null,
+      periodEnd: null,
+      status: "ACTIVE",
+      syncedAt,
+      createdAt: syncedAt,
+      updatedAt: syncedAt,
+    },
+    {
+      id: "ended-course",
+      userId: "user-current",
+      lectureSeq: 202,
+      externalLectureId: null,
+      title: "Ended Course",
+      instructor: null,
+      progressPercent: 100,
+      remainDays: null,
+      recentLearnedAt: null,
+      periodStart: null,
+      periodEnd: null,
+      status: "ENDED",
+      syncedAt,
+      createdAt: syncedAt,
+      updatedAt: syncedAt,
+    },
+  ];
+  const taskRows = [
+    {
+      lectureSeq: 101,
+      courseContentsSeq: 1001,
+      weekNo: 1,
+      lessonNo: 1,
+      activityType: "VOD",
+      state: "PENDING",
+      requiredSeconds: 300,
+      learnedSeconds: 0,
+      availableFrom: null,
+      dueAt,
+    },
+    {
+      lectureSeq: 202,
+      courseContentsSeq: 2001,
+      weekNo: 1,
+      lessonNo: 1,
+      activityType: "VOD",
+      state: "PENDING",
+      requiredSeconds: 300,
+      learnedSeconds: 0,
+      availableFrom: null,
+      dueAt,
+    },
+  ];
+  const courseQueries: Array<{ where?: unknown }> = [];
+  const taskQueries: Array<{ where?: unknown }> = [];
+
+  swapMethod(t, prisma.courseSnapshot, "findMany", async (...args: never[]) => {
+    courseQueries.push(args[0] as { where?: unknown });
+    return courseRows as never;
+  });
+  swapMethod(t, prisma.learningTask, "findMany", async (...args: never[]) => {
+    taskQueries.push(args[0] as { where?: unknown });
+    return taskRows as never;
+  });
+  swapMethod(t, prisma.courseNotice, "groupBy", async () => [] as never);
+
+  const courses = await getCourses("user-current", "CU12");
+  const deadlines = await getUpcomingDeadlines("user-current", 30, "CU12");
+
+  assert.deepEqual(courses.map((course) => course.lectureSeq), [101]);
+  assert.deepEqual(deadlines.map((deadline) => deadline.lectureSeq), [101]);
+  assert.equal(courses[0]?.pendingTaskCount, 1);
+  assert.deepEqual(courseQueries[0]?.where, {
+    userId: "user-current",
+    status: "ACTIVE",
+    provider: "CU12",
+  });
+  assert.deepEqual(taskQueries[0]?.where, {
+    userId: "user-current",
+    lectureSeq: { in: [101] },
+    provider: "CU12",
+  });
+});
+
+test("course notices are unavailable when the course is ENDED", async (t) => {
+  const syncedAt = new Date("2026-09-02T00:00:00.000Z");
+  let noticeReadCount = 0;
+
+  swapMethod(t, prisma.courseSnapshot, "findMany", async () => [{
+    id: "ended-course",
+    userId: "user-ended",
+    lectureSeq: 202,
+    externalLectureId: null,
+    title: "Ended Course",
+    instructor: null,
+    progressPercent: 100,
+    remainDays: null,
+    recentLearnedAt: null,
+    periodStart: null,
+    periodEnd: null,
+    status: "ENDED",
+    syncedAt,
+    createdAt: syncedAt,
+    updatedAt: syncedAt,
+  }] as never);
+  swapMethod(t, prisma.courseNotice, "findMany", async () => {
+    noticeReadCount += 1;
+    return [] as never;
+  });
+
+  assert.deepEqual(await getNotices("user-ended", 202, "CU12"), []);
+  assert.equal(noticeReadCount, 0);
 });

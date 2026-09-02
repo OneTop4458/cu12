@@ -31,6 +31,7 @@ import type {
 import { isCyberCampusAuthenticatedResponse } from "./cyber-campus-session-state";
 import { resolveRestoredCyberCampusSessionCookieState } from "./cyber-campus-session-options";
 import { retryOnceAfterEmptyStoredSession } from "./cyber-campus-session-recovery";
+import { assessCourseRoster, extractCyberCampusCourseRosterIdentifiers } from "./course-roster";
 import { getEnv } from "./env";
 import { gotoWithRetry } from "./navigation-retry";
 import { upsertPortalSessionCookieState } from "./sync-store";
@@ -694,6 +695,8 @@ interface CyberCampusTaskPlanningState {
   mainHtml: string;
   baseCourses: ReturnType<typeof parseCyberCampusMainCoursesHtml>;
   baseTasks: ReturnType<typeof parseCyberCampusTodoListHtml>;
+  courseRosterAuthoritative: boolean;
+  courseRosterReason: string;
 }
 
 async function loadCyberCampusTaskPlanningState(
@@ -707,10 +710,21 @@ async function loadCyberCampusTaskPlanningState(
     { method: "POST", body: "todoKjList=&chk_cate=ALL&encoding=utf-8" },
   );
 
+  const baseCourses = parseCyberCampusMainCoursesHtml(mainHtml, userId, "ACTIVE");
+  const rosterAssessment = assessCourseRoster({
+    html: mainHtml,
+    currentUrl: page.url(),
+    expectedPath: "/ilos/main/main_form.acl",
+    sourceIdentifiers: extractCyberCampusCourseRosterIdentifiers(mainHtml),
+    parsedIdentifiers: baseCourses.map((course) => course.externalLectureId ?? ""),
+  });
+
   return {
     mainHtml,
-    baseCourses: parseCyberCampusMainCoursesHtml(mainHtml, userId, "ACTIVE"),
+    baseCourses,
     baseTasks: parseCyberCampusTodoListHtml(todoHtml, userId),
+    courseRosterAuthoritative: rosterAssessment.authoritative,
+    courseRosterReason: rosterAssessment.reason,
   };
 }
 
@@ -1320,13 +1334,16 @@ export async function collectCyberCampusSnapshot(
     const planningState = await retryOnceAfterEmptyStoredSession({
       hasStoredSession: Boolean(options?.cookieState?.length),
       load: () => loadCyberCampusTaskPlanningState(page, userId),
-      isEmpty: (result) => result.baseTasks.length === 0,
+      isEmpty: (result) => !result.courseRosterAuthoritative || result.baseTasks.length === 0,
       refresh: async () => {
         await forceFreshCyberCampusLogin(page, creds);
       },
     });
     if (planningState.retriedStoredSession && planningState.result.baseTasks.length > 0) {
       console.warn("[CYBER_CAMPUS] recovered empty snapshot task list after refreshing stored session");
+    }
+    if (!planningState.result.courseRosterAuthoritative) {
+      throw new Error(`COURSE_ROSTER_UNVERIFIED:${planningState.result.courseRosterReason}`);
     }
 
     const mainHtml = planningState.result.mainHtml;
@@ -1362,6 +1379,7 @@ export async function collectCyberCampusSnapshot(
     });
 
     return {
+      courseRosterAuthoritative: true,
       courses,
       notices,
       notifications,

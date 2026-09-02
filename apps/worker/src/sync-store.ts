@@ -410,6 +410,7 @@ async function cleanupLegacyCyberCampusCourseSnapshots(
 }
 
 export interface PersistSnapshotResult {
+  endedCourseCount: number;
   newNoticeCount: number;
   newNotificationCount: number;
   newUnreadNotificationCount: number;
@@ -871,6 +872,7 @@ export async function persistSnapshot(
   userId: string,
   provider: PortalProvider,
   data: {
+    courseRosterAuthoritative: boolean;
     courses: CourseState[];
     notices: CourseNotice[];
     notifications: NotificationEvent[];
@@ -975,6 +977,27 @@ export async function persistSnapshot(
         },
       }),
     );
+  }
+
+  let endedCourseCount = 0;
+  if (data.courseRosterAuthoritative) {
+    const incomingLectureSeqs = Array.from(new Set(data.courses.map((course) => course.lectureSeq)));
+    const endedCourses = await runWithPrismaRetry(() =>
+      prisma.courseSnapshot.updateMany({
+        where: {
+          userId,
+          provider,
+          status: "ACTIVE",
+          ...(incomingLectureSeqs.length > 0
+            ? { lectureSeq: { notIn: incomingLectureSeqs } }
+            : {}),
+        },
+        data: {
+          status: "ENDED",
+        },
+      }),
+    );
+    endedCourseCount = endedCourses.count;
   }
 
   await cleanupLegacyCyberCampusCourseSnapshots(
@@ -1261,6 +1284,7 @@ export async function persistSnapshot(
   });
 
   return {
+    endedCourseCount,
     newNoticeCount,
     newNotificationCount,
     newUnreadNotificationCount,

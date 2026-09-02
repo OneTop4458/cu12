@@ -12,6 +12,7 @@ import {
   type LearningTask,
 } from "@cu12/core";
 import { load } from "cheerio";
+import { assessCourseRoster, extractCu12CourseRosterIdentifiers } from "./course-roster";
 import { getEnv } from "./env";
 import type { Cu12Credentials, SyncProgress, SyncSnapshotResult } from "./cu12-automation";
 
@@ -640,6 +641,16 @@ export async function collectCu12SnapshotViaHttp(
   const myCourseResponse = await client.getText("/el/member/mycourse_list_form.acl");
   client.assertAuthenticated(myCourseResponse);
   const courses = parseMyCourseHtml(myCourseResponse.text, userId, "ACTIVE");
+  const rosterAssessment = assessCourseRoster({
+    html: myCourseResponse.text,
+    currentUrl: myCourseResponse.url,
+    expectedPath: "/el/member/mycourse_list_form.acl",
+    sourceIdentifiers: extractCu12CourseRosterIdentifiers(myCourseResponse.text),
+    parsedIdentifiers: courses.map((course) => String(course.lectureSeq)),
+  });
+  if (!rosterAssessment.authoritative) {
+    throw new Error(`COURSE_ROSTER_UNVERIFIED:${rosterAssessment.reason}`);
+  }
 
   const notices: CourseNotice[] = [];
   const tasks: LearningTask[] = [];
@@ -778,5 +789,5 @@ export async function collectCu12SnapshotViaHttp(
     ...buildTiming(courses.length, courses.length),
   });
 
-  return { courses, notices, notifications, tasks };
+  return { courseRosterAuthoritative: true, courses, notices, notifications, tasks };
 }
