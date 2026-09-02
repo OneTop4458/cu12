@@ -30,7 +30,6 @@ type AppTopbarProps = {
   email: string;
   role: RoleType;
   impersonating?: boolean;
-  activityUnreadCount?: number;
   showAdminNav?: boolean;
   adminNavActivePath?: string;
   onDashboard?: () => void;
@@ -54,7 +53,6 @@ export function AppTopbar({
   email,
   role,
   impersonating = false,
-  activityUnreadCount,
   showAdminNav = false,
   adminNavActivePath,
   onDashboard,
@@ -85,7 +83,7 @@ export function AppTopbar({
         <div className="topbar-actions">
           <SessionActivityGuard variant="chip" />
           <SiteNoticeCenter />
-          <ActivityCenter initialUnreadCount={activityUnreadCount} />
+          <ActivityCenter />
           {onOpenManual ? (
             <button className="ghost-btn topbar-manual-btn" type="button" onClick={onOpenManual}>
               <BookOpen size={16} />

@@ -2069,7 +2069,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         email={context?.effective.email ?? initialUser.email}
         role={initialUser.role}
         impersonating={context?.impersonating ?? false}
-        activityUnreadCount={summary?.unreadNoticeCount ?? 0}
         onGoAdmin={initialUser.role === "ADMIN" ? () => router.push("/admin" as Route) : undefined}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenManual={() => setDashboardManualOpen(true)}

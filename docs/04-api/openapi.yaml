@@ -1065,6 +1065,30 @@ paths:
         "200":
           description: Updated
 
+  /api/dashboard/activity/attention-count:
+    get:
+      tags: [Dashboard]
+      summary: Lightweight attention count for authenticated topbars
+      description: Counts attention notifications, unread messages, and pending tasks due within 24 hours for ACTIVE courses across both providers. Course notices are excluded, matching DashboardActivityItem.needsAttention semantics.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current attention count without activity detail rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attentionCount]
+                properties:
+                  attentionCount:
+                    type: integer
+                    minimum: 0
+        "401":
+          description: Unauthorized
+        "503":
+          description: Attention count unavailable
+
   /api/dashboard/activity:
     get:
       tags: [Dashboard]
@@ -1098,6 +1122,8 @@ paths:
                       $ref: "#/components/schemas/DashboardActivityItem"
                   attentionCount:
                     type: integer
+                    minimum: 0
+                    description: Untruncated attention total using the same semantics as DashboardActivityItem.needsAttention.
     patch:
       tags: [Dashboard]
       summary: Mark dashboard activity items as read
