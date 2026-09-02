@@ -35,5 +35,7 @@ jobs:
         run: node scripts/db-drop-invite-token.mjs
       - name: Push Prisma schema
         run: pnpm exec prisma db push --schema prisma/schema.prisma
+      - name: Backfill active job dedupe keys
+        run: node scripts/db-backfill-active-job-dedupe.mjs
       - name: Backfill auth/policy columns after schema sync
         run: node scripts/db-backfill-auth-policy-columns.mjs

@@ -30,6 +30,8 @@
    - Stores `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, and `MAIL_DIGEST`.
    - Uses `PENDING`, `BLOCKED`, `RUNNING`, `SUCCEEDED`, `FAILED`, and `CANCELED`.
    - `BLOCKED` is used for approval-gated Cyber Campus AUTOLEARN flows.
+   - Preserves `idempotencyKey` as history and uses nullable unique `activeDedupeKey` only while keyed work is `PENDING` or `RUNNING`.
+   - Terminal transitions clear `activeDedupeKey`, allowing the same logical key to create a later job without deleting history.
 
 6. `WorkerHeartbeat`
    - Records active worker liveness for stale-run detection and admin visibility.

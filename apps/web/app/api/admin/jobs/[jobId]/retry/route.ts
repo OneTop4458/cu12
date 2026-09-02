@@ -89,6 +89,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (error.message.includes("Completed job requires force retry")) {
         return jsonError("Completed job requires force retry", 409, "JOB_RETRY_FORBIDDEN");
       }
+      if (error.message.includes("Active duplicate job already exists")) {
+        return jsonError("An equivalent active job already exists", 409, "JOB_RETRY_DUPLICATE");
+      }
     }
     return jsonError("Failed to retry job", 500);
   }

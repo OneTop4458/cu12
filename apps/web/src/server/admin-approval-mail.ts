@@ -1,7 +1,8 @@
-import { JobType, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun, type WorkerDispatchResult } from "@/server/github-actions-dispatch";
 import { writeAuditLogBestEffort } from "@/server/auth-best-effort";
+import { enqueueJob } from "@/server/queue";
 
 export interface AdminApprovalMailQueueSummary {
   queued: number;
@@ -47,34 +48,23 @@ export async function queueAdminApprovalRequestMailJobs(input: {
     }
 
     const idempotencyKey = buildAdminApprovalRequestIdempotencyKey(admin.id, input.requestedUserId);
-    const existing = await prisma.jobQueue.findFirst({
-      where: {
+    const { deduplicated } = await enqueueJob({
+      userId: admin.id,
+      type: "MAIL_DIGEST",
+      payload: {
         userId: admin.id,
-        type: JobType.MAIL_DIGEST,
-        idempotencyKey,
-      },
-      select: { id: true },
+        mailKind: "ADMIN_APPROVAL_REQUEST",
+        requestedUserId: input.requestedUserId,
+        requestedCu12Id: input.requestedCu12Id,
+        requestedAt: input.requestedAt.toISOString(),
+      } as unknown as Prisma.InputJsonObject,
+      idempotencyKey,
+      runAfter: new Date(),
     });
-    if (existing) {
+    if (deduplicated) {
       skipped += 1;
       continue;
     }
-
-    await prisma.jobQueue.create({
-      data: {
-        userId: admin.id,
-        type: JobType.MAIL_DIGEST,
-        payload: {
-          userId: admin.id,
-          mailKind: "ADMIN_APPROVAL_REQUEST",
-          requestedUserId: input.requestedUserId,
-          requestedCu12Id: input.requestedCu12Id,
-          requestedAt: input.requestedAt.toISOString(),
-        } as unknown as Prisma.InputJsonValue,
-        idempotencyKey,
-        runAfter: new Date(),
-      },
-    });
     queued += 1;
   }
 

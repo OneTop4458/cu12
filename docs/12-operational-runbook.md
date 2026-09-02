@@ -17,6 +17,15 @@
 4. If `dispatchState` is `SKIPPED_DUPLICATE`, monitor the existing in-flight work before retrying.
 5. Track job progression through `/api/jobs` or the admin job view.
 
+## Active Job Dedupe Rollout
+
+1. Merge the change through a pull request. Do not run the backfill directly against production from a local shell.
+2. Run `Deploy Vercel`. Its DB phase adds nullable unique `JobQueue.activeDedupeKey` with `prisma db push`, then runs `scripts/db-backfill-active-job-dedupe.mjs`.
+3. The backfill keeps one `RUNNING` row when possible, otherwise the oldest `PENDING` row, and marks other active duplicates `CANCELED`. It logs aggregate counts only.
+4. After the new web deployment, the workflow runs the same idempotent backfill again to absorb null-key rows created during the deployment handoff.
+5. Confirm both backfill summaries report `remainingUnkeyedActiveRows: 0` and `remainingDuplicateGroups: 0`. Do not print job payloads, dedupe keys, or user identifiers while investigating.
+6. Verify new manual and scheduled duplicate requests return one active job ID. Terminal history remains stored, and the same logical key may create a new job after completion.
+
 ## Course Roster Reconciliation Rollout
 
 1. Deploy the roster reconciliation change through the normal pull request and `Deploy Vercel` workflow path.

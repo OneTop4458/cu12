@@ -8,6 +8,7 @@ import type {
 } from "@cu12/core";
 import {
   ACTIVE_PORTAL_APPROVAL_STATUSES,
+  buildActiveJobDedupeKey,
   buildPortalApprovalTerminalScrub,
 } from "@cu12/core";
 import { Prisma } from "@prisma/client";
@@ -739,6 +740,11 @@ export async function updatePortalApprovalSessionStateForWorker(input: {
 }
 
 export async function reactivateBlockedAutoLearnJob(jobId: string, userId: string) {
+  const job = await prisma.jobQueue.findFirst({
+    where: { id: jobId, userId, status: "BLOCKED" },
+    select: { type: true, idempotencyKey: true },
+  });
+  if (!job) return;
   await prisma.jobQueue.updateMany({
     where: {
       id: jobId,
@@ -747,6 +753,12 @@ export async function reactivateBlockedAutoLearnJob(jobId: string, userId: strin
     },
     data: {
       status: "PENDING",
+      activeDedupeKey: buildActiveJobDedupeKey({
+        userId,
+        type: job.type,
+        status: "PENDING",
+        idempotencyKey: job.idempotencyKey,
+      }),
       runAfter: new Date(),
       lastError: null,
       finishedAt: null,
@@ -766,6 +778,7 @@ export async function succeedBlockedAutoLearnJob(jobId: string, userId: string, 
     },
     data: {
       status: "SUCCEEDED",
+      activeDedupeKey: null,
       finishedAt: new Date(),
       lastError: null,
       result: result as Prisma.InputJsonValue,
@@ -782,6 +795,7 @@ export async function failBlockedAutoLearnJob(jobId: string, userId: string, rea
     },
     data: {
       status: "FAILED",
+      activeDedupeKey: null,
       finishedAt: new Date(),
       lastError: reason,
     },
@@ -797,6 +811,7 @@ export async function cancelBlockedAutoLearnJob(jobId: string, userId: string, r
     },
     data: {
       status: "CANCELED",
+      activeDedupeKey: null,
       finishedAt: new Date(),
       lastError: reason,
     },

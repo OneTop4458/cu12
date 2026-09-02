@@ -1,5 +1,10 @@
 import { writeFile } from "node:fs/promises";
-import { resolveSyncProviders } from "@cu12/core";
+import {
+  buildActiveJobDedupeKey,
+  insertActiveJobOrGetExisting,
+  isActiveJobDedupeConflict,
+  resolveSyncProviders,
+} from "@cu12/core";
 import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "./env";
 import { prisma } from "./prisma";
@@ -38,6 +43,7 @@ async function cancelBlockedSyncJobsForTestUsers(): Promise<number> {
     },
     data: {
       status: JobStatus.CANCELED,
+      activeDedupeKey: null,
       startedAt: null,
       workerId: null,
       finishedAt: new Date(),
@@ -245,35 +251,12 @@ async function main() {
       const key = provider
         ? `${type.toLowerCase()}:${user.id}:${provider}:scheduled`
         : `${type.toLowerCase()}:${user.id}:scheduled`;
-      const existing = await prisma.jobQueue.findFirst({
-        where: {
-          userId: user.id,
-          type,
-          status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
-          idempotencyKey: key,
-        },
-        select: {
-          id: true,
-          status: true,
-        },
-      });
-
-      if (existing) {
-        summary.skippedExistingCount += 1;
-        if (existing.status === JobStatus.PENDING) {
-          summary.skippedExistingPendingCount += 1;
-        } else if (existing.status === JobStatus.RUNNING) {
-          summary.skippedExistingRunningCount += 1;
-        }
-        continue;
-      }
-
       if (minIntervalMinutes > 0) {
         const recent = await prisma.jobQueue.findFirst({
           where: {
             userId: user.id,
             type,
-            status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.SUCCEEDED] },
+            status: JobStatus.SUCCEEDED,
             createdAt: { gte: cutoff },
             ...(provider
               ? {
@@ -293,21 +276,49 @@ async function main() {
         }
       }
 
-      await prisma.jobQueue.create({
-        data: {
-          userId: user.id,
-          type,
-          status: JobStatus.PENDING,
-          payload: {
-            userId: user.id,
-            provider: provider ?? (type === JobType.AUTOLEARN ? "CU12" : undefined),
-            reason: "scheduled_dispatch",
-          },
-          idempotencyKey: key,
-          runAfter: new Date(),
-        },
+      const activeDedupeKey = buildActiveJobDedupeKey({
+        userId: user.id,
+        type,
+        status: JobStatus.PENDING,
+        idempotencyKey: key,
       });
-      summary.createdCount += 1;
+      const queued = await insertActiveJobOrGetExisting({
+        activeDedupeKey,
+        insert: () => prisma.jobQueue.create({
+          data: {
+            userId: user.id,
+            type,
+            status: JobStatus.PENDING,
+            payload: {
+              userId: user.id,
+              provider: provider ?? (type === JobType.AUTOLEARN ? "CU12" : undefined),
+              reason: "scheduled_dispatch",
+            },
+            idempotencyKey: key,
+            activeDedupeKey,
+            runAfter: new Date(),
+          },
+          select: { id: true, status: true },
+        }),
+        findActive: (dedupeKey) => prisma.jobQueue.findFirst({
+          where: {
+            activeDedupeKey: dedupeKey,
+            status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+          },
+          select: { id: true, status: true },
+        }),
+        isActiveDedupeConflict: isActiveJobDedupeConflict,
+      });
+      if (queued.deduplicated) {
+        summary.skippedExistingCount += 1;
+        if (queued.job.status === JobStatus.PENDING) {
+          summary.skippedExistingPendingCount += 1;
+        } else if (queued.job.status === JobStatus.RUNNING) {
+          summary.skippedExistingRunningCount += 1;
+        }
+      } else {
+        summary.createdCount += 1;
+      }
     }
   }
 

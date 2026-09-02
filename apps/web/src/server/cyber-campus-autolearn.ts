@@ -291,6 +291,7 @@ async function expireBlockedJob(jobId: string, reason: string) {
     },
     data: {
       status: JobStatus.FAILED,
+      activeDedupeKey: null,
       finishedAt: new Date(),
       lastError: reason,
     },
@@ -380,6 +381,7 @@ async function createBlockedAutoLearnJob(input: RequestCyberCampusAutoLearnInput
       type: JobType.AUTOLEARN,
       status: JobStatus.BLOCKED,
       idempotencyKey: buildAutoLearnIdempotencyKey(input),
+      activeDedupeKey: null,
       payload: {
         userId: input.userId,
         provider: "CYBER_CAMPUS",
@@ -735,6 +737,7 @@ export async function cancelCyberCampusApproval(input: {
     },
     data: {
       status: JobStatus.CANCELED,
+      activeDedupeKey: null,
       finishedAt: new Date(),
       lastError: "SECONDARY_AUTH_CANCELED",
     },

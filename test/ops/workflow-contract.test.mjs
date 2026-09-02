@@ -181,6 +181,7 @@ test("db sync workflows keep the guarded prisma push sequence", () => {
     "node scripts/db-ensure-auth-policy-constraints.mjs",
     "node scripts/db-drop-invite-token.mjs",
     "pnpm exec prisma db push --schema prisma/schema.prisma",
+    "node scripts/db-backfill-active-job-dedupe.mjs",
     "node scripts/db-backfill-auth-policy-columns.mjs",
   ];
 
@@ -193,6 +194,45 @@ test("db sync workflows keep the guarded prisma push sequence", () => {
   for (const workflowPath of workflows) {
     assertContainsInOrder(readRepoFile(workflowPath), requiredSequence, workflowPath);
   }
+});
+
+test("job dedupe rollout cleans active duplicates after schema sync and finalizes after deploy", () => {
+  const schema = readRepoFile("prisma/schema.prisma");
+  const backfill = readRepoFile("scripts/db-backfill-active-job-dedupe.mjs");
+  const helper = readRepoFile("packages/core/src/job-dedupe.ts");
+  const deploy = readRepoFile(".github/workflows/deploy-vercel.yml");
+
+  assert.match(schema, /activeDedupeKey\s+String\?\s+@unique/);
+  assert.match(helper, /ACTIVE_JOB_DEDUPE_SEPARATOR = "\\u001f"/);
+  assert.match(helper, /\["v1", input\.userId, input\.type, input\.idempotencyKey\]\.join/);
+  assert.match(backfill, /'v1', chr\(31\), "userId", chr\(31\), "type"::text, chr\(31\), "idempotencyKey"/);
+  assertContainsInOrder(
+    backfill,
+    [
+      'LOCK TABLE "JobQueue" IN ACCESS EXCLUSIVE MODE',
+      'PARTITION BY "userId", "type", "idempotencyKey"',
+      `CASE WHEN "status"::text = 'RUNNING' THEN 0 ELSE 1 END`,
+      `"status" = 'CANCELED'`,
+      `"lastError" = 'ACTIVE_DEDUPE_BACKFILL_DUPLICATE'`,
+      `"activeDedupeKey" = concat(`,
+      "remainingUnkeyedActiveRows",
+      "remainingDuplicateGroups",
+      "console.log(JSON.stringify(summary))",
+    ],
+    "active job dedupe backfill",
+  );
+  assert.doesNotMatch(backfill, /console\.(?:log|warn|error)\([^\n]*(?:userId|idempotencyKey|payload|activeDedupeKey)/);
+  assert.equal(deploy.match(/node scripts\/db-backfill-active-job-dedupe\.mjs/g)?.length, 2);
+  assertContainsInOrder(
+    deploy,
+    [
+      "pnpm exec prisma db push --schema prisma/schema.prisma",
+      "Backfill active job dedupe keys before deploy",
+      "Deploy production bundle",
+      "Finalize active job dedupe keys after deploy",
+    ],
+    "deploy active job dedupe rollout",
+  );
 });
 
 test("db sync workflows do not auto-reset site notice display targets", () => {

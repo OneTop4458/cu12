@@ -283,6 +283,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
         },
         data: {
           status: "CANCELED",
+          activeDedupeKey: null,
           finishedAt: withdrawnAt,
           lastError: "Canceled due to member withdrawal",
         },

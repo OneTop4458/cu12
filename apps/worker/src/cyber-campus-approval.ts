@@ -1,4 +1,6 @@
 import {
+  buildActiveJobDedupeKey,
+  isActiveJobDedupeConflict,
   parseCyberCampusSecondaryAuthMethods,
   parseCyberCampusTodoListHtml,
   type LearningTask,
@@ -667,24 +669,57 @@ async function claimBlockedAutoLearnContinuationJob(input: {
   workerId: string;
 }): Promise<ClaimedJob> {
   const startedAt = new Date();
-  const claimed = await prisma.jobQueue.updateMany({
+  const current = await prisma.jobQueue.findFirst({
     where: {
       id: input.jobId,
       userId: input.userId,
       type: JobType.AUTOLEARN,
       status: JobStatus.BLOCKED,
     },
-    data: {
-      status: JobStatus.RUNNING,
-      startedAt,
-      attempts: { increment: 1 },
-      workerId: input.workerId,
-      runAfter: startedAt,
-      finishedAt: null,
-      lastError: null,
-      result: Prisma.DbNull,
-    },
+    select: { idempotencyKey: true },
   });
+  if (!current) {
+    throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_CLAIM_FAILED:${input.jobId}`);
+  }
+  let claimed: { count: number };
+  try {
+    claimed = await prisma.jobQueue.updateMany({
+      where: {
+        id: input.jobId,
+        userId: input.userId,
+        type: JobType.AUTOLEARN,
+        status: JobStatus.BLOCKED,
+      },
+      data: {
+        status: JobStatus.RUNNING,
+        activeDedupeKey: buildActiveJobDedupeKey({
+          userId: input.userId,
+          type: JobType.AUTOLEARN,
+          status: JobStatus.RUNNING,
+          idempotencyKey: current.idempotencyKey,
+        }),
+        startedAt,
+        attempts: { increment: 1 },
+        workerId: input.workerId,
+        runAfter: startedAt,
+        finishedAt: null,
+        lastError: null,
+        result: Prisma.DbNull,
+      },
+    });
+  } catch (error) {
+    if (!isActiveJobDedupeConflict(error)) throw error;
+    await prisma.jobQueue.updateMany({
+      where: { id: input.jobId, userId: input.userId, status: JobStatus.BLOCKED },
+      data: {
+        status: JobStatus.CANCELED,
+        activeDedupeKey: null,
+        finishedAt: startedAt,
+        lastError: "ACTIVE_DEDUPE_CONFLICT",
+      },
+    });
+    throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_DUPLICATE:${input.jobId}`);
+  }
   if (claimed.count === 0) {
     throw new Error(`CYBER_CAMPUS_AUTOLEARN_CONTINUATION_CLAIM_FAILED:${input.jobId}`);
   }
