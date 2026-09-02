@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
+import { formatAdminMemberLastLogin } from "../../src/lib/admin-member-last-login";
 import { AppTopbar } from "../../components/layout/app-topbar";
 
 type RoleType = "ADMIN" | "USER";
@@ -57,6 +58,7 @@ interface Member {
   approvalDecidedAt: string | null;
   approvalDecidedByUserId: string | null;
   approvalRejectedReason: string | null;
+  lastLoginAt: string | null;
   createdAt: string;
   cu12Account: Cu12Account | null;
   mailPreference: MailPreference | null;
@@ -830,13 +832,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                 <th>CU12 ID</th>
                 <th>메일</th>
                 <th>등록일</th>
+                <th>마지막 로그인 (KST)</th>
                 <th>액션</th>
               </tr>
             </thead>
             <tbody>
               {members.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>등록된 회원이 없습니다.</td>
+                  <td colSpan={10}>등록된 회원이 없습니다.</td>
                 </tr>
               ) : (
                 members.map((member) => (
@@ -857,6 +860,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                     <td data-label="CU12 ID">{member.cu12Account?.cu12Id ?? "-"}</td>
                     <td data-label="메일">{member.mailPreference?.email ?? "-"}</td>
                     <td data-label="등록일">{formatDateTime(member.createdAt)}</td>
+                    <td data-label="마지막 로그인 (KST)">{formatAdminMemberLastLogin(member.lastLoginAt)}</td>
                     <td data-label="액션">
                       <div className="action-row">
                         <button

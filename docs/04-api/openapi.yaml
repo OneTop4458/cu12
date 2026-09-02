@@ -2179,6 +2179,10 @@ paths:
       responses:
         "200":
           description: Member list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMemberListResponse"
     post:
       tags: [Admin]
       summary: Create or update a member from a shared portal credential or local test credentials
@@ -2624,6 +2628,122 @@ components:
     UserApprovalStatus:
       type: string
       enum: [PENDING, APPROVED, REJECTED]
+
+    AdminMemberCu12Account:
+      type: object
+      required:
+        [provider, cu12Id, campus, accountStatus, statusReason, autoLearnEnabled, quizAutoSolveEnabled, detectActivitiesEnabled, emailDigestEnabled, updatedAt]
+      properties:
+        provider:
+          type: string
+          enum: [CU12, CYBER_CAMPUS]
+        cu12Id:
+          type: string
+        campus:
+          $ref: "#/components/schemas/Campus"
+          nullable: true
+        accountStatus:
+          type: string
+          enum: [CONNECTED, NEEDS_REAUTH, ERROR]
+        statusReason:
+          type: string
+          nullable: true
+        autoLearnEnabled:
+          type: boolean
+        quizAutoSolveEnabled:
+          type: boolean
+        detectActivitiesEnabled:
+          type: boolean
+        emailDigestEnabled:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminMemberMailPreference:
+      type: object
+      required: [email, enabled, alertOnNotice, alertOnDeadline, alertOnAutolearn, digestEnabled, digestHour, updatedAt]
+      properties:
+        email:
+          type: string
+          format: email
+        enabled:
+          type: boolean
+        alertOnNotice:
+          type: boolean
+        alertOnDeadline:
+          type: boolean
+        alertOnAutolearn:
+          type: boolean
+        digestEnabled:
+          type: boolean
+        digestHour:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminMember:
+      type: object
+      required:
+        [id, email, name, role, isActive, isTestUser, approvalStatus, approvalRequestedAt, approvalDecidedAt, approvalDecidedByUserId, approvalRejectedReason, lastLoginAt, createdAt, updatedAt, cu12Account, mailPreference]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/UserRole"
+        isActive:
+          type: boolean
+        isTestUser:
+          type: boolean
+        approvalStatus:
+          $ref: "#/components/schemas/UserApprovalStatus"
+        approvalRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        approvalDecidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        approvalDecidedByUserId:
+          type: string
+          nullable: true
+        approvalRejectedReason:
+          type: string
+          nullable: true
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        cu12Account:
+          allOf:
+            - $ref: "#/components/schemas/AdminMemberCu12Account"
+          nullable: true
+        mailPreference:
+          allOf:
+            - $ref: "#/components/schemas/AdminMemberMailPreference"
+          nullable: true
+
+    AdminMemberListResponse:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminMember"
 
     PolicyDocumentType:
       type: string
