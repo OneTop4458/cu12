@@ -17,12 +17,13 @@ import { withIsTestUserFallback } from "@/lib/test-user-compat";
 import { withWithdrawnAtFallback } from "@/lib/withdrawn-compat";
 import { generateToken } from "@/lib/token";
 import { queueAdminApprovalRequestMailJobs } from "@/server/admin-approval-mail";
+import { writeAuditLogBestEffort } from "@/server/auth-best-effort";
 import {
-  checkAuthThrottleBestEffort,
-  clearAuthFailuresBestEffort,
-  recordAuthFailureBestEffort,
-  writeAuditLogBestEffort,
-} from "@/server/auth-best-effort";
+  AuthRateLimitUnavailableError,
+  checkAuthThrottle,
+  clearAuthFailures,
+  recordAuthFailure,
+} from "@/server/auth-rate-limit";
 import { getAccountProviderByCu12Id, upsertCu12Account } from "@/server/cu12-account";
 import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-login";
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
@@ -226,9 +227,7 @@ function scheduleAuthSuccessSideEffects(input: {
         message: input.message,
         meta: {
           provider: input.provider,
-          cu12Id: input.cu12Id,
           campus: input.campus,
-          loginIp: input.loginIp,
         },
       }),
     ]);
@@ -257,9 +256,7 @@ function scheduleApprovalRequestSideEffects(input: {
         message: "First-login user queued for admin approval",
         meta: {
           provider: input.provider,
-          cu12Id: input.cu12Id,
           campus: input.campus,
-          loginIp: input.loginIp,
         },
       }),
     ]);
@@ -294,7 +291,7 @@ export async function POST(request: NextRequest) {
     const loginIp = getRequestIp(request);
     const throttleIdentifiers = [loginIp ? `ip:${loginIp}` : null, `portal:${body.cu12Id}`];
     const throttle = await timing.measure("auth-throttle", () =>
-      checkAuthThrottleBestEffort("login", throttleIdentifiers),
+      checkAuthThrottle("login", throttleIdentifiers),
     );
     if (throttle.blocked) {
       return timedError("Too many authentication attempts. Please try again shortly.", 429, "RATE_LIMITED");
@@ -405,7 +402,7 @@ export async function POST(request: NextRequest) {
     if (localCandidate?.isTestUser) {
       const approvalStatus = approvalStatusOrApproved(localCandidate.approvalStatus);
       if (approvalStatus === "PENDING") {
-        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        await clearAuthFailures("login", throttleIdentifiers);
         return timedOk({
           stage: "APPROVAL_PENDING" as const,
           user: {
@@ -416,11 +413,11 @@ export async function POST(request: NextRequest) {
         });
       }
       if (approvalStatus === "REJECTED") {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Account approval request was rejected.", 403, "APPROVAL_REJECTED");
       }
       if (!localCandidate.isActive || localCandidate.withdrawnAt !== null) {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
       }
 
@@ -428,7 +425,7 @@ export async function POST(request: NextRequest) {
         verifyPassword(body.cu12Password, localCandidate.passwordHash),
       );
       if (!passwordValid) {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
 
@@ -463,7 +460,7 @@ export async function POST(request: NextRequest) {
             firstLogin: false,
           }),
         );
-        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        await clearAuthFailures("login", throttleIdentifiers);
         return timedOk({
           stage: "CONSENT_REQUIRED" as const,
           consentToken,
@@ -521,7 +518,7 @@ export async function POST(request: NextRequest) {
       });
       setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
       setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
-      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+      await clearAuthFailures("login", throttleIdentifiers);
 
       scheduleAuthSuccessSideEffects({
         userId: localCandidate.id,
@@ -546,7 +543,7 @@ export async function POST(request: NextRequest) {
     if (!validation.ok) {
       const unavailable = isPortalUnavailableResult(validation);
       if (!unavailable) {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
       }
       await writeAuditLogBestEffort({
         category: "AUTH",
@@ -556,7 +553,6 @@ export async function POST(request: NextRequest) {
           : "Portal login validation failed",
         meta: {
           provider: explicitProviderHint ?? validation.verifiedProvider ?? storedCurrentProvider ?? null,
-          cu12Id: body.cu12Id,
           campus,
           messageCode: validation.messageCode ?? null,
         },
@@ -650,12 +646,12 @@ export async function POST(request: NextRequest) {
       }
 
       if (!found) {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
       const approvalStatus = approvalStatusOrApproved(found.approvalStatus);
       if (approvalStatus === "PENDING") {
-        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        await clearAuthFailures("login", throttleIdentifiers);
         return timedOk({
           stage: "APPROVAL_PENDING" as const,
           user: {
@@ -667,11 +663,11 @@ export async function POST(request: NextRequest) {
         });
       }
       if (approvalStatus === "REJECTED") {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Account approval request was rejected.", 403, "APPROVAL_REJECTED");
       }
       if (!found.isActive || found.withdrawnAt !== null) {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
       }
 
@@ -702,7 +698,7 @@ export async function POST(request: NextRequest) {
     } else if (existingUserByEmail) {
       const approvalStatus = approvalStatusOrApproved(existingUserByEmail.approvalStatus);
       if (approvalStatus === "PENDING") {
-        await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+        await clearAuthFailures("login", throttleIdentifiers);
         return timedOk({
           stage: "APPROVAL_PENDING" as const,
           user: {
@@ -714,11 +710,11 @@ export async function POST(request: NextRequest) {
         });
       }
       if (approvalStatus === "REJECTED") {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Account approval request was rejected.", 403, "APPROVAL_REJECTED");
       }
       if (!existingUserByEmail.isActive || existingUserByEmail.withdrawnAt !== null) {
-        await recordAuthFailureBestEffort("login", throttleIdentifiers);
+        await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Account is disabled.", 401, "ACCOUNT_DISABLED");
       }
 
@@ -798,7 +794,7 @@ export async function POST(request: NextRequest) {
         provider: verifiedProvider,
         loginIp,
       });
-      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+      await clearAuthFailures("login", throttleIdentifiers);
 
       return timedOk({
         stage: "APPROVAL_PENDING" as const,
@@ -845,7 +841,7 @@ export async function POST(request: NextRequest) {
           firstLogin: false,
         }),
       );
-      await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+      await clearAuthFailures("login", throttleIdentifiers);
       return timedOk({
         stage: "CONSENT_REQUIRED" as const,
         consentToken,
@@ -903,7 +899,7 @@ export async function POST(request: NextRequest) {
     });
     setSessionCookieWithMaxAge(response, sessionToken, sessionPolicy.sessionMaxAgeSeconds);
     setIdleSessionCookieWithMaxAge(response, idleSessionToken, sessionPolicy.idleSessionMaxAgeSeconds);
-    await clearAuthFailuresBestEffort("login", throttleIdentifiers);
+    await clearAuthFailures("login", throttleIdentifiers);
 
     scheduleAuthSuccessSideEffects({
       userId: user.id,
@@ -921,6 +917,13 @@ export async function POST(request: NextRequest) {
         error.issues.map((it) => it.message).join(", "),
         400,
         "VALIDATION_ERROR",
+      );
+    }
+    if (error instanceof AuthRateLimitUnavailableError) {
+      return timedError(
+        "Authentication protection is temporarily unavailable.",
+        503,
+        "AUTH_RATE_LIMIT_UNAVAILABLE",
       );
     }
     if (isPrismaError(error)) {

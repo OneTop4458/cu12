@@ -42,6 +42,16 @@ test("toLoginErrorMessage maps rejected approval requests", () => {
   );
 });
 
+test("toLoginErrorMessage hides rate-limit storage details behind unavailable copy", () => {
+  assert.equal(
+    toLoginErrorMessage({
+      errorCode: "AUTH_RATE_LIMIT_UNAVAILABLE",
+      error: "Authentication protection is temporarily unavailable.",
+    }),
+    "\uB85C\uADF8\uC778 \uC11C\uBE44\uC2A4\uC5D0 \uC77C\uC2DC\uC801\uC73C\uB85C \uC811\uC18D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  );
+});
+
 test("toConsentErrorMessage uses the internal error payload", () => {
   assert.equal(
     toConsentErrorMessage({

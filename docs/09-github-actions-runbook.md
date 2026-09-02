@@ -38,10 +38,18 @@
    - Fails when GitHub run visibility is unavailable, repair cannot clear orphaned `RUNNING` jobs, or active ghost runs have no matching DB job.
 
 8. `db-retention-cleanup.yml`
-   - Scheduled cleanup removes expired or invalid portal sessions, terminal portal-approval history older than 30 days, audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months.
+   - Scheduled cleanup removes expired login-throttle buckets, expired or invalid portal sessions, terminal portal-approval history older than 30 days, audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months.
    - Its JSON summary reports only aggregate deletion counts and failed step names; it must never print user identifiers, cookies, approval codes, or other authentication metadata.
    - The workflow also removes legacy bogus course notices.
    - Manual `user_repair` mode can target a selected user and clear their notification events during focused repair.
+
+### Post-deploy cleanup for legacy login-throttle rows
+
+1. No Prisma schema migration and no new secret are required. The web app derives rate-limit bucket HMACs from the existing `AUTH_JWT_SECRET` with a dedicated domain separator.
+2. Rows created by older releases can contain raw portal IDs or IP addresses and are no longer read after the digest-based release is deployed.
+3. Wait at least 15 minutes after deployment so every legacy window or block has expired, then manually run `DB Retention Cleanup` once.
+4. Confirm only the aggregate `deleted.authRateLimits` count. Do not query, print, or copy legacy bucket keys or identifiers into workflow logs or tickets.
+5. Rotating `AUTH_JWT_SECRET` intentionally invalidates current rate-limit buckets together with JWT signatures; follow the normal forced re-login procedure after rotation.
 
 9. `db-bootstrap.yml`
    - Applies Prisma schema and auth-policy post-sync backfills for a new environment.

@@ -16,6 +16,8 @@
 
 3. `AuthRateLimit`
    - Persistent throttle buckets for login abuse protection.
+   - Stores only domain-separated HMAC-SHA256 digests derived from `AUTH_JWT_SECRET`; portal IDs and IP addresses are never stored in bucket keys or identifiers.
+   - Failure increments use one PostgreSQL atomic upsert, and expired windows or blocks are removed by scheduled retention.
 
 4. `PolicyDocument`, `PolicyProfile`, `UserPolicyConsent`
    - Published policy versions are append-only by `(type, version)`.
@@ -103,5 +105,5 @@
 - Pending approval users have no stored portal password.
 - Active `PortalSession` and non-terminal `PortalApprovalSession` rows store encrypted cookie-state payloads, not plaintext cookies. A successful approval keeps the latest reusable cookie state only in `PortalSession`.
 - Session cookies are signed JWTs with bounded TTL plus a separate idle-session token.
-- The scheduled DB cleanup workflow runs the worker retention cleanup for expired or invalid portal sessions, 30-day terminal portal-approval history, 30-day audit logs, 14-day terminal jobs, 30-day mail delivery rows, and withdrawn accounts older than 6 months.
+- The scheduled DB cleanup workflow runs the worker retention cleanup for expired login-throttle buckets, expired or invalid portal sessions, 30-day terminal portal-approval history, 30-day audit logs, 14-day terminal jobs, 30-day mail delivery rows, and withdrawn accounts older than 6 months.
 - The same workflow still removes legacy bogus course notices. Its manual `user_repair` mode can also clear notification events for a selected user.

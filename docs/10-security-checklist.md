@@ -13,7 +13,7 @@
 
 - [ ] Session cookie is `httpOnly` and `secure` in production.
 - [ ] Login responses are normalized enough to avoid account enumeration beyond the approval state the user already created.
-- [ ] Login endpoint enforces rate limiting / lockout.
+- [ ] Login endpoint atomically enforces rate limiting, stores only HMAC bucket identifiers, and fails closed when the limiter store is unavailable.
 - [ ] Admin approval is enforced before any session cookie is issued to a first-login user.
 - [ ] Approval and rejection decisions are audited.
 - [ ] Admin APIs check role before read/write.

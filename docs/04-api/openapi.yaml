@@ -140,7 +140,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: Required policy documents are not configured or CU12 is unavailable
+          description: Required policies, portal login, or fail-closed login protection is unavailable
           content:
             application/json:
               schema:
