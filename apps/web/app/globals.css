@@ -3334,22 +3334,26 @@ button:not([data-slot="button"]) {
   }
 }
 
-/* Inline service notice: the archive trigger stays compact, while the active notice
- * remains readable beside it and moves to its own row on narrow screens. */
+.topbar-notice-row {
+  width: min(1280px, calc(100% - 48px));
+  margin: 0 auto;
+  padding-bottom: 10px;
+}
+
+.topbar-notice-row:empty {
+  display: none;
+}
+
 .site-notice-center {
   display: flex;
+  width: 100%;
   min-width: 0;
-  flex: 1 1 280px;
   align-items: center;
   gap: 8px;
 }
 
-.topbar-actions > .site-notice-center {
-  flex-shrink: 1;
-}
-
 .site-notice-center:not(.has-inline-notice) {
-  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .site-notice-inline {
@@ -3430,7 +3434,7 @@ button:not([data-slot="button"]) {
   background: rgb(255 255 255 / 12%);
 }
 
-.site-notice-inline-dismiss {
+.site-notice-inline .site-notice-inline-dismiss {
   display: inline-flex;
   width: 32px;
   min-width: 32px;
@@ -3446,8 +3450,8 @@ button:not([data-slot="button"]) {
   cursor: pointer;
 }
 
-.site-notice-inline-dismiss:hover,
-.site-notice-inline-dismiss:focus-visible {
+.site-notice-inline .site-notice-inline-dismiss:hover,
+.site-notice-inline .site-notice-inline-dismiss:focus-visible {
   border-color: rgb(255 255 255 / 30%);
   color: #ffffff;
   background: rgb(255 255 255 / 10%);
@@ -3470,14 +3474,13 @@ button:not([data-slot="button"]) {
 }
 
 @media (max-width: 640px) {
-  .site-notice-center.has-inline-notice {
+  .topbar-notice-row {
     width: 100%;
-    flex: 1 0 100%;
-    order: -1;
+    padding-bottom: 10px;
   }
 
-  .topbar-actions > .site-notice-center.has-inline-notice {
-    flex-shrink: 0;
+  .site-notice-center.has-inline-notice {
+    width: 100%;
   }
 
   .site-notice-inline {
@@ -3491,6 +3494,10 @@ button:not([data-slot="button"]) {
 
   .site-notice-archive-label {
     display: none;
+  }
+
+  .site-notice-archive .site-notice-badge {
+    right: 0;
   }
 }
 
