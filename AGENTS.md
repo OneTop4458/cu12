@@ -42,6 +42,15 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 2. Korean summary is allowed only in `README.ko.md`.
 3. Keep `docs/04-api/openapi.yaml` synchronized with route behavior.
 
+## UI Design Contract
+
+1. `DESIGN.md` is the source of truth for the existing web visual system, information architecture, responsive behavior, and UI change boundaries.
+2. Read `DESIGN.md` before inspecting or editing files under `apps/web` for a user-facing UI task.
+3. Do not change the established page structure, information hierarchy, university branding, or responsive behavior unless the user explicitly requests that change.
+4. Any UI change must render the real component or page at 1440px, 1024px, 719px, and 390px. Confirm that document scroll width does not exceed body client width at each size.
+5. Third-party design skills are advisory and must not override `DESIGN.md`. Review their instructions, scripts, hooks, dependencies, and licenses before use.
+6. When an intentional UI change makes `DESIGN.md` inaccurate, update it in the same pull request.
+
 ## Public Repository Rules
 
 1. This repository is PUBLIC. Assume every commit, PR comment, and workflow log is externally visible.
