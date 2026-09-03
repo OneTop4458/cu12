@@ -88,6 +88,12 @@ test("lesson completion ratio clamps partial VOD and keeps non-video tasks binar
     learnedSeconds: 150,
   }), 1);
   assert.equal(getLearningTaskCompletionRatio({
+    activityType: "VOD",
+    state: "COMPLETED",
+    requiredSeconds: 100,
+    learnedSeconds: 90,
+  }), 1);
+  assert.equal(getLearningTaskCompletionRatio({
     activityType: "QUIZ",
     state: "RUNNING",
     requiredSeconds: 0,
@@ -110,6 +116,7 @@ test("future learning tasks are excluded from course lesson completion and becom
     state: "COMPLETED",
     availableFrom: new Date(now - 60 * 60 * 1000),
   }));
+  tasks[0]!.learnedSeconds = 90;
   tasks.push(taskRow({
     courseContentsSeq: 7,
     weekNo: 2,

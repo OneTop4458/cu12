@@ -154,10 +154,11 @@ export function getLearningTaskCompletionRatio(task: {
   requiredSeconds: number;
   learnedSeconds: number;
 }): number {
+  if (isTaskCompletedByProgress(task)) return 1;
   if (task.activityType === "VOD" && task.requiredSeconds > 0) {
     return clampProgressRatio(task.learnedSeconds / task.requiredSeconds);
   }
-  return isTaskCompletedByProgress(task) ? 1 : 0;
+  return 0;
 }
 
 export function isLearningTaskEligible(task: { availableFrom: Date | null }, nowMs = Date.now()): boolean {

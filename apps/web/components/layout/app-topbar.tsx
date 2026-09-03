@@ -82,7 +82,6 @@ export function AppTopbar({
         </div>
         <div className="topbar-actions">
           <SessionActivityGuard variant="chip" />
-          <SiteNoticeCenter />
           <ActivityCenter />
           {onOpenManual ? (
             <button className="ghost-btn topbar-manual-btn" type="button" onClick={onOpenManual}>
@@ -100,6 +99,9 @@ export function AppTopbar({
             onLogout={onLogout}
           />
         </div>
+      </div>
+      <div className="topbar-notice-row">
+        <SiteNoticeCenter />
       </div>
       {showAdminNav ? (
         <nav className="topbar-admin-nav" aria-label="관리자 하위 메뉴">

@@ -250,6 +250,9 @@ export function SiteNoticeCenter() {
     </div>
   );
 
+  if (loading && notices.length === 0) return null;
+  if (!loading && !error && visibleNotices.length === 0) return null;
+
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={setOpen}>

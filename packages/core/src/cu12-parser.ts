@@ -924,6 +924,10 @@ export function parseTodoTasks(html: string, userId: string, lectureSeq: number)
     ].map((value) => normalizeWhitespace(value)).filter((value) => value.length > 0);
 
     const contextText = candidateTexts.join(" ");
+    const taskScope = item.closest("li, tr");
+    const markerScope = taskScope.length > 0 ? taskScope : item;
+    const hasCompleteAttendMarker = markerScope.is(".class_item_attend, .contents_complete")
+      || markerScope.find(".class_item_attend, .contents_complete").length > 0;
     const localTexts = [
       raw,
       item.attr("aria-label") ?? "",
@@ -1018,7 +1022,9 @@ export function parseTodoTasks(html: string, userId: string, lectureSeq: number)
       activityType,
       requiredSeconds,
       learnedSeconds,
-      state: hasCompleteKeyword || (learnedSeconds >= requiredSeconds && requiredSeconds > 0) ? "COMPLETED" : "PENDING",
+      state: hasCompleteAttendMarker || hasCompleteKeyword || (learnedSeconds >= requiredSeconds && requiredSeconds > 0)
+        ? "COMPLETED"
+        : "PENDING",
       availableFrom: window?.availableFrom ?? null,
       dueAt: window?.dueAt ?? null,
     };

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   formatSiteNoticeDisplayTargetLabel,
@@ -16,6 +17,17 @@ test("primary notice selection prefers the highest priority and keeps source ord
 
   assert.equal(selectHighestPrioritySiteNotice(notices)?.id, "maintenance");
   assert.equal(selectHighestPrioritySiteNotice([]), null);
+});
+
+test("topbar renders the service notice outside the primary action cluster", () => {
+  const topbar = readFileSync(new URL("../components/layout/app-topbar.tsx", import.meta.url), "utf8");
+  const actionStart = topbar.indexOf('<div className="topbar-actions">');
+  const noticeRowStart = topbar.indexOf('<div className="topbar-notice-row">');
+
+  assert.ok(actionStart >= 0);
+  assert.ok(noticeRowStart > actionStart);
+  assert.doesNotMatch(topbar.slice(actionStart, noticeRowStart), /SiteNoticeCenter/);
+  assert.match(topbar.slice(noticeRowStart), /<SiteNoticeCenter \/>/);
 });
 
 test("maintenance notices are always normalized to login and topbar", () => {
