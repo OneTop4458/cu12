@@ -500,7 +500,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
     setMemberSyncBusyId(member.id);
     void withBlocking(`${member.email} 동기화 요청 중...`, async () => {
-      const response = await fetchJson<MemberSyncResponse>(`/api/admin/members/${member.id}/sync`, { method: "POST" });
+      const response = await fetchJson<MemberSyncResponse>(`/api/admin/members/${member.id}/sync`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       setMessage(response.notice ?? "동기화 요청이 완료되었습니다.");
       await refreshAll(logPage, true);
     }).finally(() => {
