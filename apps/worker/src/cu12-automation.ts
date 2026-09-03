@@ -12,7 +12,11 @@ import {
 } from "@cu12/core";
 import { type Browser, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { getEnv } from "./env";
-import { assessCourseRoster, extractCu12CourseRosterIdentifiers } from "./course-roster";
+import {
+  assessCourseRoster,
+  extractCu12CourseRosterIdentifiers,
+  filterPriorTermCu12Courses,
+} from "./course-roster";
 import { gotoWithRetry } from "./navigation-retry";
 import {
   generateQuizAnswer,
@@ -1305,18 +1309,28 @@ export async function collectCu12Snapshot(
     await gotoWithRetry(page, `${env.CU12_BASE_URL}/el/member/mycourse_list_form.acl`, { waitUntil: "domcontentloaded" });
     const notificationHtml = await fetchNotificationHtml(page);
     const notifications = parseNotificationListHtml(notificationHtml, userId);
+    const currentCourses = filterPriorTermCu12Courses(courses, tasks);
+    const currentLectureSeqs = new Set(currentCourses.map((course) => course.lectureSeq));
+    const currentNotices = notices.filter((notice) => currentLectureSeqs.has(notice.lectureSeq));
+    const currentTasks = tasks.filter((task) => currentLectureSeqs.has(task.lectureSeq));
 
     await reportProgress({
       phase: "DONE",
-      totalCourses: courses.length,
-      completedCourses,
-      noticeCount: notices.length,
-      taskCount: tasks.length,
+      totalCourses: currentCourses.length,
+      completedCourses: currentCourses.length,
+      noticeCount: currentNotices.length,
+      taskCount: currentTasks.length,
       notificationCount: notifications.length,
-      ...buildTiming(courses.length, courses.length),
+      ...buildTiming(currentCourses.length, currentCourses.length),
     });
 
-    return { courseRosterAuthoritative: true, courses, notices, notifications, tasks };
+    return {
+      courseRosterAuthoritative: true,
+      courses: currentCourses,
+      notices: currentNotices,
+      notifications,
+      tasks: currentTasks,
+    };
   } finally {
     await context.close();
   }

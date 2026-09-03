@@ -54,6 +54,7 @@
 10. `CourseSnapshot`
     - Provider-scoped course roster and progress data.
     - A verified full provider roster marks previously `ACTIVE` courses that are no longer returned as `ENDED`; ended rows remain stored for history but are excluded from current dashboard reads.
+    - CU12 synchronization excludes courses whose course period, or latest dated task when the course period is unavailable, ended before the current Korean academic term window.
 
 11. `CourseNotice`
     - Provider-scoped course notice snapshots, unread state, and body content.
