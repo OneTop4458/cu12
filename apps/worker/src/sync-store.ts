@@ -261,7 +261,7 @@ async function cleanupDuplicateCourseNotices(
     }
 
     const mergedBody = duplicates.reduce((best, row) => pickLongerBody(best, row.bodyText), keeper.bodyText);
-    const mergedIsRead = duplicates.every((row) => row.isRead);
+    const mergedIsRead = duplicates.some((row) => row.isRead);
     const mergedIsNew = duplicates.some((row) => row.isNew);
     const mergedSyncedAtMs = Math.max(...duplicates.map((row) => row.syncedAt.getTime()));
     const mergedSyncedAt = new Date(mergedSyncedAtMs);
@@ -896,17 +896,25 @@ export async function persistSnapshot(
   },
 ): Promise<PersistSnapshotResult> {
   const notices = dedupeIncomingNotices(data.notices);
-  const noticeKeys = Array.from(new Set(notices.map((notice) => notice.noticeKey)));
+  const noticeLectureSeqs = Array.from(new Set(notices.map((notice) => notice.lectureSeq)));
   const notifications = data.notifications.filter((event) => event.notifierSeq.trim().length > 0);
   const notifierSeqs = Array.from(new Set(notifications.map((event) => event.notifierSeq)));
   const messages = (data.messages ?? []).filter((event) => event.messageSeq.trim().length > 0);
   const messageSeqs = Array.from(new Set(messages.map((event) => event.messageSeq)));
 
   const [existingNoticeRows, existingNotificationRows, existingMessageRows] = await Promise.all([
-    noticeKeys.length > 0
+    noticeLectureSeqs.length > 0
       ? prisma.courseNotice.findMany({
-        where: { userId, provider, noticeKey: { in: noticeKeys } },
-        select: { noticeKey: true },
+        where: { userId, provider, lectureSeq: { in: noticeLectureSeqs } },
+        select: {
+          noticeKey: true,
+          lectureSeq: true,
+          title: true,
+          author: true,
+          postedAt: true,
+          bodyText: true,
+          isRead: true,
+        },
       })
       : Promise.resolve([]),
     notifierSeqs.length > 0
@@ -931,6 +939,16 @@ export async function persistSnapshot(
   ]);
 
   const existingNoticeSet = new Set(existingNoticeRows.map((row) => row.noticeKey));
+  const existingNoticeFingerprintSet = new Set<string>();
+  const existingNoticeReadByFingerprint = new Map<string, boolean>();
+  for (const row of existingNoticeRows) {
+    const fingerprint = buildNoticeFingerprint(row);
+    existingNoticeFingerprintSet.add(fingerprint);
+    existingNoticeReadByFingerprint.set(
+      fingerprint,
+      (existingNoticeReadByFingerprint.get(fingerprint) ?? false) || row.isRead,
+    );
+  }
   const existingNotificationSet = new Set(existingNotificationRows.map((row) => row.notifierSeq));
   const existingNotificationBySeq = new Map(
     existingNotificationRows.map((row) => [
@@ -1022,7 +1040,9 @@ export async function persistSnapshot(
   );
 
   for (const notice of notices) {
-    const isNewRecord = !existingNoticeSet.has(notice.noticeKey);
+    const fingerprint = buildNoticeFingerprint(notice);
+    const isNewRecord = !existingNoticeSet.has(notice.noticeKey)
+      && !existingNoticeFingerprintSet.has(fingerprint);
     const normalizedBodyText = notice.bodyText?.trim();
 
     await runWithPrismaRetry(() =>
@@ -1055,7 +1075,7 @@ export async function persistSnapshot(
           bodyText: notice.bodyText,
           isNew: notice.isNew,
           syncedAt: new Date(notice.syncedAt),
-          isRead: false,
+          isRead: existingNoticeReadByFingerprint.get(fingerprint) ?? false,
         },
       }),
     );
@@ -1071,6 +1091,13 @@ export async function persistSnapshot(
         bodyText: notice.bodyText,
       });
     }
+
+    existingNoticeSet.add(notice.noticeKey);
+    existingNoticeFingerprintSet.add(fingerprint);
+    existingNoticeReadByFingerprint.set(
+      fingerprint,
+      existingNoticeReadByFingerprint.get(fingerprint) ?? false,
+    );
   }
 
   await cleanupDuplicateCourseNotices(userId, provider, data.courses.map((course) => course.lectureSeq));

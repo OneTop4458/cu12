@@ -45,6 +45,7 @@ type NotificationCenterProps = {
   onMarkRead: (item: DashboardNotification) => void;
   onClearVisible?: (ids: string[]) => void;
   clearing?: boolean;
+  actionError?: string | null;
 };
 
 export function NotificationCenter({
@@ -63,6 +64,7 @@ export function NotificationCenter({
   onMarkRead,
   onClearVisible,
   clearing = false,
+  actionError = null,
 }: NotificationCenterProps) {
   const source = showHistory ? historyNotifications : notifications;
   const latest = [...source]
@@ -72,6 +74,10 @@ export function NotificationCenter({
       return new Date(b.occurredAt ?? b.createdAt).getTime() - new Date(a.occurredAt ?? a.createdAt).getTime();
     })
     .slice(0, showHistory ? 20 : 8);
+  const hasUnreadReadMarkableItem = latest.some((item) =>
+    item.isUnread
+    && item.kind !== "SYSTEM"
+    && Boolean(item.kind && item.provider && item.sourceId));
   const title = showHistory ? `지난 활동 ${latest.length}건` : `활동 · 주의 필요 ${unreadCount}건`;
 
   function formatDate(value: string | null) {
@@ -116,7 +122,7 @@ export function NotificationCenter({
             >
               {showHistory ? "최신 활동" : "지난 활동"}
             </Button>
-            {!showHistory && onClearVisible && latest.length > 0 ? (
+            {!showHistory && onClearVisible && hasUnreadReadMarkableItem ? (
               <Button
                 type="button"
                 className="notification-clear-btn"
@@ -130,6 +136,7 @@ export function NotificationCenter({
             ) : null}
           </div>
         </div>
+        {actionError ? <p className="notification-action-error" role="alert">{actionError}</p> : null}
         <ScrollArea className="notification-panel-list">
           {loading || historyLoading ? <p className="notification-empty">활동을 불러오는 중...</p> : null}
           {!loading && !historyLoading && latest.length === 0 ? (

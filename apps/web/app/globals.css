@@ -1731,6 +1731,18 @@ textarea:focus {
   color: var(--text-muted);
 }
 
+.notification-action-error {
+  margin: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--danger) 34%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--danger-soft) 64%, transparent);
+  color: var(--danger);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .user-menu-trigger {
   width: auto;
   padding: 0 12px;
@@ -2013,6 +2025,61 @@ textarea:focus {
   gap: 6px;
 }
 
+.course-progress-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.course-week-status {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--border);
+  background: color-mix(in oklab, var(--bg-soft) 52%, transparent);
+}
+
+.course-week-status.is-complete {
+  border-left-color: var(--success);
+}
+
+.course-week-status.is-pending {
+  border-left-color: var(--warn);
+}
+
+.course-week-status.is-empty {
+  border-left-color: var(--border);
+}
+
+.course-week-status-main,
+.course-week-type-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.course-week-label {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.course-week-type-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in oklab, var(--warn) 32%, var(--border));
+  border-radius: 999px;
+  color: color-mix(in oklab, var(--warn) 78%, var(--text));
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface));
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .course-progress-track {
   height: 8px;
 }
@@ -2045,6 +2112,19 @@ textarea:focus {
   gap: 7px;
   border-top: 1px dashed var(--border);
   padding-top: 10px;
+}
+
+.course-detail-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.course-detail-heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.94rem;
 }
 
 .course-detail-grid .pending-week-detail {
@@ -3035,6 +3115,16 @@ button:not([data-slot="button"]) {
     width: 100%;
   }
 
+  .course-detail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .course-week-status {
+    padding: 8px;
+  }
+
   .table-wrap.mobile-card-table {
     border: 0;
     overflow: visible;
@@ -3241,6 +3331,166 @@ button:not([data-slot="button"]) {
 
   .provider-kpi > *:nth-child(2n) {
     border-right: 0;
+  }
+}
+
+/* Inline service notice: the archive trigger stays compact, while the active notice
+ * remains readable beside it and moves to its own row on narrow screens. */
+.site-notice-center {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-actions > .site-notice-center {
+  flex-shrink: 1;
+}
+
+.site-notice-center:not(.has-inline-notice) {
+  flex: 0 0 auto;
+}
+
+.site-notice-inline {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-left: 3px solid var(--cuk-link);
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: rgb(255 255 255 / 8%);
+  color: #ffffff;
+}
+
+.site-notice-inline.is-maintenance {
+  border-color: color-mix(in oklab, var(--cuk-bronze) 72%, rgb(255 255 255 / 18%));
+  border-left-color: var(--cuk-bronze);
+  background: rgb(96 81 58 / 72%);
+}
+
+.site-notice-inline-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: rgb(255 255 255 / 82%);
+}
+
+.site-notice-inline.is-maintenance .site-notice-inline-icon {
+  color: #f0d2a0;
+}
+
+.site-notice-inline-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 1px;
+}
+
+.site-notice-inline-type {
+  color: rgb(255 255 255 / 66%);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.site-notice-inline.is-maintenance .site-notice-inline-type {
+  color: #f0d2a0;
+}
+
+.site-notice-inline-title {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.site-notice-inline-details {
+  flex: 0 0 auto;
+  min-height: 32px;
+  border: 1px solid rgb(255 255 255 / 24%);
+  color: #ffffff;
+  background: transparent;
+}
+
+.site-notice-inline-details:hover,
+.site-notice-inline-details:focus-visible {
+  border-color: rgb(255 255 255 / 56%);
+  color: #ffffff;
+  background: rgb(255 255 255 / 12%);
+}
+
+.site-notice-inline-dismiss {
+  display: inline-flex;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0;
+  color: rgb(255 255 255 / 70%);
+  background: transparent;
+  cursor: pointer;
+}
+
+.site-notice-inline-dismiss:hover,
+.site-notice-inline-dismiss:focus-visible {
+  border-color: rgb(255 255 255 / 30%);
+  color: #ffffff;
+  background: rgb(255 255 255 / 10%);
+  outline: none;
+}
+
+.site-notice-archive {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.site-notice-archive-label {
+  color: rgb(255 255 255 / 64%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .site-notice-center.has-inline-notice {
+    width: 100%;
+    flex: 1 0 100%;
+    order: -1;
+  }
+
+  .topbar-actions > .site-notice-center.has-inline-notice {
+    flex-shrink: 0;
+  }
+
+  .site-notice-inline {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .site-notice-inline-title {
+    font-size: 0.78rem;
+  }
+
+  .site-notice-archive-label {
+    display: none;
   }
 }
 

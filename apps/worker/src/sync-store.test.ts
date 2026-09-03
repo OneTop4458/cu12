@@ -33,6 +33,21 @@ function makeCourse(lectureSeq: number): CourseState {
   };
 }
 
+function makeNotice(noticeKey: string, syncedAt: string) {
+  return {
+    userId: "user-1",
+    provider: "CU12" as const,
+    lectureSeq: 101,
+    noticeKey,
+    title: "시험 일정 안내",
+    author: "교수자",
+    postedAt: "2026-09-02",
+    bodyText: "중간고사 일정은 강의실에서 확인하세요.",
+    isNew: true,
+    syncedAt,
+  };
+}
+
 function emptySnapshot(courseRosterAuthoritative: boolean, courses: CourseState[] = []) {
   return {
     courseRosterAuthoritative,
@@ -79,6 +94,55 @@ test("authoritative roster retires missing ACTIVE courses and keeps current cour
     },
     data: { status: "ENDED" },
   }]);
+});
+
+test("read notices stay read when a reparse changes the notice key", async (t) => {
+  const oldRow = {
+    id: "notice-old",
+    lectureSeq: 101,
+    noticeKey: "legacy-key",
+    title: "시험 일정 안내",
+    author: "교수자",
+    postedAt: new Date("2026-09-02T00:00:00.000Z"),
+    bodyText: "중간고사 일정은 강의실에서 확인하세요.",
+    isRead: true,
+    isNew: false,
+    syncedAt: new Date("2026-09-02T00:00:00.000Z"),
+    updatedAt: new Date("2026-09-02T00:00:00.000Z"),
+  };
+  const reparsedRow = { ...oldRow, id: "notice-reparsed", noticeKey: "new-key", isRead: false };
+  let noticeFindManyCalls = 0;
+  const noticeUpserts: unknown[] = [];
+  const noticeUpdates: unknown[] = [];
+
+  swapMethod(t, prisma.courseSnapshot, "upsert", async () => ({}));
+  swapMethod(t, prisma.courseSnapshot, "updateMany", async () => ({ count: 0 }));
+  swapMethod(t, prisma.courseNotice, "findMany", async () => {
+    noticeFindManyCalls += 1;
+    return (noticeFindManyCalls === 1 ? [oldRow] : [oldRow, reparsedRow]) as never;
+  });
+  swapMethod(t, prisma.courseNotice, "upsert", async (args: never) => {
+    noticeUpserts.push(args);
+    return {};
+  });
+  swapMethod(t, prisma.courseNotice, "update", async (args: never) => {
+    noticeUpdates.push(args);
+    return {};
+  });
+  swapMethod(t, prisma.courseNotice, "deleteMany", async () => ({ count: 1 }));
+  swapMethod(t, prisma.portalMessage, "count", async () => 0);
+
+  const result = await persistSnapshot("user-1", "CU12", {
+    courseRosterAuthoritative: true,
+    courses: [makeCourse(101)],
+    notices: [makeNotice("new-key", "2026-09-03T00:00:00.000Z")],
+    notifications: [],
+    tasks: [],
+  });
+
+  assert.equal(result.newNoticeCount, 0);
+  assert.equal((noticeUpserts[0] as { create: { isRead: boolean } }).create.isRead, true);
+  assert.equal((noticeUpdates[0] as { data: { isRead: boolean } }).data.isRead, true);
 });
 
 test("unverified or partial roster never retires an existing course", async (t) => {

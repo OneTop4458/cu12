@@ -10,11 +10,14 @@ const ActivityKindSchema = z.enum(["NOTICE", "NOTIFICATION", "MESSAGE", "SYSTEM"
 const PortalProviderSchema = z.enum(["CU12", "CYBER_CAMPUS"]);
 
 const ReadActivitySchema = z.object({
+  all: z.literal(true).optional(),
   items: z.array(z.object({
     kind: ActivityKindSchema,
     id: z.string().trim().min(1),
     provider: PortalProviderSchema,
-  })).min(1).max(50),
+  })).min(1).max(50).optional(),
+}).refine((payload) => payload.all === true || Boolean(payload.items?.length), {
+  message: "items 또는 all=true가 필요합니다.",
 });
 
 function normalizeProvider(value: string | null): PortalProvider | null {
@@ -89,6 +92,28 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function markAllActivityAsRead(userId: string, now = new Date()): Promise<number> {
+  let updatedCount = 0;
+  for (const provider of PORTAL_PROVIDERS) {
+    const [notices, notifications, messages] = await Promise.all([
+      prisma.courseNotice.updateMany({
+        where: { userId, provider, isRead: false },
+        data: { isRead: true, updatedAt: now },
+      }),
+      prisma.notificationEvent.updateMany({
+        where: { userId, provider, isUnread: true },
+        data: { isUnread: false, updatedAt: now },
+      }),
+      prisma.portalMessage.updateMany({
+        where: { userId, provider, isRead: false },
+        data: { isRead: true, updatedAt: now },
+      }),
+    ]);
+    updatedCount += notices.count + notifications.count + messages.count;
+  }
+  return updatedCount;
+}
+
 export async function PATCH(request: NextRequest) {
   const context = await requireAuthContext(request);
   if (!context) return jsonError("Unauthorized", 401);
@@ -96,12 +121,19 @@ export async function PATCH(request: NextRequest) {
   try {
     const payload = await parseBody(request, ReadActivitySchema);
     const now = new Date();
+
+    if (payload.all === true) {
+      const updatedCount = await markAllActivityAsRead(context.effective.userId, now);
+
+      return jsonOk({ updated: true, updatedCount, all: true });
+    }
+
     const groups: Record<PortalProvider, Record<z.infer<typeof ActivityKindSchema>, string[]>> = {
       CU12: { NOTICE: [], NOTIFICATION: [], MESSAGE: [], SYSTEM: [] },
       CYBER_CAMPUS: { NOTICE: [], NOTIFICATION: [], MESSAGE: [], SYSTEM: [] },
     };
 
-    for (const item of payload.items) {
+    for (const item of payload.items ?? []) {
       if (item.kind === "SYSTEM") continue;
       groups[item.provider][item.kind].push(item.id);
     }

@@ -4,7 +4,19 @@ import {
   formatSiteNoticeDisplayTargetLabel,
   isSiteNoticeVisibleOnSurface,
   normalizeSiteNoticeDisplayTarget,
+  selectHighestPrioritySiteNotice,
 } from "../src/lib/site-notice-display";
+
+test("primary notice selection prefers the highest priority and keeps source order for ties", () => {
+  const notices = [
+    { id: "broadcast", priority: 10 },
+    { id: "maintenance", priority: 50 },
+    { id: "same-priority", priority: 50 },
+  ];
+
+  assert.equal(selectHighestPrioritySiteNotice(notices)?.id, "maintenance");
+  assert.equal(selectHighestPrioritySiteNotice([]), null);
+});
 
 test("maintenance notices are always normalized to login and topbar", () => {
   assert.equal(normalizeSiteNoticeDisplayTarget("MAINTENANCE", "LOGIN"), "BOTH");

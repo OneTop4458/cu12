@@ -1134,25 +1134,33 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [items]
-              properties:
-                items:
-                  type: array
-                  minItems: 1
-                  maxItems: 50
-                  items:
-                    type: object
-                    required: [kind, id, provider]
-                    properties:
-                      kind:
-                        type: string
-                        enum: [NOTICE, NOTIFICATION, MESSAGE, SYSTEM]
-                      id:
-                        type: string
-                      provider:
-                        type: string
-                        enum: [CU12, CYBER_CAMPUS]
+              oneOf:
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      minItems: 1
+                      maxItems: 50
+                      items:
+                        type: object
+                        required: [kind, id, provider]
+                        properties:
+                          kind:
+                            type: string
+                            enum: [NOTICE, NOTIFICATION, MESSAGE, SYSTEM]
+                          id:
+                            type: string
+                          provider:
+                            type: string
+                            enum: [CU12, CYBER_CAMPUS]
+                - type: object
+                  required: [all]
+                  properties:
+                    all:
+                      type: boolean
+                      enum: [true]
+                      description: Mark every unread notice, notification, and message as read across both providers. System deadline items are excluded.
       responses:
         "200":
           description: Updated
@@ -3476,6 +3484,8 @@ components:
         [
           activeCourseCount,
           avgProgress,
+          avgLessonCompletionPercent,
+          eligibleTaskCount,
           unreadNoticeCount,
           urgentTaskCount,
           upcomingDeadlines,
@@ -3490,6 +3500,13 @@ components:
           type: integer
         avgProgress:
           type: number
+        avgLessonCompletionPercent:
+          type: number
+          nullable: true
+          description: Task-weighted average lesson completion percentage for eligible learning tasks (availableFrom is null or not in the future).
+        eligibleTaskCount:
+          type: integer
+          minimum: 0
         unreadNoticeCount:
           type: integer
         urgentTaskCount:
@@ -3593,7 +3610,11 @@ components:
           totalTaskCount,
           totalRequiredSeconds,
           totalLearnedSeconds,
+          lessonCompletionPercent,
+          eligibleTaskCount,
+          eligibleCompletedTaskCount,
           currentWeekNo,
+          currentWeekSummary,
           taskTypeCounts,
           pendingTaskTypeCounts,
           weekSummaries,
@@ -3615,6 +3636,7 @@ components:
           nullable: true
         progressPercent:
           type: integer
+          description: Upstream provider progress retained for reference; use lessonCompletionPercent for dashboard display.
         pendingTaskCount:
           type: integer
         completedTaskCount:
@@ -3625,8 +3647,22 @@ components:
           type: integer
         totalLearnedSeconds:
           type: integer
+        lessonCompletionPercent:
+          type: number
+          nullable: true
+          description: Task-weighted lesson completion percentage for eligible learning tasks; null when there are no eligible tasks.
+        eligibleTaskCount:
+          type: integer
+          minimum: 0
+        eligibleCompletedTaskCount:
+          type: integer
+          minimum: 0
         currentWeekNo:
           type: integer
+          nullable: true
+        currentWeekSummary:
+          allOf:
+            - $ref: "#/components/schemas/DashboardCourseWeekSummary"
           nullable: true
         taskTypeCounts:
           $ref: "#/components/schemas/DashboardActivityTypeCounts"
@@ -3652,7 +3688,7 @@ components:
 
     DashboardCourseDetail:
       type: object
-      required: [provider, lectureSeq, taskTypeCounts, pendingTaskTypeCounts, weekSummaries]
+      required: [provider, lectureSeq, taskTypeCounts, pendingTaskTypeCounts, currentWeekSummary, weekSummaries]
       properties:
         provider:
           type: string
@@ -3663,6 +3699,10 @@ components:
           $ref: "#/components/schemas/DashboardActivityTypeCounts"
         pendingTaskTypeCounts:
           $ref: "#/components/schemas/DashboardActivityTypeCounts"
+        currentWeekSummary:
+          allOf:
+            - $ref: "#/components/schemas/DashboardCourseWeekSummary"
+          nullable: true
         weekSummaries:
           type: array
           items:

@@ -13,6 +13,8 @@ type AttentionCountPayload = {
   attentionCount: number;
 };
 
+const ACTIVITY_READ_ERROR = "읽음 처리에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+
 function toDisplayTime(value: string | null | undefined) {
   if (!value) return "-";
   const date = new Date(value);
@@ -63,6 +65,26 @@ async function readAttentionCount(signal?: AbortSignal): Promise<number> {
   return Number.isFinite(payload.attentionCount) ? Math.max(0, payload.attentionCount) : 0;
 }
 
+async function markActivityRead(body: unknown): Promise<void> {
+  const response = await fetch("/api/dashboard/activity", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (response.ok) return;
+
+  let message = ACTIVITY_READ_ERROR;
+  try {
+    const payload = await response.json() as { error?: unknown };
+    if (typeof payload.error === "string" && /[가-힣]/.test(payload.error)) {
+      message = payload.error.trim();
+    }
+  } catch {
+    // Keep the actionable fallback when the error response is not JSON.
+  }
+  throw new Error(message);
+}
+
 export function ActivityCenter() {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -73,6 +95,7 @@ export function ActivityCenter() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [activeItem, setActiveItem] = useState<DashboardNotification | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [latestLoaded, setLatestLoaded] = useState(false);
   const [attentionCount, setAttentionCount] = useState(0);
   const latestRequestRef = useRef(0);
@@ -180,20 +203,22 @@ export function ActivityCenter() {
     if (!item.isUnread || !item.kind || !item.provider || !item.sourceId || item.kind === "SYSTEM") return;
 
     try {
-      await fetch("/api/dashboard/activity", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          items: [{ kind: item.kind, id: item.sourceId, provider: item.provider }],
-        }),
+      setActionError(null);
+      await markActivityRead({
+        items: [{ kind: item.kind, id: item.sourceId, provider: item.provider }],
       });
       setNotifications((previous) =>
         previous.map((row) => (row.id === item.id ? { ...row, isUnread: false, needsAttention: false } : row)),
       );
+      setHistoryNotifications((previous) =>
+        previous.map((row) => (row.id === item.id ? { ...row, isUnread: false, needsAttention: false } : row)),
+      );
       await loadAttentionCount();
       if (showHistory) void loadHistory();
-    } catch {
-      // A read marker failure should not block viewing the activity detail.
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setActionError(error instanceof Error ? error.message : ACTIVITY_READ_ERROR);
+      }
     }
   }, [loadAttentionCount, loadHistory, showHistory]);
 
@@ -201,28 +226,27 @@ export function ActivityCenter() {
     if (ids.length === 0 || clearing) return;
     setClearing(true);
 
-    const targetIds = new Set(ids);
-    const targetItems = notifications
-      .filter((item) => targetIds.has(item.id) && item.kind && item.kind !== "SYSTEM" && item.provider && item.sourceId)
-      .map((item) => ({ kind: item.kind!, id: item.sourceId!, provider: item.provider! }));
-
     try {
-      if (targetItems.length > 0) {
-        await fetch("/api/dashboard/activity", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ items: targetItems }),
-        });
-      }
+      setActionError(null);
+      await markActivityRead({ all: true });
+      const targetIds = new Set(ids);
       setNotifications((previous) =>
         previous.map((item) => (targetIds.has(item.id) ? { ...item, isUnread: false, needsAttention: false } : item)),
       );
+      setHistoryNotifications((previous) =>
+        previous.map((item) => (targetIds.has(item.id) ? { ...item, isUnread: false, needsAttention: false } : item)),
+      );
       await loadAttentionCount();
+      await loadLatest(false);
       if (showHistory) void loadHistory();
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setActionError(error instanceof Error ? error.message : ACTIVITY_READ_ERROR);
+      }
     } finally {
       setClearing(false);
     }
-  }, [clearing, loadAttentionCount, loadHistory, notifications, showHistory]);
+  }, [clearing, loadAttentionCount, loadHistory, loadLatest, showHistory]);
 
   return (
     <>
@@ -235,6 +259,7 @@ export function ActivityCenter() {
         loading={loading}
         historyLoading={historyLoading}
         unreadCount={attentionCount}
+        actionError={actionError}
         onOpenChange={handleOpenChange}
         onRefresh={() => void (showHistory ? loadHistory() : loadLatest(true))}
         onToggleHistory={toggleHistory}

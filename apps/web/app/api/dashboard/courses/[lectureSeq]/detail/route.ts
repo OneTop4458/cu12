@@ -31,6 +31,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         lectureSeq: course.lectureSeq,
         taskTypeCounts: course.taskTypeCounts,
         pendingTaskTypeCounts: course.pendingTaskTypeCounts,
+        currentWeekSummary: course.currentWeekSummary,
         weekSummaries: course.weekSummaries,
       },
     });
