@@ -93,6 +93,9 @@ const AUTO_SYNC_MIN_INTERVAL_MINUTES = AUTO_SYNC_INTERVAL_HOURS * 60;
 export interface DashboardSummary {
   activeCourseCount: number;
   avgProgress: number;
+  /** Average 차시 이수율 across currently eligible learning tasks. */
+  avgLessonCompletionPercent?: number | null;
+  eligibleTaskCount?: number;
   unreadNoticeCount: number;
   upcomingDeadlines: number;
   urgentTaskCount: number;
@@ -107,6 +110,8 @@ export function createEmptyDashboardSummary(now = new Date()): DashboardSummary 
   return {
     activeCourseCount: 0,
     avgProgress: 0,
+    avgLessonCompletionPercent: null,
+    eligibleTaskCount: 0,
     unreadNoticeCount: 0,
     upcomingDeadlines: 0,
     urgentTaskCount: 0,
@@ -131,6 +136,32 @@ function isTaskCompletedByProgress(task: { state: string; activityType: string; 
     return true;
   }
   return false;
+}
+
+function clampProgressRatio(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Calculates the contribution of one task to the dashboard's 차시 이수율.
+ * VOD progress is intentionally task-weighted, while non-video activities
+ * remain binary because their portals do not expose a reliable partial value.
+ */
+export function getLearningTaskCompletionRatio(task: {
+  state: string;
+  activityType: string;
+  requiredSeconds: number;
+  learnedSeconds: number;
+}): number {
+  if (task.activityType === "VOD" && task.requiredSeconds > 0) {
+    return clampProgressRatio(task.learnedSeconds / task.requiredSeconds);
+  }
+  return isTaskCompletedByProgress(task) ? 1 : 0;
+}
+
+export function isLearningTaskEligible(task: { availableFrom: Date | null }, nowMs = Date.now()): boolean {
+  return task.availableFrom === null || task.availableFrom.getTime() <= nowMs;
 }
 
 function getNextScheduledSyncAt(now: Date): Date {
@@ -926,6 +957,11 @@ export function combineDashboardSummaries(
   const summaries = PORTAL_PROVIDERS.map((provider) => byProvider[provider]);
   const activeCourseCount = summaries.reduce((sum, item) => sum + item.activeCourseCount, 0);
   const weightedProgress = summaries.reduce((sum, item) => sum + (item.avgProgress * item.activeCourseCount), 0);
+  const eligibleTaskCount = summaries.reduce((sum, item) => sum + (item.eligibleTaskCount ?? 0), 0);
+  const weightedLessonCompletion = summaries.reduce(
+    (sum, item) => sum + ((item.avgLessonCompletionPercent ?? 0) * (item.eligibleTaskCount ?? 0)),
+    0,
+  );
   const nextDeadlineAt = summaries
     .map((item) => item.nextDeadlineAt)
     .filter((value): value is Date => value instanceof Date)
@@ -941,6 +977,10 @@ export function combineDashboardSummaries(
   return {
     activeCourseCount,
     avgProgress: activeCourseCount > 0 ? weightedProgress / activeCourseCount : 0,
+    avgLessonCompletionPercent: eligibleTaskCount > 0
+      ? weightedLessonCompletion / eligibleTaskCount
+      : null,
+    eligibleTaskCount,
     unreadNoticeCount: summaries.reduce((sum, item) => sum + item.unreadNoticeCount, 0),
     upcomingDeadlines: summaries.reduce((sum, item) => sum + item.upcomingDeadlines, 0),
     urgentTaskCount: summaries.reduce((sum, item) => sum + item.urgentTaskCount, 0),
@@ -1007,20 +1047,28 @@ async function getDashboardSummaryWithSharedReads(
   sharedReads: ReturnType<typeof createDashboardSummarySharedReads>,
 ): Promise<DashboardSummary> {
   const now = new Date();
+  const nowMs = now.getTime();
   const soon = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
   const { activeCourses, staleLectureSeqs } = await loadActiveCourseScope({ userId, provider });
   const activeLectureSeqs = activeCourses.map((course) => course.lectureSeq);
-  const upcomingWindowTasks = filterToLectureSeqs(filterOutStaleCyberCampusLectureSeqs(
+  const tasks = filterToLectureSeqs(filterOutStaleCyberCampusLectureSeqs(
     await fetchLearningTasksRaw({
       userId,
       provider,
       lectureSeqs: activeLectureSeqs,
-      dueAtGte: now,
-      dueAtLte: soon,
-      orderBy: "dueAtAsc",
+      orderBy: "lectureWeekLessonAsc",
     }),
     staleLectureSeqs,
   ), activeLectureSeqs);
+  const eligibleTasks = tasks.filter((task) => isLearningTaskEligible(task, nowMs));
+  const eligibleTaskCount = eligibleTasks.length;
+  const avgLessonCompletionPercent = eligibleTaskCount > 0
+    ? eligibleTasks.reduce((sum, task) => sum + getLearningTaskCompletionRatio(task), 0) / eligibleTaskCount * 100
+    : null;
+  const upcomingWindowTasks = tasks.filter((task) => {
+    if (!task.dueAt) return false;
+    return task.dueAt.getTime() >= nowMs && task.dueAt.getTime() <= soon.getTime();
+  });
   const upcomingPendingTasks = upcomingWindowTasks.filter((task) => !isTaskCompletedByProgress(task));
 
   const [unreadNoticeCount, syncJobs, user] = await Promise.all([
@@ -1049,6 +1097,8 @@ async function getDashboardSummaryWithSharedReads(
   return {
     activeCourseCount,
     avgProgress,
+    avgLessonCompletionPercent,
+    eligibleTaskCount,
     unreadNoticeCount,
     upcomingDeadlines: upcomingPendingTasks.length,
     urgentTaskCount: upcomingPendingTasks.length,
@@ -1111,7 +1161,9 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
   return filteredCourses.map((course) => {
     const rawTaskList = grouped.get(course.lectureSeq) ?? [];
     const taskList = rawTaskList;
+    const eligibleTaskList = taskList.filter((task) => isLearningTaskEligible(task, nowMs));
     const isTaskPending = (task: typeof taskList[number]) => !isTaskCompletedByProgress(task);
+    const isEligibleTaskPending = (task: typeof taskList[number]) => getLearningTaskCompletionRatio(task) < 1;
     const toDueTime = (task: typeof taskList[number]) => task.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const toWindowTime = (task: typeof taskList[number]) => {
       if (task.dueAt) return task.dueAt.getTime();
@@ -1136,13 +1188,17 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
         return (a.weekNo - b.weekNo) || (a.lessonNo - b.lessonNo);
       });
 
-    const completed = taskList.filter((task) => !isTaskPending(task));
-    const totalTaskCount = taskList.length;
-    const completedTaskCount = completed.length;
-    const pendingTaskCount = pending.length;
+    const eligiblePending = eligibleTaskList.filter(isEligibleTaskPending);
+    const eligibleCompleted = eligibleTaskList.filter((task) => !isEligibleTaskPending(task));
+    const totalTaskCount = eligibleTaskList.length;
+    const completedTaskCount = eligibleCompleted.length;
+    const pendingTaskCount = eligiblePending.length;
     const isCourseCompleted = totalTaskCount > 0 && pendingTaskCount === 0;
-    const totalRequiredSeconds = taskList.reduce((acc, task) => acc + task.requiredSeconds, 0);
-    const totalLearnedSeconds = taskList.reduce((acc, task) => acc + task.learnedSeconds, 0);
+    const totalRequiredSeconds = eligibleTaskList.reduce((acc, task) => acc + task.requiredSeconds, 0);
+    const totalLearnedSeconds = eligibleTaskList.reduce((acc, task) => acc + task.learnedSeconds, 0);
+    const lessonCompletionPercent = eligibleTaskList.length > 0
+      ? eligibleTaskList.reduce((sum, task) => sum + getLearningTaskCompletionRatio(task), 0) / eligibleTaskList.length * 100
+      : null;
 
     const taskTypeCounts = createActivityTypeCounts();
     const pendingTaskTypeCounts = createActivityTypeCounts();
@@ -1150,7 +1206,7 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
       pendingTaskTypeCounts: ActivityTypeCounts;
     }>();
 
-    for (const task of taskList) {
+    for (const task of eligibleTaskList) {
       taskTypeCounts[task.activityType] += 1;
 
       const existing = weekProgressByWeek.get(task.weekNo) ?? {
@@ -1165,7 +1221,7 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
       existing.totalTaskCount += 1;
       existing.totalTaskTypeCounts[task.activityType] += 1;
 
-      if (isTaskCompletedByProgress(task)) {
+      if (!isEligibleTaskPending(task)) {
         existing.completedTaskCount += 1;
       } else {
         existing.pendingTaskCount += 1;
@@ -1179,17 +1235,6 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
     const weekSummaries = Array.from(weekProgressByWeek.values())
       .sort((a, b) => a.weekNo - b.weekNo)
       .map((summary) => summary);
-    const pendingByWeek = weekSummaries.filter((summary) => summary.pendingTaskCount > 0);
-    const earliestPendingByWeek = pendingByWeek[0] ?? null;
-    const latestTask = taskList.length > 0
-      ? taskList
-        .slice()
-        .sort((a, b) => {
-          if (a.weekNo !== b.weekNo) return a.weekNo - b.weekNo;
-          return a.lessonNo - b.lessonNo;
-        })
-        [taskList.length - 1] ?? null
-      : null;
     const earliestPendingTask = pending.length > 0
       ? pending
         .slice()
@@ -1198,7 +1243,15 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
           return a.lessonNo - b.lessonNo;
         })[0] ?? null
       : null;
-
+    const eligibleLatestTask = eligibleTaskList.length > 0
+      ? eligibleTaskList
+        .slice()
+        .sort((a, b) => {
+          if (a.weekNo !== b.weekNo) return a.weekNo - b.weekNo;
+          return a.lessonNo - b.lessonNo;
+        })
+        [eligibleTaskList.length - 1] ?? null
+      : null;
     const windowPendingTasks = pendingWithWindow.filter((task) => task.dueAt || task.availableFrom);
     const nowWindowPending = windowPendingTasks.find((task) => {
       const startMs = task.availableFrom ? task.availableFrom.getTime() : Number.MIN_SAFE_INTEGER;
@@ -1224,15 +1277,10 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
       });
       return tasks[tasks.length - 1] ?? null;
     })();
-    const currentWeekNo = isCourseCompleted
-      ? (weekSummaries.length > 0 ? weekSummaries[weekSummaries.length - 1].weekNo : (latestTask?.weekNo ?? null))
-      : (nowWindowPending?.weekNo
-        ?? nextWindowPending?.weekNo
-        ?? earliestPendingByWeek?.weekNo
-        ?? earliestPendingTask?.weekNo
-        ?? pendingWithWindow[0]?.weekNo
-        ?? latestTask?.weekNo
-        ?? null);
+    const currentWeekNo = eligibleLatestTask?.weekNo ?? null;
+    const currentWeekSummary = currentWeekNo === null
+      ? null
+      : weekSummaries.find((summary) => summary.weekNo === currentWeekNo) ?? null;
     const courseDeadlineTask = isCourseCompleted
       ? (lastWindowTask ?? firstWindowTask ?? earliestPendingTask)
       : (nextWindowPending ?? firstWindowTask ?? earliestPendingTask);
@@ -1253,7 +1301,11 @@ export async function getCourses(userId: string, provider: PortalProvider = "CU1
       totalTaskCount,
       totalRequiredSeconds,
       totalLearnedSeconds,
+      lessonCompletionPercent,
+      eligibleTaskCount: eligibleTaskList.length,
+      eligibleCompletedTaskCount: eligibleCompleted.length,
       currentWeekNo,
+      currentWeekSummary,
       taskTypeCounts,
       pendingTaskTypeCounts,
       weekSummaries,
@@ -1570,7 +1622,7 @@ function mergeNoticeRows(current: CourseNoticeRow, candidate: CourseNoticeRow): 
     bodyText: preferred.bodyText.trim().length >= secondary.bodyText.trim().length
       ? preferred.bodyText
       : secondary.bodyText,
-    isRead: preferred.isRead && secondary.isRead,
+    isRead: preferred.isRead || secondary.isRead,
     isNew: preferred.isNew || secondary.isNew,
     syncedAt: preferred.syncedAt.getTime() >= secondary.syncedAt.getTime() ? preferred.syncedAt : secondary.syncedAt,
     updatedAt: preferred.updatedAt.getTime() >= secondary.updatedAt.getTime() ? preferred.updatedAt : secondary.updatedAt,

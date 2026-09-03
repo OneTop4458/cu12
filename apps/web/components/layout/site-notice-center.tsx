@@ -3,6 +3,7 @@
 import { AlertTriangle, Megaphone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { selectHighestPrioritySiteNotice } from "@/lib/site-notice-display";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -37,6 +38,9 @@ const NOTICE_EMPTY = "\uD604\uC7AC \uC0C1\uB2E8 \uACF5\uC9C0\uAC00 \uC5C6\uC2B5\
 const NOTICE_EMPTY_MESSAGE = "\uACF5\uC9C0 \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
 const NOTICE_REFRESH = "\uC0C8\uB85C\uACE0\uCE68";
 const NOTICE_CLOSE = "\uB2EB\uAE30";
+const NOTICE_DETAILS = "\uC790\uC138\uD788";
+const NOTICE_ARCHIVE = "\uC804\uCCB4 \uACF5\uC9C0";
+const NOTICE_BANNER_LABEL = "\uC11C\uBE44\uC2A4 \uACF5\uC9C0";
 const MAINTENANCE_LABEL = "\uC810\uAC80";
 const BROADCAST_LABEL = "\uACF5\uC9C0";
 const COUNT_UNIT = "\uAC74";
@@ -108,11 +112,6 @@ export function SiteNoticeCenter() {
     [dismissedIds, notices],
   );
   const maintenanceCount = visibleNotices.filter((notice) => notice.type === "MAINTENANCE").length;
-  const broadcastCount = visibleNotices.length - maintenanceCount;
-  const label =
-    maintenanceCount > 0
-      ? `${MAINTENANCE_LABEL} ${maintenanceCount}${COUNT_UNIT}`
-      : `${BROADCAST_LABEL} ${broadcastCount}${COUNT_UNIT}`;
 
   const dismissNotice = useCallback((noticeId: string) => {
     setDismissedIds((previous) => {
@@ -122,6 +121,49 @@ export function SiteNoticeCenter() {
       return next;
     });
   }, []);
+
+  const maintenanceNotices = visibleNotices.filter((notice) => notice.type === "MAINTENANCE");
+  const primaryNotice = selectHighestPrioritySiteNotice(
+    maintenanceNotices.length > 0 ? maintenanceNotices : visibleNotices,
+  );
+  const archiveLabel = visibleNotices.length > 0 ? `${NOTICE_ARCHIVE} ${visibleNotices.length}${COUNT_UNIT}` : NOTICE_ARCHIVE;
+
+  const inlineNotice = primaryNotice ? (
+    <div
+      className={`site-notice-inline ${primaryNotice.type === "MAINTENANCE" ? "is-maintenance" : ""}`}
+      aria-atomic="true"
+      aria-label={NOTICE_BANNER_LABEL}
+      aria-live={primaryNotice.type === "MAINTENANCE" ? "assertive" : "polite"}
+      role={primaryNotice.type === "MAINTENANCE" ? "alert" : "status"}
+    >
+      <span className="site-notice-inline-icon" aria-hidden="true">
+        {primaryNotice.type === "MAINTENANCE" ? <AlertTriangle size={17} /> : <Megaphone size={17} />}
+      </span>
+      <div className="site-notice-inline-copy">
+        <span className="site-notice-inline-type">{getNoticeTypeLabel(primaryNotice.type)}</span>
+        <p className="site-notice-inline-title">{primaryNotice.title}</p>
+      </div>
+      <Button
+        className="site-notice-inline-details"
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        {NOTICE_DETAILS}
+      </Button>
+      {primaryNotice.type === "BROADCAST" ? (
+        <button
+          className="site-notice-inline-dismiss"
+          type="button"
+          onClick={() => dismissNotice(primaryNotice.id)}
+          aria-label={`${primaryNotice.title} ${NOTICE_CLOSE}`}
+        >
+          <X size={15} />
+        </button>
+      ) : null}
+    </div>
+  ) : null;
 
   function renderPanel() {
     return (
@@ -186,17 +228,32 @@ export function SiteNoticeCenter() {
       type="button"
       variant="outline"
       size="icon"
-      aria-label={label}
+      aria-label={archiveLabel}
+      title={archiveLabel}
     >
       {maintenanceCount > 0 ? <AlertTriangle size={16} /> : <Megaphone size={16} />}
       {visibleNotices.length > 0 ? <Badge className="site-notice-badge">{visibleNotices.length}</Badge> : null}
     </Button>
   );
 
+  const center = (
+    <div className={`site-notice-center ${primaryNotice ? "has-inline-notice" : ""}`}>
+      {inlineNotice}
+      <div className="site-notice-archive">
+        <span className="site-notice-archive-label">{NOTICE_ARCHIVE}</span>
+        {isMobile ? (
+          <SheetTrigger asChild>{trigger}</SheetTrigger>
+        ) : (
+          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        )}
+      </div>
+    </div>
+  );
+
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild>{trigger}</SheetTrigger>
+        {center}
         <SheetContent side="right" className="site-notice-sheet">
           <SheetHeader className="site-notice-sheet-head">
             <SheetTitle>{TOPBAR_NOTICE_TITLE}</SheetTitle>
@@ -210,7 +267,7 @@ export function SiteNoticeCenter() {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      {center}
       <PopoverContent className="site-notice-popover" align="end" sideOffset={10} collisionPadding={8} avoidCollisions>
         {renderPanel()}
       </PopoverContent>

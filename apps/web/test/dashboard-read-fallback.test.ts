@@ -27,8 +27,10 @@ function swapMethod(
 test("getDashboardSummary falls back to raw learning task reads when ORM decoding fails", async (t) => {
   swapMethod(t, console, "warn", () => {});
 
-  const dueAt = new Date("2026-04-12T00:00:00.000Z");
-  const syncedAt = new Date("2026-04-10T00:00:00.000Z");
+  const now = Date.now();
+  const dueAt = new Date(now + (2 * 24 * 60 * 60 * 1000));
+  const syncedAt = new Date(now - (24 * 60 * 60 * 1000));
+  const lastSyncAt = new Date(now - (12 * 60 * 60 * 1000));
 
   swapMethod(t, prisma.courseSnapshot, "findMany", async () => [
     {
@@ -74,8 +76,8 @@ test("getDashboardSummary falls back to raw learning task reads when ORM decodin
   swapMethod(t, prisma.jobQueue, "findMany", async () => [
     {
       status: "SUCCEEDED",
-      createdAt: new Date("2026-04-10T01:00:00.000Z"),
-      finishedAt: new Date("2026-04-10T01:30:00.000Z"),
+      createdAt: new Date(now - (13 * 60 * 60 * 1000)),
+      finishedAt: lastSyncAt,
       payload: { provider: "CU12" },
     },
   ] as never);
@@ -89,7 +91,7 @@ test("getDashboardSummary falls back to raw learning task reads when ORM decodin
   assert.equal(summary.upcomingDeadlines, 1);
   assert.equal(summary.urgentTaskCount, 1);
   assert.equal(summary.nextDeadlineAt?.toISOString(), dueAt.toISOString());
-  assert.equal(summary.lastSyncAt?.toISOString(), "2026-04-10T01:30:00.000Z");
+  assert.equal(summary.lastSyncAt?.toISOString(), lastSyncAt.toISOString());
   assert.equal(rawCalls, 1);
 });
 

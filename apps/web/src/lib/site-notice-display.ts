@@ -6,6 +6,15 @@ export type SiteNoticeTypeValue = (typeof SITE_NOTICE_TYPES)[number];
 export type SiteNoticeDisplayTargetValue = (typeof SITE_NOTICE_DISPLAY_TARGETS)[number];
 export type SiteNoticeSurface = (typeof SITE_NOTICE_SURFACES)[number];
 
+export function selectHighestPrioritySiteNotice<T extends { priority: number }>(
+  notices: readonly T[],
+): T | null {
+  return notices.reduce<T | null>(
+    (selected, notice) => (selected === null || notice.priority > selected.priority ? notice : selected),
+    null,
+  );
+}
+
 export function normalizeSiteNoticeDisplayTarget(
   type: SiteNoticeTypeValue,
   displayTarget: SiteNoticeDisplayTargetValue | null | undefined,
