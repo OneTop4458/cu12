@@ -1,3 +1,4 @@
+import type { CourseState, LearningTask } from "@cu12/core";
 import { load } from "cheerio";
 
 export type CourseRosterAssessmentReason =
@@ -39,6 +40,65 @@ function isAuthenticationHtml(html: string): boolean {
 function hasExplicitEmptyRosterMessage(html: string): boolean {
   const text = load(html)("body").text().replace(/\s+/g, " ").trim();
   return EMPTY_ROSTER_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function getKoreanAcademicTermStart(now: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(now);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return Number.NaN;
+  }
+  if (month === 1) {
+    return Date.parse(`${year - 1}-08-01T00:00:00+09:00`);
+  }
+  if (month < 8) {
+    return Date.parse(`${year}-02-01T00:00:00+09:00`);
+  }
+  return Date.parse(`${year}-08-01T00:00:00+09:00`);
+}
+
+function toCourseDateEnd(value: string | null | undefined): number | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? Date.parse(`${normalized}T23:59:59.999+09:00`)
+    : Date.parse(normalized);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function filterPriorTermCu12Courses(
+  courses: CourseState[],
+  tasks: LearningTask[],
+  now = new Date(),
+): CourseState[] {
+  const currentTermStart = getKoreanAcademicTermStart(now);
+  if (!Number.isFinite(currentTermStart)) return courses;
+
+  const latestTaskDueAtByLecture = new Map<number, number>();
+  for (const task of tasks) {
+    const dueAt = toCourseDateEnd(task.dueAt);
+    if (dueAt === null) continue;
+    latestTaskDueAtByLecture.set(
+      task.lectureSeq,
+      Math.max(latestTaskDueAtByLecture.get(task.lectureSeq) ?? 0, dueAt),
+    );
+  }
+
+  return courses.filter((course) => {
+    const periodEnd = toCourseDateEnd(course.periodEnd);
+    if (periodEnd !== null) {
+      return periodEnd >= currentTermStart;
+    }
+
+    const latestTaskDueAt = latestTaskDueAtByLecture.get(course.lectureSeq);
+    return latestTaskDueAt === undefined || latestTaskDueAt >= currentTermStart;
+  });
 }
 
 export function assessCourseRoster(input: AssessCourseRosterInput): CourseRosterAssessment {
