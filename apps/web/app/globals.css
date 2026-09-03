@@ -2264,6 +2264,8 @@ body {
 }
 
 .topbar {
+  width: 100%;
+  min-width: 0;
   padding: 0;
   gap: 0;
   background: var(--cuk-black);
