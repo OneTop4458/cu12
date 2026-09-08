@@ -514,6 +514,27 @@ model MailSubscription {
   @@index([enabled, digestEnabled])
 }
 
+model MailSettings {
+  id                String   @id @default("default")
+  enabled           Boolean  @default(true)
+  source            String   @default("ENV")
+  host              String   @default("")
+  port              Int      @default(587)
+  tlsMode           String   @default("STARTTLS")
+  username          String   @default("")
+  encryptedPassword String?
+  fromEmail         String   @default("")
+  fromName          String   @default("")
+  updatedAt         DateTime @updatedAt
+}
+
+model MailTemplate {
+  kind      String   @id
+  subject   String
+  body      String
+  updatedAt DateTime @updatedAt
+}
+
 model UserGuideState {
   id          String   @id @default(cuid())
   userId      String

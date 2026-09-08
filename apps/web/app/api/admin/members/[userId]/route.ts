@@ -17,14 +17,29 @@ const PatchSchema = z.object({
   isTestUser: z.boolean().optional(),
   isActive: z.boolean().optional(),
   name: z.string().trim().min(1).max(80).optional(),
-  localPassword: z.string().min(8).max(120).optional(),
+  localPassword: z.string().trim().max(120).refine((value) => value.length === 0 || value.length >= 8, {
+    message: "Local password must contain at least 8 characters",
+  }).optional(),
+  campus: z.enum(["SONGSIM", "SONGSIN"]).optional(),
   autoLearnEnabled: z.boolean().optional(),
   quizAutoSolveEnabled: z.boolean().optional(),
   detectActivitiesEnabled: z.boolean().optional(),
   emailDigestEnabled: z.boolean().optional(),
   accountStatus: z.enum(["CONNECTED", "NEEDS_REAUTH", "ERROR"]).optional(),
   statusReason: z.string().max(500).nullable().optional(),
-});
+  mailPreference: z.object({
+    email: z.string().trim().email().max(200),
+    enabled: z.boolean(),
+    alertOnDeadline: z.boolean(),
+    alertOnAutolearn: z.boolean(),
+  }).strict().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, { message: "Provide at least one member field" });
+
+class MemberUpdateConflictError extends Error {
+  constructor(message: string, readonly errorCode: string) {
+    super(message);
+  }
+}
 
 const DeleteSchema = z.object({
   reason: z.string().trim().max(500).optional(),
@@ -74,6 +89,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         isTestUser: true,
         withdrawnAt: true,
         approvalStatus: true,
+        cu12Account: { select: { id: true } },
       },
     });
     if (!user) {
@@ -86,8 +102,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (userId === context.actor.userId && body.isActive === false) {
       return jsonError("Cannot deactivate own account", 400);
     }
+    if (userId === context.actor.userId && body.role === "USER") {
+      return jsonError("Cannot demote own account", 400);
+    }
+    if (userId === context.actor.userId && body.isTestUser !== undefined && body.isTestUser !== user.isTestUser) {
+      return jsonError("Cannot change own account type.", 400, "OWN_ACCOUNT_TYPE_CHANGE_NOT_ALLOWED");
+    }
     if (body.isActive === true && user.approvalStatus !== "APPROVED") {
       return jsonError("Approve the member before activating the account.", 409, "MEMBER_APPROVAL_REQUIRED");
+    }
+    const nextIsTestUser = body.isTestUser ?? user.isTestUser;
+    if (nextIsTestUser && !user.isTestUser && !hasLocalPassword) {
+      return jsonError("A local password is required when converting to a test user.", 400, "LOCAL_PASSWORD_REQUIRED");
+    }
+    if (hasLocalPassword && !nextIsTestUser) {
+      return jsonError("Local passwords are only available for test users.", 400, "LOCAL_PASSWORD_NOT_ALLOWED");
     }
 
     const userData: {
@@ -110,36 +139,45 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (typeof body.name === "string") {
       userData.name = body.name;
     }
-    if (hasLocalPassword && (body.isTestUser ?? user.isTestUser)) {
+    if (hasLocalPassword && nextIsTestUser) {
       userData.passwordHash = await hashPassword(localPassword);
     }
 
-    const updateUser = Object.keys(userData).length > 0;
     const updateAccount =
-      typeof body.autoLearnEnabled === "boolean"
+      typeof body.campus === "string"
+      || typeof body.autoLearnEnabled === "boolean"
       || typeof body.quizAutoSolveEnabled === "boolean"
       || typeof body.detectActivitiesEnabled === "boolean"
       || typeof body.emailDigestEnabled === "boolean"
       || body.accountStatus
-      || Object.prototype.hasOwnProperty.call(body, "statusReason")
-      || typeof body.isTestUser === "boolean" && !body.isTestUser;
+      || Object.prototype.hasOwnProperty.call(body, "statusReason");
+    if (updateAccount && !user.cu12Account) {
+      return jsonError("Link a portal account before editing account settings.", 409, "MEMBER_ACCOUNT_REQUIRED");
+    }
 
-    await prisma.$transaction(async (tx) => {
-      if (updateUser) {
-        await tx.user.update({
-          where: { id: userId },
-          data: userData,
-        });
+    const updated = await prisma.$transaction(async (tx) => {
+      const memberUpdate = await tx.user.updateMany({
+        where: {
+          id: userId,
+          withdrawnAt: null,
+          approvalStatus: user.approvalStatus,
+          isTestUser: user.isTestUser,
+        },
+        data: { ...userData, updatedAt: new Date() },
+      });
+      if (memberUpdate.count !== 1) {
+        throw new MemberUpdateConflictError("Member state changed. Refresh and try again.", "MEMBER_CHANGED");
       }
 
-      if (updateAccount) {
-        await tx.cu12Account.updateMany({
+      if (updateAccount || body.mailPreference) {
+        const accountUpdate = await tx.cu12Account.updateMany({
           where: { userId },
           data: {
+            campus: body.campus,
             autoLearnEnabled: body.autoLearnEnabled,
             quizAutoSolveEnabled: body.quizAutoSolveEnabled,
             detectActivitiesEnabled: body.detectActivitiesEnabled,
-            emailDigestEnabled: body.emailDigestEnabled,
+            emailDigestEnabled: body.mailPreference ? false : body.emailDigestEnabled,
             accountStatus: body.accountStatus,
             statusReason: Object.prototype.hasOwnProperty.call(body, "statusReason")
               ? body.statusReason
@@ -147,40 +185,63 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             updatedAt: new Date(),
           },
         });
+        if (updateAccount && accountUpdate.count !== 1) {
+          throw new MemberUpdateConflictError("Link a portal account before editing account settings.", "MEMBER_ACCOUNT_REQUIRED");
+        }
       }
-    });
 
-    const updated = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        isActive: true,
-        isTestUser: true,
-        approvalStatus: true,
-        approvalRequestedAt: true,
-        approvalDecidedAt: true,
-        approvalDecidedByUserId: true,
-        approvalRejectedReason: true,
-        cu12Account: {
-          select: {
-            cu12Id: true,
-            campus: true,
-            accountStatus: true,
-            statusReason: true,
-            autoLearnEnabled: true,
-            quizAutoSolveEnabled: true,
-            detectActivitiesEnabled: true,
-            emailDigestEnabled: true,
+      if (body.mailPreference) {
+        const preference = { ...body.mailPreference, alertOnNotice: false, digestEnabled: false };
+        await tx.mailSubscription.upsert({
+          where: { userId },
+          update: preference,
+          create: { userId, ...preference },
+        });
+      }
+
+      return tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          isTestUser: true,
+          approvalStatus: true,
+          approvalRequestedAt: true,
+          approvalDecidedAt: true,
+          approvalDecidedByUserId: true,
+          approvalRejectedReason: true,
+          cu12Account: {
+            select: {
+              cu12Id: true,
+              campus: true,
+              accountStatus: true,
+              statusReason: true,
+              autoLearnEnabled: true,
+              quizAutoSolveEnabled: true,
+              detectActivitiesEnabled: true,
+              emailDigestEnabled: true,
+            },
+          },
+          mailSubs: {
+            select: {
+              email: true,
+              enabled: true,
+              alertOnNotice: true,
+              alertOnDeadline: true,
+              alertOnAutolearn: true,
+              digestEnabled: true,
+              digestHour: true,
+              updatedAt: true,
+            },
           },
         },
-      },
+      });
     });
 
-    const auditSafeBody = { ...body };
-    delete (auditSafeBody as { localPassword?: string }).localPassword;
+    invalidateCachedAuthState(userId);
     await writeAuditLog({
       category: "ADMIN",
       severity: "INFO",
@@ -188,15 +249,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       targetUserId: userId,
       message: "Admin updated member profile",
       meta: {
-        ...auditSafeBody,
-        localPasswordUpdated: hasLocalPassword,
+        updatedFields: Object.keys(body).filter((field) => field !== "localPassword" || hasLocalPassword),
+        localPasswordUpdated: !!userData.passwordHash,
       },
     });
 
-    invalidateCachedAuthState(userId);
-
-    return jsonOk({ updated: true, user: updated });
+    const { mailSubs, ...updatedUser } = updated;
+    return jsonOk({ updated: true, user: { ...updatedUser, mailPreference: mailSubs[0] ?? null } });
   } catch (error) {
+    if (error instanceof MemberUpdateConflictError) {
+      return jsonError(error.message, 409, error.errorCode);
+    }
     if (error instanceof z.ZodError) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
     }

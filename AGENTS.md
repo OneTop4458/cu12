@@ -12,6 +12,23 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 4. `prisma`: PostgreSQL schema (Neon)
 5. `.github/workflows`: CI/CD and ops workflows
 
+## Context Routing
+
+Read the current sources for the task instead of loading every document:
+
+- Product and architecture: [documentation index](docs/00-index.md), then the relevant living specification.
+- API and data changes: route implementation, [OpenAPI](docs/04-api/openapi.yaml), and `prisma/schema.prisma`.
+- Web UI: [DESIGN.md](DESIGN.md), then the affected page and shared components.
+- Operations and validation: `package.json`, the relevant `scripts/` or `.github/workflows/` entry, and the linked runbook.
+
+Keep repository-wide rules here, visual rules in `DESIGN.md`, and detailed rationale in `docs/`. Link to the authoritative rule instead of copying it into another AI instruction file. Add `.agents/skills/` only for a concrete recurring workflow that existing commands and docs do not cover; do not scaffold unused AI folders. See the dated [web and harness research](docs/19-web-harness-trends.md) for adoption decisions.
+
+## Task Execution and Handoffs
+
+1. State the intended behavior, scope, and verification before editing. For work spanning multiple areas or sessions, keep a focused plan in `docs/` with status, decisions, remaining work, and acceptance checks; update an existing relevant plan instead of creating a duplicate. Small changes do not require a separate plan document.
+2. When using subagents, assign non-overlapping file ownership and one integration owner. The integration owner handles session bootstrap, shared dependency/Prisma generation, final validation, and shipping. Subagents use the assigned worktree and report changed files, evidence, and unresolved issues; they do not independently rerun bootstrap or mutate the branch.
+3. Reproduce behavioral defects and add a regression check when appropriate. Distinguish completed checks from planned checks in the handoff, including commands and relevant UI states. Keep the required validation gate below unchanged.
+
 ## Encoding Rule
 
 1. All repository files must be encoded as **UTF-8 (no BOM)**.
@@ -21,8 +38,8 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
    - Avoid: `Set-Content` / `Out-File` without explicit UTF-8 options.
    - Prefer: `apply_patch` when available, or explicit UTF-8 no-BOM APIs.
 5. If shell-based file writes are unavoidable, explicitly force UTF-8 (no BOM):
-   - `Set-Content -Encoding utf8`
-   - `[System.IO.File]::WriteAllText(path, text, New-Object System.Text.UTF8Encoding($false))`
+   - `[System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))`
+   - Do not use `Set-Content -Encoding utf8` in Windows PowerShell 5.1; it writes a BOM.
 6. For Korean text edits, verify immediately after edit:
    - Run `pnpm run check:text` and `pnpm run check:text:replacements`.
    - Re-open changed files and confirm Korean is readable (no garbled fallback glyphs).

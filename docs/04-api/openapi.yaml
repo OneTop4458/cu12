@@ -4,7 +4,7 @@ info:
   version: 0.5.0
   description: >-
     API contract for the Catholic University Automation web application.
-    This document reflects the runtime behavior implemented in apps/web as of 2026-03-07.
+    This contract is maintained alongside the route implementations in apps/web.
 servers:
   - url: https://your-app.example.com
 
@@ -100,6 +100,10 @@ paths:
                   type: string
                   minLength: 4
                   maxLength: 80
+                provider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
+                  description: Optional portal provider hint for live credential verification.
                 cu12Password:
                   type: string
                   minLength: 4
@@ -2242,6 +2246,213 @@ paths:
         "503":
           description: Save failed; ensure DB Bootstrap has applied AppSettings
 
+  /api/admin/mail/settings:
+    get:
+      tags: [Admin, Mail]
+      summary: Read mail configuration without SMTP secrets
+      description: No settings row defaults to enabled ENV mode. Database errors return 503. Environment credentials are never returned; environmentConfigured describes only the web runtime.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Public settings and environment readiness; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMailSettingsResponse"
+        "403":
+          description: Admin actor required
+        "503":
+          description: Settings storage unavailable; check DB Bootstrap
+    patch:
+      tags: [Admin, Mail]
+      summary: Save the complete mail configuration
+      description: >-
+        Requires an admin actor and same-origin CSRF validation. All public settings
+        fields are required, despite using PATCH. Password is write-only and encrypted
+        with APP_MASTER_KEY. Blank or omitted password preserves the stored secret;
+        clearPassword removes it. Changing host or username requires replacing or
+        explicitly clearing an existing secret. CUSTOM never merges ENV credentials.
+        Saves do not open an SMTP connection or send mail.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminMailSettingsInput"
+      responses:
+        "200":
+          description: Saved public settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMailSettingsResponse"
+        "400":
+          description: Invalid settings, conflicting password operations, or missing required CUSTOM credentials
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "503":
+          description: Settings storage unavailable; check DB Bootstrap
+
+  /api/admin/mail/verify:
+    post:
+      tags: [Admin, Mail]
+      summary: Verify the saved SMTP connection without sending a message
+      description: Requires an admin actor and same-origin CSRF validation. Uses saved settings, not unsaved form input. Disabled delivery or unavailable configuration returns verified false.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        "200":
+          description: SMTP connection verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMailVerifyResult"
+        "400":
+          description: Expected an empty JSON object
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "503":
+          description: Disabled, unconfigured, or failed connection; reason is sanitized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AdminMailVerifyResult"
+                  - $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/mail/test:
+    post:
+      tags: [Admin, Mail]
+      summary: Send one test message using saved SMTP settings and the TEST template
+      description: Requires an admin actor and same-origin CSRF validation. This endpoint sends a real message to the specified address and records an audit event.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [to]
+              properties:
+                to:
+                  type: string
+                  format: email
+                  maxLength: 200
+      responses:
+        "200":
+          description: Test message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMailTestResult"
+        "400":
+          description: Invalid recipient or extra fields
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "503":
+          description: Disabled, unconfigured, or failed delivery; reason is sanitized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AdminMailTestResult"
+                  - $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/mail/templates:
+    get:
+      tags: [Admin, Mail]
+      summary: List all six active mail templates with default fallbacks
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Saved overrides or defaults for each kind; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [templates]
+                properties:
+                  templates:
+                    type: array
+                    minItems: 6
+                    maxItems: 6
+                    items:
+                      $ref: "#/components/schemas/AdminMailTemplate"
+        "403":
+          description: Admin actor required
+        "503":
+          description: Template storage unavailable; check DB Bootstrap
+
+  /api/admin/mail/templates/{kind}:
+    parameters:
+      - in: path
+        name: kind
+        required: true
+        schema:
+          $ref: "#/components/schemas/AdminMailTemplateKind"
+    put:
+      tags: [Admin, Mail]
+      summary: Save one mail template override
+      description: >-
+        Requires an admin actor and same-origin CSRF validation. Template text is
+        escaped when rendered as HTML. Exactly one {{content}} placeholder in the
+        body preserves the application's generated details. No message is sent.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminMailTemplateInput"
+      responses:
+        "200":
+          description: Saved template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMailTemplate"
+        "400":
+          description: Invalid text length, header line break, unsupported placeholder, or missing/repeated content placeholder
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "404":
+          description: Unknown template kind
+        "503":
+          description: Template save failed
+    delete:
+      tags: [Admin, Mail]
+      summary: Reset one template to the application's default rendering
+      description: Requires an admin actor and same-origin CSRF validation. Deletes only the override; repeated resets are idempotent. No message is sent.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Default subject and body, customized false, updatedAt null
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMailTemplate"
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "404":
+          description: Unknown template kind
+        "503":
+          description: Template reset failed
+
   /api/admin/members:
     get:
       tags: [Admin]
@@ -2283,6 +2494,10 @@ paths:
                   type: string
                   minLength: 4
                   maxLength: 80
+                provider:
+                  type: string
+                  enum: [CU12, CYBER_CAMPUS]
+                  description: Optional portal provider hint for live credential verification.
                 isActive:
                   type: boolean
                   default: true
@@ -2315,7 +2530,14 @@ paths:
   /api/admin/members/{userId}:
     patch:
       tags: [Admin]
-      summary: Update member flags/profile
+      summary: Update member profile, account settings, and mail preferences
+      description: >-
+        Requires an admin actor and same-origin CSRF validation. Profile, account,
+        and mail changes are saved together. Account-setting changes require a linked
+        portal account; mail preferences can be saved without one. Saving mail
+        preferences forces legacy notice/digest flags OFF. Own-account deactivation,
+        demotion, and test/normal account-type changes are rejected. Login ID and
+        portal password are not editable here.
       security:
         - cookieAuth: []
       parameters:
@@ -2330,6 +2552,8 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
+              minProperties: 1
               properties:
                 role:
                   $ref: "#/components/schemas/UserRole"
@@ -2339,10 +2563,14 @@ paths:
                   type: boolean
                 name:
                   type: string
+                  minLength: 1
+                  maxLength: 80
                 localPassword:
                   type: string
-                  minLength: 8
                   maxLength: 120
+                  description: Trimmed; blank preserves the existing password, otherwise at least 8 characters. Only valid for test users; required when converting a normal user to a test user.
+                campus:
+                  $ref: "#/components/schemas/Campus"
                 autoLearnEnabled:
                   type: boolean
                 quizAutoSolveEnabled:
@@ -2351,15 +2579,34 @@ paths:
                   type: boolean
                 emailDigestEnabled:
                   type: boolean
+                  deprecated: true
+                  description: Legacy stored flag; does not enable routine digest delivery. Forced false when mailPreference is supplied.
                 accountStatus:
                   type: string
                   enum: [CONNECTED, NEEDS_REAUTH, ERROR]
                 statusReason:
                   type: string
                   nullable: true
+                  maxLength: 500
+                mailPreference:
+                  $ref: "#/components/schemas/AdminMemberMailPreferenceInput"
       responses:
         "200":
           description: Member updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMemberUpdateResponse"
+        "400":
+          description: Invalid or empty payload, forbidden own-account change (including OWN_ACCOUNT_TYPE_CHANGE_NOT_ALLOWED), or invalid test-user password transition
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "404":
+          description: Member not found
+        "409":
+          description: MEMBER_WITHDRAWN, MEMBER_APPROVAL_REQUIRED, MEMBER_ACCOUNT_REQUIRED, or MEMBER_CHANGED; no partial profile/account/mail update is saved
+        "500":
+          description: Member update failed
     delete:
       tags: [Admin]
       summary: Withdraw member account (anonymize + cleanup)
@@ -2384,8 +2631,14 @@ paths:
       responses:
         "200":
           description: Member withdrawn
+        "400":
+          description: Invalid payload or own-account withdrawal attempt
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "404":
+          description: Member not found or already withdrawn
         "409":
-          description: Member is already withdrawn
+          description: Cleanup constraint or legacy schema mismatch
           content:
             application/json:
               schema:
@@ -2550,7 +2803,7 @@ paths:
           schema:
             type: string
             format: date-time
-        responses:
+      responses:
         "200":
           description: Audit log list
           content:
@@ -2721,6 +2974,158 @@ components:
           type: boolean
           default: true
 
+    AdminMailSettingsInput:
+      type: object
+      additionalProperties: false
+      required: [enabled, source, host, port, tlsMode, username, fromEmail, fromName]
+      properties:
+        enabled:
+          type: boolean
+          description: Global delivery switch for both web and worker mail, including policy, approval, and test mail.
+        source:
+          type: string
+          enum: [ENV, CUSTOM]
+        host:
+          type: string
+          maxLength: 200
+          description: Trimmed hostname without whitespace or URL separators; required nonempty for CUSTOM.
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        tlsMode:
+          type: string
+          enum: [STARTTLS, TLS, NONE]
+          description: CUSTOM transport mode. ENV retains port-based TLS behavior.
+        username:
+          type: string
+          maxLength: 200
+          description: Trimmed single line; blank permits unauthenticated CUSTOM SMTP. Enabled CUSTOM with a username requires a decryptable password.
+        fromEmail:
+          type: string
+          maxLength: 200
+          description: Empty or valid email; CUSTOM requires a valid nonempty sender address.
+        fromName:
+          type: string
+          maxLength: 200
+          description: Trimmed single-line sender display name for CUSTOM SMTP.
+        password:
+          type: string
+          maxLength: 2000
+          writeOnly: true
+          description: Omitted or empty preserves the encrypted secret. A nonempty value cannot be combined with clearPassword true.
+        clearPassword:
+          type: boolean
+          description: Explicitly remove the stored CUSTOM password. Disable delivery or remove username first if the enabled configuration requires it.
+
+    AdminMailSettings:
+      type: object
+      required: [enabled, source, host, port, tlsMode, username, fromEmail, fromName, passwordConfigured]
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        source:
+          type: string
+          enum: [ENV, CUSTOM]
+          default: ENV
+        host:
+          type: string
+          default: ""
+        port:
+          type: integer
+          default: 587
+        tlsMode:
+          type: string
+          enum: [STARTTLS, TLS, NONE]
+          default: STARTTLS
+        username:
+          type: string
+          default: ""
+        fromEmail:
+          type: string
+          default: ""
+        fromName:
+          type: string
+          default: ""
+        passwordConfigured:
+          type: boolean
+          description: Whether a stored CUSTOM password exists; never returns password or ciphertext and does not indicate ENV password state.
+
+    AdminMailSettingsResponse:
+      type: object
+      required: [settings, environmentConfigured]
+      properties:
+        settings:
+          $ref: "#/components/schemas/AdminMailSettings"
+        environmentConfigured:
+          type: boolean
+          description: Whether all five SMTP environment variables are present in the web runtime; does not check connectivity or worker environment configuration.
+
+    AdminMailVerifyResult:
+      type: object
+      required: [verified, reason]
+      properties:
+        verified:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          description: Null on success; sanitized configuration or SMTP failure reason otherwise.
+
+    AdminMailTestResult:
+      type: object
+      required: [to, sent, reason]
+      properties:
+        to:
+          type: string
+          format: email
+        sent:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          description: Null on success; sanitized configuration or SMTP failure reason otherwise.
+
+    AdminMailTemplateKind:
+      type: string
+      enum: [DEADLINE, AUTOLEARN_RESULT, AUTOLEARN_TERMINAL, POLICY_UPDATE, ADMIN_APPROVAL_REQUEST, TEST]
+
+    AdminMailTemplateInput:
+      type: object
+      additionalProperties: false
+      required: [subject, body]
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Nonblank single line without NUL. Allowed placeholders are {{subject}}, {{recipient}}, and {{date}}.
+        body:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: Nonblank plain text without NUL. Requires exactly one {{content}}; also accepts {{subject}}, {{recipient}}, and {{date}}. Unknown or malformed placeholders are rejected; date uses Asia/Seoul.
+
+    AdminMailTemplate:
+      type: object
+      required: [kind, subject, body, customized, updatedAt]
+      properties:
+        kind:
+          $ref: "#/components/schemas/AdminMailTemplateKind"
+        subject:
+          type: string
+          default: "{{subject}}"
+        body:
+          type: string
+          default: "{{content}}"
+        customized:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
     AdminMemberCu12Account:
       type: object
       required:
@@ -2836,6 +3241,91 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminMember"
+
+    AdminMemberMailPreferenceInput:
+      type: object
+      additionalProperties: false
+      required: [email, enabled, alertOnDeadline, alertOnAutolearn]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 200
+        enabled:
+          type: boolean
+        alertOnDeadline:
+          type: boolean
+        alertOnAutolearn:
+          type: boolean
+
+    AdminMemberUpdateResponse:
+      type: object
+      required: [updated, user]
+      properties:
+        updated:
+          type: boolean
+          const: true
+        user:
+          type: object
+          required: [id, email, name, role, isActive, isTestUser, approvalStatus, approvalRequestedAt, approvalDecidedAt, approvalDecidedByUserId, approvalRejectedReason, cu12Account, mailPreference]
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+            name:
+              type: string
+              nullable: true
+            role:
+              $ref: "#/components/schemas/UserRole"
+            isActive:
+              type: boolean
+            isTestUser:
+              type: boolean
+            approvalStatus:
+              $ref: "#/components/schemas/UserApprovalStatus"
+            approvalRequestedAt:
+              type: string
+              format: date-time
+              nullable: true
+            approvalDecidedAt:
+              type: string
+              format: date-time
+              nullable: true
+            approvalDecidedByUserId:
+              type: string
+              nullable: true
+            approvalRejectedReason:
+              type: string
+              nullable: true
+            cu12Account:
+              type: object
+              nullable: true
+              required: [cu12Id, campus, accountStatus, statusReason, autoLearnEnabled, quizAutoSolveEnabled, detectActivitiesEnabled, emailDigestEnabled]
+              properties:
+                cu12Id:
+                  type: string
+                campus:
+                  $ref: "#/components/schemas/Campus"
+                  nullable: true
+                accountStatus:
+                  type: string
+                  enum: [CONNECTED, NEEDS_REAUTH, ERROR]
+                statusReason:
+                  type: string
+                  nullable: true
+                autoLearnEnabled:
+                  type: boolean
+                quizAutoSolveEnabled:
+                  type: boolean
+                detectActivitiesEnabled:
+                  type: boolean
+                emailDigestEnabled:
+                  type: boolean
+            mailPreference:
+              allOf:
+                - $ref: "#/components/schemas/AdminMemberMailPreference"
+              nullable: true
 
     PolicyDocumentType:
       type: string

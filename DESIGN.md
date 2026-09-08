@@ -67,7 +67,7 @@ CUK blue is the primary action color. Bronze is a restrained supporting or warni
 - `AppTopbar` remains the shared top-level chrome for dashboard and administration pages.
 - The brand and primary utility actions belong in `topbar-main`.
 - The active site notice belongs in its own full-width `topbar-notice-row`; do not place it inside `topbar-actions`.
-- The administration navigation remains a separate horizontally scrollable row.
+- The administration navigation remains a separate horizontally scrollable row with five destinations: members, mail, notices, policies, and operations. Operations pages expose system status, jobs, workers, reconciliation, and cleanup in a local navigation row.
 - The topbar must stay within its parent width and must never enlarge the page grid.
 - Long notice titles, email addresses, badges, and translated labels must wrap or truncate without overlapping adjacent controls.
 
@@ -94,11 +94,15 @@ Preserve the distinction between CU12 shared-campus data and Cyber Campus data. 
 - Do not replace operational tables with decorative card mosaics.
 - Destructive actions must remain visually distinct from routine and primary actions.
 - The management center exposes the persisted member approval switch (ON by default) and a read-only member detail dialog for account, automation, and mail settings.
+- Member registration and editing use bounded dialogs, keeping the member list visible on initial load. Detail offers an explicit edit entry; row actions keep detail/edit visible and group secondary actions in the existing dropdown primitive.
+- Member editing sends only changed profile/account fields and explicitly changed mail preferences. Saving a profile must not silently replace another user's automation preferences or assign an unset campus.
+- Mail administration separates saved SMTP configuration, connection checks, explicit test sending, and text template preview. Preview never sends mail; password fields never expose stored secrets. General dashboard and login improvements remain plan-only in [the UI/UX plan](docs/20-ui-ux-improvement-plan.md).
 
 ### Authentication and overlays
 
 - Keep the existing staged authentication flow and consent hierarchy.
 - Dialog, sheet, popover, toast, and loading-overlay behavior must remain consistent with the existing Radix/shadcn-based primitives.
+- Some dashboard dialogs still use custom `modal-overlay` markup. Their keyboard focus and modal semantics are a known follow-up item in [the UI/UX plan](docs/20-ui-ux-improvement-plan.md), not evidence that every current overlay already follows the shared primitives.
 - Loading states must explain what is happening and must not expose credentials or internal secrets.
 
 ## Responsive Contract

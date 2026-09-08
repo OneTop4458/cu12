@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { formatAdminMemberLastLogin } from "../../src/lib/admin-member-last-logi
 import { AppTopbar } from "../../components/layout/app-topbar";
 import { Switch } from "../../components/ui/switch";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../../components/ui/dropdown-menu";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
@@ -220,7 +221,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   });
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [memberQuery, setMemberQuery] = useState("");
+  const [memberFilter, setMemberFilter] = useState("ALL");
   const [detailMemberId, setDetailMemberId] = useState<string | null>(null);
+  const detailTriggerRef = useRef<HTMLElement | null>(null);
+  const memberFormTriggerRef = useRef<HTMLElement | null>(null);
   const detailMember = members.find((member) => member.id === detailMemberId) ?? null;
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -245,13 +250,17 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
   const [newCu12Id, setNewCu12Id] = useState("");
   const [newName, setNewName] = useState("");
-  const [newCampus, setNewCampus] = useState<CampusType>("SONGSIM");
+  const [newCampus, setNewCampus] = useState<CampusType | "">("SONGSIM");
   const [newRole, setNewRole] = useState<RoleType>("USER");
   const [newIsTestUser, setNewIsTestUser] = useState(false);
   const [newIsActive, setNewIsActive] = useState(true);
   const [newCu12Password, setNewCu12Password] = useState("");
   const [newLocalPassword, setNewLocalPassword] = useState("");
   const [memberSubmitting, setMemberSubmitting] = useState(false);
+  const [memberFormOpen, setMemberFormOpen] = useState(false);
+  const [automationDraft, setAutomationDraft] = useState({ autoLearnEnabled: true, quizAutoSolveEnabled: true, detectActivitiesEnabled: true });
+  const [mailDraft, setMailDraft] = useState({ email: "", enabled: true, alertOnDeadline: true, alertOnAutolearn: true });
+  const [mailChanged, setMailChanged] = useState(false);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
@@ -329,7 +338,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     try {
       const [contextPayload, membersPayload, logsPayload] = await Promise.all([
         fetchJson<SessionContext>("/api/session/context"),
-        fetchJson<MembersPayload>("/api/admin/members"),
+        fetchJson<MembersPayload>("/api/admin/members?limit=500"),
         fetchJson<LogsPayload>(`/api/admin/logs?${query.toString()}`),
       ]);
 
@@ -437,25 +446,42 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     setNewIsActive(true);
     setNewCu12Password("");
     setNewLocalPassword("");
+    setMailChanged(false);
+    setError(null);
   }, []);
 
-  const startEditMember = useCallback((member: Member) => {
+  const startEditMember = useCallback((member: Member, trigger?: HTMLElement | null) => {
+    memberFormTriggerRef.current = trigger ?? detailTriggerRef.current;
     setEditingMemberId(member.id);
     setEditingMember(member);
     setNewCu12Id(member.cu12Account?.cu12Id ?? member.email);
     setNewName(member.name ?? "");
-    setNewCampus(member.cu12Account?.campus ?? "SONGSIM");
+    setNewCampus(member.cu12Account?.campus ?? "");
     setNewRole(member.role);
     setNewIsTestUser(member.isTestUser);
     setNewIsActive(member.isActive);
     setNewCu12Password("");
     setNewLocalPassword("");
-    setMessage(`${member.email} 회원 정보를 수정해주세요.`);
+    setAutomationDraft({
+      autoLearnEnabled: member.cu12Account?.autoLearnEnabled ?? true,
+      quizAutoSolveEnabled: member.cu12Account?.quizAutoSolveEnabled ?? true,
+      detectActivitiesEnabled: member.cu12Account?.detectActivitiesEnabled ?? true,
+    });
+    setMailDraft({
+      email: member.mailPreference?.email ?? "",
+      enabled: member.mailPreference?.enabled ?? true,
+      alertOnDeadline: member.mailPreference?.alertOnDeadline ?? true,
+      alertOnAutolearn: member.mailPreference?.alertOnAutolearn ?? true,
+    });
+    setMailChanged(false);
+    setError(null);
+    setDetailMemberId(null);
+    setMemberFormOpen(true);
   }, []);
 
   const cancelEditMember = useCallback(() => {
+    setMemberFormOpen(false);
     resetMemberForm();
-    setMessage("회원 수정이 취소되었습니다.");
   }, [resetMemberForm]);
 
   const createMember = useCallback(async (event: FormEvent<HTMLFormElement>) => {
@@ -479,17 +505,27 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       isEditMode ? "회원 정보 수정 중..." : "회원 등록 중...",
       async () => {
         if (isEditMode && editingMemberId) {
-          const patchPayload: Record<string, unknown> = {
-            role: newRole,
-            isTestUser: newIsTestUser,
-            isActive: newIsActive,
-          };
-          const trimmedName = newName.trim();
-          if (trimmedName) {
-            patchPayload.name = trimmedName;
+          const patchPayload: Record<string, unknown> = {};
+          if (newRole !== editingMember?.role) patchPayload.role = newRole;
+          if (newIsTestUser !== editingMember?.isTestUser) patchPayload.isTestUser = newIsTestUser;
+          if (newIsActive !== editingMember?.isActive) patchPayload.isActive = newIsActive;
+          const nextName = newName.trim() || trimmedCu12Id;
+          if (nextName !== editingMember?.name) patchPayload.name = nextName;
+          if (editingMember?.cu12Account) {
+            for (const key of ["autoLearnEnabled", "quizAutoSolveEnabled", "detectActivitiesEnabled"] as const) {
+              if (automationDraft[key] !== editingMember.cu12Account[key]) patchPayload[key] = automationDraft[key];
+            }
+            if (editingMember.cu12Account.provider === "CU12" && newCampus && newCampus !== editingMember.cu12Account.campus) {
+              patchPayload.campus = newCampus;
+            }
           }
+          if (mailChanged) patchPayload.mailPreference = { ...mailDraft, email: mailDraft.email.trim() };
           if (newIsTestUser && newLocalPassword.trim()) {
             patchPayload.localPassword = newLocalPassword.trim();
+          }
+          if (Object.keys(patchPayload).length === 0) {
+            setMessage("변경된 내용이 없습니다.");
+            return { updated: false };
           }
 
           const payload = await fetchJson<MemberUpdateResponse>(`/api/admin/members/${editingMemberId}`, {
@@ -504,10 +540,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           method: "POST",
           body: JSON.stringify({
             cu12Id: trimmedCu12Id,
-            cu12Password: newCu12Password.trim(),
+            cu12Password: newIsTestUser ? undefined : newCu12Password.trim(),
             localPassword: newIsTestUser ? newLocalPassword.trim() : undefined,
             name: newName.trim() || undefined,
-            campus: newCampus,
+            campus: newCampus || "SONGSIM",
             role: newRole,
             isTestUser: newIsTestUser,
             isActive: newIsActive,
@@ -521,6 +557,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
     setMemberSubmitting(false);
     if (result) {
+      setMemberFormOpen(false);
       resetMemberForm();
       runAfterMutation(logPage);
     }
@@ -542,6 +579,10 @@ export function AdminClient({ initialUser }: AdminClientProps) {
     isEditMode,
     editingMemberId,
     originalEditModeIsTestUser,
+    editingMember,
+    automationDraft,
+    mailDraft,
+    mailChanged,
   ]);
 
   const syncMember = useCallback((member: Member) => {
@@ -707,11 +748,17 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   const testMemberCount = useMemo(() => members.filter((member) => member.isTestUser).length, [members]);
   const pendingMembers = useMemo(() => members.filter((member) => member.approvalStatus === "PENDING"), [members]);
   const rejectedMemberCount = useMemo(() => members.filter((member) => member.approvalStatus === "REJECTED").length, [members]);
+  const visibleMembers = useMemo(() => members.filter((member) => {
+    const query = memberQuery.trim().toLowerCase();
+    const text = [member.email, member.name, member.cu12Account?.cu12Id, member.mailPreference?.email].join(" ").toLowerCase();
+    return (!query || text.includes(query))
+      && (memberFilter === "ALL" || (memberFilter === "ACTIVE" ? member.isActive : member.approvalStatus === memberFilter));
+  }), [members, memberQuery, memberFilter]);
 
   return (
     <main className="dashboard-main page-shell">
       <AppTopbar
-        title="운영 관리센터"
+        title="회원 관리"
         email={context.effective.email}
         role={initialUser.role}
         impersonating={context.impersonating}
@@ -722,7 +769,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       <section className="card admin-hero">
         <div>
           <p className="brand-kicker">가톨릭대학교 수강 지원 솔루션 관리자</p>
-          <h1>운영 관리센터</h1>
+          <h1>회원 관리</h1>
           <p className="text-small muted">
             회원 {members.length}명, 승인 대기 {pendingMembers.length}명, 로그 {logPagination?.total ?? 0}건
           </p>
@@ -780,14 +827,23 @@ export function AdminClient({ initialUser }: AdminClientProps) {
         ) : null}
       </section>
 
-      <section className="card">
-        <div className="table-toolbar">
-          <h2>{isEditMode ? "회원 정보 수정" : "회원 등록"}</h2>
-          <span className="text-small muted">
-            {isEditMode ? "목록에서 선택한 회원 정보를 수정합니다." : "신규 사용자 등록 또는 기존 계정 갱신"}
-          </span>
-        </div>
-        <form className="form-grid top-gap" onSubmit={createMember}>
+      <Dialog open={memberFormOpen} onOpenChange={(open) => { if (!open && !memberSubmitting) cancelEditMember(); }}>
+        <DialogContent className="admin-member-detail" showCloseButton={false} onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (memberFormTriggerRef.current?.isConnected) memberFormTriggerRef.current.focus();
+        }}>
+          <DialogHeader>
+            <div className="table-toolbar">
+              <DialogTitle>{isEditMode ? "회원 정보 수정" : "회원 등록"}</DialogTitle>
+              <button type="button" className="ghost-btn" disabled={memberSubmitting} onClick={cancelEditMember}>닫기</button>
+            </div>
+            <DialogDescription>
+              {isEditMode ? `${editingMember?.email} · 기본 정보와 자동화·메일 수신 설정을 수정합니다.` : "포털 인증을 거쳐 신규 회원을 등록합니다."}
+            </DialogDescription>
+          </DialogHeader>
+        <form className="admin-member-detail-body" onSubmit={createMember}>
+          {error ? <p className="error-text" role="alert">{error}</p> : null}
+          <fieldset className="form-grid top-gap admin-form-fields" disabled={memberSubmitting}>
           <label className="field">
             <span>통합 포털 ID</span>
             <input
@@ -805,7 +861,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
               maxLength={80}
-              placeholder="표시될 이름 (선택)"
+              placeholder="비우면 포털 ID로 표시"
             />
           </label>
           <label className="field">
@@ -813,20 +869,18 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <select
               value={newCampus}
               onChange={(event) => setNewCampus(event.target.value as CampusType)}
-              disabled={isEditMode}
+              disabled={isEditMode && editingMember?.cu12Account?.provider !== "CU12"}
             >
+              <option value="" disabled>교정 선택</option>
               <option value="SONGSIM">성심교정</option>
               <option value="SONGSIN">성신교정</option>
             </select>
-            {isEditMode ? (
-              <p className="muted text-small">CU12 교정 설정은 등록 후 별도 API에서 수정하세요.</p>
-            ) : null}
           </label>
           <label className="field">
             <span>역할</span>
-            <select value={newRole} onChange={(event) => setNewRole(event.target.value as RoleType)}>
-              <option value="USER">USER</option>
-              <option value="ADMIN">ADMIN</option>
+            <select value={newRole} onChange={(event) => setNewRole(event.target.value as RoleType)} disabled={editingMemberId === context.actor.userId}>
+              <option value="USER">일반 회원</option>
+              <option value="ADMIN">관리자</option>
             </select>
           </label>
           <label className="field">
@@ -834,6 +888,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <select
               value={newIsTestUser ? "true" : "false"}
               onChange={(event) => setNewIsTestUser(event.target.value === "true")}
+              disabled={editingMemberId === context.actor.userId}
             >
               <option value="false">실서비스 계정</option>
               <option value="true">테스트 계정</option>
@@ -844,6 +899,7 @@ export function AdminClient({ initialUser }: AdminClientProps) {
             <select
               value={newIsActive ? "true" : "false"}
               onChange={(event) => setNewIsActive(event.target.value === "true")}
+              disabled={isEditMode && (editingMember?.approvalStatus !== "APPROVED" || editingMemberId === context.actor.userId)}
             >
               <option value="true">활성</option>
               <option value="false">비활성</option>
@@ -857,13 +913,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                 value={newLocalPassword}
                 onChange={(event) => setNewLocalPassword(event.target.value)}
                 minLength={8}
-                required
+                required={!isEditMode || !originalEditModeIsTestUser}
+                placeholder={isEditMode && originalEditModeIsTestUser ? "비우면 기존 비밀번호 유지" : undefined}
               />
             </label>
           ) : (
             <>
               {isEditMode ? (
-                <p className="muted">통합 포털 비밀번호는 이 화면에서 수정할 수 없습니다.</p>
+                <p className="muted text-small">포털 비밀번호는 회원이 다시 로그인하면 갱신됩니다.</p>
               ) : (
                 <label className="field">
                   <span>통합 포털 비밀번호</span>
@@ -878,9 +935,58 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               )}
             </>
           )}
-          <div className="align-end">
+          {isEditMode ? (
+            <>
+              <fieldset className="admin-form-wide admin-setting-fields" disabled={!editingMember?.cu12Account}>
+                <legend>자동화 설정</legend>
+                {!editingMember?.cu12Account ? <p className="muted text-small">연결된 포털 계정이 없습니다.</p> : null}
+                {([
+                  ["autoLearnEnabled", "자동 수강"],
+                  ["quizAutoSolveEnabled", "퀴즈 자동 풀이"],
+                  ["detectActivitiesEnabled", "활동 감지"],
+                ] as const).map(([key, label]) => (
+                  <label className="admin-setting-row" key={key}>
+                    <span>{label}</span>
+                    <Switch checked={automationDraft[key]} onCheckedChange={(checked) => setAutomationDraft((draft) => ({ ...draft, [key]: checked }))} />
+                  </label>
+                ))}
+              </fieldset>
+              <fieldset className="admin-form-wide admin-setting-fields">
+                <legend>메일 수신 설정</legend>
+                <label className="field">
+                  <span>수신 이메일</span>
+                  <input
+                    type="email"
+                    maxLength={200}
+                    value={mailDraft.email}
+                    required={mailChanged}
+                    placeholder="메일 수신 주소"
+                    onChange={(event) => {
+                      setMailDraft((draft) => ({ ...draft, email: event.target.value }));
+                      setMailChanged(true);
+                    }}
+                  />
+                </label>
+                {([
+                  ["enabled", "메일 수신"],
+                  ["alertOnDeadline", "마감 알림"],
+                  ["alertOnAutolearn", "자동 수강 결과 알림"],
+                ] as const).map(([key, label]) => (
+                  <label className="admin-setting-row" key={key}>
+                    <span>{label}</span>
+                    <Switch checked={mailDraft[key]} onCheckedChange={(checked) => {
+                      setMailDraft((draft) => ({ ...draft, [key]: checked }));
+                      setMailChanged(true);
+                    }} />
+                  </label>
+                ))}
+                <p className="muted text-small">약관 변경 안내는 이 수신 설정과 별도로 발송되며, 승인 요청은 수신을 켠 관리자에게 발송됩니다. 정기 요약·일반 공지 메일은 발송하지 않습니다.</p>
+              </fieldset>
+            </>
+          ) : null}
+          <div className="action-row admin-form-wide">
             <button className="btn-success" type="submit" disabled={memberSubmitting}>
-              {memberSubmitting ? "처리 중..." : isEditMode ? "회원 수정" : "회원 등록"}
+              {memberSubmitting ? "처리 중..." : isEditMode ? "변경사항 저장" : "회원 등록"}
             </button>
             {isEditMode ? (
               <button className="ghost-btn" type="button" onClick={() => void cancelEditMember()} disabled={memberSubmitting}>
@@ -888,12 +994,18 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               </button>
             ) : null}
           </div>
+          </fieldset>
         </form>
-      </section>
+        </DialogContent>
+      </Dialog>
 
       <section className="card">
         <div className="table-toolbar">
           <h2>회원 목록</h2>
+          <div className="action-row">
+          <button type="button" onClick={(event) => { memberFormTriggerRef.current = event.currentTarget; resetMemberForm(); setMemberFormOpen(true); }} disabled={loading}>
+            회원 등록
+          </button>
           <button
             type="button"
             className="ghost-btn"
@@ -902,17 +1014,33 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           >
             목록 다시 불러오기
           </button>
+          </div>
         </div>
+        <div className="admin-member-filters top-gap">
+          <label className="field">
+            <span>회원 검색</span>
+            <input value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="이름·포털 ID·수신 이메일" type="search" />
+          </label>
+          <label className="field">
+            <span>회원 상태 필터</span>
+            <select value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}>
+              <option value="ALL">전체</option>
+              <option value="ACTIVE">활성 회원</option>
+              <option value="PENDING">승인 대기</option>
+              <option value="REJECTED">승인 거절</option>
+            </select>
+          </label>
+        </div>
+        <p className="text-small muted top-gap" role="status">조회한 {members.length}명 중 {visibleMembers.length}명 표시 · 최근 회원 최대 500명</p>
         <div className="table-wrap mobile-card-table">
           <table>
             <thead>
               <tr>
-                <th>이메일</th>
+                <th>회원</th>
                 <th>역할</th>
                 <th>상태</th>
                 <th>계정 유형</th>
                 <th>승인</th>
-                <th>CU12 ID</th>
                 <th>메일</th>
                 <th>등록일</th>
                 <th>마지막 로그인 (KST)</th>
@@ -920,80 +1048,72 @@ export function AdminClient({ initialUser }: AdminClientProps) {
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 ? (
+              {visibleMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={10}>등록된 회원이 없습니다.</td>
+                  <td colSpan={9}>{members.length === 0 ? "등록된 회원이 없습니다." : "검색 조건에 맞는 회원이 없습니다."}</td>
                 </tr>
               ) : (
-                members.map((member) => (
+                visibleMembers.map((member) => (
                   <tr key={member.id}>
-                    <td data-label="이메일">{member.email}</td>
-                    <td data-label="역할">{member.role}</td>
+                    <td data-label="회원">
+                      <strong>{member.name || member.email}</strong>
+                      {member.name && member.name !== member.email ? <p className="text-small muted">{member.email}</p> : null}
+                    </td>
+                    <td data-label="역할">{member.role === "ADMIN" ? "관리자" : "일반 회원"}</td>
                     <td data-label="상태">
                       <span className={`status-chip ${statusChipClassForMember(member.isActive)}`}>
                         {member.isActive ? "활성" : "비활성"}
                       </span>
                     </td>
-                    <td data-label="계정 유형">{member.isTestUser ? "테스트 계정" : "CU12 계정"}</td>
+                    <td data-label="계정 유형">{member.isTestUser ? "테스트 계정" : !member.cu12Account ? "포털 미연결" : member.cu12Account.provider === "CU12" ? "CU12 공유대학" : "사이버캠퍼스"}</td>
                     <td data-label="승인">
                       <span className={`status-chip ${statusChipClassForApproval(member.approvalStatus)}`}>
                         {approvalStatusLabel(member.approvalStatus)}
                       </span>
                     </td>
-                    <td data-label="CU12 ID">{member.cu12Account?.cu12Id ?? "-"}</td>
                     <td data-label="메일">{member.mailPreference?.email ?? "-"}</td>
                     <td data-label="등록일">{formatDateTime(member.createdAt)}</td>
                     <td data-label="마지막 로그인 (KST)">{formatAdminMemberLastLogin(member.lastLoginAt)}</td>
                     <td data-label="액션">
                       <div className="action-row">
-                        <button type="button" className="ghost-btn" onClick={() => setDetailMemberId(member.id)}>
+                        <button type="button" className="ghost-btn" onClick={(event) => { detailTriggerRef.current = event.currentTarget; setDetailMemberId(member.id); }}>
                           상세
                         </button>
                         <button
                           type="button"
                           className="ghost-btn"
-                          onClick={() => syncMember(member)}
-                          disabled={memberSyncBusyId === member.id || memberBusyId === member.id || !member.cu12Account}
-                        >
-                          {memberSyncBusyId === member.id ? "동기화 중..." : "동기화"}
-                        </button>
-                        <button type="button" className="ghost-btn" onClick={() => startImpersonation(member)}>
-                          대리접속
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => {
-                            startEditMember(member);
+                          onClick={(event) => {
+                            startEditMember(member, event.currentTarget);
                           }}
                           disabled={memberSubmitting}
                         >
                           수정
                         </button>
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => void toggleMemberActive(member)}
-                          disabled={memberBusyId === member.id || member.approvalStatus !== "APPROVED"}
-                        >
-                          {memberBusyId === member.id ? "처리 중..." : member.isActive ? "비활성화" : "활성화"}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost-btn"
-                          onClick={() => void sendTestMail(member)}
-                          disabled={mailTestUserId === member.id}
-                        >
-                          {mailTestUserId === member.id ? "처리 중..." : "메일 테스트"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-danger"
-                          onClick={() => deactivateMember(member)}
-                          disabled={memberBusyId === member.id || member.id === context.actor.userId}
-                        >
-                          {memberBusyId === member.id ? "처리 중..." : "탈퇴"}
-                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button type="button" className="ghost-btn" aria-label={`${member.email} 더보기`}>
+                              더보기
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent className="admin-member-actions" align="end">
+                            <DropdownMenuItem onSelect={() => syncMember(member)} disabled={memberSyncBusyId === member.id || memberBusyId === member.id || !member.cu12Account || !member.isActive || member.isTestUser}>
+                              동기화
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => startImpersonation(member)} disabled={!member.isActive || member.approvalStatus !== "APPROVED"}>
+                              대리접속
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void sendTestMail(member)} disabled={mailTestUserId === member.id || !member.isActive}>
+                              메일 테스트
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => void toggleMemberActive(member)} disabled={memberBusyId === member.id || member.approvalStatus !== "APPROVED" || member.id === context.actor.userId}>
+                              {member.isActive ? "비활성화" : "활성화"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem variant="destructive" onSelect={() => deactivateMember(member)} disabled={memberBusyId === member.id || member.id === context.actor.userId}>
+                              회원 탈퇴
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </td>
                   </tr>
@@ -1005,10 +1125,14 @@ export function AdminClient({ initialUser }: AdminClientProps) {
       </section>
 
       <Dialog open={detailMember !== null} onOpenChange={(open) => { if (!open) setDetailMemberId(null); }}>
-        <DialogContent className="admin-member-detail" showCloseButton={false}>
+        <DialogContent className="admin-member-detail" showCloseButton={false} onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (!memberFormOpen && detailTriggerRef.current?.isConnected) detailTriggerRef.current.focus();
+        }}>
           <DialogHeader>
             <div className="table-toolbar">
               <DialogTitle>회원 상세</DialogTitle>
+              {detailMember ? <button type="button" onClick={() => startEditMember(detailMember)}>회원 정보 수정</button> : null}
               <DialogClose asChild><button type="button" className="ghost-btn">닫기</button></DialogClose>
             </div>
             <DialogDescription>{detailMember?.email} · 저장된 상태와 설정</DialogDescription>
@@ -1042,7 +1166,6 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                     ["자동 수강", detailMember.cu12Account.autoLearnEnabled ? "ON" : "OFF"],
                     ["퀴즈 자동 풀이", detailMember.cu12Account.quizAutoSolveEnabled ? "ON" : "OFF"],
                     ["활동 감지", detailMember.cu12Account.detectActivitiesEnabled ? "ON" : "OFF"],
-                    ["계정 메일 발송", detailMember.cu12Account.emailDigestEnabled ? "ON" : "OFF"],
                     ["설정 수정일", formatDateTime(detailMember.cu12Account.updatedAt)],
                   ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
                 </dl>
@@ -1053,11 +1176,8 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                   {[
                     ["수신 이메일", detailMember.mailPreference.email],
                     ["메일 수신", detailMember.mailPreference.enabled ? "ON" : "OFF"],
-                    ["공지 알림", detailMember.mailPreference.alertOnNotice ? "ON" : "OFF"],
                     ["마감 알림", detailMember.mailPreference.alertOnDeadline ? "ON" : "OFF"],
                     ["자동 수강 결과 알림", detailMember.mailPreference.alertOnAutolearn ? "ON" : "OFF"],
-                    ["요약 메일", detailMember.mailPreference.digestEnabled ? "ON" : "OFF"],
-                    ["요약 발송 시각 (KST)", `${detailMember.mailPreference.digestHour}시`],
                     ["설정 수정일", formatDateTime(detailMember.mailPreference.updatedAt)],
                   ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
                 </dl>

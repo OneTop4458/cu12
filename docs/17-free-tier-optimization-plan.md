@@ -6,8 +6,8 @@ Keep CU12 Automation within free-tier limits for GitHub Actions, Vercel, and Neo
 
 ## Key Changes
 
-1. Scheduled sync frequency changed from every 30 minutes to every 2 hours.
-2. Scheduled workflows now skip consume stage when dispatch created zero jobs.
+1. Scheduled sync runs every 12 hours (`0 */12 * * *` UTC), with a default minimum interval of 720 minutes.
+2. Scheduled sync requests worker dispatch only for newly created jobs or existing pending jobs; zero new jobs alone does not skip recovery of pending work.
 3. `worker-consume` supports job-type filtering; routine digest dispatch is disabled.
 4. CodeQL changed to weekly schedule only (manual runs remain available).
 5. Dashboard bootstrap and independent course, deadline, and job requests start together; a count-only activity request preserves the topbar badge while details wait until the notification center opens, and session refresh waits for actual user activity.
@@ -37,7 +37,7 @@ Keep CU12 Automation within free-tier limits for GitHub Actions, Vercel, and Neo
 
 ## Immediate Mitigation If Usage Spikes
 
-1. Temporarily increase sync interval (for example, 2h -> 3h/4h).
+1. Review whether the current 12-hour sync cadence can be reduced further before changing both the cron and minimum interval. Preserve manual sync for urgent updates.
 2. Disable non-critical scheduled workflows.
 3. Reduce dashboard polling aggressiveness.
 4. Trigger DB cleanup manually with the narrow mode needed for the incident.

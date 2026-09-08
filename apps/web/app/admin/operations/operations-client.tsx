@@ -672,7 +672,7 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
   }, []);
 
   return (
-    <main className="dashboard-main page-shell">
+    <div className="page-shell">
       <AppTopbar
         title="운영 도구"
         kicker="시스템 운영"
@@ -1151,6 +1151,6 @@ export function AdminOperationsClient({ initialUser, view = "overview" }: AdminO
         </div>
       </section>
       ) : null}
-    </main>
+    </div>
   );
 }

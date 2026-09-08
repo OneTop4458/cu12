@@ -1,4 +1,4 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, parseBody, requireAdminActor } from "@/lib/http";
 import { AuditCategory } from "@prisma/client";
@@ -26,6 +26,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
     if (reason === "SMTP_NOT_CONFIGURED") {
       return "SMTP 설정이 누락되어 테스트 메일을 보낼 수 없습니다.";
+    }
+    if (reason === "MAIL_DISABLED") {
+      return "전체 메일 발송이 꺼져 있습니다. 메일 관리에서 설정을 확인해 주세요.";
+    }
+    if (reason === "SMTP_PASSWORD_REQUIRED" || reason === "SMTP_PASSWORD_UNAVAILABLE") {
+      return "SMTP 비밀번호를 사용할 수 없습니다. 메일 관리에서 다시 저장해 주세요.";
     }
     if (reason.includes("SMTP connection timed out")) {
       return "SMTP 서버 연결이 시간 초과되어 테스트 메일을 보낼 수 없습니다.";
@@ -87,7 +93,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     const to = body.to?.trim() || subscription?.email || user.email;
-    const resolvedSubject = body.subject?.trim() || "[CU12] 메일 발송 테스트";
+    let resolvedSubject = body.subject?.trim() || "[CU12] 메일 발송 테스트";
     const resolvedMessage = body.message?.trim()
       || [
         "CU12 메일 발송 테스트 메시지입니다.",
@@ -100,6 +106,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       ].join("\n");
 
     const result = await sendMail(to, resolvedSubject, resolvedMessage);
+    resolvedSubject = result.subject;
 
     await prisma.mailDelivery.create({
       data: {
@@ -148,7 +155,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       return jsonError(error.issues.map((it) => it.message).join(", "), 400, "VALIDATION_ERROR");
     }
     return jsonError(
-      error instanceof Error ? error.message : "메일 테스트 발송에 실패했습니다.",
+      "메일 테스트 발송에 실패했습니다.",
       500,
       "MAIL_TEST_FAILED",
     );

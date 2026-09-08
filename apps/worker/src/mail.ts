@@ -1,64 +1,25 @@
 import nodemailer from "nodemailer";
+import { renderMailTemplate, resolveMailTransport, safeMailError, type MailTemplateKind } from "@cu12/core";
 import { getEnv } from "./env";
+import { prisma } from "./prisma";
+import { decryptSecret } from "./secret";
 
-type SendMailResult = {
-  sent: boolean;
-  reason: string | null;
-};
-
-function buildSendMailReason(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "Unknown error";
-  }
-
-  const code = (error as { code?: string }).code;
-  const lowerMessage = error.message.toLowerCase();
-
-  if (code === "ESOCKET") {
-    return `SMTP socket error (${code})`;
-  }
-  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
-    return `SMTP server host DNS lookup failed (${code})`;
-  }
-  if (code === "ECONNREFUSED" || code === "ECONNRESET") {
-    return `SMTP connection refused (${code})`;
-  }
-  if (code === "ETIMEDOUT" || lowerMessage.includes("timeout")) {
-    return "SMTP connection timed out";
-  }
-  if (code === "EAUTH" || lowerMessage.includes("authentication failed") || lowerMessage.includes("invalid login")) {
-    return "SMTP authentication failed";
-  }
-
-  return error.message;
-}
-
-export async function sendMail(to: string, subject: string, html: string): Promise<SendMailResult> {
-  const env = getEnv();
-  if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASS || !env.SMTP_FROM) {
-    return { sent: false, reason: "SMTP_NOT_CONFIGURED" };
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    auth: {
-      user: env.SMTP_USER,
-      pass: env.SMTP_PASS,
-    },
-  });
-
+export async function sendMail(to: string, subject: string, html: string, kind?: MailTemplateKind) {
+  let transport: ReturnType<typeof nodemailer.createTransport> | undefined;
   try {
-    await transporter.sendMail({
-      from: env.SMTP_FROM,
-      to,
-      subject,
-      html,
-    });
-
-    return { sent: true, reason: null };
+    const [settings, template] = await Promise.all([
+      prisma.mailSettings.findUnique({ where: { id: "default" } }),
+      kind ? prisma.mailTemplate.findUnique({ where: { kind } }) : Promise.resolve(null),
+    ]);
+    const resolved = resolveMailTransport(settings, getEnv(), decryptSecret);
+    if (!resolved.config) return { sent: false, reason: resolved.reason, subject };
+    const message = renderMailTemplate(template, { subject, html, recipient: to, date: new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) });
+    transport = nodemailer.createTransport(resolved.config.options);
+    await transport.sendMail({ from: resolved.config.from, to, ...message });
+    return { sent: true, reason: null, subject: message.subject };
   } catch (error) {
-    return { sent: false, reason: buildSendMailReason(error) };
+    return { sent: false, reason: safeMailError(error), subject };
+  } finally {
+    transport?.close();
   }
 }

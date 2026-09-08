@@ -41,9 +41,10 @@
 1. Trigger `POST /api/jobs/autolearn-request`.
 2. For CU12, expect immediate queueing unless the request deduplicates against existing work.
 3. For Cyber Campus:
-   - if a reusable provider session exists, expect immediate queueing
-   - if secondary auth is required, expect `approvalRequired=true` and a `BLOCKED` job
-4. Complete approval with:
+   - an existing `PENDING` or `RUNNING` request is reused
+   - a new request creates a `BLOCKED` job with `approvalRequired=false` while the approval worker checks the planned lecture context, including when a saved provider session exists
+   - dashboard polling exposes `cyberCampus.approval`; a repeated request can return `approvalRequired=true` for an active approval even during probing, so inspect `runtimeState` and available methods before requesting user input
+4. Only when the worker exposes available approval methods, complete approval with:
    - `POST /api/cyber-campus/approval/{approvalId}/start`
    - `POST /api/cyber-campus/approval/{approvalId}/confirm`
 5. After approval completion, confirm the approval session reaches `COMPLETED` and the blocked job either moves into same-session AUTOLEARN execution or closes as a no-op when no runnable target tasks remain.

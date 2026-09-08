@@ -3,13 +3,14 @@
 ## Completed
 
 - [x] Real-time CU12 credential verification
-- [x] Administrator approval based first-login flow
+- [x] Configurable member approval (default ON) and automatic approval on verified login while OFF
 - [x] Policy consent gating and consent history
 - [x] Provider-aware dashboard surfaces for CU12 and Cyber Campus
 - [x] Queue-based sync and auto-learning orchestration
 - [x] Cyber Campus approval-session flow for secondary authentication
 - [x] Action-required mail alerts and unified dashboard activity
 - [x] Admin operations center for workers, jobs, members, policies, and site notices
+- [x] Unified administrator navigation, transactional member editing, shared SMTP settings, and editable active mail templates
 
 ## Near Term
 

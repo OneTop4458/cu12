@@ -12,11 +12,16 @@ import { UserMenu } from "./user-menu";
 type RoleType = "ADMIN" | "USER";
 
 const ADMIN_TOPBAR_LINKS = [
-  { href: "/admin", label: "관리센터" },
+  { href: "/admin", label: "회원" },
+  { href: "/admin/mail", label: "메일" },
+  { href: "/admin/site-notices", label: "공지" },
+  { href: "/admin/system/policies", label: "약관" },
+  { href: "/admin/operations", label: "운영" },
+] as const;
+
+const ADMIN_OPERATION_LINKS = [
+  { href: "/admin/operations", label: "운영 요약" },
   { href: "/admin/system", label: "시스템 상태" },
-  { href: "/admin/system/policies", label: "약관/고지" },
-  { href: "/admin/site-notices", label: "공지/점검" },
-  { href: "/admin/operations", label: "운영 작업" },
   { href: "/admin/operations/jobs", label: "작업 목록" },
   { href: "/admin/operations/workers", label: "워커 목록" },
   { href: "/admin/operations/reconcile", label: "정합성 점검" },
@@ -40,7 +45,8 @@ type AppTopbarProps = {
 };
 
 function resolveActiveAdminHref(pathname: string, override?: string): string | undefined {
-  if (override) return override;
+  pathname = override ?? pathname;
+  if (pathname === "/admin/system") return "/admin/operations";
   return ADMIN_TOPBAR_LINKS
     .filter((link) => pathname === link.href || pathname.startsWith(`${link.href}/`))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
@@ -118,6 +124,20 @@ export function AppTopbar({
               </Link>
             );
           })}
+        </nav>
+      ) : null}
+      {showAdminNav && activeAdminHref === "/admin/operations" ? (
+        <nav className="topbar-admin-nav admin-operation-nav" aria-label="운영 세부 메뉴">
+          {ADMIN_OPERATION_LINKS.map((link) => (
+            <Link
+              href={link.href}
+              key={link.href}
+              aria-current={pathname === link.href ? "page" : undefined}
+              className={`topbar-admin-link ${pathname === link.href ? "is-active" : ""}`}
+            >
+              {link.label}
+            </Link>
+          ))}
         </nav>
       ) : null}
     </header>

@@ -18,8 +18,8 @@
 1. Prefer `apply_patch` for text edits, especially when files contain Korean copy.
 2. Do not use `Set-Content` / `Out-File` without explicit UTF-8 settings.
 3. If shell write is unavoidable, force UTF-8 (no BOM):
-   - `Set-Content -Encoding utf8`
-   - `[System.IO.File]::WriteAllText(path, text, New-Object System.Text.UTF8Encoding($false))`
+   - `[System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))`
+   - Do not use `Set-Content -Encoding utf8` in Windows PowerShell 5.1; it writes a BOM.
 4. After touching Korean strings, run:
    - `pnpm run check:text`
    - `pnpm run check:text:replacements`

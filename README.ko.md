@@ -2,18 +2,18 @@
 
 영문 기준 문서: [`README.md`](README.md)
 
-CU12 자동화는 CU12와 Cyber Campus를 사용하는 소규모 관리자 승인 그룹을 위한 클라우드 기반 운영 제어면입니다. 로그인할 때 실제 포털 자격 증명을 즉시 검증하고, 강의와 공지 데이터를 동기화하며, 오래 걸리는 학습 작업을 큐에 넣고, 항상 켜져 있는 개인 PC 없이도 관리자/운영 도구를 제공합니다.
+CU12 자동화는 CU12와 Cyber Campus를 사용하는 소규모 그룹을 위한 클라우드 기반 운영 서비스이며, 관리자 승인 대기가 기본으로 켜져 있습니다. 로그인할 때 실제 포털 자격 증명을 즉시 검증하고, 강의와 공지 데이터를 동기화하며, 오래 걸리는 학습 작업을 큐에 넣고, 항상 켜져 있는 개인 PC 없이도 관리자/운영 도구를 제공합니다.
 
 ## 제품 요약
 
 | 영역 | 현재 동작 |
 | --- | --- |
-| 인증 | 실시간 포털 검증, 관리자 승인 기반 최초 로그인, 정책 동의 게이트, 유휴/세션 쿠키 |
+| 인증 | 실시간 포털 검증, 승인 대기 ON/OFF(기본 ON), 정책 동의 게이트, 유휴/세션 쿠키 |
 | 제공자 | CU12와 Cyber Campus provider-aware 동기화 및 대시보드 뷰 |
 | 학습 자동화 | VOD, 자료, 선택적 OpenAI 기반 퀴즈 실행을 포함한 큐 기반 자동 학습 |
 | 워커 런타임 | HTTP 동기화 경로와 필요한 Playwright 실행을 GitHub Actions로 오케스트레이션 |
 | 알림 | 마감, 정책, 승인, 자동 학습 결과용 action-required 메일과 통합 대시보드 활동 |
-| 관리자 운영 | 회원 관리, 승인 요청, 워커 heartbeat 가시성, 큐 cleanup/reconcile, 정책 게시, impersonation |
+| 관리자 운영 | 회원 정보·자동 수강·메일 수신 설정 수정, 승인 대기 ON/OFF, 공통 SMTP 설정과 메일 템플릿, 워커 heartbeat 가시성, 큐 cleanup/reconcile, 정책 게시, impersonation |
 
 ## 아키텍처
 
@@ -57,7 +57,7 @@ sequenceDiagram
     else 최신 동의 완료
       Web-->>U: AUTHENTICATED + session cookies
     end
-  else 최초 로그인
+  else 승인 대기 ON 상태의 최초 로그인
     Web->>DB: pending approval 사용자 생성
     Web-->>U: APPROVAL_PENDING
     Web-->>Admin: 승인 요청 메일 queue
@@ -66,6 +66,8 @@ sequenceDiagram
     Web->>DB: 계정 연결 및 정책 동의 필요 여부 확인
   end
 ```
+
+관리자는 관리 센터에서 회원 승인 대기를 끌 수 있습니다. OFF 동안 신규·대기 회원은 포털 인증에 성공하면 자동 승인되며, 계정 연결과 정책 동의를 이어서 진행합니다. 설정을 변경하려면 `DB Bootstrap`으로 `AppSettings` 스키마를 적용해야 하며, 설정이 없으면 승인 대기는 ON으로 유지됩니다.
 
 ### 큐 dispatch와 워커 실행
 
@@ -202,9 +204,9 @@ Named arguments는 그대로 전달합니다. 예전의 double-dash forwarding �
 
 | 워크플로 | 스케줄 | 현재 동작 |
 | --- | --- | --- |
-| `sync-schedule.yml` | `0 */2 * * *` UTC | 2시간마다 provider-aware sync work를 enqueue하고 centralized worker dispatch를 요청합니다. |
+| `sync-schedule.yml` | `0 */12 * * *` UTC | 12시간마다 provider-aware sync work를 enqueue합니다. 최소 간격 기본값은 720분이며, 새 작업이나 기존 대기 작업이 있으면 centralized worker dispatch를 요청합니다. |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | eligible pending work가 있는 사용자에게만 daily AUTOLEARN을 queue합니다. |
-| `reconcile-health-check.yml` | `0 */4 * * *` UTC | 활성 GitHub runs와 DB `RUNNING` jobs를 비교하고 divergence가 있으면 실패합니다. |
+| `reconcile-health-check.yml` | `0 */4 * * *` UTC | 활성 GitHub runs와 DB `RUNNING` jobs를 비교하고 고립 작업을 복구한 뒤 재검증합니다. 불일치가 남으면 실패합니다. |
 | `db-retention-cleanup.yml` | `10 1 * * *` UTC | 만료된 로그인 제한 버킷과 포털 세션, 30일이 지난 포털 승인 이력·감사 로그·메일 기록, 14일이 지난 종료 작업, 6개월이 지난 탈퇴 계정을 정리합니다. 수동 `user_repair`는 선택된 사용자의 알림도 정리할 수 있습니다. |
 
 ## 환경과 설정
@@ -233,6 +235,8 @@ Named arguments는 그대로 전달합니다. 예전의 double-dash forwarding �
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | action-required mail, policy/admin approval mail, test mail flows를 활성화합니다. |
 | `OPENAI_API_KEY` | worker | eligible user의 quiz auto-solve를 활성화합니다. |
 | `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS` | worker | quiz-answering model request를 조정합니다. |
+
+관리자는 `/admin/mail`에서 공통 SMTP 설정과 6종 메일 템플릿을 관리할 수 있습니다. 기본값은 기존 환경 변수를 사용하는 ENV이며, CUSTOM을 선택하면 암호화된 공통 비밀번호와 저장된 서버·발신자 설정을 웹과 워커가 함께 사용합니다. 전체 발송 OFF는 정책·승인·테스트 메일에도 적용됩니다. 사용 전 일반 배포 또는 `DB Bootstrap`으로 메일 테이블을 적용하세요. 자세한 내용은 [관리자 회원·메일 안내](docs/21-admin-member-mail-guide.md)를 참고하세요.
 
 ### 운영 중 자주 조정하는 워커 런타임 튜닝
 
