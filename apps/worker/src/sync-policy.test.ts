@@ -22,6 +22,10 @@ test("full snapshot freshness uses successful collection time and preserves expl
   assert.equal(isFullSyncFresh(new Date("2026-09-08T00:00:00Z"), 720, now), false);
   assert.equal(isFullSyncFresh(new Date("2026-09-08T11:00:00Z"), 0, now), false);
   assert.equal(isFullSyncFresh(new Date("2026-09-09T00:00:00Z"), 720, now), false);
+  assert.equal(isFullSyncFresh(new Date("2026-09-08T00:10:00Z"), 720, now), false,
+    "a short completion delay must not skip the next scheduled half-day pass");
+  assert.equal(isFullSyncFresh(new Date("2026-09-07T12:10:00Z"), 1440, now), false,
+    "quiet accounts must not systematically drift from 24 to 36 hours");
 });
 
 test("full sync identity separates users and providers without including the trigger", () => {

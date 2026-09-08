@@ -21,5 +21,8 @@ export function resolveScheduledSyncInterval(input: {
 export function isFullSyncFresh(lastFullSyncAt: Date | null | undefined, intervalMinutes: number, now = new Date()): boolean {
   if (!lastFullSyncAt || intervalMinutes <= 0) return false;
   const ageMs = now.getTime() - lastFullSyncAt.getTime();
-  return ageMs >= 0 && ageMs < intervalMinutes * 60_000;
+  // A pass finishing just after cron must not defer the next pass for another
+  // twelve hours. Allow small setup/runtime/scheduler drift at the due boundary.
+  const dueSlackMinutes = Math.min(15, intervalMinutes * 0.05);
+  return ageMs >= 0 && ageMs < (intervalMinutes - dueSlackMinutes) * 60_000;
 }

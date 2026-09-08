@@ -4,13 +4,18 @@
 
 1. `ci.yml`
    - Runs text quality, OpenAPI sync, Prisma generate, lint, typecheck, tests, and `build:web`.
+   - Runs on PRs and develop pushes; main deployment performs its own exact-commit validation instead of launching the same CI gate twice. New PR updates cancel only older CI runs for that PR.
 
 2. `deploy-vercel.yml`
-   - Runs the same validation gate as CI, then prepares active-job dedupe state before `prisma db push`, finalizes backfills after schema sync, and performs the production Vercel deploy.
+   - Serializes production runs without canceling in-progress DB work. A plan job finds the latest successful deploy job, skips duplicate successful commits, and diffs all changes since that deployment.
+   - Runs the full validation gate once for the deployment commit. DB guards run on first deployment, forced redeployment, or Prisma/DB-script/DB-workflow changes; an ordinary web-only change skips them.
    - Re-runs the idempotent active-job dedupe backfill after deploy to absorb null-key rows created during the old/new application handoff window.
    - Never add `--accept-data-loss`; the prepare step creates the exact Prisma-compatible unique index before schema sync on populated databases.
    - This workflow must remain the only production deployment path. Direct Vercel Git production deploys can bypass DB sync and ship schema-mismatched code.
+   - `apps/web/vercel.json` disables native Git deployment for main only; PR previews remain enabled.
    - Triggers on `main` pushes affecting deploy-relevant paths and on manual dispatch.
+   - The merged-PR explicit dispatch remains for bot merges. Both entry points use the same serialized duplicate guard. Worker-only changes do not redeploy the web app.
+   - Use manual input `force=true` to intentionally redeploy the same successful commit, including environment-only repairs. Lookup failures stop deployment rather than guessing.
 
 3. `worker-consume.yml`
    - Main queue consumer workflow.
@@ -18,6 +23,8 @@
    - Resolves required job types and installs Playwright only when the requested job set needs browser automation.
    - Runs the worker in `--once` mode with internal API callbacks and heartbeat reporting.
    - Uses the GitHub-hosted runner job maximum of 360 minutes so long Cyber Campus runs and same-run retries are not cut off by the repository workflow timeout.
+   - Pure sync batches may continue across users for up to ten jobs/ten minutes of claiming and use fifteen-second idle grace. Current collection and retry waits are not interrupted; autolearn timing and limits are unchanged.
+   - `worker-sync-handoff.yml` runs a lightweight pending-sync dispatch check after a trusted main Worker Consume run completes. It installs no dependencies. Manual handoff is supported on main for recovery.
 
 4. `sync-schedule.yml`
    - Schedule: `7 */12 * * *` UTC (09:07 and 21:07 KST).
@@ -86,7 +93,9 @@
    - Changes under `.github/workflows/`, `prisma/`, `scripts/`, or to `AGENTS.md` are excluded. Its closed-PR handler dispatches deployment for merged same-repo PRs into `main` when deploy-relevant files changed.
 
 5. `actions-usage-forecast.yml`
-   - Estimates monthly Actions usage against the repository's current workload.
+   - Runs weekly at 19:23 Monday UTC (04:23 Tuesday KST), with manual runs available.
+   - Lists up to 1,000 runs created in the past seven days and measures jobs for the latest 200, including PRs and all available attempts. The report explicitly labels the sample and provisional running minutes.
+   - Reports actual summed job duration and initial workflow wait separately; dependent-job delays are not presented as runner time. It does not forecast a private-repository 2,000-minute budget for this public repository.
 
 6. `dependabot-auto-review.yml`
    - Verifies the Dependabot author, same-repository source, and `dependabot/` branch before reading update metadata.

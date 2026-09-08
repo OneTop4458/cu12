@@ -89,13 +89,15 @@ test("deploy workflow trigger paths stay aligned with post-merge deploy dispatch
     ".github/workflows/deploy-vercel.yml",
     ".npmrc",
     "apps/web",
-    "apps/worker",
     "package.json",
     "packages",
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "prisma",
-    "scripts",
+    "scripts/db-*.mjs",
+    "scripts/prisma-cli.mjs",
+    "scripts/run-next-build.mjs",
+    "scripts/deployment-plan.mjs",
     "tsconfig.base.json",
   ].sort();
 
@@ -166,7 +168,8 @@ test("web Vercel project uses the Hobby-safe Singapore region contract", () => {
 
   assert.equal(fs.existsSync(configPath), true, "apps/web/vercel.json should live in the configured Vercel Root Directory");
   assert.equal(fs.existsSync(repositoryRootConfigPath), false, "the Vercel config must not be placed above apps/web");
-  assert.deepEqual(Object.keys(config).sort(), ["$schema", "regions"]);
+  assert.deepEqual(Object.keys(config).sort(), ["$schema", "git", "regions"]);
+  assert.deepEqual(config.git, { deploymentEnabled: { main: false } }, "only Actions should publish main; PR previews remain enabled");
   assert.equal(config.$schema, "https://openapi.vercel.sh/vercel.json");
   assert.deepEqual(config.regions, ["sin1"], "Hobby deployments must use one Singapore region");
   assert.equal("functionFailoverRegions" in config, false, "Enterprise failover must stay disabled");
@@ -390,7 +393,20 @@ test("ci, deploy verify, and ai ship run all tests before build or deploy", () =
   assertContainsInOrder(readRepoFile("scripts/ai-pr.ps1"), releaseGateSequence, "scripts/ai-pr.ps1");
 
   const deployWorkflow = readRepoFile(".github/workflows/deploy-vercel.yml");
-  assertContainsInOrder(deployWorkflow, ['db-sync:', 'needs: verify', 'deploy:', 'needs: db-sync'], "deploy-vercel.yml job ordering");
+  assertContainsInOrder(deployWorkflow, ['plan:', 'verify:', 'needs: plan', 'db-sync:', 'needs: [plan, verify]', 'deploy:', 'needs: [plan, verify, db-sync]'], "deploy-vercel.yml job ordering");
+  assert.match(deployWorkflow, /needs\.verify\.result == 'success'/);
+  assert.match(deployWorkflow, /needs\.db-sync\.result == 'success'.*needs\.db-sync\.result == 'skipped'/);
+  assert.match(deployWorkflow, /cancel-in-progress: false/);
+});
+
+test("sync batches have a trusted completion handoff after the worker slot is released", () => {
+  const handoff = readRepoFile(".github/workflows/worker-sync-handoff.yml");
+  assert.match(handoff, /workflows: \["Worker Consume"\]/);
+  assert.match(handoff, /types: \[completed\]/);
+  assert.match(handoff, /head_branch == 'main'/);
+  assert.match(handoff, /head_repository.full_name == github.repository/);
+  assert.match(handoff, /JSON.stringify\(\{ trigger: "sync" \}\)/);
+  assert.doesNotMatch(handoff, /actions\/checkout|pnpm install|playwright install/);
 });
 
 test("AGENTS documents all-test validation before PR creation", () => {

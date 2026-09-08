@@ -12,6 +12,8 @@
    - Uses browserless HTTP paths for sync-oriented work where possible.
    - Uses Playwright for CU12 auto-learning playback and Cyber Campus flows that require browser automation.
    - Sends heartbeat, progress, finish, and failure callbacks through internal web APIs.
+   - Pure SYNC/NOTICE_SCAN one-shot runs drain up to ten jobs across users, stop new claims after ten minutes, and exit after fifteen idle seconds. Each collection creates its own authenticated HTTP client or browser context.
+   - A completion-triggered sync handoff checks pending work after the Actions run releases capacity.
 
 3. **Shared core (`packages/core`)**
    - Holds parser logic, provider helpers, queue payload types, and cross-runtime contracts.

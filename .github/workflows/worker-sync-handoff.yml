@@ -1,0 +1,42 @@
+name: Worker Sync Handoff
+
+on:
+  workflow_run:
+    workflows: ["Worker Consume"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-sync-handoff
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      WEB_INTERNAL_BASE_URL: ${{ secrets.WEB_INTERNAL_BASE_URL }}
+      WORKER_SHARED_TOKEN: ${{ secrets.WORKER_SHARED_TOKEN }}
+    steps:
+      - name: Drain pending sync after a worker releases capacity
+        run: |
+          node <<'NODE'
+          const url = new URL("/internal/worker/dispatch", process.env.WEB_INTERNAL_BASE_URL);
+          async function main() {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "content-type": "application/json", "x-worker-token": process.env.WORKER_SHARED_TOKEN },
+              body: JSON.stringify({ trigger: "sync" }),
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`Dispatch HTTP ${response.status}`);
+            const result = await response.json();
+            console.log(JSON.stringify({ state: result.state, dispatchCount: result.dispatchCount, errorCode: result.errorCode }));
+            if (result.state === "FAILED" || result.state === "NOT_CONFIGURED") throw new Error("Sync handoff failed");
+          }
+          main().catch(() => { console.error("Sync handoff failed; inspect configuration and retry this workflow."); process.exitCode = 1; });
+          NODE

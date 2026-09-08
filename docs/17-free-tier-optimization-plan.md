@@ -12,7 +12,7 @@ Reduce redundant synchronization and startup work while preserving autolearn exe
 4. CodeQL changed to weekly schedule only (manual runs remain available).
 5. Dashboard bootstrap and independent course, deadline, and job requests start together; a count-only activity request preserves the topbar badge while details wait until the notification center opens, and session refresh waits for actual user activity.
 6. Daily DB cleanup applies retention windows for logs, terminal jobs, mail deliveries, and withdrawn accounts, while still removing legacy bogus course notices; focused manual repair can clear notification events for one user.
-7. Daily Actions usage forecast provides early warning.
+7. Weekly Actions capacity reporting measures actual job runtime and initial wait in an explicitly bounded recent-run sample.
 
 ## Free-Tier Guardrails
 
@@ -23,7 +23,7 @@ Reduce redundant synchronization and startup work while preserving autolearn exe
 
 ## Monitoring Signals
 
-1. `Actions Usage Forecast` workflow summary currently uses a legacy private-repository budget estimate. Replacing it with job-level capacity measurements is part of the next delivery.
+1. `Actions Usage Forecast` separates completed job minutes, provisional in-progress minutes, and initial workflow wait. It samples the latest 200 runs from a seven-day listing capped at 1,000 and includes PRs and available attempts. It never labels this sample as total billed usage.
 2. Scheduled workflows:
    - Dispatch created count
    - Consume run count
@@ -41,11 +41,14 @@ Reduce redundant synchronization and startup work while preserving autolearn exe
 
 ## September 2026 Delivery
 
-- Implemented, pending release validation: manual and scheduled full SYNC share a user/provider key. Legacy active jobs are reused during rollout; manual requests advance future jobs and disable scheduled freshness skips.
-- Implemented, pending release validation: SYNC and post-AUTOLEARN snapshots share persistence and deadline notification processing before advancing ProviderSyncState. Failed/partial collections do not advance the checkpoint; authoritative empty rosters do.
+- Released in PR #239: manual and scheduled full SYNC share a user/provider key. Legacy active jobs are reused during rollout; manual requests advance future jobs and disable scheduled freshness skips.
+- Released in PR #239: SYNC and post-AUTOLEARN snapshots share persistence and deadline notification processing before advancing ProviderSyncState. Failed/partial collections do not advance the checkpoint; authoritative empty rosters do.
 - Provision the additive ProviderSyncState table with DB Bootstrap before promoting this release. Do not backfill historical jobs as they do not prove the new completion contract.
-- The scheduler is best effort: a fresh checkpoint can skip a twice-daily scan. Exact elapsed time also depends on GitHub scheduling delays. Manual sync remains available.
+- The scheduler is best effort: a fresh checkpoint can skip a twice-daily scan. Up to fifteen minutes of due-boundary slack prevents short completion delays from systematically skipping the next scheduled pass. Larger GitHub delays can still affect elapsed time. Manual sync remains available.
 - Validate provider isolation, empty/partial/failed snapshots, future-job acceleration, concurrent requests, and deadline-sensitive eligibility.
-- Next: bounded short-sync batches, idle/handoff efficiency, and duplicate deployment/verification removal.
+- Implemented, pending release validation: bounded sync batches, fifteen-second idle exits, post-run handoff, and transactional per-user sync claim locking.
+- Implemented, pending release validation: exact-commit deployment deduplication, serialized DB operations, DB change gating, main CI duplication removal, and native-main Vercel deployment exclusion.
+- Implemented, pending release validation: weekly bounded job-level capacity reporting without a misleading public-repository minute budget.
+- Future queue reservation or slot-allocation changes require separate load measurements; active-run counting now covers all nonterminal states and pages, while the existing dispatch ceiling remains a best-effort admission check.
 - Deferred pending measurements: 48–72 hour sync, increased worker concurrency, autolearn slot partitioning, or separate worker hosting.
 - Compare a complete daily sync/autolearn cycle before claiming measured savings. A quiet cohort changing from two collections to one theoretically halves its scheduled collections, not total Actions usage.

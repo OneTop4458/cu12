@@ -155,24 +155,39 @@ function toDispatchPayload(input: {
 
 async function listActiveWorkerRuns(): Promise<number> {
   const env = getEnv();
-  const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/runs?per_page=100`;
-  const response = await fetch(apiUrl, {
-    method: "GET",
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      "x-github-api-version": "2022-11-28",
-    },
+  return countActiveWorkerRuns(async (status, page) => {
+    const apiUrl = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW_ID}/runs?per_page=100&status=${status}&page=${page}`;
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        "x-github-api-version": "2022-11-28",
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GITHUB_RUN_LIST_FAILED:${response.status}:${text}`);
+    }
+
+    const body = await response.json().then((value) => value as GitHubWorkflowRunsResponse);
+    return Array.isArray(body.workflow_runs) ? body.workflow_runs : [];
   });
+}
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`GITHUB_RUN_LIST_FAILED:${response.status}:${text}`);
-  }
-
-  const body = await response.json().then((value) => value as GitHubWorkflowRunsResponse);
-  const runs = Array.isArray(body.workflow_runs) ? body.workflow_runs : [];
-  return runs.filter((run) => run.status !== "completed").length;
+export async function countActiveWorkerRuns(loadPage: (status: string, page: number) => Promise<GitHubWorkflowRun[]>): Promise<number> {
+  const ids = new Set<number>();
+  await Promise.all(["queued", "in_progress", "waiting", "pending", "requested"].map(async (status) => {
+    for (let page = 1; ; page += 1) {
+      const runs = await loadPage(status, page);
+      for (const run of runs) {
+        if (run.status !== "completed") ids.add(run.id);
+      }
+      if (runs.length < 100) break;
+    }
+  }));
+  return ids.size;
 }
 
 async function listPendingCandidateUsers(input: {
@@ -185,6 +200,9 @@ async function listPendingCandidateUsers(input: {
   }
   const now = new Date();
   const runningBlockerTypes = getRunningBlockerTypesForDispatch(input.types);
+  const eligibleSyncUser = input.types.every((type) => SYNC_DISPATCH_TYPES.includes(type))
+    ? { user: { is: { isActive: true, approvalStatus: "APPROVED" as const, isTestUser: false } } }
+    : {};
 
   const runningRows = await prisma.jobQueue.findMany({
     where: {
@@ -206,6 +224,7 @@ async function listPendingCandidateUsers(input: {
   if (input.preferredUserId) {
     const preferredPending = await prisma.jobQueue.findFirst({
       where: {
+        ...eligibleSyncUser,
         userId: input.preferredUserId,
         type: { in: input.types },
         status: JobStatus.PENDING,
@@ -218,6 +237,7 @@ async function listPendingCandidateUsers(input: {
 
   const pendingRows = await prisma.jobQueue.findMany({
     where: {
+      ...eligibleSyncUser,
       type: { in: input.types },
       status: JobStatus.PENDING,
       runAfter: { lte: now },

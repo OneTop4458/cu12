@@ -1,123 +1,88 @@
-const token = process.env.GH_TOKEN;
-const owner = process.env.GITHUB_OWNER;
-const repo = process.env.GITHUB_REPO;
-const includedMinutes = Number(process.env.ACTIONS_INCLUDED_MINUTES ?? "2000");
+import { appendFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
-if (!token || !owner || !repo) {
-  throw new Error("Missing GH_TOKEN, GITHUB_OWNER, or GITHUB_REPO");
-}
-
-function monthBounds(now) {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
-  return { start, end };
-}
-
-async function fetchRuns(page) {
-  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/actions/runs`);
-  url.searchParams.set("per_page", "100");
-  url.searchParams.set("page", String(page));
-  url.searchParams.set("exclude_pull_requests", "true");
-
-  const response = await fetch(url, {
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: "application/vnd.github+json",
-      "x-github-api-version": "2022-11-28",
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`GitHub API failed (${response.status}): ${text}`);
+export function measureRunJobs(run, jobs, now = new Date()) {
+  let completedMinutes = 0;
+  let runningMinutes = 0;
+  const starts = [];
+  for (const job of jobs) {
+    const start = Date.parse(job.started_at ?? "");
+    if (!Number.isFinite(start)) continue;
+    starts.push(start);
+    const end = job.completed_at ? Date.parse(job.completed_at) : now.getTime();
+    const minutes = Math.max(0, end - start) / 60_000;
+    if (!Number.isFinite(minutes)) continue;
+    if (job.completed_at) completedMinutes += minutes;
+    else if (job.status === "in_progress") runningMinutes += minutes;
   }
-
-  return response.json();
-}
-
-function runDurationMinutes(run) {
-  if (!run.created_at || !run.updated_at) return 0;
-  const created = new Date(run.created_at).getTime();
-  const updated = new Date(run.updated_at).getTime();
-  if (!Number.isFinite(created) || !Number.isFinite(updated) || updated <= created) return 0;
-  return (updated - created) / 60000;
+  return {
+    completedMinutes,
+    runningMinutes,
+    initialWaitSeconds: starts.length ? Math.max(0, Math.min(...starts) - Date.parse(run.created_at)) / 1000 : null,
+  };
 }
 
 async function main() {
+  const { GH_TOKEN: token, GITHUB_OWNER: owner, GITHUB_REPO: repo } = process.env;
+  if (!token || !owner || !repo) throw new Error("Missing Actions reporting context");
+  const api = async (suffix) => {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}${suffix}`, {
+      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) throw new Error(`Actions report API failed: HTTP ${response.status}`);
+    return response.json();
+  };
+  const metadata = await api("");
   const now = new Date();
-  const { start, end } = monthBounds(now);
-
-  let page = 1;
-  let totalMinutes = 0;
-  let runCount = 0;
-  let reachedBeforeMonth = false;
-
-  while (!reachedBeforeMonth && page <= 10) {
-    const payload = await fetchRuns(page);
-    const runs = payload.workflow_runs ?? [];
-    if (runs.length === 0) break;
-
-    for (const run of runs) {
-      const createdAt = run.created_at ? new Date(run.created_at) : null;
-      if (!createdAt) continue;
-
-      if (createdAt < start) {
-        reachedBeforeMonth = true;
-        continue;
-      }
-
-      if (createdAt >= end) continue;
-      if (run.status !== "completed") continue;
-
-      totalMinutes += runDurationMinutes(run);
-      runCount += 1;
+  const since = new Date(now.getTime() - 7 * 24 * 60 * 60_000).toISOString();
+  const runs = [];
+  let total = 0;
+  for (let page = 1; page <= 10; page += 1) {
+    const data = await api(`/actions/runs?created=${encodeURIComponent(">=" + since)}&per_page=100&page=${page}`);
+    total = data.total_count;
+    runs.push(...data.workflow_runs);
+    if (data.workflow_runs.length < 100) break;
+  }
+  // Bound report API work as application usage grows. Never label the sample as a total.
+  const sample = runs.slice(0, 200);
+  const groups = new Map();
+  for (const run of sample) {
+    const jobs = [];
+    for (let page = 1; ; page += 1) {
+      const data = await api(`/actions/runs/${run.id}/jobs?filter=all&per_page=100&page=${page}`);
+      jobs.push(...data.jobs);
+      if (data.jobs.length < 100) break;
     }
-
-    page += 1;
+    const measured = measureRunJobs(run, jobs, now);
+    const group = groups.get(run.name) ?? { count: 0, completed: 0, running: 0, waits: [] };
+    group.count += 1;
+    group.completed += measured.completedMinutes;
+    group.running += measured.runningMinutes;
+    if (measured.initialWaitSeconds !== null) group.waits.push(measured.initialWaitSeconds);
+    groups.set(run.name, group);
   }
-
-  const elapsedMs = Math.max(1, now.getTime() - start.getTime());
-  const monthMs = end.getTime() - start.getTime();
-  const projectedMinutes = totalMinutes * (monthMs / elapsedMs);
-  const utilizationPct = (projectedMinutes / includedMinutes) * 100;
-
   const lines = [
-    `Actions usage forecast for ${owner}/${repo}`,
-    `- Month UTC window: ${start.toISOString()} ~ ${end.toISOString()}`,
-    `- Included minutes: ${includedMinutes}`,
-    `- Measured completed runs: ${runCount}`,
-    `- Current month consumed minutes (estimate): ${totalMinutes.toFixed(1)}`,
-    `- End-of-month forecast minutes: ${projectedMinutes.toFixed(1)} (${utilizationPct.toFixed(1)}%)`,
+    "## Actions capacity sample", "",
+    metadata.private
+      ? "Private repository: consult billing for charges; this report measures runner time."
+      : "Public repository: standard hosted runner minutes are free. This is runtime, not billing.",
+    `Runs created since ${since}: API reports ${total}; listed ${runs.length}; sampled ${sample.length} most recent runs (including PRs).`,
+    "All available job attempts within sampled runs are included. In-progress runtime is provisional. Runs created before this window are excluded.",
+    "Initial wait includes workflow startup; it is not the application job-queue wait. Later dependent jobs are not counted as initial wait.", "",
+    "| Workflow | Sampled runs | Completed job minutes | Running minutes | Initial wait P95 (s) |",
+    "|---|---:|---:|---:|---:|",
   ];
-
-  if (utilizationPct >= 95) {
-    lines.push("- Risk level: HIGH (>=95%)");
-  } else if (utilizationPct >= 80) {
-    lines.push("- Risk level: MEDIUM (>=80%)");
-  } else {
-    lines.push("- Risk level: LOW (<80%)");
+  for (const [name, group] of groups) {
+    group.waits.sort((a, b) => a - b);
+    const p95 = group.waits.length ? group.waits[Math.ceil(group.waits.length * 0.95) - 1].toFixed(1) : "n/a";
+    lines.push(`| ${name.replaceAll("|", "/")} | ${group.count} | ${group.completed.toFixed(1)} | ${group.running.toFixed(1)} | ${p95} |`);
   }
-
-  console.log(lines.join("\n"));
-
-  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (summaryPath) {
-    const markdown = [
-      "## Actions Usage Forecast",
-      "",
-      `- Repository: \`${owner}/${repo}\``,
-      `- Month (UTC): \`${start.toISOString()}\` to \`${end.toISOString()}\``,
-      `- Included minutes: **${includedMinutes}**`,
-      `- Completed runs measured: **${runCount}**`,
-      `- Current month consumed minutes: **${totalMinutes.toFixed(1)}**`,
-      `- Forecast at month end: **${projectedMinutes.toFixed(1)}** (**${utilizationPct.toFixed(1)}%**)`,
-      "",
-    ].join("\n");
-    await import("node:fs/promises").then((fs) => fs.appendFile(summaryPath, `${markdown}\n`, "utf8"));
-  }
+  const summary = lines.join("\n") + "\n";
+  console.log(summary);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary, "utf8");
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+}

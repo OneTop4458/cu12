@@ -5,10 +5,12 @@ on:
     branches: ["main"]
     paths:
       - "apps/web/**"
-      - "apps/worker/**"
       - "packages/**"
       - "prisma/**"
-      - "scripts/**"
+      - "scripts/db-*.mjs"
+      - "scripts/prisma-cli.mjs"
+      - "scripts/run-next-build.mjs"
+      - "scripts/deployment-plan.mjs"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -16,16 +18,41 @@ on:
       - ".npmrc"
       - ".github/workflows/deploy-vercel.yml"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Redeploy an already successful commit and run the DB guard"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-vercel-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.plan.outputs.deploy }}
+      db_changed: ${{ steps.plan.outputs.db_changed }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: plan
+        run: node scripts/deployment-plan.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_DEPLOY: ${{ inputs.force }}
+
   verify:
+    needs: plan
+    if: needs.plan.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -51,7 +78,8 @@ jobs:
       - run: pnpm run build:web
 
   db-sync:
-    needs: verify
+    needs: [plan, verify]
+    if: needs.plan.outputs.db_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -87,7 +115,8 @@ jobs:
         run: node scripts/db-backfill-auth-policy-columns.mjs
 
   deploy:
-    needs: db-sync
+    needs: [plan, verify, db-sync]
+    if: ${{ !cancelled() && needs.plan.outputs.deploy == 'true' && needs.verify.result == 'success' && (needs.db-sync.result == 'success' || needs.db-sync.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -130,6 +159,7 @@ jobs:
       - name: Deploy production bundle
         run: pnpm dlx vercel@latest deploy --prebuilt --prod --token=$VERCEL_TOKEN
       - name: Finalize active job dedupe keys after deploy
+        if: needs.plan.outputs.db_changed == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/db-backfill-active-job-dedupe.mjs --mode=finalize

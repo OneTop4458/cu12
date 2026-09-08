@@ -2,7 +2,7 @@ name: Actions Usage Forecast
 
 on:
   schedule:
-    - cron: "15 0 * * *"
+    - cron: "23 19 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -25,4 +25,3 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
-          ACTIONS_INCLUDED_MINUTES: "2000"

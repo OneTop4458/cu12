@@ -2,6 +2,7 @@ import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "./env";
 
 export interface ClaimedJob {
+  syncBatchSupported?: boolean;
   id: string;
   type: JobType;
   payload: {

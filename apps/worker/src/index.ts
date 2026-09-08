@@ -26,6 +26,7 @@ import { resolveReusableCyberCampusSessionOptions } from "./cyber-campus-session
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import { decideRetryWait } from "./retry-wait";
+import { canClaimSyncBatchJob, getSyncBatchPolicy, resolveSyncBatchUserId } from "./sync-batch";
 import { completeSyncSnapshot, type SyncSnapshot, type SyncPersistence } from "./sync-completion";
 import {
   buildAutoLearnResultMail,
@@ -1749,9 +1750,13 @@ async function main() {
   }
 
   const once = process.argv.includes("--once");
-  const onceGraceMs = env.WORKER_ONCE_IDLE_GRACE_MS;
-  let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
   const jobTypes = parseJobTypes(args.get("types"));
+  const syncBatch = getSyncBatchPolicy(jobTypes, once);
+  const onceGraceMs = syncBatch?.idleGraceMs ?? env.WORKER_ONCE_IDLE_GRACE_MS;
+  let onceNoJobDeadline = once ? Date.now() + onceGraceMs : null;
+  const batchStartedAt = Date.now();
+  let batchProcessedJobs = 0;
+  let syncBatchSupported = false;
   const targetUserId = args.get("userId");
   const heartbeat = startHeartbeatLoop(workerId, env.POLL_INTERVAL_MS);
   const handoffTrigger = once ? resolveHandoffTrigger(jobTypes) : null;
@@ -1759,8 +1764,17 @@ async function main() {
 
   try {
     while (true) {
+      if (syncBatch && !canClaimSyncBatchJob(syncBatch, batchProcessedJobs, Date.now() - batchStartedAt)) {
+        shouldCheckHandoff = true;
+        break;
+      }
       try {
-        const job = await claimJob(workerId, jobTypes, targetUserId);
+        const claimUserId = syncBatch ? resolveSyncBatchUserId(targetUserId, batchProcessedJobs, syncBatchSupported) : targetUserId;
+        let job = await claimJob(workerId, jobTypes, claimUserId);
+        if (job?.syncBatchSupported) syncBatchSupported = true;
+        if (!job && syncBatch && syncBatchSupported && claimUserId) {
+          job = await claimJob(workerId, jobTypes);
+        }
 
         if (!job) {
           if (once) {
@@ -1872,6 +1886,8 @@ async function main() {
             }
             onceNoJobDeadline = Date.now() + onceGraceMs;
           }
+        } finally {
+          if (syncBatch) batchProcessedJobs += 1;
         }
       } catch (loopError) {
         if (once) {
@@ -1883,7 +1899,11 @@ async function main() {
   } finally {
     heartbeat.stop();
 
-    if (once && shouldCheckHandoff) {
+    if (syncBatch) {
+      console.log(`[WORKER] syncBatch processed=${batchProcessedJobs} elapsedSeconds=${Math.ceil((Date.now() - batchStartedAt) / 1000)}`);
+    }
+    // Actions performs sync handoff after this run releases its runner slot.
+    if (once && shouldCheckHandoff && !(syncBatch && env.WORKER_WORKFLOW_STARTED_AT_MS)) {
       await dispatchPendingHandoff(handoffTrigger);
     }
   }

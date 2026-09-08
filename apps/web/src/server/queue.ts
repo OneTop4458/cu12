@@ -446,6 +446,9 @@ export async function claimNextJob(workerId: string, types: JobType[], userId?: 
       where: {
         ...(userId ? { userId } : {}),
         type: requestType,
+        ...((requestType === JobType.SYNC || requestType === JobType.NOTICE_SCAN)
+          ? { user: { is: { isActive: true, approvalStatus: "APPROVED" as const, isTestUser: false } } }
+          : {}),
         status: JobStatus.PENDING,
         runAfter: { lte: now },
       },
@@ -454,7 +457,7 @@ export async function claimNextJob(workerId: string, types: JobType[], userId?: 
     });
 
     for (const candidate of candidates) {
-      const claimed = await prisma.jobQueue.updateMany({
+      const claim = (store: Prisma.TransactionClient) => store.jobQueue.updateMany({
         where: {
           id: candidate.id,
           status: JobStatus.PENDING,
@@ -473,6 +476,16 @@ export async function claimNextJob(workerId: string, types: JobType[], userId?: 
           lastError: null,
         },
       });
+      const claimed = candidate.type === JobType.SYNC || candidate.type === JobType.NOTICE_SCAN
+        ? await prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`sync-claim:${candidate.userId}`}, 0))`;
+          const runningSync = await tx.jobQueue.findFirst({
+            where: { userId: candidate.userId, type: { in: [...SYNC_JOB_TYPES] }, status: JobStatus.RUNNING },
+            select: { id: true },
+          });
+          return runningSync ? { count: 0 } : claim(tx);
+        })
+        : await claim(prisma);
 
       if (claimed.count === 0) {
         continue;
