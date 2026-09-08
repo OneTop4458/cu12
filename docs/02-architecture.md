@@ -58,6 +58,7 @@
    - explicit `?provider=CU12|CYBER_CAMPUS`
    - the user's currently selected provider context
 4. First-login users with no successful sync can auto-trigger a single SYNC request from the dashboard shell.
+5. The course-list route preserves successful empty data as `200 { courses: [] }` and reports unrecoverable course-load errors as `503 DASHBOARD_COURSES_FAILED`. Existing internal compatibility recovery remains available; the route does not convert a failed read into an apparently successful empty list.
 
 ## Queue, Dispatch, and Internal APIs
 

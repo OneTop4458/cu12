@@ -22,6 +22,7 @@ This repository uses **English as the default documentation language**. A Korean
 - `docs/14-cloud-setup-playbook.md`: Cloud deployment and environment setup guide
 - `docs/16-documentation-style-guide.md`: Documentation policy and editing rules
 - `docs/17-free-tier-optimization-plan.md`: Runtime cost-control guardrails
+- `docs/20-ui-ux-improvement-plan.md`: Original UI findings, approved general-page changes, delivery status, and acceptance evidence
 - `docs/21-admin-member-mail-guide.md`: Administrator navigation, member editing, shared SMTP settings, templates, and troubleshooting
 - `docs/adr/0001-hybrid-worker-model.md`: ADR for the worker architecture
 - `docs/adr/0002-token-strategy.md`: ADR for the token strategy
@@ -31,7 +32,6 @@ This repository uses **English as the default documentation language**. A Korean
 - `docs/15-audit-report.md`: Point-in-time audit snapshot from 2026-03-03
 - `docs/18-web-ui-ux-redesign.md`: Point-in-time UI refresh notes from 2026-03-04
 - `docs/19-web-harness-trends.md`: Web and harness engineering research and adoption decisions from 2026-09-08
-- `docs/20-ui-ux-improvement-plan.md`: Plan-only general web UI/UX review from 2026-09-08; separate from the implemented administrator features
 
 ## Maintenance Rules
 

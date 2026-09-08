@@ -961,6 +961,53 @@ textarea:focus {
   width: min(100%, 980px);
 }
 
+.dashboard-dialog {
+  display: block;
+  z-index: 2001;
+  width: min(calc(100% - 32px), 520px);
+  max-width: calc(100% - 32px);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-dialog.wide {
+  width: min(calc(100% - 32px), 980px);
+}
+
+.dashboard-dialog.manual-guide-card {
+  position: fixed;
+  width: min(calc(100% - 32px), 1120px);
+  overflow-y: auto;
+}
+
+[data-slot="dialog-overlay"]:has(~ .dashboard-dialog) {
+  z-index: 2000;
+  background: rgb(6 13 23 / 58%);
+  backdrop-filter: blur(2px);
+}
+
+.dashboard-dialog-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dashboard-dialog-heading > h2 { min-width: 0; }
+.dashboard-dialog-heading > button { flex: 0 0 auto; width: auto; }
+.dashboard-dialog .manual-guide-close { width: 34px; }
+
+.dashboard-account-summary {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.dashboard-account-summary th { width: 44%; }
+.dashboard-account-summary th,
+.dashboard-account-summary td { white-space: normal; overflow-wrap: anywhere; }
+
 .manual-guide-card {
   position: relative;
   width: min(100%, 1120px);
@@ -3746,4 +3793,30 @@ button:not([data-slot="button"]) {
   .grid-kpi > * {
     border-right: 0;
   }
+
+  .grid-kpi.dashboard-summary,
+  .grid-kpi.dashboard-provider-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-summary > .card,
+  .dashboard-provider-summary > .card {
+    padding: 12px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dashboard-summary > .card:nth-child(2n),
+  .dashboard-provider-summary > .card:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .dashboard-summary > .card:last-child {
+    grid-column: 1 / -1;
+    border: 0;
+  }
+
+  .dashboard-provider-summary > .card { border-bottom: 0; }
+  .dashboard-summary .metric,
+  .dashboard-provider-summary .metric { font-size: 1.75rem; margin: 8px 0; }
 }

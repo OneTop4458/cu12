@@ -1,14 +1,14 @@
-# UI/UX Improvement Plan
+# UI/UX Improvement Plan and Delivery Record
 
-Reviewed: 2026-09-08. Status: proposed follow-up work for general web pages; no dashboard, login, FAQ, or legal-page redesign is implemented by this plan.
+Reviewed and implemented: 2026-09-08. The user approved the bounded dashboard and legal-page improvements after reviewing the original plan. The accepted changes and local acceptance checks are complete; the pull request records the final repository-wide validation and release result. Original findings remain below as the pre-change baseline.
 
 ## Scope and evidence
 
-Preserve the university identity, full-width page shells, provider distinction, and dashboard section order in [DESIGN.md](../DESIGN.md). The separately requested administrator member and mail management work is implementation scope; the general-page items below remain plan-only.
+Preserve the university identity, full-width page shells, provider distinction, and dashboard section order in [DESIGN.md](../DESIGN.md). Approved general-page scope covers shared dashboard dialogs, Korean state and course empty-state copy, mobile summary density, and the duplicate legal empty message. Administrator member and mail management is also implementation scope. Login branding, loading-placeholder changes, and performance restructuring are outside this implementation.
 
 This review inspected the real source components and existing local QA screenshots captured on 2026-09-08: dashboard at 1440, 1024, 719, and 390px; administrator at 1440 and 390px; member detail at 390px; login at 1440 and 390px; and the legal empty state at 1440px. The screenshots use synthetic fixtures with empty course data and long account labels. They support layout and content observations, not conclusions about production data, performance, or complete accessibility conformance. No new browser session or production mutation was needed for this planning review.
 
-Primary implementation references:
+Primary sources inspected for the original baseline:
 
 - [Dashboard client](../apps/web/app/dashboard/dashboard-client.tsx): `grid-kpi`, provider synchronization state, custom `modal-overlay` blocks, and the empty course list.
 - [Dashboard loading](../apps/web/app/dashboard/loading.tsx): four generic loading panels, compared with five summary panels on the loaded page.
@@ -16,7 +16,7 @@ Primary implementation references:
 - [Shared dialog](../apps/web/components/ui/dialog.tsx): the existing Radix primitive available for consistent modal behavior.
 - [Legal document page](../apps/web/app/_components/legal-document-page.tsx): duplicate empty-policy messages in the header and body.
 
-## Proposed work, in priority order
+## Original review findings and accepted scope
 
 | Priority | Observed friction | Smallest proposed change | Value and acceptance check |
 | --- | --- | --- | --- |
@@ -25,17 +25,39 @@ Primary implementation references:
 | P2 | At 390px, five overall KPI panels and two provider panels all stack before synchronization and automatic learning controls. The empty fixture is already 2664px tall; this is a density issue, not evidence of a document-width defect. | Prototype a more compact mobile summary within the existing section order: reduce excess KPI vertical space and try two columns only where Korean labels and values remain readable. Keep every metric and both providers visible. | Compare the same fixture before/after at 390px. The first operational control appears higher without smaller body copy, clipping, hidden metrics, or page overflow. Keep the current layout if the density change reduces readability. Desktop structure remains unchanged. |
 | P3 | The legal page displays the same missing-policy message twice. | Keep one informative empty message and the existing navigation action. | An unavailable document shows one clear explanation. Published policy content, history, comparison links, and consent requirements remain unchanged. |
 
-P1 and P2 are worth implementing as separate, bounded follow-ups. P3 is a small polish item and can wait until the legal page is otherwise touched. These are proposals, not claims that the current release has already resolved them.
+These findings are the pre-change baseline. The user approved P1, both P2 items, and P3 for implementation after reviewing this plan. Their delivery and acceptance results are tracked below.
 
-## Administrator work in the current implementation scope
+## General-page delivery status
 
-The baseline administrator screen presents nine top-level destinations, an always-visible registration form, and seven similarly styled member actions. At 390px those actions become seven full-width buttons per member. Editing also populates the registration form above the table, away from the selected member.
+| Item | Current status | Acceptance evidence |
+| --- | --- | --- |
+| Dashboard shared dialogs | Implemented and verified | At all four widths, manual/settings/sync confirmation/auto-learning confirmation/approval retain Tab and Shift+Tab focus, close with Escape when dismissible, and restore the invoker. Required mail setup and blocking progress preserve dismissal guards. Settings values wrap within the table without clipping |
+| Korean state labels and course empty states | Implemented and verified | Dashboard records failures per provider while retaining prior rows for failed providers. Eleven presentation regressions and three course-route regressions pass. Rendered partial/total failure fixtures name the failed providers, offer retry, and preserve a healthy CU12 course |
+| Mobile summary density | Implemented and measured | At up to 640px, overall/provider summaries use two columns and the fifth overall metric spans a row. All five overall metrics and both providers remain present/readable; four-width checks found no document overflow |
+| Legal empty-message deduplication | Implemented and rendered | All four widths show exactly one missing-policy message and no document overflow. The content fallback and published policy/history links remain in `LegalDocumentPage` |
 
-The authorized administrator work should address these observed problems through a smaller shared navigation, member creation/editing dialogs, a direct detail-to-edit path, and an action menu for less frequent member operations. Keep the existing operational routes available through local navigation rather than deleting capabilities. Destructive actions need distinct styling and an explicit confirmation identifying the target member.
+Current implementation evidence is in the [dashboard component](../apps/web/app/dashboard/dashboard-client.tsx), [presentation helpers](../apps/web/src/lib/dashboard-presentation.ts), [helper regressions](../apps/web/test/dashboard-presentation.test.ts), and [global styles](../apps/web/app/globals.css). The [course-list route](../apps/web/app/api/dashboard/courses/route.ts) now lets unrecoverable reads reach its `503` response while keeping successful empty reads at `200`; its [route regressions](../apps/web/test/dashboard-courses-status.test.ts) also preserve legacy raw-read recovery. This supports the UI's failure-versus-empty distinction without changing the success payload.
 
-For the requested mail administration, keep member preferences with the member editor and shared transport/templates on the mail page. Clearly distinguish environment configuration from administrator-managed SMTP configuration. Display password configuration status without returning its value; explain whether a blank password preserves the saved secret. Template preview uses sample data and does not send mail. Saving configuration and any explicit test-send action remain separate. Errors should preserve the user's draft and identify the affected field or section.
+The implementation baseline and updated page were rendered with the same synthetic empty-dashboard fixture at each required width. The first immediate-sync button's top position is measured in document coordinates with the page scrolled to the top. Both baseline and updated renders had no document overflow.
 
-## Validation for any follow-up UI implementation
+| Viewport width | First sync action before (CSS px) | First sync action after (CSS px) |
+| --- | --- | --- |
+| 1440px | 727.953 | 727.953 |
+| 1024px | 727.953 | 727.953 |
+| 719px | 1005.469 | 1005.469 |
+| 390px | 1467.516 | 1085.391 |
+
+At 390px the first sync action appears 382.125 CSS pixels higher, a 26% reduction in its distance from the page top. The other three widths retain the same position. Local after screenshots were captured as `dashboard-after-{width}.png`; this is a same-fixture layout measurement, not production performance or INP evidence.
+
+## Delivered administrator changes
+
+The baseline administrator screen presented nine top-level destinations, an always-visible registration form, and seven similarly styled member actions. At 390px those actions became seven full-width buttons per member. Editing populated the registration form above the table, away from the selected member.
+
+The implemented administrator interface has five shared navigation destinations, member creation/editing dialogs, a direct detail-to-edit path, and an action menu for less frequent member operations. Existing operational routes remain available through local navigation. Withdrawal retains distinct styling and target-specific confirmation. The [administrator guide](21-admin-member-mail-guide.md) records the current flows and their validation scope.
+
+Member mail preferences are edited with the member, while shared transport/templates have a dedicated mail page. ENV and CUSTOM SMTP configuration are distinct. The browser receives password configuration status only, with blank input preserving the saved secret. Template preview uses sample data and does not send mail; saving configuration and explicit test sending remain separate. Failed saves preserve drafts and display a result message.
+
+## Validation requirements and results
 
 | Width | Required review |
 | --- | --- |
@@ -45,6 +67,17 @@ For the requested mail administration, keep member preferences with the member e
 | 390px | Verify the proposed density change using identical fixtures, operable form controls, visible error text, internal modal scrolling, and keyboard/focus behavior after opening and closing overlays. |
 
 At each width, assert `document.documentElement.scrollWidth <= document.body.clientWidth`. Use actual components with synthetic empty, loaded, loading, failure, pending/running/completed, long-text, and disconnected-account states. Reset scroll position before full-page screenshots; a sticky header captured mid-page is not by itself proof of a live overlap bug. Check keyboard focus separately from screenshots. Check targets against the WCAG 2.2 minimum-size or spacing rules; no blanket accessibility-conformance claim should be made from these checks alone.
+
+Completed local interaction checks include:
+
+- Manual, member settings, sync confirmation, auto-learning confirmation, and Cyber Campus approval at all four widths: modal fit, contained Tab/Shift+Tab navigation, Escape dismissal, and focus returned to the invoker.
+- Blocking progress remains open after Escape or an outside click. Required initial mail setup also blocks its close button; a failed save keeps the draft and a successful retry closes the setup dialog.
+- Partial and total provider `503` fixtures show named failure messages and retry. A healthy provider's course remains visible when the other provider fails.
+- A slow course-notice request can be closed before completion and reopened without an old response overwriting the new view.
+- Member settings property-table widths equal their scroll widths at every viewport: 940, 940, 647, and 318 CSS pixels for 1440, 1024, 719, and 390px respectively. Value-cell right bounds stay inside the table, and campus values use Korean display names. The scoped fixed-table layout and text wrapping resolved the clipping found during QA.
+- The legal empty state appears exactly once at each width. Dashboard and legal fixtures have no document overflow; the measured mobile summary result is recorded above.
+
+The pull request records the final repository-wide validation and release result. These fixture and keyboard checks establish the scoped behavior above; they do not establish production INP or complete WCAG conformance.
 
 The current four-panel loading placeholder differs from the five-panel loaded summary. Measure the visible transition under slow responses before changing it. Likewise, measure interaction responsiveness before splitting the large dashboard client or changing its fetch strategy. A source-file size or a screenshot is not a performance measurement.
 

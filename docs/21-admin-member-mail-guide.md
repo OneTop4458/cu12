@@ -1,6 +1,6 @@
 # Administrator Member and Mail Guide
 
-Delivery status (2026-09-08): implemented for review; production schema/configuration rollout is separate. Member, mail, and operations fixtures have been rendered at 1440, 1024, 719, and 390px with no document overflow. Save/reload, failed-save recovery, dialog focus, template reset, and mock-only SMTP actions are covered by integration checks. The final pull request records the full repository validation result. General website redesign remains deferred in [the UI/UX plan](20-ui-ux-improvement-plan.md).
+Delivery status (2026-09-08): implemented for review; production schema/configuration rollout is separate. Member, mail, and operations fixtures have been rendered at 1440, 1024, 719, and 390px with no document overflow. Save/reload, failed-save recovery, dialog focus, template reset, and mock-only SMTP actions are covered by integration checks. The final pull request records the full repository validation result. The subsequently approved dashboard and legal-page changes are tracked in [the UI/UX delivery record](20-ui-ux-improvement-plan.md).
 
 ## Navigation
 

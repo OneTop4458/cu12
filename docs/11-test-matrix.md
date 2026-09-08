@@ -42,6 +42,8 @@ Implementation-detail tests are still valid when they guard an externally observ
 3. Site notices and maintenance notice surfaces align with the active visibility window, including fixed maintenance exposure on login and dashboard top.
 4. `BROADCAST` display targets route notices correctly across login-only, topbar-only, and dual-surface modes.
 5. Broadcast notice accordions start collapsed and preserve multiline bodies when expanded, while dashboard maintenance warning copy stays visible by default.
+6. Successful empty course data returns `200` with an empty list; an unrecoverable course-load error returns `503 DASHBOARD_COURSES_FAILED` so the interface can distinguish unavailable data from a verified empty result.
+7. Korean state presentation covers known, missing, and unknown job/sync/approval/account values. Course messages distinguish loading, initial sync, known empty data, missing/inconsistent summary, and named provider failures; failed refreshes warn about retained rows and clear after recovery.
 
 ## Provider-Specific Automation
 

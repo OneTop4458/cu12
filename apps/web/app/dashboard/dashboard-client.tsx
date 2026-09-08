@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
@@ -22,6 +22,15 @@ import {
 } from "../../src/lib/autolearn-noop";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { AppTopbar } from "../../components/layout/app-topbar";
+import { Dialog, DialogContent, DialogTitle } from "../../components/ui/dialog";
+import {
+  describeDashboardCourseState,
+  formatDashboardAccountStatus,
+  formatDashboardApprovalRuntimeState,
+  formatDashboardApprovalStatus,
+  formatDashboardJobStatus,
+  formatDashboardSyncQueueState,
+} from "../../src/lib/dashboard-presentation";
 import {
   createDeadlineLoadState,
   finishDeadlineLoad,
@@ -39,6 +48,43 @@ interface DashboardClientProps {
 interface DashboardLoadOptions {
   reportError?: boolean;
   signal?: AbortSignal;
+}
+
+function DashboardDialog({ open, onClose, dismissible = true, className = "", returnFocus, children }: {
+  open: boolean;
+  onClose: () => void;
+  dismissible?: boolean;
+  className?: string;
+  returnFocus?: () => HTMLElement | null;
+  children: ReactNode;
+}) {
+  const contentId = useId();
+  const invokerRef = useRef<HTMLElement | null>(null);
+  return <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen && dismissible) onClose(); }}>
+    <DialogContent
+      id={contentId}
+      className={`modal-card dashboard-dialog ${className}`}
+      showCloseButton={false}
+      aria-describedby={undefined}
+      tabIndex={-1}
+      onOpenAutoFocus={(event) => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body && !active.closest('[data-slot="dialog-content"]')) invokerRef.current = active;
+        event.preventDefault();
+        document.getElementById(contentId)?.focus();
+      }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        const nextDialog = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="dialog-content"][data-state="open"]')).find((element) => element.id !== contentId);
+        if (nextDialog) { nextDialog.focus(); return; }
+        const target = returnFocus?.() ?? invokerRef.current;
+        if (target?.isConnected && !target.matches(":disabled")) target.focus();
+        else document.getElementById("overview")?.focus();
+      }}
+      onEscapeKeyDown={(event) => { if (!dismissible) event.preventDefault(); }}
+      onInteractOutside={(event) => { if (!dismissible) event.preventDefault(); }}
+    >{children}</DialogContent>
+  </Dialog>;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -841,7 +887,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const [message, setMessage] = useState<string | null>(null);
 
   const reportDashboardError = useCallback((err: unknown) => {
-    const fallbackMessage = "??쒕낫???곗씠?곕? 遺덈윭?ㅼ? 紐삵뻽?듬땲??";
+    const fallbackMessage = "대시보드 데이터를 불러오지 못했습니다.";
     const message = err instanceof Error ? err.message : fallbackMessage;
     if (message === "Unauthorized") {
       return;
@@ -858,6 +904,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   });
   const [courses, setCourses] = useState<Course[]>([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
+  const [courseFailedProviders, setCourseFailedProviders] = useState<PortalProvider[]>([]);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [deadlinesLoading, setDeadlinesLoading] = useState(true);
   const [allDeadlinesState, setAllDeadlinesState] = useState<AllDeadlinesState>(() => createDeadlineLoadState());
@@ -884,6 +931,10 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const setCurrentProviderDraft = setAutoLearnProvider;
   const [lectureSeq, setLectureSeq] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<"SYNC" | "AUTOLEARN" | null>(null);
+  const confirmTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const syncTriggerRef = useRef<HTMLButtonElement>(null);
+  const autoLearnTriggerRef = useRef<HTMLButtonElement>(null);
+  const noticeTriggerRef = useRef<HTMLElement | null>(null);
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [mailSaving, setMailSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -914,6 +965,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   const confirmCyberCampusApprovalRef = useRef<(() => Promise<void>) | null>(null);
 
   const [noticeModalOpen, setNoticeModalOpen] = useState(false);
+  const noticeRequestRef = useRef(0);
   const [noticeLoading, setNoticeLoading] = useState(false);
   const [noticeCourse, setNoticeCourse] = useState<Course | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -1178,6 +1230,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           })),
       );
       if (!isCurrentRequest(requestId, coursesRequestRef.current, options?.signal)) return;
+      setCourseFailedProviders(results.flatMap((result, index) => result.status === "rejected" ? [PORTAL_PROVIDERS[index]!] : []));
 
       const successfulCount = results.filter((result) => result.status === "fulfilled").length;
       if (successfulCount === 0) {
@@ -1213,8 +1266,9 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         }),
       );
     } catch (err) {
-      if (!isAbortError(err) && isCurrentRequest(requestId, coursesRequestRef.current, options?.signal) && (options?.reportError ?? true)) {
-        reportDashboardError(err);
+      if (!isAbortError(err) && isCurrentRequest(requestId, coursesRequestRef.current, options?.signal)) {
+        setCourseFailedProviders([...PORTAL_PROVIDERS]);
+        if (options?.reportError ?? true) reportDashboardError(err);
       }
     } finally {
       if (isCurrentRequest(requestId, coursesRequestRef.current, options?.signal)) {
@@ -1898,7 +1952,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (payload.updated) {
         setMessage(`작업이 취소 처리되었습니다.${formatRunCancelStatus(payload.runCancel)}`);
       } else {
-        setMessage(`현재 상태: ${payload.status}`);
+        setMessage(`현재 상태: ${formatDashboardJobStatus(payload.status)}`);
       }
       await refreshStatus(true);
     } catch (err) {
@@ -1923,7 +1977,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       if (payload.updated) {
         setMessage(`동기화 작업이 취소 처리되었습니다.${formatRunCancelStatus(payload.runCancel)}`);
       } else {
-        setMessage(`현재 상태: ${payload.status}`);
+        setMessage(`현재 상태: ${formatDashboardJobStatus(payload.status)}`);
       }
       if (trackingJobId === activeSyncJob.id) {
         setTrackingJobId(null);
@@ -1941,20 +1995,29 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
   }
 
   async function openNotices(course: Course) {
+    const requestId = ++noticeRequestRef.current;
+    noticeTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setNoticeModalOpen(true);
     setNoticeCourse(course);
+    setNotices([]);
+    setActiveNotice(null);
     setNoticeLoading(true);
-    setBlockingMessage("공지 목록을 불러오는 중...");
     try {
       const payload = await fetchJson<{ notices: Notice[] }>(`/api/dashboard/courses/${course.lectureSeq}/notices?provider=${course.provider}`);
+      if (requestId !== noticeRequestRef.current) return;
       setNotices(payload.notices);
       setActiveNotice(payload.notices[0] ?? null);
     } catch (err) {
-      setError((err as Error).message);
+      if (requestId === noticeRequestRef.current) setError((err as Error).message);
     } finally {
-      setNoticeLoading(false);
-      setBlockingMessage(null);
+      if (requestId === noticeRequestRef.current) setNoticeLoading(false);
     }
+  }
+
+  function closeNotices() {
+    noticeRequestRef.current += 1;
+    setNoticeModalOpen(false);
+    setNoticeLoading(false);
   }
 
   async function markNoticeRead(notice: Notice) {
@@ -2050,6 +2113,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
     router.refresh();
   }
 
+  const visibleDialog = blockingMessage ? "blocking"
+    : settingsOpen ? "settings"
+      : approvalModalOpen && activeCyberCampusApproval ? "approval"
+        : dashboardManualOpen ? "manual"
+          : confirm ? "confirm"
+            : noticeModalOpen ? "notices" : null;
+  const courseState = describeDashboardCourseState({
+    courseCount: courses.length, loading: loading || coursesLoading, failedProviders: courseFailedProviders, summary,
+  });
+
   return (
     <>
       <AppTopbar
@@ -2065,7 +2138,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       />
       {error ? <p className="error-text">{error}</p> : null}
 
-      <section className="grid-kpi" id="overview">
+      <section className="grid-kpi dashboard-summary" id="overview" tabIndex={-1} aria-label="학습 현황 요약">
         <article className="card"><h2>진행 강좌</h2><p className="metric">{summary?.activeCourseCount ?? 0}</p></article>
         <article className="card">
           <h2>평균 차시 이수율</h2>
@@ -2081,7 +2154,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         </article>
       </section>
 
-      <section className="grid-kpi provider-kpi">
+      <section className="grid-kpi provider-kpi dashboard-provider-summary">
         {PORTAL_PROVIDERS.map((provider) => (
           <article key={provider} className="card">
             <h2>{getProviderLabel(provider)}</h2>
@@ -2100,7 +2173,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         ))}
       </section>
 
-      <section className="card" id="sync">
+      <section className="card" id="sync" tabIndex={-1} aria-label="학습 데이터 동기화">
         <h2>학습 데이터 동기화</h2>
         <div className="sync-overview top-gap">
           <p><strong>마지막 동기화</strong>: {toDateTimeWithFallback(summary?.lastSyncAt ?? null, "아직 동기화 이력 없음")}</p>
@@ -2113,7 +2186,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           {PORTAL_PROVIDERS.map((provider) => (
             <div key={provider} className="pill-note">
               <p><strong>{getProviderLabel(provider)}</strong></p>
-              <p className="muted">큐 상태: {providerSyncQueues[provider]?.state ?? "IDLE"}</p>
+              <p className="muted">동기화 상태: {formatDashboardSyncQueueState(providerSyncQueues[provider]?.state)}</p>
               <p className="muted">마지막 동기화: {toDateTimeWithFallback(providerSummaries[provider]?.lastSyncAt ?? null, "기록 없음")}</p>
             </div>
           ))}
@@ -2122,7 +2195,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
           <p className="muted">작업 상태를 불러오는 중입니다.</p>
         ) : null}
         <div className="button-row">
-          <button onClick={() => setConfirm("SYNC")} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
+          <button ref={syncTriggerRef} onClick={(event) => { confirmTriggerRef.current = event.currentTarget; setConfirm("SYNC"); }} disabled={actionSubmitting || syncInProgress}>{syncButtonLabel}</button>
           {PORTAL_PROVIDERS.map((provider) => (
             <button
               key={provider}
@@ -2170,7 +2243,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         {syncProgressStatus || syncProgress ? (
           <div className="form-stack top-gap">
             <p className="muted">
-              작업 상태: {syncProgressStatus ?? "-"}
+              작업 상태: {formatDashboardJobStatus(syncProgressStatus)}
               {syncProgress ? ` / 단계: ${formatSyncPhaseLabel(syncProgress.progress.phase)}` : ""}
             </p>
             {syncProgress ? (
@@ -2210,7 +2283,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         <p className="muted text-small">요청 후에는 순서대로 진행되며 잠시 대기하실 수 있습니다. 보통 몇 분 안에 시작되지만, 요청이 몰리면 더 걸릴 수 있습니다.</p>
         <p className="muted text-small">설정에서 &quot;자동 수강 시작/종료 알림 발송&quot;을 켜면 시작과 종료를 메일로 받아보실 수 있습니다.</p>
         <div className="button-row">
-          <button onClick={() => setConfirm("AUTOLEARN")} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
+          <button ref={autoLearnTriggerRef} onClick={(event) => { confirmTriggerRef.current = event.currentTarget; setConfirm("AUTOLEARN"); }} disabled={actionSubmitting || autoInProgress}>{autoInProgress ? "자동 수강 진행 중" : "자동 수강 요청"}</button>
         </div>
         {isCyberCampusProvider ? (
           <div className="pill-note top-gap">
@@ -2262,7 +2335,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
         {autoProgressStatus || autoProgress || autoResult ? (
           <div className="form-stack top-gap">
             <p className="muted">
-              작업 상태: {autoProgressStatus ?? "-"}
+              작업 상태: {formatDashboardJobStatus(autoProgressStatus)}
               {autoProgress ? ` / ${formatAutoPhaseLabel(autoProgress.progress.phase)}` : autoResult ? " / 자동 수강 완료" : ""}
             </p>
             {autoProgress || autoResult ? (
@@ -2427,10 +2500,14 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
 
       <section className="card" id="courses">
         <h2>강좌 현황</h2>
+        {courseState ? <div className="form-stack top-gap">
+          <p className={courseState.kind === "error" || courseState.kind === "unavailable" ? "error-text" : "muted"} role={courseState.kind === "error" ? "alert" : "status"}>{courseState.message}</p>
+          {courseState.action ? <div className="button-row">
+            {courseState.action === "refresh" ? <button type="button" className="ghost-btn" disabled={loading || coursesLoading} onClick={() => void refreshAll(true)}>강좌 정보 다시 불러오기</button>
+              : <a className="ghost-btn" href="#sync" onClick={(event) => { event.preventDefault(); const target = syncTriggerRef.current?.disabled ? document.getElementById("sync") : syncTriggerRef.current; target?.scrollIntoView({ block: "center" }); target?.focus({ preventScroll: true }); }}>학습 데이터 동기화로 이동</a>}
+          </div> : null}
+        </div> : null}
         <div className="course-grid">
-          {coursesLoading && courses.length === 0 ? (
-            <p className="muted">강좌 정보를 불러오는 중입니다.</p>
-          ) : null}
           {courses.map((course) => {
             const currentWeekSummary = findCurrentWeekSummary(course);
             const currentWeekPendingParts = getPendingTypeParts(currentWeekSummary);
@@ -2559,9 +2636,8 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
       </section>
 
       {confirm ? (
-        <div className="modal-overlay">
-          <section className="modal-card">
-            <h2>{confirm === "SYNC" ? "동기화 실행" : "자동 수강 실행"}</h2>
+        <DashboardDialog open={visibleDialog === "confirm"} onClose={() => setConfirm(null)} dismissible={!actionSubmitting} returnFocus={() => confirmTriggerRef.current}>
+            <DialogTitle asChild><h2>{confirm === "SYNC" ? "동기화 실행" : "자동 수강 실행"}</h2></DialogTitle>
             {confirm === "AUTOLEARN" ? (
               <div className="form-stack top-gap">
                 <p className="muted">아래 설정으로 자동 수강을 요청합니다.</p>
@@ -2588,17 +2664,16 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               </button>
               <button className="ghost-btn" onClick={() => setConfirm(null)}>취소</button>
             </div>
-          </section>
-        </div>
+        </DashboardDialog>
       ) : null}
 
       {approvalModalOpen && activeCyberCampusApproval ? (
-        <div className="modal-overlay">
-          <section className="modal-card">
-            <h2>사이버캠퍼스 2차 인증</h2>
+        <DashboardDialog open={visibleDialog === "approval"} onClose={() => setApprovalModalOpen(false)} dismissible={!approvalSubmitting} returnFocus={() => autoLearnTriggerRef.current}>
+            <DialogTitle asChild><h2>사이버캠퍼스 2차 인증</h2></DialogTitle>
+            {error ? <p className="error-text" role="alert">{error}</p> : null}
             <p className="muted">만료까지 {formatApprovalCountdown(approvalExpiresInSeconds)}</p>
-            <p className="muted">상태: {activeCyberCampusApproval.status}</p>
-            <p className="muted">실행 단계: {activeCyberCampusApproval.runtimeState}</p>
+            <p className="muted">상태: {formatDashboardApprovalStatus(activeCyberCampusApproval.status)}</p>
+            <p className="muted">실행 단계: {formatDashboardApprovalRuntimeState(activeCyberCampusApproval.runtimeState)}</p>
             <p className="muted">워커 상태: {activeCyberCampusApproval.workerAlive ? "연결됨" : "대기/끊김"}</p>
             {activeCyberCampusApproval.errorMessage ? (
               <p className="error-text">{activeCyberCampusApproval.errorMessage}</p>
@@ -2660,9 +2735,6 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                   <button type="button" onClick={() => void confirmCyberCampusApproval()} disabled={approvalPrimaryActionDisabled}>
                     {approvalPrimaryButtonLabel}
                   </button>
-                  <button type="button" className="ghost-btn" onClick={() => setApprovalModalOpen(false)} disabled={approvalSubmitting}>
-                    닫기
-                  </button>
                 </div>
               </div>
             )}
@@ -2671,19 +2743,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               <button type="button" className="ghost-btn" onClick={() => void cancelCyberCampusApprovalRequest()} disabled={approvalSubmitting}>
                 인증 요청 취소
               </button>
+              <button type="button" className="ghost-btn" onClick={() => setApprovalModalOpen(false)} disabled={approvalSubmitting}>닫기</button>
             </div>
-          </section>
-        </div>
+        </DashboardDialog>
       ) : null}
 
       {dashboardManualOpen ? (
-        <div className="modal-overlay" role="presentation">
-          <section
-            className="modal-card wide manual-guide-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="dashboard-manual-title"
-          >
+        <DashboardDialog open={visibleDialog === "manual"} onClose={() => void dismissDashboardManual()} dismissible={!dashboardManualSaving} className="wide manual-guide-card" returnFocus={() => document.querySelector<HTMLButtonElement>(".topbar-manual-btn")}>
             <button
               className="manual-guide-close ghost-btn"
               type="button"
@@ -2705,7 +2771,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
               </div>
               <div className="manual-guide-copy">
                 <p className="brand-kicker">가입자용 안내</p>
-                <h2 id="dashboard-manual-title">CU12 간단 사용 설명서</h2>
+                <DialogTitle asChild><h2>CU12 간단 사용 설명서</h2></DialogTitle>
                 <p className="manual-guide-intro">처음 쓰는 분들이 자주 놓치는 흐름만 먼저 확인해 주세요.</p>
                 <ol className="manual-guide-flow" aria-label="기본 사용 순서">
                   <li>설정 확인</li>
@@ -2740,7 +2806,7 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                       <h3>공유대와 사캠은 시작 방식이 다릅니다</h3>
                       <p>
                         공유대는 설정에 따라 자동 요청할 수 있지만,{" "}
-                        <strong className="manual-guide-danger">사캠은 직접 요청하고 2차 인증 승인까지 완료</strong>해야 시작됩니다.
+                        <strong className="manual-guide-danger">사캠은 직접 요청하며, 추가 인증이 필요할 때 안내에 따라 완료</strong>합니다.
                       </p>
                     </div>
                   </article>
@@ -2760,20 +2826,19 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </div>
               </div>
             </div>
-          </section>
-        </div>
+        </DashboardDialog>
       ) : null}
 
       {settingsOpen ? (
-        <div className="modal-overlay">
-          <section className="modal-card wide">
-            <h2>회원 설정</h2>
+        <DashboardDialog open={visibleDialog === "settings"} onClose={() => setSettingsOpen(false)} dismissible={!isMailSetupRequired && !mailSaving} className="wide" returnFocus={() => document.querySelector<HTMLButtonElement>(".topbar .user-menu-trigger")}>
+            <DialogTitle asChild><h2>회원 설정</h2></DialogTitle>
+            {error ? <p className="error-text" role="alert">{error}</p> : null}
             <div className="table-wrap">
-              <table>
+              <table className="dashboard-account-summary">
                 <tbody>
                   <tr><th>통합 포털 ID</th><td>{account?.cu12Id ?? "-"}</td></tr>
-                  <tr><th>공유대 캠퍼스 설정</th><td>{account?.campus ?? "-"}</td></tr>
-                  <tr><th>계정 상태</th><td>{account?.accountStatus ?? "-"}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
+                  <tr><th>공유대 캠퍼스 설정</th><td>{account?.campus === "SONGSIM" ? "성심교정" : account?.campus === "SONGSIN" ? "성신교정" : "-"}</td></tr>
+                  <tr><th>계정 상태</th><td>{formatDashboardAccountStatus(account?.accountStatus)}{account?.statusReason ? ` / ${account.statusReason}` : ""}</td></tr>
                   <tr><th>공유대 정기 자동 수강</th><td>{account ? (autoLearnEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   <tr><th>퀴즈 자동 풀이</th><td>{account ? (quizAutoSolveEnabledDraft ? "사용" : "사용 안 함") : "-"}</td></tr>
                   {isCyberCampusProvider ? <tr><th>사캠 세션</th><td>{formatCyberCampusSessionStatus(cyberCampusSession)} / {toDateTime(cyberCampusSession.expiresAt)}</td></tr> : null}
@@ -2866,14 +2931,13 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 </div>
               </form>
             ) : null}
-          </section>
-        </div>
+        </DashboardDialog>
       ) : null}
 
       {noticeModalOpen ? (
-        <div className="modal-overlay" onClick={() => setNoticeModalOpen(false)}>
-          <section className="modal-card wide" onClick={(event) => event.stopPropagation()}>
-            <h2>{noticeCourse?.title ?? "강좌 공지"}</h2>
+        <DashboardDialog open={visibleDialog === "notices"} onClose={closeNotices} className="wide" returnFocus={() => noticeTriggerRef.current}>
+            <div className="dashboard-dialog-heading"><DialogTitle asChild><h2>{noticeCourse?.title ?? "강좌 공지"}</h2></DialogTitle><button type="button" className="ghost-btn" onClick={closeNotices}>닫기</button></div>
+            {error ? <p className="error-text" role="alert">{error}</p> : null}
             {noticeLoading ? <p className="muted">공지 로딩 중...</p> : null}
             <div className="notice-layout">
               <div className="notice-list">
@@ -2893,18 +2957,15 @@ export function DashboardClient({ initialUser }: DashboardClientProps) {
                 ) : <p className="muted">공지를 선택해 주세요.</p>}
               </article>
             </div>
-          </section>
-        </div>
+        </DashboardDialog>
       ) : null}
 
       {blockingMessage ? (
-        <div className="modal-overlay">
-          <section className="modal-card">
-            <h2>처리 중</h2>
-            <p className="muted">{blockingMessage}</p>
+        <DashboardDialog open={visibleDialog === "blocking"} onClose={() => {}} dismissible={false} className="dashboard-blocking-dialog" returnFocus={() => confirmTriggerRef.current}>
+            <DialogTitle asChild><h2>처리 중</h2></DialogTitle>
+            <p className="muted" role="status">{blockingMessage}</p>
             <div className="loading-bar"><span /></div>
-          </section>
-        </div>
+        </DashboardDialog>
       ) : null}
     </>
   );

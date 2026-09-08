@@ -38,9 +38,7 @@ export function LegalDocumentPage({
                 현재 버전 v{policy.version}
                 {comparePolicy ? ` / 비교 기준 v${comparePolicy.version}` : ""}
               </p>
-            ) : (
-              <p className="muted">{emptyMessage}</p>
-            )}
+            ) : null}
           </div>
           <Link href="/login" className="ghost-btn" style={{ alignSelf: "flex-start" }}>
             로그인

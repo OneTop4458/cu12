@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk, requireAuthContext } from "@/lib/http";
 import { applyServerTimingHeader, ServerTiming } from "@/lib/server-timing";
 import { getCourses } from "@/server/dashboard";
-import { loadOptionalDashboardSegment } from "@/server/dashboard-fallback";
 import { resolveRequestPortalProvider } from "@/server/request-provider";
 
 export async function GET(request: NextRequest) {
@@ -15,12 +14,7 @@ export async function GET(request: NextRequest) {
       resolveRequestPortalProvider(request, context.effective.userId),
     );
     const courses = await timing.measure("courses", () =>
-      loadOptionalDashboardSegment(
-        "dashboard/courses",
-        "courses",
-        () => getCourses(context.effective.userId, provider),
-        [],
-      ),
+      getCourses(context.effective.userId, provider),
     );
 
     return applyServerTimingHeader(jsonOk({

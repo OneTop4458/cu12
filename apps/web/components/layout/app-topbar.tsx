@@ -90,7 +90,7 @@ export function AppTopbar({
           <SessionActivityGuard variant="chip" />
           <ActivityCenter />
           {onOpenManual ? (
-            <button className="ghost-btn topbar-manual-btn" type="button" onClick={onOpenManual}>
+            <button className="ghost-btn topbar-manual-btn" type="button" aria-label="사용 매뉴얼" onClick={onOpenManual}>
               <BookOpen size={16} />
               <span>사용 매뉴얼</span>
             </button>
