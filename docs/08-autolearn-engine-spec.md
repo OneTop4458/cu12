@@ -47,8 +47,9 @@
 - `AUTOLEARN_NAV_SETTLE_MIN_MS` / `AUTOLEARN_NAV_SETTLE_MAX_MS`
 - `AUTOLEARN_TYPING_DELAY_MIN_MS` / `AUTOLEARN_TYPING_DELAY_MAX_MS`
 - `OPENAI_API_KEY`
-- `OPENAI_MODEL`
 - `OPENAI_TIMEOUT_MS`
+
+The quiz model is stored in `AppSettings.quizModel` and managed at **Admin > Operations > AI settings**. The worker reads it before each question; `OPENAI_MODEL` is no longer used. The default is `gpt-5.6-luna`. Preset Luna, Terra, and Sol requests use low reasoning effort, a 4,096 completion-token cap, JSON output, and no temperature parameter. Custom model IDs omit preset-specific reasoning options. See the [quiz AI settings guide](23-quiz-ai-settings.md).
 
 ## Failure Handling
 
@@ -57,6 +58,7 @@
 - If quiz auto-solve is disabled or OpenAI credentials are missing, quiz tasks are excluded and the run continues with the remaining supported tasks.
 - Queue retry policy handles transient failures; terminal portal/contract errors surface as queue failure reasons.
 - OpenAI billing/quota 429 errors are terminal for the current AUTOLEARN job; credit/spend/usage limits require operator action. Ordinary temporary rate limits and service failures retain their retry policy. See the [runtime audit](22-autolearn-runtime-audit.md).
+- OpenAI 400/401/403/404 responses and invalid stored model IDs also end the current AUTOLEARN job without a retry. Correct the model, access, or request configuration before starting new work. Responses ending at the completion-token limit cannot become quiz submissions.
 - Playwright `page.goto` navigation failures are retried only for bounded transient timeout/network errors. Click-driven `waitForURL` flows are not retried here because repeated submissions can duplicate portal actions.
 - Dashboard approval UX should treat `requestedAction=BOOTSTRAP|START|CONFIRM` as asynchronous worker-owned steps and keep polling until the session returns to a user-input state or completes.
 

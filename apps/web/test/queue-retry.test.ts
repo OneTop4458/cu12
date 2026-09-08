@@ -46,6 +46,13 @@ test("temporary OpenAI throttling and service failures remain retryable", () => 
   assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, "OpenAI API error 429: truncated"), true);
 });
 
+test("invalid model settings and API configuration errors need correction before retrying", () => {
+  for (const status of [400, 401, 403, 404]) {
+    assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, `OpenAI API error ${status}: model configuration`), false);
+  }
+  assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, "QUIZ_MODEL_INVALID"), false);
+});
+
 test("decideStaleRunningJobReclaim fails stale cyber campus autolearn instead of requeueing", () => {
   assert.equal(
     decideStaleRunningJobReclaim({

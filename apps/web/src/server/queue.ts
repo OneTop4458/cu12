@@ -81,6 +81,7 @@ const NON_RETRYABLE_AUTOLEARN_ERRORS = new Set([
   "CYBER_CAMPUS_SECONDARY_AUTH_REQUIRED",
   "CYBER_CAMPUS_SESSION_INVALID",
   "CYBER_CAMPUS_SESSION_REQUIRED",
+  "QUIZ_MODEL_INVALID",
 ]);
 
 export const TEST_USER_SYNC_BLOCKED_ERROR_CODE = "TEST_USER_SYNC_BLOCKED";
@@ -158,6 +159,9 @@ export function shouldRetryFailedJob(
     && /"(?:code|type)"\s*:\s*"(?:insufficient_quota|credit_balance_exhausted|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)"/.test(errorMessage)
   ) {
     // Billing/quota failures need an operator action; waiting cannot restore access.
+    return false;
+  }
+  if (type === JobType.AUTOLEARN && /^OpenAI API error (400|401|403|404):/.test(errorMessage)) {
     return false;
   }
 

@@ -1,0 +1,8 @@
+.section, .fields { display: grid; gap: 16px; min-width: 0; }
+.fields { border: 0; padding: 0; margin: 0; max-width: 760px; }
+.fields input, .fields select { width: 100%; min-width: 0; max-width: 100%; }
+.model { display: inline-block; overflow-wrap: anywhere; max-width: 100%; }
+.price { display: grid; gap: 6px; padding: 12px 0; border-block: 1px solid var(--border); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.success { color: var(--success); }
+.section p, .section small { overflow-wrap: anywhere; }

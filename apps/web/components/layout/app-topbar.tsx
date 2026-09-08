@@ -21,6 +21,7 @@ const ADMIN_TOPBAR_LINKS = [
 
 const ADMIN_OPERATION_LINKS = [
   { href: "/admin/operations", label: "운영 요약" },
+  { href: "/admin/operations/ai", label: "AI 설정" },
   { href: "/admin/system", label: "시스템 상태" },
   { href: "/admin/operations/jobs", label: "작업 목록" },
   { href: "/admin/operations/workers", label: "워커 목록" },
