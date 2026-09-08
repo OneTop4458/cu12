@@ -1,0 +1,42 @@
+name: Publish Auto Merge
+
+on:
+  workflow_run:
+    workflows: ["CI", "Secret Scan", "Dependabot Auto Review", "PR Auto Merge On CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pullRequestNumber:
+        description: "Merged or auto-merge-enabled PR to reconcile"
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+concurrency:
+  group: publish-auto-merge-${{ github.event.workflow_run.head_sha || inputs.pullRequestNumber }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Reconcile eligible auto-merge and request production publication
+        run: node scripts/publish-auto-merge.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pullRequestNumber }}
