@@ -32,9 +32,11 @@
    - if policy consent is current, session + idle cookies are issued immediately
    - if consent is missing/outdated, server returns `CONSENT_REQUIRED` with a short-lived consent token
 4. First login:
-   - server verifies the CU12 credential, creates a pending `User`, and returns `APPROVAL_PENDING` without cookies
+   - with member approval ON (the default), the server verifies the CU12 credential, creates a pending `User`, and returns `APPROVAL_PENDING` without cookies
    - administrators approve or reject the pending user from `/admin`
    - after approval, the user logs in again; the server stores the encrypted portal credential and then completes authentication or continues to policy consent
+   - administrators can toggle member approval at `/admin`; OFF creates approved users and approves existing pending users on successful portal login, then follows the same account-linking and policy-consent flow
+   - OFF does not reactivate approved-but-disabled, rejected, or withdrawn accounts; switching back ON affects subsequent new registrations without revoking earlier approvals
 5. `POST /api/auth/consent` records immutable consent rows and issues the final authenticated cookies.
 
 ## Dashboard and Data Flow

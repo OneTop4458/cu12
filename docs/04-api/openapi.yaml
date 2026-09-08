@@ -81,8 +81,12 @@ paths:
       description: >-
         Verifies the shared Catholic University portal credential in real time.
         The same credential is reused across CU12 and Cyber Campus.
-        Returns AUTHENTICATED for approved mapped users, APPROVAL_PENDING for first-login users,
-        or CONSENT_REQUIRED when required policies must be accepted.
+        Member approval is ON by default. With approval ON, first-login users receive
+        APPROVAL_PENDING without storing portal credentials or issuing cookies.
+        With approval OFF, new and pending users are approved after successful portal verification
+        and continue through account linking and required policy consent.
+        Rejected, withdrawn, and approved-but-disabled accounts remain blocked.
+        Returns AUTHENTICATED for approved users or CONSENT_REQUIRED when policies must be accepted.
         Rejects cross-origin mutation requests when `Origin`/`Referer` does not match.
       requestBody:
         required: true
@@ -133,6 +137,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Concurrent automatic registration; retry login (ACCOUNT_CONFLICT)
         "429":
           description: Too many authentication attempts
           content:
@@ -2193,6 +2199,49 @@ paths:
         "200":
           description: Impersonation ended
 
+  /api/admin/settings:
+    get:
+      tags: [Admin]
+      summary: Get the persisted member approval setting
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Approval defaults to ON when no settings row or table exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettings"
+        "403":
+          description: Admin actor required
+        "503":
+          description: Settings storage unavailable
+    patch:
+      tags: [Admin]
+      summary: Enable or disable member approval for subsequent portal logins
+      description: Requires an admin actor and same-origin CSRF validation. Existing approved users remain approved when switched back ON. Changes are audited.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSettings"
+      responses:
+        "200":
+          description: Persisted setting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettings"
+        "400":
+          description: Invalid JSON or non-boolean setting
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "503":
+          description: Save failed; ensure DB Bootstrap has applied AppSettings
+
   /api/admin/members:
     get:
       tags: [Admin]
@@ -2662,6 +2711,15 @@ components:
     UserApprovalStatus:
       type: string
       enum: [PENDING, APPROVED, REJECTED]
+
+    AdminSettings:
+      type: object
+      additionalProperties: false
+      required: [memberApprovalRequired]
+      properties:
+        memberApprovalRequired:
+          type: boolean
+          default: true
 
     AdminMemberCu12Account:
       type: object

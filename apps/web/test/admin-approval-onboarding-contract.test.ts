@@ -26,10 +26,10 @@ test("admin approval onboarding replaces invite-token schema state", () => {
 
 test("first portal login creates pending inactive users without storing the submitted portal password", () => {
   const loginRoute = readRepoFile("apps/web/app/api/auth/login/route.ts");
-  const pendingCreate = loginRoute.match(/prisma\.user\.create\({[\s\S]*?approvalStatus:\s*"PENDING"[\s\S]*?}\),/);
+  const pendingCreate = loginRoute.match(/prisma\.user\.create\({[\s\S]*?approvalStatus:\s*approvalRequired\s*\?\s*"PENDING"\s*:\s*"APPROVED"[\s\S]*?}\),/);
 
   assert.ok(pendingCreate, "login route should create a pending user for first-login portal accounts");
-  assert.match(pendingCreate[0], /isActive:\s*false/);
+  assert.match(pendingCreate[0], /isActive:\s*!approvalRequired/);
   assert.match(pendingCreate[0], /role:\s*"USER"/);
   assert.match(pendingCreate[0], /approvalRequestedAt:\s*requestedAt/);
   assert.match(pendingCreate[0], /passwordHash:\s*await hashPassword\(generateToken\(\d+\)\)/);
