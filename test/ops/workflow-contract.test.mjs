@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { isDeployRelevantPath } from "../../scripts/publish-auto-merge.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -103,6 +104,12 @@ test("deploy workflow trigger paths stay aligned with post-merge deploy dispatch
 
   assert.deepEqual(extractDeployWorkflowPaths(deployWorkflow), expectedPaths);
   assert.deepEqual(extractDispatchDeployPaths(autoMergeWorkflow), expectedPaths);
+  for (const pattern of expectedPaths) {
+    const file = ["apps/web", "packages", "prisma"].includes(pattern)
+      ? `${pattern}/example.ts`
+      : pattern.replace("*", "example");
+    assert.equal(isDeployRelevantPath(file), true, `auto-merge publisher must match deployment path ${file}`);
+  }
 });
 
 test("general auto-merge excludes Dependabot PRs", () => {
@@ -407,6 +414,16 @@ test("sync batches have a trusted completion handoff after the worker slot is re
   assert.match(handoff, /head_repository.full_name == github.repository/);
   assert.match(handoff, /JSON.stringify\(\{ trigger: "sync" \}\)/);
   assert.doesNotMatch(handoff, /actions\/checkout|pnpm install|playwright install/);
+});
+
+test("auto-merge publishing listens for completed checks and executes only trusted main code", () => {
+  const workflow = readRepoFile(".github/workflows/publish-auto-merge.yml");
+  assert.match(workflow, /workflow_run:/);
+  assert.match(workflow, /"CI", "Secret Scan", "Dependabot Auto Review", "PR Auto Merge On CI"/);
+  assert.match(workflow, /conclusion == 'success'/);
+  assert.match(workflow, /head_repository.full_name == github.repository/);
+  assert.match(workflow, /ref: main/);
+  assert.doesNotMatch(workflow, /ref:.*head_sha|ref:.*head_branch/);
 });
 
 test("AGENTS documents all-test validation before PR creation", () => {

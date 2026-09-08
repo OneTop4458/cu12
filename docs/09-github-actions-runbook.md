@@ -14,7 +14,7 @@
    - This workflow must remain the only production deployment path. Direct Vercel Git production deploys can bypass DB sync and ship schema-mismatched code.
    - `apps/web/vercel.json` disables native Git deployment for main only; PR previews remain enabled.
    - Triggers on `main` pushes affecting deploy-relevant paths and on manual dispatch.
-   - The merged-PR explicit dispatch remains for bot merges. Both entry points use the same serialized duplicate guard. Worker-only changes do not redeploy the web app.
+   - The merged-PR handler covers ordinary close events. `publish-auto-merge.yml` covers bot merges whose push and closed events are suppressed by GITHUB_TOKEN. All entry points use the same serialized duplicate guard. Worker-only changes do not redeploy the web app.
    - Use manual input `force=true` to intentionally redeploy the same successful commit, including environment-only repairs. Lookup failures stop deployment rather than guessing.
 
 3. `worker-consume.yml`
@@ -96,6 +96,14 @@
    - Runs weekly at 19:23 Monday UTC (04:23 Tuesday KST), with manual runs available.
    - Lists up to 1,000 runs created in the past seven days and measures jobs for the latest 200, including PRs and all available attempts. The report explicitly labels the sample and provisional running minutes.
    - Reports actual summed job duration and initial workflow wait separately; dependent-job delays are not presented as runner time. It does not forecast a private-repository 2,000-minute budget for this public repository.
+
+### Publishing bot merges
+
+`Publish Auto Merge` reacts to successful CI, Secret Scan, and repository auto-merge workflow completions. It executes only code checked out from trusted main, resolves the associated same-repository PR, and checks its current head/base.
+
+If auto-merge was already enabled, it may complete the normal head-matched merge while GitHub enforces branch protection. A pending gate or changed head is left for a later check event; a concurrent successful merge is detected. It never enables auto-merge for a manual PR. Once merged, deploy-relevant changes explicitly dispatch Deploy Vercel, including when GITHUB_TOKEN suppresses push/closed events.
+
+The workflow also accepts a main-only manual PR-number input for repair. Multiple check events are coalesced per source head; the deployment workflow prevents duplicate production work. See [GitHub token event behavior](https://docs.github.com/en/actions/concepts/security/github_token).
 
 6. `dependabot-auto-review.yml`
    - Verifies the Dependabot author, same-repository source, and `dependabot/` branch before reading update metadata.
