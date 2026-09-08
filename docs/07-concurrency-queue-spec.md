@@ -11,7 +11,7 @@
 
 ## Dispatch and Claim Model
 
-1. Web APIs and scheduled dispatchers derive the same `activeDedupeKey` from user, type, and idempotency key, then insert first.
+1. Web APIs and scheduled dispatchers derive the same `activeDedupeKey` from user, type, and idempotency key. Full SYNC uses `sync:<user>:<provider>:full` regardless of manual or scheduled origin. Existing legacy active jobs are reused while the previous release drains; new inserts retain database-enforced deduplication.
 2. Manual user actions run a stale-window redispatch check before calling GitHub Actions.
 3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` for new work or existing pending sync work. Global AUTOLEARN dispatches also run a drain check so stale pending jobs can be reattached to workers.
 4. Centralized dispatch fans out user-scoped worker runs and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`.

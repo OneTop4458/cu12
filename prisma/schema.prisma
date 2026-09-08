@@ -152,6 +152,7 @@ model User {
   cu12Account    Cu12Account?
   jobs           JobQueue[]
   courseSnapshots CourseSnapshot[]
+  providerSyncStates ProviderSyncState[]
   courseNotices  CourseNotice[]
   notifications  NotificationEvent[]
   portalMessages PortalMessage[]
@@ -192,6 +193,16 @@ model Cu12Account {
 
   @@unique([cu12Id])
   @@index([provider])
+}
+
+model ProviderSyncState {
+  userId         String
+  provider       PortalProvider
+  lastFullSyncAt DateTime
+  source         JobType
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, provider])
 }
 
 model JobQueue {

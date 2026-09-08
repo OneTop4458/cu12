@@ -61,7 +61,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
 ## Concurrency Guidance (~5 users)
 
 1. Keep centralized dispatch capped with `WORKER_DISPATCH_MAX_PARALLEL`.
-2. Keep scheduled sync at the current 12-hour cadence and 720-minute minimum interval unless actual latency requires change. Manual targeted sync remains available between scheduled runs.
+2. The sync scheduler checks twice daily at 00:07/12:07 UTC. It uses provider-scoped successful snapshot checkpoints with 720-minute active and 1440-minute quiet-account intervals. Manual targeted sync remains immediate; near-deadline mail checks are not skipped.
 3. Keep AUTOLEARN chunking enabled. CU12 runs hand off through continuation jobs; Cyber Campus runs cap each request at the configured runtime budget.
 4. Watch reconcile output before raising concurrency.
 

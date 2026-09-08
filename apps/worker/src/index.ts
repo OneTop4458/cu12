@@ -1,4 +1,4 @@
-import type { PortalProvider } from "@cu12/core";
+import { isFullSyncFresh, type PortalProvider } from "@cu12/core";
 import { JobStatus, JobType, Prisma } from "@prisma/client";
 import { chromium } from "playwright";
 import {
@@ -26,6 +26,7 @@ import { resolveReusableCyberCampusSessionOptions } from "./cyber-campus-session
 import { collectCu12SnapshotViaHttp } from "./cu12-http-sync";
 import { getEnv } from "./env";
 import { decideRetryWait } from "./retry-wait";
+import { completeSyncSnapshot, type SyncSnapshot, type SyncPersistence } from "./sync-completion";
 import {
   buildAutoLearnResultMail,
   buildAutoLearnTerminalMail,
@@ -49,7 +50,6 @@ import {
   markAccountConnected,
   markAccountNeedsReauth,
   markTaskDeadlineAlerted,
-  persistSnapshot,
   recordLearningRun,
   recordMailDelivery,
 } from "./sync-store";
@@ -761,6 +761,19 @@ async function sendAutoLearnTerminalMail(
     });
   }
 }
+async function notifySyncSnapshot(userId: string, provider: PortalProvider, snapshot: SyncSnapshot, persisted: SyncPersistence) {
+  const titles = new Map(snapshot.courses.map((course) => [course.lectureSeq, course.title]));
+  await sendSyncAlertMail(userId, provider, {
+    ...persisted,
+    newNotices: persisted.newNotices.map((notice) => ({
+      ...notice, courseTitle: titles.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
+    })),
+    deadlineTasks: persisted.deadlineTasks.map((task) => ({
+      ...task, courseTitle: titles.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
+    })),
+  });
+}
+
 async function processSync(
   jobId: string,
   workerId: string,
@@ -769,6 +782,7 @@ async function processSync(
   onCancelCheck?: CancelCheck,
   options?: {
     provider?: PortalProvider;
+    syncIntervalMinutes?: number;
   },
 ) {
   const resultType: "SYNC" | "NOTICE_SCAN" = jobType === "NOTICE_SCAN" ? "NOTICE_SCAN" : "SYNC";
@@ -778,6 +792,15 @@ async function processSync(
     throw new Error("CU12 account is not configured for this user");
   }
   const targetProvider = options?.provider ?? creds.provider;
+  if (options?.syncIntervalMinutes) {
+    const state = await prisma.providerSyncState.findUnique({
+      where: { userId_provider: { userId, provider: targetProvider } },
+    });
+    if (isFullSyncFresh(state?.lastFullSyncAt, options.syncIntervalMinutes)) {
+      console.log(`${logPrefix} skipped reason=FRESH_SNAPSHOT`);
+      return { type: resultType, skipped: "FRESH_SNAPSHOT", lastFullSyncAt: state?.lastFullSyncAt };
+    }
+  }
   const cu12Campus = creds.campus === "SONGSIN" ? "SONGSIN" : creds.campus === "SONGSIM" ? "SONGSIM" : null;
   if (targetProvider === "CU12" && !cu12Campus) {
     throw new Error("CU12_CAMPUS_REQUIRED");
@@ -844,31 +867,14 @@ async function processSync(
         shouldCancel,
         progressReporter,
       );
-    const persisted = await persistSnapshot(userId, targetProvider, snapshot);
+    const persisted = await completeSyncSnapshot(userId, targetProvider, snapshot, resultType,
+      (data, saved) => notifySyncSnapshot(userId, targetProvider, data, saved));
     await markAccountConnected(userId);
 
-    const courseTitleBySeq = new Map(snapshot.courses.map((course) => [course.lectureSeq, course.title]));
     const messageCount =
       "messages" in snapshot && Array.isArray((snapshot as { messages?: unknown[] }).messages)
         ? (snapshot as { messages: unknown[] }).messages.length
         : 0;
-
-    await sendSyncAlertMail(userId, targetProvider, {
-      newNoticeCount: persisted.newNoticeCount,
-      newUnreadNotificationCount: persisted.newUnreadNotificationCount,
-      newMessageCount: persisted.newMessageCount,
-      unreadMessageCount: persisted.unreadMessageCount,
-      newNotices: persisted.newNotices.map((notice) => ({
-        ...notice,
-        courseTitle: courseTitleBySeq.get(notice.lectureSeq) ?? `강좌 ${notice.lectureSeq}`,
-      })),
-      newUnreadNotifications: persisted.newUnreadNotifications,
-      newMessages: persisted.newMessages,
-      deadlineTasks: persisted.deadlineTasks.map((task) => ({
-        ...task,
-        courseTitle: courseTitleBySeq.get(task.lectureSeq) ?? `강좌 ${task.lectureSeq}`,
-      })),
-    });
 
     console.log(
       `${logPrefix} completed job=${jobId}`
@@ -1118,7 +1124,8 @@ async function processAutolearn(
         },
       )
       : await collectCu12Snapshot(browser, userId, cu12Creds, shouldCancel);
-    const persisted = await persistSnapshot(userId, targetProvider, snapshot);
+    const persisted = await completeSyncSnapshot(userId, targetProvider, snapshot, "AUTOLEARN",
+      (data, saved) => notifySyncSnapshot(userId, targetProvider, data, saved));
 
     await writeAuditLog({
       category: "WORKER",
@@ -1794,6 +1801,7 @@ async function main() {
                     : job.payload.provider === "CU12"
                       ? "CU12"
                       : undefined,
+                syncIntervalMinutes: job.payload.reason === "scheduled_dispatch" ? job.payload.syncIntervalMinutes : undefined,
               },
             );
           } else if (job.type === JobType.AUTOLEARN) {

@@ -1,5 +1,6 @@
 import type { PortalProvider } from "@cu12/core";
-import { resolveSyncProviders } from "@cu12/core";
+import { buildSyncIdempotencyKey, resolveSyncProviders } from "@cu12/core";
+import { prisma } from "@/lib/prisma";
 import { dispatchWorkerRun, type WorkerDispatchResult } from "@/server/github-actions-dispatch";
 import { decideManualDispatch } from "@/server/manual-dispatch-policy";
 import { enqueueJob } from "@/server/queue";
@@ -64,7 +65,13 @@ export async function queueSyncJobsForUser(input: QueueSyncJobsInput): Promise<Q
   let shouldDispatch = false;
 
   for (const provider of providers) {
-    const { job, deduplicated } = await enqueueJob({
+    // Reuse active legacy keys as well while workers from the previous release drain.
+    const existing = await prisma.jobQueue.findFirst({
+      where: { userId: input.userId, type: "SYNC", status: { in: ["PENDING", "RUNNING"] },
+        payload: { path: ["provider"], equals: provider } },
+      orderBy: [{ status: "desc" }, { createdAt: "asc" }],
+    });
+    const queued = existing ? { job: existing, deduplicated: true } : await enqueueJob({
       userId: input.userId,
       type: "SYNC",
       payload: {
@@ -72,9 +79,24 @@ export async function queueSyncJobsForUser(input: QueueSyncJobsInput): Promise<Q
         provider,
         reason: input.reason,
       },
-      idempotencyKey: `sync:${input.userId}:${provider}:${input.reason}`,
+      idempotencyKey: buildSyncIdempotencyKey(input.userId, provider),
       runAfter: input.runAfter,
     });
+    let { job } = queued;
+    const { deduplicated } = queued;
+    if (deduplicated && job.status === "PENDING") {
+      // A user refresh takes precedence over a future scheduled retry and freshness skip.
+      const runAfter = input.runAfter ?? new Date();
+      if (job.runAfter > runAfter) shouldDispatch = true;
+      await prisma.jobQueue.updateMany({
+        where: { id: job.id, status: "PENDING" },
+        data: {
+          runAfter: job.runAfter > runAfter ? runAfter : job.runAfter,
+          payload: { userId: input.userId, provider, reason: input.reason },
+        },
+      });
+      job = { ...job, runAfter: job.runAfter > runAfter ? runAfter : job.runAfter };
+    }
 
     results.push({
       provider,

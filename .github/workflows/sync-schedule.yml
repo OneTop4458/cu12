@@ -2,7 +2,7 @@ name: Scheduled Sync Dispatch
 
 on:
   schedule:
-    - cron: "0 */12 * * *"
+    - cron: "7 */12 * * *"
   workflow_dispatch:
     inputs:
       minIntervalMinutes:

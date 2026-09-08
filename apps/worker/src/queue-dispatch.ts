@@ -1,6 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import {
   buildActiveJobDedupeKey,
+  buildSyncIdempotencyKey,
+  isFullSyncFresh,
   insertActiveJobOrGetExisting,
   isActiveJobDedupeConflict,
   resolveSyncProviders,
@@ -8,6 +10,7 @@ import {
 import { JobStatus, JobType } from "@prisma/client";
 import { getEnv } from "./env";
 import { prisma } from "./prisma";
+import { loadSyncSchedules } from "./sync-scheduling";
 
 function parseArgs() {
   const map = new Map<string, string>();
@@ -188,6 +191,8 @@ async function resolveUsers(type: JobType, userId?: string, autoLearnEligibleWin
   return prisma.user.findMany({
     where: {
       isTestUser: false,
+      isActive: true,
+      approvalStatus: "APPROVED",
       cu12Account: {
         is: {
           accountStatus: "CONNECTED",
@@ -223,6 +228,9 @@ async function main() {
   }
 
   const users = await resolveUsers(type, userId, autoLearnEligibleWindowOnly);
+  const syncSchedules = type === JobType.SYNC
+    ? await loadSyncSchedules(users.map((user) => user.id), minIntervalMinutes)
+    : new Map<string, { intervalMinutes: number; lastFullSyncAt: Date | null }>();
   const cutoff = new Date(Date.now() - minIntervalMinutes * 60_000);
 
   const summary: DispatchSummary = {
@@ -248,10 +256,30 @@ async function main() {
         : [undefined];
 
     for (const provider of providers) {
-      const key = provider
+      // Pending recovery takes precedence over freshness: a manual request may have
+      // been queued after the last snapshot but failed to start its worker.
+      const existing = type === JobType.SYNC && provider ? await prisma.jobQueue.findFirst({
+        where: { userId: user.id, type, status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+          payload: { path: ["provider"], equals: provider } },
+        select: { id: true, status: true },
+      }) : null;
+      if (existing) {
+        summary.skippedExistingCount += 1;
+        if (existing.status === JobStatus.PENDING) summary.skippedExistingPendingCount += 1;
+        else summary.skippedExistingRunningCount += 1;
+        continue;
+      }
+      const schedule = provider ? syncSchedules.get(`${user.id}:${provider}`) : undefined;
+      const key = type === JobType.SYNC && provider
+        ? buildSyncIdempotencyKey(user.id, provider as "CU12" | "CYBER_CAMPUS")
+        : provider
         ? `${type.toLowerCase()}:${user.id}:${provider}:scheduled`
         : `${type.toLowerCase()}:${user.id}:scheduled`;
-      if (minIntervalMinutes > 0) {
+      if (schedule && isFullSyncFresh(schedule.lastFullSyncAt, schedule.intervalMinutes)) {
+        summary.skippedIntervalCount += 1;
+        continue;
+      }
+      if (type !== JobType.SYNC && minIntervalMinutes > 0) {
         const recent = await prisma.jobQueue.findFirst({
           where: {
             userId: user.id,
@@ -293,6 +321,7 @@ async function main() {
               userId: user.id,
               provider: provider ?? (type === JobType.AUTOLEARN ? "CU12" : undefined),
               reason: "scheduled_dispatch",
+              ...(schedule ? { syncIntervalMinutes: schedule.intervalMinutes } : {}),
             },
             idempotencyKey: key,
             activeDedupeKey,
