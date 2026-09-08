@@ -13,7 +13,7 @@ Catholic University Automation is a cloud-native control plane for a small admin
 | Learning automation | Queue-based auto-learning with VOD, material, and optional OpenAI-backed quiz execution |
 | Worker runtime | GitHub Actions orchestration with HTTP sync paths plus Playwright execution where browser automation is required |
 | Notifications | Unified dashboard activity plus action-required mail for deadlines, policy, approvals, and auto-learning results |
-| Admin operations | Member management, approval requests, worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
+| Admin operations | Member management and detailed automation/mail settings, approval ON/OFF (default ON), worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
 
 ## Architecture
 
@@ -58,7 +58,7 @@ sequenceDiagram
       Web-->>U: AUTHENTICATED + session cookies
     end
   else First login
-    Web->>DB: Create pending approval user
+    Web->>DB: Create pending approval user (approval ON by default)
     Web-->>U: APPROVAL_PENDING
     Web-->>Admin: Queue approval request mail
     Admin->>Web: POST /api/admin/members/{userId}/approval
@@ -66,6 +66,8 @@ sequenceDiagram
     Web->>DB: Link account and check policy-consent requirement
   end
 ```
+
+Administrators can turn member approval OFF in the management center. During OFF, valid portal logins automatically register new users or approve pending users and continue to account linking and policy consent. Apply the `AppSettings` schema with DB Bootstrap before changing the setting; missing settings keep approval ON.
 
 ### Queue dispatch and worker execution
 

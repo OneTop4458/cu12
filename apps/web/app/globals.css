@@ -110,7 +110,7 @@ a {
 }
 
 .site-footer-inner {
-  width: min(1280px, 100%);
+  width: 100%;
   margin: 0 auto;
   display: grid;
   gap: 8px;
@@ -160,7 +160,7 @@ a {
 }
 
 .legal-main {
-  max-width: 980px;
+  max-width: none;
 }
 
 .legal-card {
@@ -190,7 +190,7 @@ a {
 }
 
 .faq-main {
-  max-width: 980px;
+  max-width: none;
 }
 
 .faq-hero,
@@ -354,7 +354,7 @@ h3 {
 main {
   margin: 0 auto;
   padding: 24px;
-  max-width: 1280px;
+  max-width: none;
   position: relative;
 }
 
@@ -367,6 +367,49 @@ main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+}
+
+.admin-member-detail {
+  z-index: 1101;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius-lg);
+  width: min(720px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="dialog-overlay"]:has(~ .admin-member-detail) {
+  z-index: 1100;
+}
+
+.admin-member-detail-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.admin-member-fields {
+  margin: 12px 0 20px;
+}
+
+.admin-member-fields > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-member-fields dt {
+  color: var(--text-muted);
+}
+
+.admin-member-fields dd {
+  margin: 0;
 }
 
 .card,
@@ -1247,7 +1290,7 @@ textarea:focus {
   flex-wrap: wrap;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  width: min(1280px, 100%);
+  width: 100%;
   margin: 0 auto;
   background: color-mix(in oklab, var(--surface) 94%, transparent);
   backdrop-filter: blur(8px);
@@ -1256,7 +1299,7 @@ textarea:focus {
 }
 
 .topbar-admin-nav {
-  width: min(1280px, 100%);
+  width: 100%;
   margin: 0 auto;
   display: flex;
   gap: 6px;
@@ -2275,7 +2318,7 @@ body {
 }
 
 .topbar-main {
-  width: min(1280px, calc(100% - 48px));
+  width: calc(100% - 48px);
   min-height: 64px;
   border: 0;
   border-radius: 0;
@@ -2286,7 +2329,7 @@ body {
 }
 
 .topbar-admin-nav {
-  width: min(1280px, calc(100% - 48px));
+  width: calc(100% - 48px);
   padding: 0 0 10px;
 }
 
@@ -2385,7 +2428,7 @@ body {
 main,
 .dashboard-main,
 .page-shell {
-  width: min(1280px, 100%);
+  width: 100%;
 }
 
 .page-header,
@@ -2525,7 +2568,7 @@ button:not([data-slot="button"]) {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: 0 max(24px, calc((100vw - 1280px) / 2));
+  padding: 0 24px;
   background: var(--cuk-black);
   color: #ffffff;
 }
@@ -2547,7 +2590,7 @@ button:not([data-slot="button"]) {
 }
 
 .auth-stage {
-  width: min(1280px, calc(100% - 48px));
+  width: calc(100% - 48px);
   margin: 38px auto 56px;
   grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
   gap: 0;
@@ -3338,7 +3381,7 @@ button:not([data-slot="button"]) {
 }
 
 .topbar-notice-row {
-  width: min(1280px, calc(100% - 48px));
+  width: calc(100% - 48px);
   margin: 0 auto;
   padding-bottom: 10px;
 }

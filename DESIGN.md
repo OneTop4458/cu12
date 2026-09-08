@@ -93,6 +93,7 @@ Preserve the distinction between CU12 shared-campus data and Cyber Campus data. 
 - Dense operational data uses tables, filters, status chips, and explicit actions.
 - Do not replace operational tables with decorative card mosaics.
 - Destructive actions must remain visually distinct from routine and primary actions.
+- The management center exposes the persisted member approval switch (ON by default) and a read-only member detail dialog for account, automation, and mail settings.
 
 ### Authentication and overlays
 
@@ -119,6 +120,8 @@ At every required width:
 - Sheets, dialogs, and popovers must fit within the viewport and retain a reachable close action.
 
 Keep the page grid shrinkable with a zero-minimum track. Avoid child `min-width`, unbroken text, or percentage sizing that can force the root layout wider than the viewport.
+
+Page shells, authentication content, topbar rows, and the footer use the available viewport width with responsive gutters, without the former 1280px page cap. Legal and FAQ pages also use the available width. Keep dialogs and other overlays bounded and internally scrollable. The administration page must render only one main page shell.
 
 ## Change Boundaries
 
