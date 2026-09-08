@@ -46,9 +46,10 @@ Reduce redundant synchronization and startup work while preserving autolearn exe
 - Provision the additive ProviderSyncState table with DB Bootstrap before promoting this release. Do not backfill historical jobs as they do not prove the new completion contract.
 - The scheduler is best effort: a fresh checkpoint can skip a twice-daily scan. Up to fifteen minutes of due-boundary slack prevents short completion delays from systematically skipping the next scheduled pass. Larger GitHub delays can still affect elapsed time. Manual sync remains available.
 - Validate provider isolation, empty/partial/failed snapshots, future-job acceleration, concurrent requests, and deadline-sensitive eligibility.
-- Implemented, pending release validation: bounded sync batches, fifteen-second idle exits, post-run handoff, and transactional per-user sync claim locking.
-- Implemented, pending release validation: exact-commit deployment deduplication, serialized DB operations, DB change gating, main CI duplication removal, and native-main Vercel deployment exclusion.
-- Implemented, pending release validation: weekly bounded job-level capacity reporting without a misleading public-repository minute budget.
+- Implemented in this release: bounded sync batches, fifteen-second idle exits, post-run handoff, and transactional per-user sync claim locking.
+- Implemented in this release: exact-commit deployment deduplication, serialized DB operations, DB change gating, main CI duplication removal, and native-main Vercel deployment exclusion.
+- Implemented in this release: weekly bounded job-level capacity reporting without a misleading public-repository minute budget.
+- Local acceptance: 334 web/worker/ops tests, text/OpenAPI checks, Prisma generation, typecheck, lint, web build, and actionlint passed. The release PR records production rollout evidence.
 - Future queue reservation or slot-allocation changes require separate load measurements; active-run counting now covers all nonterminal states and pages, while the existing dispatch ceiling remains a best-effort admission check.
 - Deferred pending measurements: 48–72 hour sync, increased worker concurrency, autolearn slot partitioning, or separate worker hosting.
 - Compare a complete daily sync/autolearn cycle before claiming measured savings. A quiet cohort changing from two collections to one theoretically halves its scheduled collections, not total Actions usage.
