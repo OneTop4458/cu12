@@ -23,10 +23,11 @@
 
 ## Pending Approval State
 
-1. Created when portal credentials are valid but no approved linked account can be authenticated yet.
+1. Created on first login when portal credentials are valid and member approval is ON (the default).
 2. Stored on `User` as `approvalStatus=PENDING` with `approvalRequestedAt`.
 3. Does not issue session cookies and does not store the portal password.
 4. After an administrator approves the user, the next successful login stores the encrypted portal password and continues to consent/session issuance.
+5. When member approval is OFF, new and pending users are automatically approved after successful portal verification and continue to account linking and consent. Rejected, withdrawn, and approved-but-disabled accounts are not reactivated by this switch.
 
 ## Policy Consent Challenge Token
 
@@ -46,10 +47,10 @@
 
 ## Portal Approval Session (`PortalApprovalSession`)
 
-1. Created when Cyber Campus AUTOLEARN requires secondary authentication.
+1. Created when a Cyber Campus AUTOLEARN request needs the worker to check secondary authentication in the target lecture context. Creation alone does not mean the user must enter a code.
 2. Tied one-to-one to a `BLOCKED` AUTOLEARN job.
 3. Stores encrypted cookie state, available methods, selected method, and request/display codes only while approval is pending or active.
-4. Starts as `PENDING`, moves to `ACTIVE` after a method is started, and ends as `COMPLETED`, `EXPIRED`, or `CANCELED`.
+4. Starts as `PENDING`; `runtimeState` and `requestedAction` track asynchronous bootstrap, method start, and confirmation. It can become `ACTIVE` while awaiting user confirmation and ends as `COMPLETED`, `EXPIRED`, or `CANCELED`.
 5. Successful confirmation is completed by the approval worker, which stores the refreshed `PortalSession` and can claim the blocked AUTOLEARN job directly in the same live Playwright session when runnable.
 6. If the approval worker finds no runnable target tasks, it closes the blocked AUTOLEARN job as a no-op instead of returning it to `PENDING`.
 7. Every terminal transition immediately replaces the approval cookie payload with an encrypted empty state and clears methods, pending codes, selections, auth sequence, request/display codes, error details, and worker lease metadata.

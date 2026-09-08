@@ -25,7 +25,7 @@
 
 5. Daily digest mail
    - Disabled. No scheduled digest workflow should enqueue routine summary mail.
-   - `MAIL_DIGEST` remains as the internal queue type for mandatory policy and admin approval mail payloads.
+   - `MAIL_DIGEST` remains as the internal queue type for policy publication and admin approval request mail payloads.
 
 6. `autolearn-dispatch.yml`
    - Schedule: `20 0 * * *` UTC.
@@ -60,7 +60,13 @@
     - Applies Prisma schema and active-job-dedupe/auth-policy post-sync backfills without a web deploy.
 
 11. `auth-reset-bootstrap.yml`
-    - Resets auth bootstrap state and pre-approves the initial admin CU12 ID.
+    - Requires `confirmReset=RESET_CU12_AUTH`, truncates user/account, queue, snapshot, learning, and mail data (including related cascading rows), and pre-approves the initial admin CU12 ID. Use only for an intentional environment reset.
+
+12. `admin-bootstrap.yml`
+    - Pre-approves or updates the selected admin CU12 ID without truncating other application data. Use this workflow when only admin access needs bootstrapping.
+
+13. `reconcile-orphan-repair.yml`
+    - Provides targeted internal orphan repair, verification, and pending sync dispatch. Runs manually and on `main` pushes to the repair-related paths listed in the workflow.
 
 ## Auxiliary Repository Workflows
 
@@ -74,10 +80,22 @@
    - Applies labels and controls `automerge` eligibility by changed-path policy.
 
 4. `codex-auto-merge-on-approval.yml`
-   - Enables squash auto-merge for safe same-repo AI/Codex PRs and dispatches deploy after merge when appropriate.
+   - Despite the filename, this is `PR Auto Merge On CI`: it enables squash auto-merge for non-draft, same-repo, non-Dependabot PRs carrying `automerge`, then relies on required branch checks rather than a Codex review.
+   - Changes under `.github/workflows/`, `prisma/`, `scripts/`, or to `AGENTS.md` are excluded. Its closed-PR handler dispatches deployment for merged same-repo PRs into `main` when deploy-relevant files changed.
 
 5. `actions-usage-forecast.yml`
    - Estimates monthly Actions usage against the repository's current workload.
+
+6. `dependabot-auto-review.yml`
+   - Verifies the Dependabot author, same-repository source, and `dependabot/` branch before reading update metadata.
+   - Approves patch/minor updates and enables squash auto-merge; major updates receive `major-update` and have auto-merge disabled for manual review.
+
+### Dependabot auto-merge prerequisites and recovery
+
+1. Enable repository auto-merge and retain the required `test` and `secret-scan` checks. Enabling auto-merge waits for branch requirements; it does not bypass them. See [GitHub auto-merge configuration](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-auto-merge-for-pull-requests-in-your-repository).
+2. In **Settings > Actions > General > Workflow permissions**, enable **Allow GitHub Actions to create and approve pull requests**. The workflow declares `contents: write` and `pull-requests: write`, but the separate repository/organization approval setting must also permit its review step. See [GitHub Actions repository settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).
+3. If approval fails, inspect the failed `Dependabot Auto Review` step before retrying. Correct the repository setting or permission cause, then rerun the failed workflow once.
+4. If approval succeeded but the PR remains open, inspect required checks, conflicts, draft state, and update type. Major updates are intentionally held for manual review. Do not weaken branch protection to make a pending update merge.
 
 ## Required Configuration
 
@@ -89,7 +107,6 @@
   - `WORKER_SHARED_TOKEN`
   - `WEB_INTERNAL_BASE_URL`
   - `CU12_BASE_URL`
-  - `GITHUB_TOKEN`
 - Required for deploy workflow:
   - `VERCEL_TOKEN`
   - `VERCEL_ORG_ID`
@@ -104,6 +121,8 @@
   - `SMTP_FROM`
   - `AUTOLEARN_TIME_FACTOR`
   - `AUTOLEARN_MAX_TASKS`
+
+GitHub Actions supplies its job-scoped `GITHUB_TOKEN` automatically; do not create a repository secret with that name. The web application's `GITHUB_TOKEN` is separately configured in Vercel for workflow dispatch.
 
 ### Vercel production environment variables
 
@@ -174,6 +193,10 @@
 6. Log in as admin, publish the required policy documents, and approve pending users from `/admin`.
 7. Trigger `worker-consume.yml` once and confirm the queue transitions as expected.
 8. Review `Reconcile Health Check` before declaring the environment healthy.
+
+### Administrator mail settings rollout
+
+The normal deploy schema-sync stage applies `MailSettings` and `MailTemplate` before publishing the web app; use `DB Bootstrap` if a separate schema application is needed. Existing installations default to ENV mail settings until an administrator saves a CUSTOM configuration. In ENV mode, SMTP secrets remain separate in Vercel and GitHub Actions; CUSTOM shares encrypted database settings and requires the same `APP_MASTER_KEY` in both runtimes. See the [administrator member and mail guide](21-admin-member-mail-guide.md) for save, preview, connection verification, and intentional test-send behavior.
 
 ## Common Failures
 

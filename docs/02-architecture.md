@@ -15,6 +15,7 @@
 
 3. **Shared core (`packages/core`)**
    - Holds parser logic, provider helpers, queue payload types, and cross-runtime contracts.
+   - Shares SMTP configuration resolution and safe mail-template rendering between web and worker sends; administrators persist the common settings through authenticated web APIs.
 
 4. **Database (`prisma/schema.prisma`)**
    - Neon PostgreSQL accessed through Prisma.
@@ -57,6 +58,7 @@
    - explicit `?provider=CU12|CYBER_CAMPUS`
    - the user's currently selected provider context
 4. First-login users with no successful sync can auto-trigger a single SYNC request from the dashboard shell.
+5. The course-list route preserves successful empty data as `200 { courses: [] }` and reports unrecoverable course-load errors as `503 DASHBOARD_COURSES_FAILED`. Existing internal compatibility recovery remains available; the route does not convert a failed read into an apparently successful empty list.
 
 ## Queue, Dispatch, and Internal APIs
 
@@ -86,12 +88,12 @@
 
 ### Cyber Campus
 
-1. Auto-learning first tries to reuse a valid stored `PortalSession`.
-2. If secondary authentication is required, the web app creates:
+1. A new auto-learning request starts a worker-owned check of the actual lecture context, using a stored `PortalSession` as a reuse hint when available. An existing queued or running job is reused.
+2. For a new request, the web app creates:
    - a `BLOCKED` AUTOLEARN job
-   - a `PortalApprovalSession` with the available approval methods and encrypted cookie state
-3. The user starts and confirms the selected approval method through the approval APIs.
-4. The approval worker confirms the code, re-checks the exact target lecture context, stores a fresh `PortalSession`, and marks the approval completed.
+   - a `PortalApprovalSession` with encrypted cookie state, initially empty methods, and `runtimeState=BOOTSTRAPPING`
+3. The initial response has `approvalRequired=false` while the worker probes. If secondary authentication is needed, the worker exposes available methods; the user then starts and confirms a method through the approval APIs. Reusing an active approval can return `approvalRequired=true` even during probing, so clients inspect its runtime state before asking for input.
+4. The approval worker verifies the exact target lecture context, stores a fresh `PortalSession`, and marks the approval completed. This can happen without user input when no secondary authentication is required.
 5. If the blocked AUTOLEARN job is still runnable, the same worker run can claim it immediately and continue playback in the live Playwright session. If no runnable target tasks remain, the blocked job is closed as a no-op.
 
 ## Why This Model

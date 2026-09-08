@@ -33,7 +33,8 @@ test("admin member last login display is fixed to KST and handles missing values
   assert.match(client, /<th>마지막 로그인 \(KST\)<\/th>/);
   assert.match(client, /data-label="마지막 로그인 \(KST\)"/);
   assert.match(client, /formatAdminMemberLastLogin\(member\.lastLoginAt\)/);
-  assert.match(client, /<td colSpan=\{10\}>등록된 회원이 없습니다\.<\/td>/);
+  assert.match(client, /<td colSpan=\{9\}>/);
+  assert.match(client, /등록된 회원이 없습니다\./);
 });
 
 test("OpenAPI documents nullable admin member lastLoginAt without lastLoginIp", () => {

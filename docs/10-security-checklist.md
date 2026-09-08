@@ -14,7 +14,7 @@
 - [ ] Session cookie is `httpOnly` and `secure` in production.
 - [ ] Login responses are normalized enough to avoid account enumeration beyond the approval state the user already created.
 - [ ] Login endpoint atomically enforces rate limiting, stores only HMAC bucket identifiers, and fails closed when the limiter store is unavailable.
-- [ ] Admin approval is enforced before any session cookie is issued to a first-login user.
+- [ ] Member approval defaults to ON and prevents first-login session cookies until approval. OFF still requires real-time portal verification and any required policy consent.
 - [ ] Approval and rejection decisions are audited.
 - [ ] Admin APIs check role before read/write.
 - [ ] Authenticated state-changing APIs enforce same-origin CSRF validation (`Origin`/`Referer`).

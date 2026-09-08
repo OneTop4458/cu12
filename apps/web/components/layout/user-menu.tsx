@@ -36,7 +36,7 @@ export function UserMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button className="user-menu-trigger" type="button" variant="outline" size="lg">
+        <Button className="user-menu-trigger" type="button" variant="outline" size="lg" aria-label="사용자 메뉴">
           <Avatar size="sm" className="user-menu-avatar" aria-hidden="true">
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>

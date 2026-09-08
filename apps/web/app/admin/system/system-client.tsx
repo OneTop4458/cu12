@@ -470,7 +470,7 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
   }, [fetchJson, policyMailSending]);
 
   return (
-    <main className="dashboard-main page-shell">
+    <div className="page-shell">
       <AppTopbar
         title={view === "policies" ? "약관/고지 관리" : "시스템 상태"}
         email={initialUser.email}
@@ -795,6 +795,6 @@ export function AdminSystemClient({ initialUser, view = "overview" }: AdminSyste
         </div>
       </section>
       ) : null}
-    </main>
+    </div>
   );
 }

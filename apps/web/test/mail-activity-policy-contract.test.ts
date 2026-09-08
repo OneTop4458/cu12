@@ -204,7 +204,7 @@ test("dashboard manual guide is persisted per user and can be reopened from the 
   assert.match(dashboard, /CU12 간단 사용 설명서/);
   assert.match(dashboard, /브라우저를 닫아도 서버에서 계속 처리/);
   assert.match(dashboard, /메일 알림<\/strong>, <strong>공유대 정기 자동 수강/);
-  assert.match(dashboard, /사캠은 직접 요청하고 2차 인증 승인까지 완료/);
+  assert.match(dashboard, /사캠은 직접 요청하며, 추가 인증이 필요할 때 안내에 따라 완료/);
   assert.doesNotMatch(dashboard, /자동 수강은 백그라운드에서 진행됩니다/);
   assert.match(dashboard, /manual-guide-actions/);
   assert.match(dashboard, /\/manual\/dashboard-guide-v1\.png/);
@@ -214,6 +214,6 @@ test("dashboard manual guide is persisted per user and can be reopened from the 
   assert.match(openapi, /DashboardManualGuideState:/);
   assert.match(openapi, /userGuide:/);
   assert.match(faq, /자동학습 요청 후 브라우저를 계속 켜 두어야 하나요\?/);
-  assert.match(faq, /사이버캠퍼스는 2차 인증 제약/);
+  assert.match(faq, /사이버캠퍼스는 사용자가 직접 요청하며, 추가 인증이 필요한 경우/);
   assert.equal(fs.existsSync(guideImagePath), true);
 });

@@ -67,7 +67,7 @@ CUK blue is the primary action color. Bronze is a restrained supporting or warni
 - `AppTopbar` remains the shared top-level chrome for dashboard and administration pages.
 - The brand and primary utility actions belong in `topbar-main`.
 - The active site notice belongs in its own full-width `topbar-notice-row`; do not place it inside `topbar-actions`.
-- The administration navigation remains a separate horizontally scrollable row.
+- The administration navigation remains a separate horizontally scrollable row with five destinations: members, mail, notices, policies, and operations. Operations pages expose system status, jobs, workers, reconciliation, and cleanup in a local navigation row.
 - The topbar must stay within its parent width and must never enlarge the page grid.
 - Long notice titles, email addresses, badges, and translated labels must wrap or truncate without overlapping adjacent controls.
 
@@ -87,6 +87,10 @@ Preserve the distinction between CU12 shared-campus data and Cyber Campus data. 
 
 `차시 이수율`, current-week completion, pending lesson types, unread notices, and synchronization state must remain visually distinguishable. A completed current week must not be styled as pending.
 
+Present job, synchronization, approval, and account state with Korean display labels rather than raw runtime codes. Missing or unfamiliar states receive a readable fallback. Course messaging distinguishes loading, initial synchronization, successful empty data, unavailable/inconsistent summary, and provider-specific failure. Retained course rows after a failed refresh remain visible with a stale-data warning; a failed provider must not appear to have a verified empty roster.
+
+At widths up to 640px, the overall and provider summaries use two shrinkable columns with compact spacing. The fifth overall metric spans the full row. Keep all five overall metrics and both providers visible; the desktop summary layout and dashboard section order remain unchanged.
+
 ### Administration
 
 - Administration pages share the same brand chrome but retain their dedicated subnavigation.
@@ -94,12 +98,18 @@ Preserve the distinction between CU12 shared-campus data and Cyber Campus data. 
 - Do not replace operational tables with decorative card mosaics.
 - Destructive actions must remain visually distinct from routine and primary actions.
 - The management center exposes the persisted member approval switch (ON by default) and a read-only member detail dialog for account, automation, and mail settings.
+- Member registration and editing use bounded dialogs, keeping the member list visible on initial load. Detail offers an explicit edit entry; row actions keep detail/edit visible and group secondary actions in the existing dropdown primitive.
+- Member editing sends only changed profile/account fields and explicitly changed mail preferences. Saving a profile must not silently replace another user's automation preferences or assign an unset campus.
+- Mail administration separates saved SMTP configuration, connection checks, explicit test sending, and text template preview. Preview never sends mail; password fields never expose stored secrets. The approved general-page scope and its acceptance evidence are tracked in [the UI/UX delivery record](docs/20-ui-ux-improvement-plan.md).
 
 ### Authentication and overlays
 
 - Keep the existing staged authentication flow and consent hierarchy.
 - Dialog, sheet, popover, toast, and loading-overlay behavior must remain consistent with the existing Radix/shadcn-based primitives.
+- Dashboard confirmation, Cyber Campus approval, manual, member settings, course notices, and blocking progress use the shared dialog primitive. Keep one active dashboard modal at a time, contain keyboard focus, and restore focus to its invoker or the summary fallback. Dismissible dialogs support Escape; mandatory initial mail setup and pending operations retain their explicit dismissal guards.
+- The member settings property table stays within its dialog and wraps long labels/values instead of clipping them. Campus values use Korean display names.
 - Loading states must explain what is happening and must not expose credentials or internal secrets.
+- Legal pages with no published document show one empty-state explanation in the content area. Keep the title/navigation and published document history/comparison links distinct from that fallback.
 
 ## Responsive Contract
 
@@ -117,7 +127,7 @@ At every required width:
 - Primary actions must remain visible and operable.
 - Tables may use an intentional internal horizontal scroll container, but they must not widen the document.
 - Korean labels must not be clipped or replaced with icon-only controls unless an accessible name remains.
-- Sheets, dialogs, and popovers must fit within the viewport and retain a reachable close action.
+- Sheets, dialogs, and popovers must fit within the viewport. Dismissible overlays retain a reachable close action; required setup or blocking operations clearly explain why dismissal is unavailable.
 
 Keep the page grid shrinkable with a zero-minimum track. Avoid child `min-width`, unbroken text, or percentage sizing that can force the root layout wider than the viewport.
 

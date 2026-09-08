@@ -13,7 +13,7 @@
 
 1. Web APIs and scheduled dispatchers derive the same `activeDedupeKey` from user, type, and idempotency key, then insert first.
 2. Manual user actions run a stale-window redispatch check before calling GitHub Actions.
-3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` when they create pending work. Global AUTOLEARN dispatches also run a drain check so stale pending jobs can be reattached to workers.
+3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` for new work or existing pending sync work. Global AUTOLEARN dispatches also run a drain check so stale pending jobs can be reattached to workers.
 4. Centralized dispatch fans out user-scoped worker runs and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`.
 5. Each worker claims runnable `PENDING` jobs atomically through the internal API surface.
 
@@ -22,7 +22,7 @@
 - Priority order is `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, then `MAIL_DIGEST`.
 - `SYNC` and `NOTICE_SCAN` can run even when AUTOLEARN exists for the same user.
 - `AUTOLEARN` is serialized per user.
-- `BLOCKED` AUTOLEARN is reserved for Cyber Campus approval-required flows and is not claimable until approval completion returns it to `PENDING`.
+- `BLOCKED` AUTOLEARN is reserved for Cyber Campus approval probing and secondary-authentication flows. The normal queue consumer cannot claim it; after verification, the approval worker can claim it directly for same-session continuation or close it as a no-op when no runnable tasks remain.
 - A nullable unique `activeDedupeKey` permits only one keyed `PENDING` or `RUNNING` row for a logical job. `BLOCKED` and terminal rows keep this field null.
 - Unique conflicts return the existing active job. `idempotencyKey` remains on every historical row.
 - `SUCCEEDED`, `FAILED`, and `CANCELED` transitions release the active key. A later request with the same idempotency key can create a fresh row.

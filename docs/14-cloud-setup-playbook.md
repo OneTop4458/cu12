@@ -48,7 +48,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
    - `CYBER_CAMPUS_AUTOLEARN_CHUNK_TARGET_SECONDS`
    - `CYBER_CAMPUS_AUTOLEARN_MAX_TASKS`
    - `WORKER_WORKFLOW_STARTED_AT_MS` (set by `worker-consume.yml`)
-   - `SMTP_*`
+   - `SMTP_*` for ENV mail mode; alternatively configure shared CUSTOM SMTP after schema deployment from `/admin/mail` ([mail guide](21-admin-member-mail-guide.md))
    - `OPENAI_API_KEY` for worker quiz automation
 4. Keep `apps/web/vercel.json` set to the single `sin1` region. This stays within the free Hobby plan's included limits and does not enable on-demand billing; do not configure paid multi-region deployment, function failover, or a Fluid Compute override.
 5. Run `DB Bootstrap`.
@@ -61,7 +61,7 @@ Run CU12 Automation as a fully cloud-hosted system with:
 ## Concurrency Guidance (~5 users)
 
 1. Keep centralized dispatch capped with `WORKER_DISPATCH_MAX_PARALLEL`.
-2. Keep scheduled sync at the current 2-hour cadence unless actual latency requires change.
+2. Keep scheduled sync at the current 12-hour cadence and 720-minute minimum interval unless actual latency requires change. Manual targeted sync remains available between scheduled runs.
 3. Keep AUTOLEARN chunking enabled. CU12 runs hand off through continuation jobs; Cyber Campus runs cap each request at the configured runtime budget.
 4. Watch reconcile output before raising concurrency.
 

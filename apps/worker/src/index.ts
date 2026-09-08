@@ -587,7 +587,8 @@ async function sendSyncAlertMail(
   }
 
   try {
-    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html, "DEADLINE");
+    mailDocument.subject = result.subject;
     if (result.sent) {
       await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
@@ -666,7 +667,8 @@ async function sendAutoLearnResultMail(
   });
 
   try {
-    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html, "AUTOLEARN_RESULT");
+    mailDocument.subject = result.subject;
     if (result.sent) {
       await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
@@ -725,7 +727,8 @@ async function sendAutoLearnTerminalMail(
   });
 
   try {
-    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html);
+    const result = await sendMail(pref.email, mailDocument.subject, mailDocument.html, "AUTOLEARN_TERMINAL");
+    mailDocument.subject = result.subject;
     if (result.sent) {
       await recordMailDelivery(userId, pref.email, mailDocument.subject, "SENT");
       await writeAuditLog({
@@ -1507,7 +1510,8 @@ async function processPolicyUpdateMail(payload: PolicyUpdateMailPayload) {
   }
 
   try {
-    const result = await sendMail(email, mailDocument.subject, mailDocument.html);
+    const result = await sendMail(email, mailDocument.subject, mailDocument.html, "POLICY_UPDATE");
+    mailDocument.subject = result.subject;
     if (result.sent) {
       await recordMailDelivery(payload.userId, email, mailDocument.subject, "SENT");
       await writeAuditLog({
@@ -1592,7 +1596,8 @@ async function processAdminApprovalRequestMail(payload: AdminApprovalRequestMail
   }
 
   try {
-    const result = await sendMail(email, mailDocument.subject, mailDocument.html);
+    const result = await sendMail(email, mailDocument.subject, mailDocument.html, "ADMIN_APPROVAL_REQUEST");
+    mailDocument.subject = result.subject;
     if (result.sent) {
       await recordMailDelivery(payload.userId, email, mailDocument.subject, "SENT");
       await writeAuditLog({

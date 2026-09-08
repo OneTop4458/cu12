@@ -4,6 +4,8 @@
 
 `AppSettings` stores the singleton `default` row with `memberApprovalRequired` (default `true`) and `updatedAt`. A missing row or table keeps approval enabled. Apply the schema with DB Bootstrap before administrators change this setting; the settings API reports a save failure if the table is unavailable.
 
+`MailSettings` stores the singleton `default` configuration shared by web and worker delivery: enabled state, ENV/CUSTOM source, SMTP connection/TLS fields, sender, encrypted password, and update timestamp. `MailTemplate` stores optional subject/body overrides by active mail kind. Missing rows retain ENV/default-template behavior; missing tables or other storage failures require schema repair. SMTP passwords use `APP_MASTER_KEY` and never appear in the public settings view. See the [administrator mail guide](21-admin-member-mail-guide.md).
+
 ### Identity, auth, and policy
 
 1. `User`
@@ -14,7 +16,7 @@
 2. `Cu12Account`
    - Shared portal-account mapping for the user.
    - Stores encrypted portal password, current provider, campus, account status, and automation toggles such as quiz auto-solve.
-   - Pending users do not receive a `Cu12Account` row until they are approved and log in again.
+   - Pending users do not receive a `Cu12Account` row. Manual approval requires another verified login; automatic approval while approval wait is OFF can link the account during the same login.
 
 3. `AuthRateLimit`
    - Persistent throttle buckets for login abuse protection.
@@ -81,6 +83,9 @@
 
 17. `MailSubscription` and `MailDelivery`
     - User-configured action-required mail preferences and immutable delivery history. Daily digest mail is disabled.
+    - The active optional delivery controls are recipient email, `enabled`, `alertOnDeadline`, and `alertOnAutolearn`. Legacy digest and notice flags do not enable routine digest or notice-only mail in the current worker.
+    - Policy publication mail uses a saved subscription address independently of optional alert switches. Admin approval request mail requires an enabled subscription for an active approved administrator.
+    - An administrator's member update saves profile, linked-account settings, and optional mail preferences in one transaction. Saving mail preferences resets legacy notice/digest flags to false; concurrent withdrawal or approval/test-user changes reject the update instead of partially saving it.
 
 18. `SiteNotice`
     - Admin-managed notices shown on login and dashboard surfaces.

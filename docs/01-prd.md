@@ -2,7 +2,7 @@
 
 ## Product Goal
 
-CU12 Automation provides a cloud-only operations surface for an administrator-approved group to:
+CU12 Automation provides a cloud-only operations surface for a small group, with administrator approval enabled by default, to:
 
 1. Authenticate with real CU12 credentials at sign-in time.
 2. Monitor course, notice, notification, and inbox state across CU12 and Cyber Campus.
@@ -17,14 +17,14 @@ CU12 Automation provides a cloud-only operations surface for an administrator-ap
 ## Core Requirements
 
 1. **Real-time CU12 credential verification on every login**.
-2. **Admin-approved onboarding for first login** after real-time CU12 credential verification.
+2. **Configurable member approval** after real-time CU12 credential verification: ON by default; OFF automatically approves new and pending users on successful portal login while preserving policy consent.
 3. **Policy consent gating** before the final authenticated session when required documents are configured and consent is missing or outdated.
 4. **Provider-aware dashboard APIs** covering summary, courses, deadlines, unified activity, site notices, queue state, and Cyber Campus approval state.
 5. **Queue-based job orchestration** for `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, and `MAIL_DIGEST`.
 6. **Cloud worker execution** via GitHub Actions with no always-on personal machine requirement.
 7. **Optional quiz auto-solve** using OpenAI only when worker credentials are configured and the user has not disabled quiz automation.
 8. **Operational mail delivery** only for action-required events: imminent deadlines, auto-learning terminal outcomes, policy publication, and admin approval requests.
-9. **Admin operations center** for members, approval requests, workers, jobs, policy publishing, and impersonation.
+9. **Admin operations center** for member profile/automation/mail editing, approval requests, shared SMTP configuration and mail templates, workers, jobs, policy publishing, and impersonation.
 
 ## Non-Functional Requirements
 
@@ -38,7 +38,7 @@ CU12 Automation provides a cloud-only operations surface for an administrator-ap
 
 - Automatic assignment, survey, debate, or exam submission beyond the currently supported task types.
 - Third-party chat or mobile push notification delivery.
-- Open public signup or self-service account creation.
+- A separate public registration page or account creation without portal credential verification.
 - Anti-bot bypass or portal fingerprint spoofing behavior.
 
 ## Success Metrics

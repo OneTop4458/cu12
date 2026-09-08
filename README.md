@@ -2,18 +2,18 @@
 
 Korean summary: [`README.ko.md`](README.ko.md)
 
-Catholic University Automation is a cloud-native control plane for a small administrator-approved group using CU12 and Cyber Campus. It verifies real portal credentials at login time, keeps course and notice data synchronized, queues long-running learning jobs, and exposes admin/operator tooling without requiring an always-on local machine.
+Catholic University Automation is a cloud-native control plane for a small group using CU12 and Cyber Campus, with administrator approval enabled by default. It verifies real portal credentials at login time, keeps course and notice data synchronized, queues long-running learning jobs, and exposes admin/operator tooling without requiring an always-on local machine.
 
 ## Product Snapshot
 
 | Area | Current behavior |
 | --- | --- |
-| Authentication | Real-time portal verification, admin-approved first login, policy-consent gate, idle/session cookies |
+| Authentication | Real-time portal verification, configurable approval wait (default ON), policy-consent gate, idle/session cookies |
 | Providers | CU12 and Cyber Campus provider-aware sync and dashboard views |
 | Learning automation | Queue-based auto-learning with VOD, material, and optional OpenAI-backed quiz execution |
 | Worker runtime | GitHub Actions orchestration with HTTP sync paths plus Playwright execution where browser automation is required |
 | Notifications | Unified dashboard activity plus action-required mail for deadlines, policy, approvals, and auto-learning results |
-| Admin operations | Member management and detailed automation/mail settings, approval ON/OFF (default ON), worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
+| Admin operations | Member profile/automation/mail editing, approval ON/OFF (default ON), shared SMTP settings and mail templates, worker heartbeat visibility, queue cleanup/reconcile, policy publishing, impersonation |
 
 ## Architecture
 
@@ -57,7 +57,7 @@ sequenceDiagram
     else Consent already current
       Web-->>U: AUTHENTICATED + session cookies
     end
-  else First login
+  else First login with member approval ON
     Web->>DB: Create pending approval user (approval ON by default)
     Web-->>U: APPROVAL_PENDING
     Web-->>Admin: Queue approval request mail
@@ -204,9 +204,9 @@ The live privacy policy and terms of service are stored as versioned `PolicyDocu
 
 | Workflow | Schedule | Current behavior |
 | --- | --- | --- |
-| `sync-schedule.yml` | `0 */2 * * *` UTC | Enqueue provider-aware sync work every 2 hours, then request centralized worker dispatch |
+| `sync-schedule.yml` | `0 */12 * * *` UTC | Enqueue provider-aware sync work every 12 hours (minimum interval defaults to 720 minutes), then request centralized worker dispatch for new or existing pending work |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
-| `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs and fail on divergence |
+| `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs, repair orphaned jobs, verify, and fail on unresolved divergence |
 | `db-retention-cleanup.yml` | `10 1 * * *` UTC | Remove expired login-throttle buckets, expired/invalid portal sessions, terminal portal-approval history older than 30 days, audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months; legacy notice repair still runs, and manual `user_repair` can clear a selected user's notification events |
 
 ## Environment and Configuration
@@ -235,6 +235,8 @@ The live privacy policy and terms of service are stored as versioned `PolicyDocu
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | Enable action-required mail, policy/admin approval mail, and test mail flows |
 | `OPENAI_API_KEY` | worker | Enable quiz auto-solve for eligible users |
 | `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS` | worker | Tune the quiz-answering model request |
+
+Administrators can instead select CUSTOM SMTP at `/admin/mail`, store an encrypted shared credential, and edit the six active mail templates. ENV remains the default; the global delivery switch applies to both web and worker mail. Apply the new mail tables through normal deployment or DB Bootstrap before using the mail settings page. See the [administrator member and mail guide](docs/21-admin-member-mail-guide.md).
 
 ### Worker runtime tuning commonly adjusted in operations
 
