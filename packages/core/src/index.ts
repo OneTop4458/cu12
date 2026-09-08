@@ -7,4 +7,5 @@ export * from "./cyber-campus-secondary-auth";
 export * from "./portal-approval-retention";
 export * from "./auth-rate-limit-policy";
 export * from "./job-dedupe";
+export * from "./sync-policy";
 export * from "./mail-management";

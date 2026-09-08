@@ -3770,6 +3770,10 @@ components:
         reason:
           type: string
           nullable: true
+        syncIntervalMinutes:
+          type: integer
+          minimum: 0
+          description: Scheduled SYNC freshness interval. Zero forces collection, including deadline-sensitive checks. Manual requests omit this field.
         chainSegment:
           type: integer
           minimum: 1

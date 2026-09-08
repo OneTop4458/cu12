@@ -204,9 +204,9 @@ Named arguments는 그대로 전달합니다. 예전의 double-dash forwarding �
 
 | 워크플로 | 스케줄 | 현재 동작 |
 | --- | --- | --- |
-| `sync-schedule.yml` | `0 */12 * * *` UTC | 12시간마다 provider-aware sync work를 enqueue합니다. 최소 간격 기본값은 720분이며, 새 작업이나 기존 대기 작업이 있으면 centralized worker dispatch를 요청합니다. |
+| `sync-schedule.yml` | `7 */12 * * *` UTC | 하루 두 번 사이트별 최신 수집 시각을 확인합니다. 활성 계정은 12시간, 수강·알림 수요가 없는 계정은 24시간 기준이며 자동수강 후 완료된 수집도 재사용합니다. |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | eligible pending work가 있는 사용자에게만 daily AUTOLEARN을 queue합니다. |
-| `reconcile-health-check.yml` | `0 */4 * * *` UTC | 활성 GitHub runs와 DB `RUNNING` jobs를 비교하고 고립 작업을 복구한 뒤 재검증합니다. 불일치가 남으면 실패합니다. |
+| `reconcile-health-check.yml` | `43 */4 * * *` UTC | 활성 GitHub runs와 DB `RUNNING` jobs를 비교하고 고립 작업을 복구한 뒤 재검증합니다. 불일치가 남으면 실패합니다. |
 | `db-retention-cleanup.yml` | `10 1 * * *` UTC | 만료된 로그인 제한 버킷과 포털 세션, 30일이 지난 포털 승인 이력·감사 로그·메일 기록, 14일이 지난 종료 작업, 6개월이 지난 탈퇴 계정을 정리합니다. 수동 `user_repair`는 선택된 사용자의 알림도 정리할 수 있습니다. |
 
 ## 환경과 설정

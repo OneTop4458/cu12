@@ -30,6 +30,8 @@
 
 ### Queue, sessions, and operations
 
+`ProviderSyncState` has a composite user/provider primary key, `lastFullSyncAt`, and source job type. Only a complete authoritative provider snapshot persisted with notification processing advances this checkpoint. It survives terminal-job retention and supports authoritative empty rosters. Provision it with DB Bootstrap before promoting the sync optimization release.
+
 5. `JobQueue`
    - Stores `SYNC`, `NOTICE_SCAN`, `AUTOLEARN`, and `MAIL_DIGEST`.
    - Uses `PENDING`, `BLOCKED`, `RUNNING`, `SUCCEEDED`, `FAILED`, and `CANCELED`.

@@ -10,6 +10,7 @@ export interface ClaimedJob {
     lectureSeq?: number;
     autoLearnMode?: "SINGLE_NEXT" | "SINGLE_ALL" | "ALL_COURSES";
     reason?: string;
+    syncIntervalMinutes?: number;
     chainSegment?: number;
     chainElapsedSeconds?: number;
   };

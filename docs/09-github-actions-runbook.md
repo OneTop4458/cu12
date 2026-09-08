@@ -20,7 +20,9 @@
    - Uses the GitHub-hosted runner job maximum of 360 minutes so long Cyber Campus runs and same-run retries are not cut off by the repository workflow timeout.
 
 4. `sync-schedule.yml`
-   - Schedule: `0 */12 * * *` UTC.
+   - Schedule: `7 */12 * * *` UTC (09:07 and 21:07 KST).
+   - Active accounts keep a 720-minute freshness window. Accounts without active provider courses, autolearn, activity detection, digest, or important mail use 1440 minutes. Disabled/unapproved users are excluded.
+   - Complete post-autolearn snapshots satisfy the same provider checkpoint after notification processing. Near-deadline mail checks bypass reuse; explicit manual refresh remains immediate.
    - Enqueues provider-aware sync work and requests centralized dispatch only when pending work exists.
 
 5. Daily digest mail
@@ -34,7 +36,7 @@
    - Manual dispatch keeps operator-trigger behavior for explicit runs.
 
 7. `reconcile-health-check.yml`
-   - Schedule: `0 */4 * * *` UTC.
+   - Schedule: `43 */4 * * *` UTC.
    - Calls `/internal/admin/jobs/reconcile`.
    - Automatically POSTs the internal reconcile endpoint when DB `RUNNING` jobs are orphaned, verifies the mismatch is gone, then kicks pending sync workers.
    - Fails when GitHub run visibility is unavailable, repair cannot clear orphaned `RUNNING` jobs, or active ghost runs have no matching DB job.

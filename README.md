@@ -204,9 +204,9 @@ The live privacy policy and terms of service are stored as versioned `PolicyDocu
 
 | Workflow | Schedule | Current behavior |
 | --- | --- | --- |
-| `sync-schedule.yml` | `0 */12 * * *` UTC | Enqueue provider-aware sync work every 12 hours (minimum interval defaults to 720 minutes), then request centralized worker dispatch for new or existing pending work |
+| `sync-schedule.yml` | `7 */12 * * *` UTC | Check provider snapshot freshness twice daily: 12 hours for active accounts, 24 hours for quiet accounts; reuse complete post-autolearn snapshots and dispatch new or pending work |
 | `autolearn-dispatch.yml` | `20 0 * * *` UTC | Queue daily AUTOLEARN only for users with eligible pending work |
-| `reconcile-health-check.yml` | `0 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs, repair orphaned jobs, verify, and fail on unresolved divergence |
+| `reconcile-health-check.yml` | `43 */4 * * *` UTC | Compare active GitHub runs with DB `RUNNING` jobs, repair orphaned jobs, verify, and fail on unresolved divergence |
 | `db-retention-cleanup.yml` | `10 1 * * *` UTC | Remove expired login-throttle buckets, expired/invalid portal sessions, terminal portal-approval history older than 30 days, audit logs, terminal jobs, mail deliveries, and withdrawn accounts older than 6 months; legacy notice repair still runs, and manual `user_repair` can clear a selected user's notification events |
 
 ## Environment and Configuration

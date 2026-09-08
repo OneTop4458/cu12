@@ -2,7 +2,7 @@ name: Reconcile Health Check
 
 on:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "43 */4 * * *"
   workflow_dispatch:
 
 permissions:
