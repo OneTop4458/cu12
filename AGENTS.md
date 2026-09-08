@@ -31,7 +31,7 @@ Keep implementation, API contracts, workflows, and operational docs consistent f
 ## Authentication Model
 
 1. Every login starts with real-time CU12 credential verification.
-2. New users must pass real-time portal credential verification and then wait for administrator approval.
+2. New users must pass real-time portal credential verification. Member approval is ON by default; when an administrator disables it, new and pending users are automatically approved on their next successful portal login.
 3. Pending users do not receive session cookies and their portal passwords are not stored.
 4. After administrator approval, users must log in again to complete account linking and policy consent.
 5. Registration pages are not used.

@@ -28,7 +28,7 @@ CU12 Automation provides a cloud-only operations surface for an administrator-ap
 
 ## Non-Functional Requirements
 
-- **Security**: no plaintext CU12 passwords for pending users, no secret values in docs or workflow logs, and no session before admin approval.
+- **Security**: no plaintext CU12 passwords for pending users, no secret values in docs or workflow logs, and no session before required approval and policy consent. Admins may disable the approval wait (default ON) to allow automatic approval after valid portal authentication.
 - **Reliability**: duplicate requests must deduplicate cleanly, stale jobs must be recoverable, and workflows must surface drift between DB state and GitHub Actions state.
 - **Operability**: bootstrap, deploy, reconcile, and cleanup must be executable through documented scripts or workflows.
 - **Scalability target**: support the current small-group workload (about 5 users) without double-processing or runner storms.
@@ -44,7 +44,7 @@ CU12 Automation provides a cloud-only operations surface for an administrator-ap
 ## Success Metrics
 
 1. Existing users can sign in with real portal credentials and receive a valid session without manual operator intervention.
-2. First-time users can request access by logging in with valid CU12 credentials, wait for administrator approval, and then complete policy consent after re-login.
+2. First-time users can request access by logging in with valid CU12 credentials, wait for administrator approval by default, and then complete policy consent after re-login. While approval wait is OFF, new and pending users proceed directly to account linking and policy consent after successful portal verification.
 3. Manual or scheduled sync updates dashboard data within the expected workflow window.
 4. Auto-learning requests move through queue, worker, and result logging without duplicate execution for the same in-flight request.
 5. Cyber Campus approval-required runs recover cleanly through the approval-session flow without manual DB edits.

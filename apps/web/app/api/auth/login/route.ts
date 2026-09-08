@@ -28,6 +28,7 @@ import { getAccountProviderByCu12Id, upsertCu12Account } from "@/server/cu12-acc
 import { isPortalUnavailableResult, verifyPortalLogin } from "@/server/portal-login";
 import { normalizePortalProvider, PORTAL_PROVIDER_VALUES } from "@/server/portal-provider";
 import { getPolicyConsentRequirement } from "@/server/policy";
+import { autoApprovePendingUserOnLogin, getMemberApprovalRequired } from "@/server/member-approval";
 
 const BodySchema = z.object({
   provider: z.enum(PORTAL_PROVIDER_VALUES).optional(),
@@ -649,6 +650,7 @@ export async function POST(request: NextRequest) {
         await recordAuthFailure("login", throttleIdentifiers);
         return timedError("Authentication failed.", 401, "AUTH_FAILED");
       }
+      found = await autoApprovePendingUserOnLogin(found);
       const approvalStatus = approvalStatusOrApproved(found.approvalStatus);
       if (approvalStatus === "PENDING") {
         await clearAuthFailures("login", throttleIdentifiers);
@@ -696,6 +698,7 @@ export async function POST(request: NextRequest) {
         console.warn("[auth] Skipping account credential refresh after successful portal auth due to Prisma compatibility error.", describePrismaError(error));
       }
     } else if (existingUserByEmail) {
+      existingUserByEmail = await autoApprovePendingUserOnLogin(existingUserByEmail);
       const approvalStatus = approvalStatusOrApproved(existingUserByEmail.approvalStatus);
       if (approvalStatus === "PENDING") {
         await clearAuthFailures("login", throttleIdentifiers);
@@ -736,6 +739,7 @@ export async function POST(request: NextRequest) {
         console.warn("[auth] Skipping account credential refresh after successful portal auth due to Prisma compatibility error.", describePrismaError(error));
       }
     } else {
+      const approvalRequired = await getMemberApprovalRequired();
       const requestedAt = new Date();
       let pendingUser:
         | {
@@ -753,9 +757,10 @@ export async function POST(request: NextRequest) {
               name: body.cu12Id,
               passwordHash: await hashPassword(generateToken(32)),
               role: "USER",
-              isActive: false,
-              approvalStatus: "PENDING",
+              isActive: !approvalRequired,
+              approvalStatus: approvalRequired ? "PENDING" : "APPROVED",
               approvalRequestedAt: requestedAt,
+              approvalDecidedAt: approvalRequired ? null : requestedAt,
             },
             select: {
               id: true,
@@ -768,6 +773,9 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
           throw error;
+        }
+        if (!approvalRequired) {
+          return timedError("Account was created by another login. Please log in again.", 409, "ACCOUNT_CONFLICT");
         }
 
         const existingPending = await prisma.user.findUnique({
@@ -786,25 +794,37 @@ export async function POST(request: NextRequest) {
         pendingUser = existingPending;
       }
 
-      scheduleApprovalRequestSideEffects({
-        userId: pendingUser.id,
-        cu12Id: body.cu12Id,
-        requestedAt: pendingUser.approvalRequestedAt ?? requestedAt,
-        campus,
-        provider: verifiedProvider,
-        loginIp,
-      });
-      await clearAuthFailures("login", throttleIdentifiers);
-
-      return timedOk({
-        stage: "APPROVAL_PENDING" as const,
-        user: {
+      if (approvalRequired) {
+        scheduleApprovalRequestSideEffects({
           userId: pendingUser.id,
-          provider: verifiedProvider,
           cu12Id: body.cu12Id,
-          role: pendingUser.role,
-        },
-      });
+          requestedAt: pendingUser.approvalRequestedAt ?? requestedAt,
+          campus,
+          provider: verifiedProvider,
+          loginIp,
+        });
+        await clearAuthFailures("login", throttleIdentifiers);
+
+        return timedOk({
+          stage: "APPROVAL_PENDING" as const,
+          user: {
+            userId: pendingUser.id,
+            provider: verifiedProvider,
+            cu12Id: body.cu12Id,
+            role: pendingUser.role,
+          },
+        });
+      }
+
+      user = pendingUser;
+      await timing.measure("account-upsert", () =>
+        upsertCu12Account(user!.id, {
+          currentProvider,
+          cu12Id: body.cu12Id,
+          cu12Password: body.cu12Password,
+          campus: verifiedCampus,
+        }),
+      );
     }
 
     if (!user) {
