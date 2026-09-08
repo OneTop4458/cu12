@@ -236,7 +236,7 @@ Named arguments는 그대로 전달합니다. 예전의 double-dash forwarding �
 | --- | --- | --- |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | action-required mail, policy/admin approval mail, test mail flows를 활성화합니다. |
 | `OPENAI_API_KEY` | worker | eligible user의 quiz auto-solve를 활성화합니다. |
-| `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS` | worker | quiz-answering model request를 조정합니다. |
+| `OPENAI_TIMEOUT_MS` | worker | 퀴즈 요청 제한 시간을 설정합니다. 모델은 관리자 > 운영 > AI 설정에서 변경합니다. ([안내](docs/23-quiz-ai-settings.md)) |
 
 관리자는 `/admin/mail`에서 공통 SMTP 설정과 6종 메일 템플릿을 관리할 수 있습니다. 기본값은 기존 환경 변수를 사용하는 ENV이며, CUSTOM을 선택하면 암호화된 공통 비밀번호와 저장된 서버·발신자 설정을 웹과 워커가 함께 사용합니다. 전체 발송 OFF는 정책·승인·테스트 메일에도 적용됩니다. 사용 전 일반 배포 또는 `DB Bootstrap`으로 메일 테이블을 적용하세요. 자세한 내용은 [관리자 회원·메일 안내](docs/21-admin-member-mail-guide.md)를 참고하세요.
 
