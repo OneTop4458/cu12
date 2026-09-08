@@ -25,6 +25,8 @@ test("web and scheduled enqueue share insert-first active dedupe", () => {
   assert.match(workerDispatch, /insertActiveJobOrGetExisting\(\{/);
   assert.match(workerDispatch, /skippedExistingCount \+= 1/);
   assert.doesNotMatch(workerDispatch, /status: \{ in: \[JobStatus\.PENDING, JobStatus\.RUNNING\] \},\s*idempotencyKey: key/);
+  assert.ok(workerDispatch.indexOf("if (existing)") < workerDispatch.indexOf("if (schedule && isFullSyncFresh"),
+    "fresh snapshots must not suppress recovery of an already pending manual sync");
 });
 
 test("terminal and reactivation paths maintain active dedupe lifecycle", () => {

@@ -256,6 +256,19 @@ async function main() {
         : [undefined];
 
     for (const provider of providers) {
+      // Pending recovery takes precedence over freshness: a manual request may have
+      // been queued after the last snapshot but failed to start its worker.
+      const existing = type === JobType.SYNC && provider ? await prisma.jobQueue.findFirst({
+        where: { userId: user.id, type, status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
+          payload: { path: ["provider"], equals: provider } },
+        select: { id: true, status: true },
+      }) : null;
+      if (existing) {
+        summary.skippedExistingCount += 1;
+        if (existing.status === JobStatus.PENDING) summary.skippedExistingPendingCount += 1;
+        else summary.skippedExistingRunningCount += 1;
+        continue;
+      }
       const schedule = provider ? syncSchedules.get(`${user.id}:${provider}`) : undefined;
       const key = type === JobType.SYNC && provider
         ? buildSyncIdempotencyKey(user.id, provider as "CU12" | "CYBER_CAMPUS")
@@ -297,12 +310,7 @@ async function main() {
         status: JobStatus.PENDING,
         idempotencyKey: key,
       });
-      const existing = type === JobType.SYNC && provider ? await prisma.jobQueue.findFirst({
-        where: { userId: user.id, type, status: { in: [JobStatus.PENDING, JobStatus.RUNNING] },
-          payload: { path: ["provider"], equals: provider } },
-        select: { id: true, status: true },
-      }) : null;
-      const queued = existing ? { job: existing, deduplicated: true } : await insertActiveJobOrGetExisting({
+      const queued = await insertActiveJobOrGetExisting({
         activeDedupeKey,
         insert: () => prisma.jobQueue.create({
           data: {
