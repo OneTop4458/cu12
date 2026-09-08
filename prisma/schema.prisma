@@ -219,6 +219,12 @@ model JobQueue {
   @@index([idempotencyKey])
 }
 
+model AppSettings {
+  id                     String   @id @default("default")
+  memberApprovalRequired Boolean  @default(true)
+  updatedAt              DateTime @updatedAt
+}
+
 model SiteNotice {
   id             String        @id @default(cuid())
   type           SiteNoticeType

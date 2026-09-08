@@ -2,6 +2,8 @@
 
 ## Core Domains
 
+`AppSettings` stores the singleton `default` row with `memberApprovalRequired` (default `true`) and `updatedAt`. A missing row or table keeps approval enabled. Apply the schema with DB Bootstrap before administrators change this setting; the settings API reports a save failure if the table is unavailable.
+
 ### Identity, auth, and policy
 
 1. `User`

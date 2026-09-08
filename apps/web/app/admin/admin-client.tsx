@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { readJsonBody, resolveClientResponseError } from "../../src/lib/client-response";
 import { formatAdminMemberLastLogin } from "../../src/lib/admin-member-last-login";
 import { AppTopbar } from "../../components/layout/app-topbar";
+import { Switch } from "../../components/ui/switch";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 
 type RoleType = "ADMIN" | "USER";
 type CampusType = "SONGSIM" | "SONGSIN";
@@ -35,6 +37,12 @@ interface SessionContext {
 interface MailPreference {
   email: string;
   enabled: boolean;
+  alertOnNotice: boolean;
+  alertOnDeadline: boolean;
+  alertOnAutolearn: boolean;
+  digestEnabled: boolean;
+  digestHour: number;
+  updatedAt: string;
 }
 
 interface Cu12Account {
@@ -43,7 +51,11 @@ interface Cu12Account {
   campus: CampusType | null;
   accountStatus: "CONNECTED" | "NEEDS_REAUTH" | "ERROR";
   statusReason: string | null;
-  quizAutoSolveEnabled?: boolean;
+  autoLearnEnabled: boolean;
+  quizAutoSolveEnabled: boolean;
+  detectActivitiesEnabled: boolean;
+  emailDigestEnabled: boolean;
+  updatedAt: string;
 }
 
 interface Member {
@@ -60,6 +72,7 @@ interface Member {
   approvalRejectedReason: string | null;
   lastLoginAt: string | null;
   createdAt: string;
+  updatedAt: string;
   cu12Account: Cu12Account | null;
   mailPreference: MailPreference | null;
 }
@@ -103,6 +116,10 @@ interface ApiErrorPayload {
 
 interface MembersPayload {
   members: Member[];
+}
+
+interface AdminSettings {
+  memberApprovalRequired: boolean;
 }
 
 interface LogsPayload {
@@ -203,6 +220,11 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   });
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [detailMemberId, setDetailMemberId] = useState<string | null>(null);
+  const detailMember = members.find((member) => member.id === detailMemberId) ?? null;
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [logs, setLogs] = useState<AdminLog[]>([]);
   const [logPagination, setLogPagination] = useState<LogPagination | null>(null);
 
@@ -336,6 +358,38 @@ export function AdminClient({ initialUser }: AdminClientProps) {
   useEffect(() => {
     void refreshAll(1, false);
   }, [refreshAll]);
+
+  const loadSettings = useCallback(async () => {
+    setSettingsError(null);
+    setSettingsBusy(true);
+    try {
+      setSettings(await fetchJson<AdminSettings>("/api/admin/settings"));
+    } catch {
+      setSettingsError("승인 대기 설정을 불러오지 못했습니다.");
+    } finally {
+      setSettingsBusy(false);
+    }
+  }, [fetchJson]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  const saveApprovalRequired = async (memberApprovalRequired: boolean) => {
+    setSettingsBusy(true);
+    setSettingsError(null);
+    try {
+      setSettings(await fetchJson<AdminSettings>("/api/admin/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ memberApprovalRequired }),
+      }));
+      setMessage(`회원 승인 대기를 ${memberApprovalRequired ? "ON" : "OFF"}으로 저장했습니다.`);
+    } catch {
+      setSettingsError("승인 대기 설정을 저장하지 못했습니다. 다시 시도해 주세요.");
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!message) return;
@@ -702,6 +756,32 @@ export function AdminClient({ initialUser }: AdminClientProps) {
 
       <section className="card">
         <div className="table-toolbar">
+          <h2 id="member-approval-label">회원 승인 대기</h2>
+          <div className="action-row">
+            <span>{settings ? (settings.memberApprovalRequired ? "ON" : "OFF") : "설정 확인 중"}</span>
+            <Switch
+              aria-labelledby="member-approval-label"
+              aria-describedby="member-approval-description"
+              checked={settings?.memberApprovalRequired ?? true}
+              disabled={!settings || settingsBusy}
+              onCheckedChange={(checked) => void saveApprovalRequired(checked)}
+            />
+            {settingsBusy ? <span role="status">처리 중...</span> : null}
+          </div>
+        </div>
+        <p id="member-approval-description" className="text-small muted top-gap">
+          기본값은 ON입니다. OFF 동안에는 포털 인증에 성공한 신규·승인 대기 회원이 로그인 시 자동 승인됩니다. 약관 동의는 계속 필요합니다.
+        </p>
+        {settingsError ? (
+          <div className="action-row top-gap">
+            <p className="error-text" role="alert">{settingsError}</p>
+            <button type="button" className="ghost-btn" disabled={settingsBusy} onClick={() => void loadSettings()}>설정 다시 불러오기</button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card">
+        <div className="table-toolbar">
           <h2>{isEditMode ? "회원 정보 수정" : "회원 등록"}</h2>
           <span className="text-small muted">
             {isEditMode ? "목록에서 선택한 회원 정보를 수정합니다." : "신규 사용자 등록 또는 기존 계정 갱신"}
@@ -866,6 +946,9 @@ export function AdminClient({ initialUser }: AdminClientProps) {
                     <td data-label="마지막 로그인 (KST)">{formatAdminMemberLastLogin(member.lastLoginAt)}</td>
                     <td data-label="액션">
                       <div className="action-row">
+                        <button type="button" className="ghost-btn" onClick={() => setDetailMemberId(member.id)}>
+                          상세
+                        </button>
                         <button
                           type="button"
                           className="ghost-btn"
@@ -920,6 +1003,69 @@ export function AdminClient({ initialUser }: AdminClientProps) {
           </table>
         </div>
       </section>
+
+      <Dialog open={detailMember !== null} onOpenChange={(open) => { if (!open) setDetailMemberId(null); }}>
+        <DialogContent className="admin-member-detail" showCloseButton={false}>
+          <DialogHeader>
+            <div className="table-toolbar">
+              <DialogTitle>회원 상세</DialogTitle>
+              <DialogClose asChild><button type="button" className="ghost-btn">닫기</button></DialogClose>
+            </div>
+            <DialogDescription>{detailMember?.email} · 저장된 상태와 설정</DialogDescription>
+          </DialogHeader>
+          {detailMember ? (
+            <div className="admin-member-detail-body">
+              <h3>회원 상태</h3>
+              <dl className="admin-member-fields">
+                {[
+                  ["이름", detailMember.name ?? "-"],
+                  ["역할", detailMember.role === "ADMIN" ? "관리자" : "일반 회원"],
+                  ["계정 상태", detailMember.isActive ? "활성" : "비활성"],
+                  ["회원 구분", detailMember.isTestUser ? "테스트 계정" : "실서비스 계정"],
+                  ["승인 상태", approvalStatusLabel(detailMember.approvalStatus)],
+                  ["승인 요청일", formatDateTime(detailMember.approvalRequestedAt)],
+                  ["승인 결정일", formatDateTime(detailMember.approvalDecidedAt)],
+                  ["거절 사유", detailMember.approvalRejectedReason ?? "-"],
+                  ["등록일", formatDateTime(detailMember.createdAt)],
+                  ["마지막 로그인 (KST)", formatAdminMemberLastLogin(detailMember.lastLoginAt)],
+                ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+              </dl>
+              <h3>포털 연결 및 자동화 설정</h3>
+              {detailMember.cu12Account ? (
+                <dl className="admin-member-fields">
+                  {[
+                    ["포털", detailMember.cu12Account.provider === "CU12" ? "CU12 공유대학" : "사이버캠퍼스"],
+                    ["포털 ID", detailMember.cu12Account.cu12Id],
+                    ["CU12 교정", detailMember.cu12Account.campus === "SONGSIM" ? "성심교정" : detailMember.cu12Account.campus === "SONGSIN" ? "성신교정" : "-"],
+                    ["연결 상태", { CONNECTED: "연결됨", NEEDS_REAUTH: "재인증 필요", ERROR: "오류" }[detailMember.cu12Account.accountStatus]],
+                    ["상태 사유", detailMember.cu12Account.statusReason ?? "-"],
+                    ["자동 수강", detailMember.cu12Account.autoLearnEnabled ? "ON" : "OFF"],
+                    ["퀴즈 자동 풀이", detailMember.cu12Account.quizAutoSolveEnabled ? "ON" : "OFF"],
+                    ["활동 감지", detailMember.cu12Account.detectActivitiesEnabled ? "ON" : "OFF"],
+                    ["계정 메일 발송", detailMember.cu12Account.emailDigestEnabled ? "ON" : "OFF"],
+                    ["설정 수정일", formatDateTime(detailMember.cu12Account.updatedAt)],
+                  ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+                </dl>
+              ) : <p className="muted">연결된 포털 계정이 없습니다.</p>}
+              <h3>메일 수신 설정</h3>
+              {detailMember.mailPreference ? (
+                <dl className="admin-member-fields">
+                  {[
+                    ["수신 이메일", detailMember.mailPreference.email],
+                    ["메일 수신", detailMember.mailPreference.enabled ? "ON" : "OFF"],
+                    ["공지 알림", detailMember.mailPreference.alertOnNotice ? "ON" : "OFF"],
+                    ["마감 알림", detailMember.mailPreference.alertOnDeadline ? "ON" : "OFF"],
+                    ["자동 수강 결과 알림", detailMember.mailPreference.alertOnAutolearn ? "ON" : "OFF"],
+                    ["요약 메일", detailMember.mailPreference.digestEnabled ? "ON" : "OFF"],
+                    ["요약 발송 시각 (KST)", `${detailMember.mailPreference.digestHour}시`],
+                    ["설정 수정일", formatDateTime(detailMember.mailPreference.updatedAt)],
+                  ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+                </dl>
+              ) : <p className="muted">저장된 메일 수신 설정이 없습니다.</p>}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <section className="card">
         <div className="table-toolbar">
