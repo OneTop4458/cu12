@@ -2,6 +2,8 @@
 
 ## Queue States
 
+OpenAI quota/billing failures (`insufficient_quota`, exhausted credits, and organization/project spend or usage limits) do not enqueue another AUTOLEARN retry. Temporary rate limits and service failures remain retryable.
+
 - `PENDING`: queued and eligible once `runAfter <= now`
 - `BLOCKED`: waiting for an external prerequisite such as Cyber Campus secondary authentication
 - `RUNNING`: claimed by a worker

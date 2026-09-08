@@ -12,6 +12,7 @@ import {
 } from "@cu12/core";
 import { type Browser, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { getEnv } from "./env";
+import { shouldReportPlaybackProgress, waitForPlaybackDuration } from "./playback-clock";
 import {
   assessCourseRoster,
   extractCu12CourseRosterIdentifiers,
@@ -1344,25 +1345,13 @@ async function waitForPlayback(
 ): Promise<void> {
   const env = getEnv();
   const useHumanization = env.AUTOLEARN_HUMANIZATION_ENABLED;
-  let remainingMs = Math.max(0, waitSeconds * 1000);
-  const totalMs = remainingMs;
   const minTickMs = useHumanization ? 800 : 1000;
   const maxTickMs = useHumanization ? 1200 : 1000;
-
-  while (remainingMs > 0) {
-    if (await shouldCancel()) {
-      throw new Error("AUTOLEARN_CANCELLED");
-    }
-
-    const chunkMs = Math.min(randInt(minTickMs, maxTickMs), remainingMs);
-    await page.waitForTimeout(chunkMs);
-    remainingMs -= chunkMs;
-    if (onTick) {
-      const elapsedSeconds = Math.floor((totalMs - remainingMs) / 1000);
-      const remainingSeconds = Math.ceil(remainingMs / 1000);
-      await onTick({ elapsedSeconds, remainingSeconds });
-    }
-  }
+  await waitForPlaybackDuration({
+    waitSeconds, shouldCancel, onTick,
+    wait: (milliseconds) => page.waitForTimeout(milliseconds),
+    nextTickMs: () => randInt(minTickMs, maxTickMs),
+  });
 }
 
 async function watchVodTask(
@@ -2108,8 +2097,7 @@ export async function runAutoLearning(
           shouldCancel,
           async ({ elapsedSeconds, remainingSeconds }) => {
             if (!onProgress) return;
-            if (remainingSeconds > 0 && elapsedSeconds % heartbeatIntervalSeconds !== 0) return;
-            if (elapsedSeconds <= lastReportedElapsedSeconds && remainingSeconds > 0) return;
+            if (!shouldReportPlaybackProgress(elapsedSeconds, lastReportedElapsedSeconds, heartbeatIntervalSeconds, remainingSeconds)) return;
 
             lastReportedElapsedSeconds = elapsedSeconds;
             const consumed = elapsedSecondsTotal + elapsedSeconds;

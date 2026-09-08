@@ -32,6 +32,20 @@ test("shouldRetryFailedJob blocks retries after the retry budget is exhausted", 
   assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 4, "AUTOLEARN_STALLED"), false);
 });
 
+test("autolearn does not keep a runner waiting to retry exhausted OpenAI quota", () => {
+  for (const code of ["insufficient_quota", "credit_balance_exhausted", "organization_spend_limit_exceeded", "project_spend_limit_exceeded", "organization_usage_limit_exceeded"]) {
+    const error = `OpenAI API error 429: ${JSON.stringify({ error: { code } })}`;
+    assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, error), false, code);
+  }
+  assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, 'OpenAI API error 429: {"error":{"type":"insufficient_quota"}}'), false);
+});
+
+test("temporary OpenAI throttling and service failures remain retryable", () => {
+  assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, 'OpenAI API error 429: {"error":{"code":"rate_limit_exceeded"}}'), true);
+  assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, 'OpenAI API error 503: {"error":{"code":"server_is_overloaded"}}'), true);
+  assert.equal(shouldRetryFailedJob(JobType.AUTOLEARN, 1, "OpenAI API error 429: truncated"), true);
+});
+
 test("decideStaleRunningJobReclaim fails stale cyber campus autolearn instead of requeueing", () => {
   assert.equal(
     decideStaleRunningJobReclaim({

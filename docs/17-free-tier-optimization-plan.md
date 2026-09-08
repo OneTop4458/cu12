@@ -53,3 +53,4 @@ Reduce redundant synchronization and startup work while preserving autolearn exe
 - Future queue reservation or slot-allocation changes require separate load measurements; active-run counting now covers all nonterminal states and pages, while the existing dispatch ceiling remains a best-effort admission check.
 - Deferred pending measurements: 48–72 hour sync, increased worker concurrency, autolearn slot partitioning, or separate worker hosting.
 - Compare a complete daily sync/autolearn cycle before claiming measured savings. A quiet cohort changing from two collections to one theoretically halves its scheduled collections, not total Actions usage.
+- The [autolearn runtime audit](22-autolearn-runtime-audit.md) found that cancellation-query latency was being added to every nominal playback second. Capacity estimates must separate required playback from that removable overhead and from quota-related retry waits.

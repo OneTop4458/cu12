@@ -1047,8 +1047,8 @@ async function processAutolearn(
     };
     const cancelReporter = async () => {
       if (stallDetected) return true;
-      const externalCancel = onCancelCheck ? await onCancelCheck() : false;
-      if (externalCancel) return true;
+      // The supplied job callback already reads this job's cancellation status.
+      if (onCancelCheck) return onCancelCheck();
       const status = await getJobStatus(jobId);
       return status === null || status === JobStatus.CANCELED;
     };

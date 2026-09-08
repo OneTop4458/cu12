@@ -152,6 +152,14 @@ export function shouldRetryFailedJob(
   if (type === JobType.AUTOLEARN && NON_RETRYABLE_AUTOLEARN_ERRORS.has(errorMessage)) {
     return false;
   }
+  if (
+    type === JobType.AUTOLEARN
+    && /^OpenAI API error 429:/.test(errorMessage)
+    && /"(?:code|type)"\s*:\s*"(?:insufficient_quota|credit_balance_exhausted|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)"/.test(errorMessage)
+  ) {
+    // Billing/quota failures need an operator action; waiting cannot restore access.
+    return false;
+  }
 
   return true;
 }
