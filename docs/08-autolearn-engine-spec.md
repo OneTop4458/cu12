@@ -14,6 +14,9 @@
 2. Resolve the target lecture set from the queued request.
 3. Parse pending learning tasks from todo/course pages.
 4. For VOD tasks, keep the player context alive for the required duration and exit through the normal page flow.
+   - Both providers use a monotonic elapsed-time deadline. Cancellation reads and progress callbacks occur while the player remains open and count toward that duration; they must not add another full delay to every sleep tick.
+   - Progress publishing checks elapsed interval boundaries rather than requiring an exact modulo match. Delayed callbacks still publish progress and the final remaining-time zero.
+   - The job-supplied cancellation callback is the authoritative status read; do not query the same status again in the nested playback callback.
 5. For material tasks, open `contents_material_view_form.acl` and verify the follow-up snapshot no longer reports the item as pending.
 6. For quiz tasks, open the quiz runner, parse each question from the live DOM, generate an answer with OpenAI, and submit through the page's own JS/DOM flow.
 7. If a CU12 run exceeds the chunk budget, enqueue a continuation AUTOLEARN job. Cyber Campus runs stop at the per-request budget and require a new request for remaining lessons. The Cyber Campus budget defaults to 21,000 seconds, and the worker subtracts elapsed workflow time from the 360-minute GitHub Actions cap so approval waits, setup, result persistence, and email keep operational room.
@@ -53,6 +56,7 @@
 - If the portal contract changes, the worker fails fast with clear error codes.
 - If quiz auto-solve is disabled or OpenAI credentials are missing, quiz tasks are excluded and the run continues with the remaining supported tasks.
 - Queue retry policy handles transient failures; terminal portal/contract errors surface as queue failure reasons.
+- OpenAI billing/quota 429 errors are terminal for the current AUTOLEARN job; credit/spend/usage limits require operator action. Ordinary temporary rate limits and service failures retain their retry policy. See the [runtime audit](22-autolearn-runtime-audit.md).
 - Playwright `page.goto` navigation failures are retried only for bounded transient timeout/network errors. Click-driven `waitForURL` flows are not retried here because repeated submissions can duplicate portal actions.
 - Dashboard approval UX should treat `requestedAction=BOOTSTRAP|START|CONFIRM` as asynchronous worker-owned steps and keep polling until the session returns to a user-input state or completes.
 

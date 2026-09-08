@@ -1915,7 +1915,10 @@ paths:
     post:
       tags: [WorkerInternal]
       summary: Mark claimed job as FAILED
-      description: Internal worker endpoint secured by `x-worker-token`.
+      description: >
+        Internal worker endpoint secured by `x-worker-token`.
+        AUTOLEARN failures may enqueue a retry for transient errors.
+        Recognized OpenAI billing/quota 429 errors do not enqueue a retry.
       security:
         - workerToken: []
       requestBody:
@@ -1931,13 +1934,18 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [updated, status]
+                required: [updated, status, retryQueued, retryJob]
                 properties:
                   updated:
                     type: boolean
                   status:
                     type: string
                     enum: [PENDING, BLOCKED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+                  retryQueued:
+                    type: boolean
+                  retryJob:
+                    $ref: "#/components/schemas/AdminJobReconcileRepairRetryJob"
+                    nullable: true
         "400":
           description: Validation error
         "403":

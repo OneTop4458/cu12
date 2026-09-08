@@ -24,6 +24,7 @@ This repository uses **English as the default documentation language**. A Korean
 - `docs/17-free-tier-optimization-plan.md`: Runtime cost-control guardrails
 - `docs/20-ui-ux-improvement-plan.md`: Original UI findings, approved general-page changes, delivery status, and acceptance evidence
 - `docs/21-admin-member-mail-guide.md`: Administrator navigation, member editing, shared SMTP settings, templates, and troubleshooting
+- `docs/22-autolearn-runtime-audit.md`: Playback-clock investigation, measured run inflation, quota-retry findings, and corrective validation
 - `docs/adr/0001-hybrid-worker-model.md`: ADR for the worker architecture
 - `docs/adr/0002-token-strategy.md`: ADR for the token strategy
 
