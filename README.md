@@ -236,7 +236,7 @@ The live privacy policy and terms of service are stored as versioned `PolicyDocu
 | --- | --- | --- |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | web, worker | Enable action-required mail, policy/admin approval mail, and test mail flows |
 | `OPENAI_API_KEY` | worker | Enable quiz auto-solve for eligible users |
-| `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS` | worker | Tune the quiz-answering model request |
+| `OPENAI_TIMEOUT_MS` | worker | Set the quiz request timeout; choose the model in Admin > Operations > AI settings ([guide](docs/23-quiz-ai-settings.md)) |
 
 Administrators can instead select CUSTOM SMTP at `/admin/mail`, store an encrypted shared credential, and edit the six active mail templates. ENV remains the default; the global delivery switch applies to both web and worker mail. Apply the new mail tables through normal deployment or DB Bootstrap before using the mail settings page. See the [administrator member and mail guide](docs/21-admin-member-mail-guide.md).
 
