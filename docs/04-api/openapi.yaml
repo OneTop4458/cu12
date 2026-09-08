@@ -1918,7 +1918,7 @@ paths:
       description: >
         Internal worker endpoint secured by `x-worker-token`.
         AUTOLEARN failures may enqueue a retry for transient errors.
-        Recognized OpenAI billing/quota 429 errors do not enqueue a retry.
+        Recognized OpenAI billing/quota 429 errors, OpenAI 400/401/403/404 configuration errors, and invalid stored quiz model IDs do not enqueue a retry.
       security:
         - workerToken: []
       requestBody:
@@ -2225,6 +2225,50 @@ paths:
       responses:
         "200":
           description: Impersonation ended
+
+  /api/admin/quiz-ai:
+    get:
+      tags: [Admin]
+      summary: Read the shared quiz model
+      description: A missing settings row uses the default model. Database failures return 503. API credentials are never returned.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Saved model; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizAiSettings"
+        "403":
+          description: Admin actor required
+        "503":
+          description: Settings storage unavailable
+    patch:
+      tags: [Admin]
+      summary: Select the model for subsequent quiz requests
+      description: Requires an admin actor and same-origin CSRF validation. Trims the model ID, rejects API-key-shaped values, and preserves other application settings. Saving does not test API access or send quiz content.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuizAiSettings"
+      responses:
+        "200":
+          description: Persisted model; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizAiSettings"
+        "400":
+          description: Invalid JSON, model ID, or unknown fields
+        "403":
+          description: Admin actor required or invalid CSRF origin
+        "503":
+          description: Save failed; ensure DB Bootstrap has applied AppSettings.quizModel
 
   /api/admin/settings:
     get:
@@ -2987,6 +3031,19 @@ components:
     UserApprovalStatus:
       type: string
       enum: [PENDING, APPROVED, REJECTED]
+
+    QuizAiSettings:
+      type: object
+      additionalProperties: false
+      required: [model]
+      properties:
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,99}$'
+          description: Trimmed model ID. Values beginning with sk- or sk_ are rejected.
+          example: gpt-5.6-luna
 
     AdminSettings:
       type: object

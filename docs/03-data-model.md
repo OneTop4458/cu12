@@ -2,7 +2,7 @@
 
 ## Core Domains
 
-`AppSettings` stores the singleton `default` row with `memberApprovalRequired` (default `true`) and `updatedAt`. A missing row or table keeps approval enabled. Apply the schema with DB Bootstrap before administrators change this setting; the settings API reports a save failure if the table is unavailable.
+`AppSettings` stores the singleton `default` row with `memberApprovalRequired` (default `true`), `quizModel` (default `gpt-5.6-luna`), and `updatedAt`. A missing row or table keeps approval enabled. A missing row uses the default quiz model, but a database/table failure stops quiz generation rather than bypassing a saved model. Each admin settings endpoint changes only its own field. Apply the additive quiz-model column with DB Bootstrap before promoting this release. See the [quiz AI settings guide](23-quiz-ai-settings.md).
 
 `MailSettings` stores the singleton `default` configuration shared by web and worker delivery: enabled state, ENV/CUSTOM source, SMTP connection/TLS fields, sender, encrypted password, and update timestamp. `MailTemplate` stores optional subject/body overrides by active mail kind. Missing rows retain ENV/default-template behavior; missing tables or other storage failures require schema repair. SMTP passwords use `APP_MASTER_KEY` and never appear in the public settings view. See the [administrator mail guide](21-admin-member-mail-guide.md).
 

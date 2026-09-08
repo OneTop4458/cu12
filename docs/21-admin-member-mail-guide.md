@@ -4,7 +4,7 @@ Delivery status (2026-09-08): implemented for review; production schema/configur
 
 ## Navigation
 
-The shared administrator navigation has five destinations: members (`/admin`), mail (`/admin/mail`), site notices (`/admin/site-notices`), policies (`/admin/system/policies`), and operations (`/admin/operations`). Operations provides local links to system status, jobs, workers, reconciliation, and cleanup; existing route URLs remain available.
+The shared administrator navigation has five destinations: members (`/admin`), mail (`/admin/mail`), site notices (`/admin/site-notices`), policies (`/admin/system/policies`), and operations (`/admin/operations`). Operations provides local links to AI settings, system status, jobs, workers, reconciliation, and cleanup; existing route URLs remain available. See the [quiz AI settings guide](23-quiz-ai-settings.md) for model selection.
 
 ## Member Management
 

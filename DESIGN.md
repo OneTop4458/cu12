@@ -101,6 +101,7 @@ At widths up to 640px, the overall and provider summaries use two shrinkable col
 - Member registration and editing use bounded dialogs, keeping the member list visible on initial load. Detail offers an explicit edit entry; row actions keep detail/edit visible and group secondary actions in the existing dropdown primitive.
 - Member editing sends only changed profile/account fields and explicitly changed mail preferences. Saving a profile must not silently replace another user's automation preferences or assign an unset campus.
 - Mail administration separates saved SMTP configuration, connection checks, explicit test sending, and text template preview. Preview never sends mail; password fields never expose stored secrets. The approved general-page scope and its acceptance evidence are tracked in [the UI/UX delivery record](docs/20-ui-ux-improvement-plan.md).
+- Operations includes AI settings for the shared quiz model. Show saved versus edited selection, optional model-ID entry, dated reference pricing, and explicit save feedback. Model saving must not reset member approval or automation preferences.
 
 ### Authentication and overlays
 

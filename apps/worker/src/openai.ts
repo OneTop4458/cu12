@@ -1,4 +1,6 @@
 import { getEnv } from "./env";
+import { DEFAULT_QUIZ_MODEL, isQuizModelId, quizModelRequestOptions } from "@cu12/core";
+import { prisma } from "./prisma";
 
 export type QuizAnswerMode = "TEXT" | "CHOICE" | "SEQUENCE";
 
@@ -41,6 +43,7 @@ export interface QuizAnswerPlan {
 
 interface OpenAiChatCompletionResponse {
   choices?: Array<{
+    finish_reason?: string;
     message?: {
       content?: string | null;
     };
@@ -150,6 +153,11 @@ export async function generateQuizAnswer(input: QuizPromptInput): Promise<QuizAn
   if (!isQuizAutoSolveConfigured(env)) {
     throw new Error("OPENAI_API_KEY is required for quiz auto-solving.");
   }
+  const settings = await prisma.appSettings.findUnique({
+    where: { id: "default" }, select: { quizModel: true },
+  });
+  const model = settings?.quizModel ?? DEFAULT_QUIZ_MODEL;
+  if (!isQuizModelId(model)) throw new Error("QUIZ_MODEL_INVALID");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.OPENAI_TIMEOUT_MS);
@@ -162,8 +170,7 @@ export async function generateQuizAnswer(input: QuizPromptInput): Promise<QuizAn
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: env.OPENAI_MODEL,
-        temperature: 0.2,
+        ...quizModelRequestOptions(model),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: buildSystemPrompt() },
@@ -179,6 +186,7 @@ export async function generateQuizAnswer(input: QuizPromptInput): Promise<QuizAn
     }
 
     const payload = await response.json() as OpenAiChatCompletionResponse;
+    if (payload.choices?.[0]?.finish_reason === "length") throw new Error("OPENAI_RESPONSE_INCOMPLETE");
     const content = payload.choices?.[0]?.message?.content ?? "";
     const parsed = parseJsonObject(content);
     return normalizePlan(parsed);

@@ -97,6 +97,10 @@
    - Lists up to 1,000 runs created in the past seven days and measures jobs for the latest 200, including PRs and all available attempts. The report explicitly labels the sample and provisional running minutes.
    - Reports actual summed job duration and initial workflow wait separately; dependent-job delays are not presented as runner time. It does not forecast a private-repository 2,000-minute budget for this public repository.
 
+### Quiz model compatibility check
+
+`quiz-model-check.yml` is manual-only and does not add scheduled Actions work. It reads the saved quiz model and invokes the existing `OPENAI_API_KEY` for three synthetic choice, Korean text, and sequence questions. It never opens a portal or submits a real quiz. Logs contain only model, aggregate pass count, duration, and sanitized error status/code. Normal API token charges apply. Passing verifies basic access and response compatibility, not accuracy on course questions. See the [quiz AI settings guide](23-quiz-ai-settings.md).
+
 ### Publishing bot merges
 
 `Publish Auto Merge` reacts to successful CI, Secret Scan, and repository auto-merge workflow completions. It executes only code checked out from trusted main, resolves the associated same-repository PR, and checks its current head/base.
