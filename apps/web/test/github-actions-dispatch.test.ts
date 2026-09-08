@@ -2,9 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JobType } from "@prisma/client";
 import {
+  countActiveWorkerRuns,
   getRunningBlockerTypesForDispatch,
   selectPendingCandidateUsersFromRows,
 } from "../src/server/github-actions-dispatch";
+
+test("active worker capacity includes older runs and deduplicates status transitions across pages", async () => {
+  const count = await countActiveWorkerRuns(async (status, page) => {
+    if (status === "queued" && page === 1) return Array.from({ length: 100 }, (_, id) => ({ id, status }));
+    if (status === "queued" && page === 2) return [{ id: 100, status }];
+    if (status === "in_progress") return [{ id: 100, status }, { id: 101, status }];
+    return [];
+  });
+  assert.equal(count, 102);
+});
+
+test("capacity lookup failures fail closed instead of reporting free slots", async () => {
+  await assert.rejects(countActiveWorkerRuns(async () => { throw new Error("unavailable"); }), /unavailable/);
+});
 
 test("sync dispatch is not blocked by a running autolearn job for the same user", () => {
   assert.deepEqual(

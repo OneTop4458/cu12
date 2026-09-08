@@ -14,7 +14,7 @@
 1. Web APIs and scheduled dispatchers derive the same `activeDedupeKey` from user, type, and idempotency key. Full SYNC uses `sync:<user>:<provider>:full` regardless of manual or scheduled origin. Existing legacy active jobs are reused while the previous release drains; new inserts retain database-enforced deduplication.
 2. Manual user actions run a stale-window redispatch check before calling GitHub Actions.
 3. Scheduled workflows enqueue jobs first, then call `/internal/worker/dispatch` for new work or existing pending sync work. Global AUTOLEARN dispatches also run a drain check so stale pending jobs can be reattached to workers.
-4. Centralized dispatch fans out user-scoped worker runs and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`.
+4. Centralized dispatch starts workers with a preferred user and caps parallelism by `WORKER_DISPATCH_MAX_PARALLEL`. Pure sync workers subsequently drain bounded work across users; autolearn remains user-scoped.
 5. Each worker claims runnable `PENDING` jobs atomically through the internal API surface.
 
 ## Queue Policy (Current)
@@ -53,5 +53,9 @@
 ## Capacity Guidance
 
 - Keep `WORKER_DISPATCH_MAX_PARALLEL` below the repository's GitHub Actions capacity ceiling.
-- The default `12` assumes the same repository also needs room for CI and deploy jobs.
+- The default `12` assumes the same repository also needs room for CI and deploy jobs. Active-run lookup pages every nonterminal GitHub status instead of inspecting only the most recent 100 runs.
+- Sync-family claims use a transaction-scoped PostgreSQL advisory lock per user before checking RUNNING siblings and claiming. Different batch workers cannot concurrently collect SYNC/NOTICE_SCAN for the same user.
+- The claim response advertises `syncBatchSupported`; a newly started worker remains user-scoped against an older web deployment until it observes this capability.
+- A pure SYNC/NOTICE_SCAN one-shot batch stops new claims at ten jobs or ten elapsed minutes, allowing the current collection/retry wait to finish. Idle grace is fifteen seconds; autolearn and mail policies are unchanged.
+- In Actions, sync handoff happens in `worker-sync-handoff.yml` after Worker Consume completes, avoiding a capacity check that counts the exiting run. The handoff creates no queue jobs and safely does nothing when no eligible sync work remains.
 - Reconcile checks are the primary guard against silent divergence between `RUNNING` jobs and active Actions runs.

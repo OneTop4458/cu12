@@ -3787,6 +3787,9 @@ components:
       type: object
       required: [id, type, payload, attempts]
       properties:
+        syncBatchSupported:
+          type: boolean
+          description: Advertises transactionally serialized sync claims. Workers remain user-scoped during rollout until this capability is present.
         id:
           type: string
         type:

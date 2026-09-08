@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
 
     return jsonOk({
       job: {
+        syncBatchSupported: true,
         id: job.id,
         type: job.type,
         payload: job.payload,
