@@ -25,7 +25,7 @@ jobs:
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
         with:
           run_install: false
-      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
         with:
           languages: ${{ matrix.language }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -37,4 +37,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run prisma:generate
       - run: pnpm run build:web
-      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
